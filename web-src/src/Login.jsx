@@ -3,13 +3,6 @@ import { login } from './api.js'
 import Reactor3D from './Reactor3D.jsx'
 import ShaderBg from './ShaderBg.jsx'
 
-const TELEMETRY = [
-  'JWS 内核 v0.3 · 心跳正常',
-  '记忆库 SQLITE · 已挂载',
-  '工具阵列 15 项 · 待命',
-  '加密链路 TLS1.3 · 在线',
-]
-
 function greeting() {
   const h = new Date().getHours()
   if (h < 5) return '夜深了，领导。'
@@ -25,18 +18,16 @@ export default function Login({ onAuthed }) {
   const [fail, setFail] = useState(false)
   const [spinup, setSpinup] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [tick, setTick] = useState(0)
   const [dateStr, setDateStr] = useState('')
   const cardRef = useRef()
 
   useEffect(() => {
-    const t = setInterval(() => setTick(x => x + 1), 2400)
     const c = setInterval(() => {
       const d = new Date()
       setDateStr(d.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })
         + ' · ' + d.toLocaleTimeString('zh-CN', { hour12: false }))
     }, 1000)
-    return () => { clearInterval(t); clearInterval(c) }
+    return () => clearInterval(c)
   }, [])
 
   async function submit(e) {
@@ -66,11 +57,6 @@ export default function Login({ onAuthed }) {
         <div className="login-eyebrow">J.A.R.V.I.S. // 私人管家系统</div>
         <h1 className="login-h1">{greeting()}</h1>
         <div className="login-date">{dateStr}</div>
-        <div className="telemetry">
-          {TELEMETRY.map((line, i) => (
-            <div key={i} className={i === tick % TELEMETRY.length ? 'tl on' : 'tl'}>{line}</div>
-          ))}
-        </div>
       </div>
 
       <form ref={cardRef} className="login-card" onSubmit={submit}>

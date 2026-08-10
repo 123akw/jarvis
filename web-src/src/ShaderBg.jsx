@@ -23,10 +23,11 @@ float fbm(vec2 p){
 void main(){
   vec2 uv = vUv;
   vec2 p = uv * vec2(uRes.x / uRes.y, 1.0);
-  float t = uTime * 0.03;
+  float t = uTime * 0.09;
 
   float band  = fbm(vec2(p.x * 1.6 + t * 2.0, p.y * 3.0 - t));
   float band2 = fbm(vec2(p.x * 2.2 - t * 1.4, p.y * 4.0 + t * 0.7) + 3.7);
+  float wisp  = fbm(vec2(p.x * 3.2 - t * 4.5, p.y * 6.0 + t * 1.8) + 9.1);
 
   vec3 deep = vec3(0.012, 0.040, 0.070);
   vec3 arc  = vec3(0.325, 0.910, 1.000);
@@ -38,15 +39,29 @@ void main(){
   vec3 col = deep;
   col += arc * a1 * (1.0 - uv.y * 0.55) * 0.72;
   col += arc * a2 * 0.55;
+  col += arc * smoothstep(0.60, 0.95, wisp) * 0.20;          // 快速流动的光丝
   col += gold * smoothstep(0.68, 1.0, band * band2) * 0.22;
-  col += arc * exp(-uv.y * 4.0) * 0.10;   // 底部地平线光
+  col += arc * exp(-uv.y * 4.0) * 0.10;                       // 底部地平线光
 
   vec2 cell = floor(p * 220.0);
   float star = step(0.9986, hash(cell)) * (0.5 + 0.5 * sin(t * 30.0 + hash(cell) * 20.0));
   col += vec3(star) * 0.45;
 
+  // 缓缓上升的尘埃（格内小圆点，不是整格色块）
+  vec2 q = vec2(p.x * 34.0, p.y * 34.0 - uTime * 0.9);
+  vec2 fq = fract(q) - 0.5;
+  float dustP = step(0.998, hash(floor(q))) * smoothstep(0.16, 0.04, length(fq));
+  float tw = 0.5 + 0.5 * sin(uTime * 2.0 + hash(floor(q)) * 40.0);
+  col += arc * dustP * tw * 0.6;
+
+  // 约每 20 秒一道斜掠光束
+  float ph = fract(uTime * 0.05);
+  float beam = exp(-abs(uv.x + uv.y - ph * 2.4 + 0.2) * 26.0)
+             * smoothstep(0.0, 0.12, ph) * smoothstep(1.0, 0.88, ph);
+  col += arc * beam * 0.10;
+
   float d = distance(uv, uPointer);
-  col += arc * exp(-d * 4.5) * 0.05;
+  col += arc * exp(-d * 4.5) * 0.06;
 
   float vig = smoothstep(1.45, 0.30, length(uv - 0.5) * 1.6);
   col *= vig;
