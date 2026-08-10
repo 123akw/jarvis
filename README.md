@@ -1,26 +1,32 @@
 # 贾维斯（JWS-Agent）
 
-终端里的私人管家：LangGraph ReAct agent 底座，SQLite 持久记忆（重启不忘事），本地工具（查时间、备忘增查删、白名单系统查询），中文交互。模型走 OpenAI 兼容接口，默认 DeepSeek。
+私人管家：LangGraph ReAct agent 底座，SQLite 持久记忆（重启不忘事），13 项本地技能——时间、计算器、天气（Open-Meteo 免 key）、备忘、带时间的日程、可勾选的待办、白名单系统查询。中文交互，模型走 OpenAI 兼容接口，默认 DeepSeek。终端和网页端（钢铁侠 HUD 风格，流式回复+工具调用实时可视）双入口。
 
 ## 项目结构
 
 ```
 JWS-Agent/
-├── pyproject.toml        # 包定义、依赖、jarvis 命令行入口
+├── pyproject.toml        # 包定义、依赖、jarvis / jarvis-web 两个命令行入口
 ├── .env.example          # 环境变量模板（复制为 .env 填 key）
 ├── jarvis/               # 主包
 │   ├── config.py         # 路径、环境变量、模型参数（唯一配置入口）
 │   ├── prompts.py        # 人设与系统提示词
 │   ├── graph.py          # LangGraph agent 组装（模型+工具+记忆）
 │   ├── cli.py            # 终端入口（交互式 / --once 单发）
+│   ├── server.py         # 网页端后端：SSE 流式聊天 + 仪表盘接口
+│   ├── web/index.html    # HUD 单页前端（零构建，纯 HTML/CSS/JS）
 │   └── tools/            # 工具包，一个领域一个模块
 │       ├── __init__.py   # TOOLS 注册表（新工具在这登记）
 │       ├── clock.py      # 时间
+│       ├── calc.py       # 计算器（ast 白名单求值）
+│       ├── weather.py    # 天气与三日预报（Open-Meteo，免 key）
 │       ├── memo.py       # 备忘增查删（data/memos.json）
+│       ├── schedule.py   # 日程：带 YYYY-MM-DD HH:MM 时间点
+│       ├── todo.py       # 待办：增/列表/勾完成
 │       └── system.py     # 白名单系统查询
 ├── tests/                # 单元测试（不碰大模型，确定性判定）
 ├── scripts/              # 验收脚本（真模型冒烟 / 跨进程记忆）
-└── data/                 # 运行时数据（gitignore）：jarvis.db、memos.json
+└── data/                 # 运行时数据（gitignore）
 ```
 
 ## 快速开始
@@ -29,10 +35,14 @@ JWS-Agent/
 python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
 cp .env.example .env      # 填入 DEEPSEEK_API_KEY
-.venv/bin/jarvis          # 进入对话，输 quit 退出
+
+.venv/bin/jarvis-web      # 网页端 → http://127.0.0.1:7789
+.venv/bin/jarvis          # 或终端对话，输 quit 退出
 .venv/bin/jarvis --once "现在几点了"   # 单发一句
 .venv/bin/jarvis --thread work        # 换一条独立记忆线程
 ```
+
+网页端：左栏弧反应堆随思考加速旋转，回复逐字流式输出并实时显示正在调用的工具；右栏日程/待办/备忘每轮对话后自动刷新。终端与网页共用同一套记忆数据库（线程 id 不同：终端 `main`，网页 `web`）。
 
 ## 验收
 
@@ -56,3 +66,4 @@ cp .env.example .env      # 填入 DEEPSEEK_API_KEY
 | `JARVIS_BASE_URL` | `https://api.deepseek.com` | OpenAI 兼容接口地址，换厂商改这里 |
 | `JARVIS_MODEL` | `deepseek-chat` | 模型名（本项目实际用 deepseek-v4-flash） |
 | `JARVIS_DATA_DIR` | `<项目根>/data` | 记忆库与备忘的存放目录 |
+| `JARVIS_PORT` | `7789` | 网页端监听端口 |

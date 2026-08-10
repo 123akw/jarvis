@@ -20,6 +20,11 @@ def _save_memos(memos: list[dict]) -> None:
     )
 
 
+def all_memos() -> list[dict]:
+    """给网页仪表盘用的原始数据出口。"""
+    return _load_memos()
+
+
 @tool
 def memo_add(content: str) -> str:
     """新增一条备忘，content 是备忘内容。"""

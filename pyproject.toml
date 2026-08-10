@@ -12,6 +12,8 @@ dependencies = [
     "langchain-openai>=1.4",
     "langgraph-checkpoint-sqlite>=3.1",
     "python-dotenv>=1.0",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
 ]
 
 [project.optional-dependencies]
@@ -19,9 +21,13 @@ dev = ["pytest>=8"]
 
 [project.scripts]
 jarvis = "jarvis.cli:main"
+jarvis-web = "jarvis.server:run"
 
 [tool.setuptools.packages.find]
 include = ["jarvis*"]
+
+[tool.setuptools.package-data]
+jarvis = ["web/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
