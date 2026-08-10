@@ -133,7 +133,7 @@ export default function Chat({ threadId, location, onBusy, onTurnDone, onExpired
             <div key={m.id} className="row-user"><div className="ubox">{m.raw}</div></div>
           ) : (
             <div key={m.id} className="row-jarvis">
-              <div className="jtag">J.A.R.V.I.S.</div>
+              <div className="jtag">{m.streaming && <span className="jdot" />}J.A.R.V.I.S.</div>
               {m.chips.length > 0 && (
                 <div className="chips">
                   {m.chips.map((c, i) => (

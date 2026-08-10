@@ -61,7 +61,26 @@ input{font-family:inherit}
 .login{position:fixed;inset:0;overflow:hidden;display:flex;align-items:center;
   justify-content:flex-end;transition:opacity .5s .45s,filter .5s .45s}
 .login-out{opacity:0;filter:brightness(2.2) blur(3px);pointer-events:none}
-.mossbg{position:fixed;inset:0;z-index:1;pointer-events:none}
+.mossbg{position:fixed;inset:0;z-index:1}
+
+/* MOSS 台词弹窗 */
+.moss-bubble{position:fixed;left:57%;top:14%;z-index:3;max-width:320px;
+  background:rgba(6,10,16,.92);border:1px solid rgba(255,80,60,.45);
+  border-left:3px solid #FF5C4A;padding:10px 16px 12px;
+  font-family:var(--mono);font-size:13.5px;color:#FFD9D4;letter-spacing:.06em;line-height:1.75;
+  clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px);
+  animation:bubblein .22s ease-out;pointer-events:none}
+.mb-tag{display:block;color:#FF5C4A;font-size:10px;letter-spacing:.3em;margin-bottom:5px}
+.mb-caret{display:inline-block;width:7px;height:13px;background:#FF5C4A;margin-left:3px;
+  vertical-align:-2px;animation:blink .8s steps(1) infinite}
+@keyframes bubblein{from{opacity:0;transform:translateY(8px)}}
+.voice-toggle{background:none;border:none;color:var(--dim);font-family:var(--mono);
+  font-size:11px;letter-spacing:.14em;cursor:pointer;margin-top:2px;transition:color .2s}
+.voice-toggle:hover{color:var(--arc)}
+
+/* 对话中贾维斯标签红点（MOSS 在思考） */
+.jdot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#FF5C4A;
+  box-shadow:0 0 8px #FF5C4A;margin-right:7px;vertical-align:1px;animation:pulse 1.1s infinite}
 .login-type{position:fixed;left:6vw;top:50%;transform:translateY(-50%);z-index:2;
   display:flex;flex-direction:column;gap:10px;pointer-events:none}
 .login-eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.32em;color:var(--arc);
@@ -103,6 +122,7 @@ input{font-family:inherit}
   .login-type{left:5vw;top:6vh;bottom:auto}
   .login-h1{font-size:clamp(28px,7vw,44px)}
   .telemetry{display:none}
+  .moss-bubble{left:6vw;right:6vw;top:auto;bottom:12vh;max-width:none}
 }
 
 /* ================= HUD 主界面 ================= */
@@ -147,7 +167,7 @@ main{display:grid;grid-template-columns:260px minmax(0,1fr) 300px;gap:16px;
 .tdel:hover{color:var(--alert)}
 .sidefoot{flex:none;display:flex;align-items:center;gap:12px;border-top:1px solid var(--line);
   padding:10px 14px}
-.minireactor{width:54px;height:54px;flex:none}
+.minireactor{width:76px;height:76px;flex:none}
 .sf-lines{font-family:var(--mono);font-size:11px;color:var(--dim);letter-spacing:.12em;line-height:1.9}
 
 /* 中栏：阅读列 */

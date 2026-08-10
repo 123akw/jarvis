@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { logout } from './api.js'
 import Chat from './Chat.jsx'
+import { MossMini } from './Moss.jsx'
 import Panels from './Panels.jsx'
-import Reactor3D from './Reactor3D.jsx'
 import Threads from './Threads.jsx'
 
 function newThreadId() {
@@ -54,9 +54,9 @@ export default function Hud({ onLogout }) {
             onSelect={setThread} onNew={() => setThread(newThreadId())}
             onExpired={onLogout} />
           <div className="sidefoot">
-            <div className="minireactor"><Reactor3D busy={busy} dust={false} /></div>
+            <div className="minireactor"><MossMini busy={busy} /></div>
             <div className="sf-lines">
-              <div>{busy ? '运算中' : '待命中'}</div>
+              <div>{busy ? 'MOSS · 扫描中' : 'MOSS · 待命'}</div>
               <div>{geo ? '浏览器定位' : dash?.place ? 'IP 定位' : '未定位'}</div>
             </div>
           </div>

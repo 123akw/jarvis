@@ -63,7 +63,7 @@ function Bolt({ position, color = '#8F969B' }) {
   )
 }
 
-function MossHead({ mouse, busy, fail, spinup }) {
+function MossHead({ mouse, busy, fail, spinup, onPick }) {
   const assembly = useRef()
   const head = useRef()
   const pupil = useRef()
@@ -110,6 +110,10 @@ function MossHead({ mouse, busy, fail, spinup }) {
       s.nextAt = 0
     }
     s.was = idling
+    if (busy && !fail) {  // 思考中：红瞳左右扫描，无视鼠标
+      tx = Math.sin(t * 1.8) * 0.55
+      ty = Math.sin(t * 0.9) * 0.12
+    }
     const kk = idling ? k * 0.45 : k  // 待机时转头更慢，像扫视
     // 吊装物理：整机绕顶端球关节偏航/俯仰，像悬挂云台在摆头
     head.current.rotation.y += (tx * 0.35 - head.current.rotation.y) * kk
@@ -138,8 +142,10 @@ function MossHead({ mouse, busy, fail, spinup }) {
   })
 
   return (
-    <group position={[0.35, -0.1, 0]} scale={0.62}>
-    <group ref={assembly}>
+    <group ref={assembly}
+      onClick={e => { e.stopPropagation(); onPick?.() }}
+      onPointerOver={() => { document.body.style.cursor = 'pointer' }}
+      onPointerOut={() => { document.body.style.cursor = '' }}>
       {/* 白色机械臂（从天花板垂下）+ 球关节 */}
       <mesh position={[0.5, 3.0, 0]} rotation={[0, 0, 0.12]}>
         <cylinderGeometry args={[0.13, 0.13, 1.4, 20]} />
@@ -296,12 +302,11 @@ function MossHead({ mouse, busy, fail, spinup }) {
         </group>
       </group>
     </group>
-    </group>
   )
 }
 
-/** MOSS 背景层：极光深空 + MOSS + Bloom 辉光，一张画布全包，不拦鼠标事件 */
-export default function Moss({ busy = false, fail = false, spinup = false }) {
+/** MOSS 背景层：极光深空 + MOSS + Bloom 辉光，一张画布全包；可点击互动 */
+export default function Moss({ busy = false, fail = false, spinup = false, onPick }) {
   const mouse = useMouse()
   return (
     <div className="mossbg">
@@ -311,12 +316,30 @@ export default function Moss({ busy = false, fail = false, spinup = false }) {
         <ambientLight intensity={0.9} />
         <pointLight position={[-4, 3, 5]} intensity={40} color="#53E8FF" />
         <pointLight position={[4, -2, 4]} intensity={55} color="#FFFFFF" />
-        <MossHead mouse={mouse} busy={busy} fail={fail} spinup={spinup} />
+        <group position={[0.35, -0.1, 0]} scale={0.62}>
+          <MossHead mouse={mouse} busy={busy} fail={fail} spinup={spinup} onPick={onPick} />
+        </group>
         <EffectComposer>
           <Bloom mipmapBlur intensity={1.1} luminanceThreshold={0.6}
             luminanceSmoothing={0.2} radius={0.7} />
         </EffectComposer>
       </Canvas>
     </div>
+  )
+}
+
+/** 侧栏迷你 MOSS：小画布、免后处理，照样追鼠标；busy 时红瞳扫描 */
+export function MossMini({ busy = false }) {
+  const mouse = useMouse()
+  return (
+    <Canvas dpr={[1, 1.5]} camera={{ position: [0, 0, 5.6], fov: 40 }}
+      gl={{ antialias: true, alpha: true }}>
+      <ambientLight intensity={0.95} />
+      <pointLight position={[-4, 3, 5]} intensity={28} color="#53E8FF" />
+      <pointLight position={[4, -2, 4]} intensity={42} color="#FFFFFF" />
+      <group position={[0, 0.78, 0]} scale={0.52}>
+        <MossHead mouse={mouse} busy={busy} fail={false} spinup={false} />
+      </group>
+    </Canvas>
   )
 }
