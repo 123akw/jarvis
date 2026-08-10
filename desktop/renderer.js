@@ -151,6 +151,22 @@ box.addEventListener('input', () => {
   box.style.height = Math.min(box.scrollHeight, 96) + 'px'
 })
 window.jws.onForceExpand(() => document.body.classList.add('expanded'))
+
+/* ---------- 悬浮球外观 ---------- */
+function applyBallLook(size, style) {
+  document.documentElement.style.setProperty('--ball', `${size}px`)
+  document.body.classList.remove('ball-moss', 'ball-mini', 'ball-img')
+  const img = localStorage.getItem('jws_ball_img')
+  if (style === 'img' && !img) style = 'moss'  // 没选过图就回落默认
+  document.body.classList.add(`ball-${style}`)
+  if (style === 'img') {
+    document.documentElement.style.setProperty('--ball-img', `url(${img})`)
+  }
+}
+;(async () => {
+  const s = await window.jws.getSettings()
+  applyBallLook(s.ballSize || 64, s.ballStyle || 'moss')
+})()
 window.jws.onSetExpanded(v => {  // 全局快捷键唤醒/收起时同步界面
   document.body.classList.toggle('expanded', v)
   if (v) box.focus()
@@ -235,9 +251,42 @@ $('#hk-clear').addEventListener('click', () => {
   renderHkField()
 })
 
+/* 图片选择：压成 256px 方图存 localStorage */
+$('#s-imgpick').addEventListener('click', () => $('#s-imgfile').click())
+$('#s-imgfile').addEventListener('change', () => {
+  const f = $('#s-imgfile').files[0]
+  if (!f) return
+  const img = new Image()
+  img.onload = () => {
+    const c = document.createElement('canvas')
+    c.width = c.height = 256
+    const ctx = c.getContext('2d')
+    const side = Math.min(img.width, img.height)
+    ctx.drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, 256, 256)
+    const url = c.toDataURL('image/jpeg', 0.88)
+    localStorage.setItem('jws_ball_img', url)
+    const prev = $('#s-imgprev')
+    prev.src = url; prev.style.display = ''
+  }
+  img.src = URL.createObjectURL(f)
+})
+
+$('#s-ballsize').addEventListener('input', () => {
+  $('#s-ballsize-v').textContent = $('#s-ballsize').value + 'px'
+})
+$('#s-ballstyle').addEventListener('change', () => {
+  $('#s-imgrow').style.display = $('#s-ballstyle').value === 'img' ? '' : 'none'
+})
+
 async function openSettings() {
   const s = await window.jws.getSettings()
   $('#s-autolaunch').checked = !!s.openAtLogin
+  $('#s-ballsize').value = s.ballSize || 64
+  $('#s-ballsize-v').textContent = (s.ballSize || 64) + 'px'
+  $('#s-ballstyle').value = s.ballStyle || 'moss'
+  $('#s-imgrow').style.display = (s.ballStyle === 'img') ? '' : 'none'
+  const savedImg = localStorage.getItem('jws_ball_img')
+  if (savedImg) { $('#s-imgprev').src = savedImg; $('#s-imgprev').style.display = '' }
   pendingHotkey = s.hotkey || ''
   renderHkField()
   $('#s-hotkey-state').textContent = s.hotkey
@@ -256,10 +305,15 @@ $('#backbtn').addEventListener('click', () => {
 })
 
 $('#s-save').addEventListener('click', async () => {
+  const ballSize = parseInt($('#s-ballsize').value, 10)
+  const ballStyle = $('#s-ballstyle').value
   const r = await window.jws.setSettings({
     hotkey: pendingHotkey,
     openAtLogin: $('#s-autolaunch').checked,
+    ballSize,
+    ballStyle,
   })
+  applyBallLook(ballSize, ballStyle)
   const server = $('#s-server').value.trim().replace(/\/+$/, '')
   const serverChanged = server && server !== SERVER
   if (serverChanged) localStorage.setItem('jws_server', server)

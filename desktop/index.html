@@ -13,22 +13,58 @@ html,body{height:100%;background:transparent;overflow:hidden;
   font-family:-apple-system,'PingFang SC',sans-serif;color:var(--text);
   -webkit-user-select:none;user-select:none}
 
-/* ---------- 悬浮球（收起态） ---------- */
-#ball{position:fixed;right:4px;top:4px;width:84px;height:84px;border-radius:50%;
-  -webkit-app-region:drag;cursor:grab;
-  background:radial-gradient(circle at 34% 30%,#3A4653,#171D24 62%,#0B0F14);
-  border:2px solid rgba(83,232,255,.28);
-  box-shadow:0 6px 24px rgba(0,0,0,.55),inset 0 0 18px rgba(0,0,0,.6);
-  display:flex;align-items:center;justify-content:center}
-#eye{-webkit-app-region:no-drag;cursor:pointer;width:46px;height:46px;border-radius:50%;
-  background:radial-gradient(circle at 40% 36%,#FFB3A6 0%,#FF2A1F 34%,#7A0E08 78%,#2A0402);
-  border:3px solid #10151B;
-  box-shadow:0 0 18px rgba(255,42,31,.75),0 0 44px rgba(255,42,31,.3);
-  animation:breath 3s ease-in-out infinite}
-@keyframes breath{50%{box-shadow:0 0 10px rgba(255,42,31,.45),0 0 26px rgba(255,42,31,.18);
-  transform:scale(.94)}}
-body.busy #eye{animation-duration:.9s}
+/* ---------- 悬浮球（收起态，三种样式，尺寸可调） ---------- */
+:root{--ball:64px}
+#ball{position:fixed;right:4px;top:4px;width:var(--ball);height:var(--ball);
+  border-radius:50%;-webkit-app-region:drag;cursor:grab;
+  display:flex;align-items:center;justify-content:center;
+  transition:transform .18s ease}
+#ball:hover{transform:scale(1.05)}
+#eye{-webkit-app-region:no-drag;cursor:pointer;width:72%;height:72%;border-radius:50%;
+  position:relative}
 body.expanded #ball{display:none}
+
+/* 样式一：MOSS 红瞳（默认）——玻璃暗环 + 红芯 */
+body.ball-moss #ball{
+  background:
+    radial-gradient(circle at 32% 26%,rgba(255,255,255,.16),transparent 34%),
+    radial-gradient(circle at 50% 50%,#232B34 40%,#12171D 72%,#0A0D11);
+  border:1px solid rgba(83,232,255,.35);
+  box-shadow:0 4px 16px rgba(0,0,0,.5),inset 0 1px 6px rgba(255,255,255,.07),
+    inset 0 -4px 10px rgba(0,0,0,.55)}
+body.ball-moss #eye{
+  background:radial-gradient(circle at 38% 32%,#FFC9BF 0%,#FF4A38 26%,#C21206 55%,#570803 85%,#2A0402);
+  border:2px solid #0C1015;
+  box-shadow:0 0 12px rgba(255,42,31,.7),0 0 30px rgba(255,42,31,.28),
+    inset 0 -2px 6px rgba(0,0,0,.5);
+  animation:breath 3s ease-in-out infinite}
+body.ball-moss #eye::after{content:'';position:absolute;left:24%;top:16%;width:22%;height:14%;
+  border-radius:50%;background:rgba(255,255,255,.75);filter:blur(1px)}
+
+/* 样式二：极简暗球——低调小黑球 + 微红点 */
+body.ball-mini #ball{
+  background:radial-gradient(circle at 34% 28%,#2A323C,#14181E 68%,#0B0E12);
+  border:1px solid rgba(255,255,255,.08);
+  box-shadow:0 3px 12px rgba(0,0,0,.5)}
+body.ball-mini #eye{width:100%;height:100%;background:transparent;border:none}
+body.ball-mini #eye::after{content:'';position:absolute;right:16%;bottom:16%;
+  width:18%;height:18%;border-radius:50%;
+  background:radial-gradient(circle at 40% 35%,#FF8A7C,#FF2A1F 60%,#7A0E08);
+  box-shadow:0 0 8px rgba(255,42,31,.8);animation:breath 3s infinite}
+
+/* 样式三：自定义图片——圆形头像 + 细环 */
+body.ball-img #ball{
+  background-image:var(--ball-img);background-size:cover;background-position:center;
+  border:2px solid rgba(83,232,255,.45);
+  box-shadow:0 4px 16px rgba(0,0,0,.55),0 0 14px rgba(83,232,255,.2)}
+body.ball-img #eye{width:100%;height:100%;background:transparent;border:none}
+body.ball-img #eye::after{content:'';position:absolute;right:6%;bottom:6%;
+  width:16%;height:16%;border-radius:50%;border:1.5px solid rgba(5,11,18,.9);
+  background:#FF2A1F;box-shadow:0 0 6px rgba(255,42,31,.9);animation:breath 3s infinite}
+
+@keyframes breath{50%{opacity:.72;transform:scale(.95)}}
+body.busy.ball-moss #eye,body.busy.ball-mini #eye::after,body.busy.ball-img #eye::after{
+  animation-duration:.9s}
 
 /* ---------- 对话面板（展开态） ---------- */
 #panel{display:none;position:fixed;inset:6px;flex-direction:column;
@@ -101,6 +137,15 @@ body.show-settings #settings{display:flex}
 #s-save{border:none;background:var(--arc);color:var(--void);font-size:13px;
   letter-spacing:.2em;padding:11px 0;cursor:pointer;font-weight:600}
 #s-save:hover{box-shadow:0 0 18px rgba(83,232,255,.5)}
+.s-slider{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--dim)}
+.s-slider input[type=range]{flex:1;accent-color:#53E8FF}
+.s-slider em{font-family:var(--mono);font-style:normal;color:var(--text);min-width:44px;text-align:right}
+#s-imgrow{display:flex;align-items:center;gap:10px}
+#s-imgpick{background:rgba(13,28,44,.7);border:1px solid var(--line);color:var(--text);
+  font-size:13px;padding:8px 14px;cursor:pointer}
+#s-imgpick:hover{border-color:rgba(83,232,255,.5)}
+#s-imgprev{width:44px;height:44px;border-radius:50%;object-fit:cover;
+  border:2px solid rgba(83,232,255,.45);display:none}
 .hk-line{display:flex;gap:8px;align-items:stretch}
 .hk-field{flex:1;background:rgba(13,28,44,.7);border:1px solid var(--line);
   color:var(--text);font-size:15px;padding:11px 10px;cursor:pointer;
@@ -148,6 +193,24 @@ body.show-settings #settings{display:flex}
             <button type="button" class="hbtn hk-x" id="hk-clear" title="停用快捷键">✕</button>
           </div>
           <div class="s-hint" id="s-hotkey-state"></div>
+        </div>
+        <div class="s-row s-col">
+          <span>悬浮球样式</span>
+          <select id="s-ballstyle">
+            <option value="moss">MOSS 红瞳</option>
+            <option value="mini">极简暗球</option>
+            <option value="img">自定义图片</option>
+          </select>
+          <div id="s-imgrow" style="display:none">
+            <button type="button" id="s-imgpick">选择图片…</button>
+            <img id="s-imgprev" alt="">
+          </div>
+          <label class="s-slider">
+            <span>大小</span>
+            <input type="range" id="s-ballsize" min="44" max="120" step="4">
+            <em id="s-ballsize-v">64px</em>
+          </label>
+          <input type="file" id="s-imgfile" accept="image/*" style="display:none">
         </div>
         <div class="s-row s-col">
           <span>服务器地址</span>

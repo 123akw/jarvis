@@ -4,8 +4,8 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 
-const BALL = { w: 92, h: 92 }
 const PANEL = { w: 420, h: 640 }
+const ballWin = size => size + 8  // 球体 + 辉光留白
 const PLIST = path.join(os.homedir(), 'Library/LaunchAgents/com.jws.jarvis.desktop.plist')
 let win = null
 let expanded = false
@@ -15,7 +15,7 @@ function settingsPath() {
   return path.join(app.getPath('userData'), 'settings.json')
 }
 function loadSettings() {
-  const defaults = { hotkey: 'Alt+Space', openAtLogin: false }
+  const defaults = { hotkey: 'Alt+Space', openAtLogin: false, ballSize: 64, ballStyle: 'moss' }
   try {
     return { ...defaults, ...JSON.parse(fs.readFileSync(settingsPath(), 'utf-8')) }
   } catch {
@@ -72,6 +72,7 @@ function summon() {
 function toggleWindow() {
   const b = win.getBounds()
   const { workArea } = screen.getDisplayMatching(b)
+  const bw = ballWin(loadSettings().ballSize)
   if (!expanded) {
     let y = b.y
     if (y + PANEL.h > workArea.y + workArea.height) {
@@ -79,7 +80,7 @@ function toggleWindow() {
     }
     win.setBounds({ x: b.x + b.width - PANEL.w, y, width: PANEL.w, height: PANEL.h })
   } else {
-    win.setBounds({ x: b.x + b.width - BALL.w, y: b.y, width: BALL.w, height: BALL.h })
+    win.setBounds({ x: b.x + b.width - bw, y: b.y, width: bw, height: bw })
   }
   expanded = !expanded
   return expanded
@@ -87,10 +88,11 @@ function toggleWindow() {
 
 function createWindow() {
   const { workArea } = screen.getPrimaryDisplay()
+  const bw = ballWin(loadSettings().ballSize)
   win = new BrowserWindow({
-    width: BALL.w,
-    height: BALL.h,
-    x: workArea.x + workArea.width - BALL.w - 20,
+    width: bw,
+    height: bw,
+    x: workArea.x + workArea.width - bw - 20,
     y: workArea.y + Math.round(workArea.height * 0.32),
     frame: false,
     transparent: true,
@@ -124,6 +126,11 @@ ipcMain.handle('set-settings', (_e, patch) => {
   saveSettings(s)
   const hotkeyOk = applyHotkey(s.hotkey)
   try { setAutoLaunch(s.openAtLogin) } catch {}
+  if (!expanded && win) {  // 收起态下即时按新尺寸重排（右缘钉住）
+    const b = win.getBounds()
+    const bw = ballWin(s.ballSize)
+    win.setBounds({ x: b.x + b.width - bw, y: b.y, width: bw, height: bw })
+  }
   return { ...s, hotkeyOk }
 })
 
@@ -134,6 +141,14 @@ app.whenReady().then(() => {
   // 自检截图模式：JWS_SHOT=/path/out.png [JWS_SHOT_VIEW=settings] npm start
   if (process.env.JWS_SHOT) {
     win.webContents.once('did-finish-load', () => {
+      if (process.env.JWS_SHOT_VIEW === 'ball') {
+        setTimeout(async () => {
+          const img = await win.webContents.capturePage()
+          fs.writeFileSync(process.env.JWS_SHOT, img.toPNG())
+          app.quit()
+        }, 2200)
+        return
+      }
       setTimeout(async () => {
         const b = win.getBounds()
         win.setBounds({ x: b.x + b.width - PANEL.w, y: b.y, width: PANEL.w, height: PANEL.h })
