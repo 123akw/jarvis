@@ -1,7 +1,7 @@
 {
   "name": "jws-web",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.6.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,9 +12,11 @@
     "@fontsource/rajdhani": "^5.2.0",
     "@fontsource/share-tech-mono": "^5.2.0",
     "@react-three/fiber": "^9.3.0",
+    "@react-three/postprocessing": "^3.0.5",
+    "postprocessing": "^6.39.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "three": "^0.179.0"
+    "three": "^0.182.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.0.0",

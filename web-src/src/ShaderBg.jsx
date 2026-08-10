@@ -6,6 +6,7 @@ const FRAG = /* glsl */ `
 uniform float uTime;
 uniform vec2 uRes;
 uniform vec2 uPointer;
+uniform float uDim;
 varying vec2 vUv;
 
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -64,7 +65,7 @@ void main(){
   col += arc * exp(-d * 4.5) * 0.06;
 
   float vig = smoothstep(1.45, 0.30, length(uv - 0.5) * 1.6);
-  col *= vig;
+  col *= vig * uDim;
   gl_FragColor = vec4(col, 1.0);
 }`
 
@@ -72,25 +73,28 @@ const VERT = /* glsl */ `
 varying vec2 vUv;
 void main(){ vUv = uv; gl_Position = vec4(position, 1.0); }`
 
-function Plane() {
+/** 极光面片：NDC 全屏四边形，renderOrder -1 关深度，可嵌进任意 3D 场景当背景 */
+export function AuroraPlane({ dim = 1.0 }) {
   const mat = useRef()
   const { size } = useThree()
   const uniforms = useMemo(() => ({
     uTime: { value: 0 },
     uRes: { value: new THREE.Vector2(1, 1) },
     uPointer: { value: new THREE.Vector2(0.5, 0.5) },
+    uDim: { value: 1.0 },
   }), [])
   useFrame((state, dt) => {
     uniforms.uTime.value += dt
+    uniforms.uDim.value = dim
     uniforms.uRes.value.set(size.width, size.height)
     uniforms.uPointer.value.lerp(
       new THREE.Vector2(state.pointer.x * 0.5 + 0.5, state.pointer.y * 0.5 + 0.5), 0.04)
   })
   return (
-    <mesh>
+    <mesh renderOrder={-1} frustumCulled={false}>
       <planeGeometry args={[2, 2]} />
       <shaderMaterial ref={mat} vertexShader={VERT} fragmentShader={FRAG}
-        uniforms={uniforms} depthWrite={false} />
+        uniforms={uniforms} depthWrite={false} depthTest={false} />
     </mesh>
   )
 }
@@ -100,7 +104,7 @@ export default function ShaderBg() {
   return (
     <div className="shaderbg">
       <Canvas dpr={[1, 1.6]} gl={{ antialias: false }} style={{ position: 'absolute', inset: 0 }}>
-        <Plane />
+        <AuroraPlane />
       </Canvas>
     </div>
   )

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { login } from './api.js'
 import Moss from './Moss.jsx'
-import ShaderBg from './ShaderBg.jsx'
 
 function greeting() {
   const h = new Date().getHours()
@@ -50,7 +49,6 @@ export default function Login({ onAuthed }) {
 
   return (
     <div className={`login${spinup ? ' login-out' : ''}`}>
-      <ShaderBg />
       <Moss busy={busy} fail={fail} spinup={spinup} />
       <div className="grain" />
 

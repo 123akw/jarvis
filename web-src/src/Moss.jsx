@@ -1,6 +1,8 @@
+import { Bloom, EffectComposer } from '@react-three/postprocessing'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
+import { AuroraPlane } from './ShaderBg.jsx'
 
 const RED = '#FF2A1F'
 const METAL = '#263241'
@@ -20,13 +22,14 @@ function makeGlowTexture() {
   return new THREE.CanvasTexture(c)
 }
 
-/** 全窗口鼠标（-1..1），挂 window：鼠标移到表单上 MOSS 也照样盯 */
+/** 全窗口鼠标（-1..1）＋最后活动时间，挂 window：鼠标移到表单上 MOSS 也照样盯 */
 function useMouse() {
-  const m = useRef({ x: 0, y: 0 })
+  const m = useRef({ x: 0, y: 0, t: 0 })
   useEffect(() => {
     const fn = e => {
       m.current.x = (e.clientX / window.innerWidth) * 2 - 1
       m.current.y = -((e.clientY / window.innerHeight) * 2 - 1)
+      m.current.t = performance.now()
     }
     window.addEventListener('mousemove', fn)
     return () => window.removeEventListener('mousemove', fn)
@@ -62,23 +65,52 @@ function MossHead({ mouse, busy, fail, spinup }) {
   const ledMats = useRef([])
   const glowTex = useRef()
   if (!glowTex.current) glowTex.current = makeGlowTexture()
+  // 待机行为状态机：环视 / 每四次凝视镜头一次 / 视线切换时光圈重对焦
+  const idle = useRef({ was: false, n: 0, tx: 0, ty: 0, tilt: 0, nextAt: 0, pulseAt: -9e9 })
 
   useFrame((state, dt) => {
     const t = state.clock.elapsedTime
     const k = Math.min(1, dt * 6)
-    const mx = mouse.current.x, my = mouse.current.y
-    // 头部追视 + 呼吸浮动 + 失败短震
-    head.current.rotation.y += (mx * 0.55 - head.current.rotation.y) * k
-    head.current.rotation.x += (-my * 0.38 - head.current.rotation.x) * k
+    const now = performance.now()
+    const s = idle.current
+    const idling = now - mouse.current.t > 3500
+    let tx, ty
+    if (idling) {
+      if (now > s.nextAt) {
+        s.n += 1
+        const lookAtYou = s.n % 4 === 3
+        s.tx = lookAtYou ? 0 : (Math.random() * 2 - 1) * 0.75
+        s.ty = lookAtYou ? 0 : (Math.random() * 2 - 1) * 0.5
+        s.tilt = lookAtYou ? 0 : (Math.random() * 2 - 1) * 0.07
+        s.nextAt = now + (lookAtYou ? 2200 : 2600 + Math.random() * 2800)
+        s.pulseAt = now
+      }
+      tx = s.tx; ty = s.ty
+    } else {
+      if (s.was) s.pulseAt = now  // 从待机切回追踪：重对焦一次
+      tx = mouse.current.x; ty = mouse.current.y
+      s.tilt = 0
+      s.nextAt = 0
+    }
+    s.was = idling
+    const kk = idling ? k * 0.45 : k  // 待机时转头更慢，像扫视
+    // 头部追视 + 侧倾 + 呼吸浮动 + 失败短震
+    head.current.rotation.y += (tx * 0.55 - head.current.rotation.y) * kk
+    head.current.rotation.x += (-ty * 0.38 - head.current.rotation.x) * kk
+    head.current.rotation.z += (s.tilt - head.current.rotation.z) * kk
     head.current.position.y = Math.sin(t * 0.8) * 0.06
     head.current.position.x = fail ? Math.sin(t * 42) * 0.05 : head.current.position.x * 0.9
     // 瞳孔视差：比头部多动一点，才像「盯」
-    pupil.current.position.x = mx * 0.11
-    pupil.current.position.y = my * 0.09
+    pupil.current.position.x = tx * 0.11
+    pupil.current.position.y = ty * 0.09
+    // 光圈重对焦脉冲（300ms 收放）
+    const ph = (now - s.pulseAt) / 300
+    const focus = ph < 1 ? 1 + Math.sin(Math.min(ph, 1) * Math.PI) * 0.3 : 1
+    pupil.current.scale.setScalar(focus)
     // 红瞳呼吸/状态
     const base = spinup ? 2.8 : fail ? 2.4 : busy ? 1.7 : 1.0
     const pulse = base + Math.sin(t * (busy || fail ? 7 : 2.1)) * 0.18
-    glowMat.current.opacity = 0.30 * pulse
+    glowMat.current.opacity = 0.20 * pulse
     ringMat.current.opacity = Math.min(1, 0.75 * pulse)
     irisMat.current.opacity = Math.min(1, 0.5 * pulse)
     // 状态灯序列闪烁
@@ -139,7 +171,7 @@ function MossHead({ mouse, busy, fail, spinup }) {
             <meshBasicMaterial color="#FFE2DE" transparent opacity={0.85} />
           </mesh>
         </group>
-        <sprite position={[0, 0, 0.14]} scale={[2.3, 2.3, 1]}>
+        <sprite position={[0, 0, 0.14]} scale={[2.0, 2.0, 1]}>
           <spriteMaterial ref={glowMat} map={glowTex.current} transparent opacity={0.3}
             blending={THREE.AdditiveBlending} depthWrite={false} toneMapped={false} />
         </sprite>
@@ -164,17 +196,22 @@ function MossHead({ mouse, busy, fail, spinup }) {
   )
 }
 
-/** MOSS 背景层：全屏透明画布，不拦鼠标事件 */
+/** MOSS 背景层：极光深空 + MOSS + Bloom 辉光，一张画布全包，不拦鼠标事件 */
 export default function Moss({ busy = false, fail = false, spinup = false }) {
   const mouse = useMouse()
   return (
     <div className="mossbg">
-      <Canvas dpr={[1, 2]} camera={{ position: [0, 0, 5.4], fov: 42 }}
+      <Canvas dpr={[1, 1.75]} camera={{ position: [0, 0, 5.4], fov: 42 }}
         gl={{ antialias: true, alpha: true }} style={{ position: 'absolute', inset: 0 }}>
+        <AuroraPlane dim={0.5} />
         <ambientLight intensity={1.0} />
         <pointLight position={[-4, 3, 5]} intensity={70} color="#53E8FF" />
         <pointLight position={[4, -2, 4]} intensity={35} color="#FFFFFF" />
         <MossHead mouse={mouse} busy={busy} fail={fail} spinup={spinup} />
+        <EffectComposer>
+          <Bloom mipmapBlur intensity={1.15} luminanceThreshold={0.32}
+            luminanceSmoothing={0.2} radius={0.72} />
+        </EffectComposer>
       </Canvas>
     </div>
   )
