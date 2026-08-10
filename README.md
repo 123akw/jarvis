@@ -60,7 +60,7 @@ cd desktop && npm install && npm start
 
 - 屏幕右侧出现 **MOSS 红瞳悬浮球**：置顶所有窗口、全工作区可见、按住外圈可拖拽。
 - **点红瞳** → 原地向左展开快捷对话面板：最近历史 + 流式问答（独立 `desktop` 会话线程，不打扰网页端记录）；Enter 发送，`—` 收起回悬浮球，`↺` 清空快捷对话。
-- 默认连 `https://jws.gkgeek-set.cn`；要改服务器地址，在面板开发者工具里执行 `localStorage.setItem('jws_server','http://127.0.0.1:7789')`。
+- 面板右上 **⚙ 设置**：全局唤醒快捷键（默认 `⌥Space`，可换预设/自定义/停用）、开机自启（LaunchAgent 实现，`~/Library/LaunchAgents/com.jws.jarvis.desktop.plist`）、服务器地址（默认 `https://jws.gkgeek-set.cn`）。
 - 若 `npm install` 后启动报缺二进制（npm 拦截了 Electron 安装脚本）：`npm rebuild electron`，仍不行就 `node node_modules/electron/install.js`。
 
 ## 加一个新工具（三步）
