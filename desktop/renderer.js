@@ -56,7 +56,11 @@ async function ensureLogin() {
 }
 
 async function loadHistory() {
-  const r = await api(`/api/history?thread_id=${THREAD}`)
+  let r = await api(`/api/history?thread_id=${THREAD}`)
+  if (r.status === 401) {  // 登录态失效：静默重连后重试
+    await ensureLogin()
+    r = await api(`/api/history?thread_id=${THREAD}`)
+  }
   const h = await r.json()
   log.innerHTML = ''
   if (!h.length) {
@@ -83,11 +87,20 @@ async function ask() {
   let raw = ''
   let toolLine = null
   try {
-    const r = await api('/api/chat', {
+    let r = await api('/api/chat', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: text, thread_id: THREAD }),
     })
-    if (r.status === 401) { sys('登录态失效，正在重连…'); await ensureLogin(); throw new Error('请重发') }
+    if (r.status === 401) {  // 登录态失效：自动重连并自动重发，不劳领导动手
+      state.textContent = '重连中…'
+      await ensureLogin()
+      r = await api('/api/chat', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, thread_id: THREAD }),
+      })
+      if (r.status === 401) throw new Error('登录失败，请到设置里核对服务器地址')
+      state.textContent = '思考中…'
+    }
     const reader = r.body.getReader(), dec = new TextDecoder()
     let buf = ''
     while (true) {
