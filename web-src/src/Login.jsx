@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { login } from './api.js'
-import Reactor3D from './Reactor3D.jsx'
+import Moss from './Moss.jsx'
 import ShaderBg from './ShaderBg.jsx'
 
 function greeting() {
@@ -51,6 +51,7 @@ export default function Login({ onAuthed }) {
   return (
     <div className={`login${spinup ? ' login-out' : ''}`}>
       <ShaderBg />
+      <Moss busy={busy} fail={fail} spinup={spinup} />
       <div className="grain" />
 
       <div className="login-type">
@@ -60,9 +61,6 @@ export default function Login({ onAuthed }) {
       </div>
 
       <form ref={cardRef} className="login-card" onSubmit={submit}>
-        <div className="login-core">
-          <Reactor3D busy={busy} fail={fail} spinup={spinup} dust={false} />
-        </div>
         <div className="login-sub">身份验证 // IDENTITY CHECK</div>
         <label className="field">
           <span>用户名</span>
