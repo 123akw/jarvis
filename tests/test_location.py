@@ -55,5 +55,14 @@ def test_locate_by_ip_rejects_private():
 
 def test_locate_by_ip_parses(monkeypatch):
     monkeypatch.setattr(location_mod, "_get_json",
-                        lambda u, p: {"status": "success", "lat": 22.5, "lon": 114.0})
+                        lambda u, p, **kw: {"status": "success", "lat": 22.5, "lon": 114.0})
     assert location_mod.locate_by_ip("1.2.3.4") == {"lat": 22.5, "lon": 114.0}
+
+
+def test_locate_by_ip_falls_back_to_meituan(monkeypatch):
+    def fake(url, params, **kw):
+        if "ip-api" in url:
+            raise TimeoutError("大陆不通")
+        return {"data": {"lat": 22.55, "lng": 114.06}}
+    monkeypatch.setattr(location_mod, "_get_json", fake)
+    assert location_mod.locate_by_ip("1.2.3.4") == {"lat": 22.55, "lon": 114.06}

@@ -8,7 +8,8 @@ from jarvis.config import data_dir
 from jarvis.tools.weather import _get_json
 
 _REVERSE = "https://api.bigdatacloud.net/data/reverse-geocode-client"
-_IPAPI = "http://ip-api.com/json/{ip}"
+_IPAPI = "http://ip-api.com/json/{ip}"          # 海外可达
+_MEITUAN = "https://apimobile.meituan.com/locate/v2/ip/loc"  # 大陆可达
 
 
 def _path():
@@ -47,17 +48,25 @@ def set_location(lat: float, lon: float, source: str) -> None:
 
 
 def locate_by_ip(ip: str) -> dict | None:
-    """公网 IP 定位兜底，城市级精度；内网/失败返回 None。"""
+    """公网 IP 定位兜底（先 ip-api 后美团，双源互备），城市级精度；内网/失败返回 None。"""
     if not ip or ip.startswith(("127.", "10.", "192.168.", "172.")):
         return None
     try:
-        d = _get_json(_IPAPI.format(ip=ip), {"lang": "zh-CN",
-                                             "fields": "status,city,regionName,lat,lon"})
-        if d.get("status") != "success":
-            return None
-        return {"lat": d["lat"], "lon": d["lon"]}
+        d = _get_json(_IPAPI.format(ip=ip),
+                      {"lang": "zh-CN", "fields": "status,city,regionName,lat,lon"},
+                      timeout=4)
+        if d.get("status") == "success":
+            return {"lat": d["lat"], "lon": d["lon"]}
     except Exception:
-        return None
+        pass
+    try:
+        d = _get_json(_MEITUAN, {"rgeo": "true", "ip": ip}, timeout=4)
+        data = d.get("data") or {}
+        if isinstance(data.get("lat"), (int, float)) and isinstance(data.get("lng"), (int, float)):
+            return {"lat": data["lat"], "lon": data["lng"]}
+    except Exception:
+        pass
+    return None
 
 
 @tool

@@ -16,11 +16,11 @@ _CODES = {
 }
 
 
-def _get_json(url: str, params: dict) -> dict:
+def _get_json(url: str, params: dict, timeout: float = 10) -> dict:
     # 本机 all_proxy 可能是 SOCKS（httpx 需装 socksio 才能用），
     # 故不读代理环境变量，只显式走 HTTP 代理。
     proxy = os.getenv("https_proxy") or os.getenv("HTTPS_PROXY") or None
-    with httpx.Client(timeout=10, trust_env=False, proxy=proxy) as client:
+    with httpx.Client(timeout=timeout, trust_env=False, proxy=proxy) as client:
         resp = client.get(url, params=params)
         resp.raise_for_status()
         return resp.json()
