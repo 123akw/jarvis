@@ -101,6 +101,15 @@ body.show-settings #settings{display:flex}
 #s-save{border:none;background:var(--arc);color:var(--void);font-size:13px;
   letter-spacing:.2em;padding:11px 0;cursor:pointer;font-weight:600}
 #s-save:hover{box-shadow:0 0 18px rgba(83,232,255,.5)}
+.hk-line{display:flex;gap:8px;align-items:stretch}
+.hk-field{flex:1;background:rgba(13,28,44,.7);border:1px solid var(--line);
+  color:var(--text);font-size:15px;padding:11px 10px;cursor:pointer;
+  font-family:var(--mono);letter-spacing:.18em;text-align:center;transition:border-color .2s}
+.hk-field:hover{border-color:rgba(83,232,255,.45)}
+.hk-field.rec{border:1px dashed var(--gold);color:var(--gold);animation:pulse 1.2s infinite}
+.hk-field.off{color:var(--dim);letter-spacing:.06em;font-size:13px}
+.hk-x{height:auto}
+@keyframes pulse{50%{opacity:.55}}
 </style>
 </head>
 <body>
@@ -134,15 +143,10 @@ body.show-settings #settings{display:flex}
         </label>
         <div class="s-row s-col">
           <span>全局唤醒快捷键</span>
-          <select id="s-hotkey">
-            <option value="Alt+Space">⌥ Space</option>
-            <option value="CommandOrControl+Shift+J">⌘ ⇧ J</option>
-            <option value="Control+Space">⌃ Space</option>
-            <option value="CommandOrControl+Shift+M">⌘ ⇧ M</option>
-            <option value="">停用</option>
-            <option value="custom">自定义…</option>
-          </select>
-          <input type="text" id="s-hotkey-custom" placeholder="Electron 快捷键格式，如 Alt+Shift+K" style="display:none">
+          <div class="hk-line">
+            <button type="button" id="hk-rec" class="hk-field">点击这里，然后按下组合键</button>
+            <button type="button" class="hbtn hk-x" id="hk-clear" title="停用快捷键">✕</button>
+          </div>
           <div class="s-hint" id="s-hotkey-state"></div>
         </div>
         <div class="s-row s-col">

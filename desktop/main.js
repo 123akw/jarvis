@@ -140,8 +140,16 @@ app.whenReady().then(() => {
         expanded = true
         win.webContents.send('force-expand')
         if (process.env.JWS_SHOT_VIEW === 'settings') {
-          setTimeout(() => win.webContents.executeJavaScript(
-            "document.querySelector('#setbtn').click()"), 800)
+          setTimeout(() => win.webContents.executeJavaScript(`
+            document.querySelector('#setbtn').click()
+            setTimeout(() => {
+              document.querySelector('#hk-rec').click()
+              setTimeout(() => {
+                window.dispatchEvent(new KeyboardEvent('keydown',
+                  { ctrlKey: true, code: 'Space', key: ' ', bubbles: true }))
+              }, 350)
+            }, 400)
+          `), 800)
         }
         setTimeout(async () => {
           const img = await win.webContents.capturePage()
