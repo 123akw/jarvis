@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jarvis"
-version = "0.1.0"
+version = "0.2.0"
 description = "终端私人管家贾维斯：LangGraph 底座 + SQLite 持久记忆 + 本地工具"
 requires-python = ">=3.10"
 dependencies = [

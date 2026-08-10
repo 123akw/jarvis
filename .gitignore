@@ -5,3 +5,4 @@ __pycache__/
 data/
 .pytest_cache/
 *.egg-info/
+web-src/node_modules/

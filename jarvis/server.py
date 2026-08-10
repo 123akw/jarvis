@@ -1,11 +1,16 @@
-"""网页端后端：FastAPI。/api/chat 走 SSE 流式（含工具调用事件），/api/dashboard 供仪表盘。"""
+"""网页端后端：FastAPI。自研登录（cookie 会话）+ SSE 流式聊天 + 仪表盘接口。"""
 import datetime
+import hashlib
+import hmac
 import json
 import os
+import secrets
+import time
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import AIMessageChunk, ToolMessage
 from pydantic import BaseModel
 
@@ -21,6 +26,33 @@ _agent = None
 _started = datetime.datetime.now()
 _chat_count = 0
 
+_USER = "admin"
+_PASSWORD = "admin"  # 领导点名的口令；公网弱口令风险已当面提示
+_COOKIE = "jws_session"
+_SESSION_DAYS = 30
+
+
+def _secret() -> bytes:
+    """会话签名密钥，落盘持久化，重启不掉登录态。"""
+    p = config.data_dir() / "session_secret"
+    if not p.exists():
+        p.write_text(secrets.token_hex(32), encoding="utf-8")
+        p.chmod(0o600)
+    return p.read_text(encoding="utf-8").strip().encode()
+
+
+def _session_token() -> str:
+    return hmac.new(_secret(), b"jws-session-v1", hashlib.sha256).hexdigest()
+
+
+def _authed(request: Request) -> bool:
+    got = request.cookies.get(_COOKIE, "")
+    return bool(got) and hmac.compare_digest(got, _session_token())
+
+
+def _deny() -> JSONResponse:
+    return JSONResponse({"error": "未登录"}, status_code=401)
+
 
 def _get_agent():
     global _agent
@@ -33,15 +65,47 @@ def _sse(obj: dict) -> str:
     return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
 
 
-@app.get("/")
-def index():
-    return FileResponse(_WEB / "index.html")
+# ---------- 登录 ----------
 
+class LoginIn(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/api/login")
+def login(body: LoginIn):
+    ok = hmac.compare_digest(body.username, _USER) and hmac.compare_digest(body.password, _PASSWORD)
+    if not ok:
+        time.sleep(0.8)  # 失败节流，拖慢暴力猜解
+        return JSONResponse({"error": "账号或口令不对"}, status_code=401)
+    resp = JSONResponse({"ok": True})
+    resp.set_cookie(
+        _COOKIE, _session_token(), max_age=_SESSION_DAYS * 86400,
+        httponly=True, samesite="lax", path="/",
+    )
+    return resp
+
+
+@app.post("/api/logout")
+def logout():
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(_COOKIE, path="/")
+    return resp
+
+
+@app.get("/api/session")
+def session(request: Request):
+    return {"authed": _authed(request)}
+
+
+# ---------- 业务接口（登录后可用） ----------
 
 @app.get("/api/dashboard")
-def dashboard():
-    pending = [t for t in all_todos() if not t["done"]]
-    done = len(all_todos()) - len(pending)
+def dashboard(request: Request):
+    if not _authed(request):
+        return _deny()
+    todos = all_todos()
+    pending = [t for t in todos if not t["done"]]
     return {
         "version": __version__,
         "model": config.model_name(),
@@ -51,7 +115,7 @@ def dashboard():
         "memos": all_memos(),
         "schedule": all_schedule(),
         "todos": pending,
-        "todos_done": done,
+        "todos_done": len(todos) - len(pending),
     }
 
 
@@ -69,7 +133,10 @@ def _chunk_text(content) -> str:
 
 
 @app.post("/api/chat")
-def chat(body: ChatIn):
+def chat(request: Request, body: ChatIn):
+    if not _authed(request):
+        return _deny()
+
     def gen():
         global _chat_count
         _chat_count += 1
@@ -99,6 +166,17 @@ def chat(body: ChatIn):
         gen(), media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ---------- 静态页 ----------
+
+@app.get("/")
+def index():
+    return FileResponse(_WEB / "index.html")
+
+
+if (_WEB / "assets").is_dir():
+    app.mount("/assets", StaticFiles(directory=_WEB / "assets"), name="assets")
 
 
 def run() -> None:
