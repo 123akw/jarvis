@@ -21,12 +21,29 @@ export async function getDashboard() {
   return r.json()
 }
 
+export async function getThreads() {
+  const r = await fetch('/api/threads')
+  if (r.status === 401) throw new Error('401')
+  return r.json()
+}
+
+export async function getHistory(threadId) {
+  const r = await fetch(`/api/history?thread_id=${encodeURIComponent(threadId)}`)
+  if (r.status === 401) throw new Error('401')
+  return r.json()
+}
+
+export async function deleteThread(threadId) {
+  await fetch(`/api/thread?thread_id=${encodeURIComponent(threadId)}`, { method: 'DELETE' })
+}
+
 /** SSE 流式对话，逐事件产出 {type, ...}；location 为浏览器定位 {lat, lon}，可空 */
-export async function* chatStream(message, location = null) {
+export async function* chatStream(message, location = null, threadId = 'web', signal = null) {
   const r = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, thread_id: 'web', location }),
+    body: JSON.stringify({ message, thread_id: threadId, location }),
+    signal,
   })
   if (r.status === 401) throw new Error('401')
   const reader = r.body.getReader()

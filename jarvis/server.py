@@ -100,6 +100,72 @@ def session(request: Request):
     return {"authed": _authed(request)}
 
 
+# ---------- 会话管理 ----------
+
+def _threads_path() -> Path:
+    return config.data_dir() / "threads.json"
+
+
+def _load_threads() -> list[dict]:
+    p = _threads_path()
+    if not p.exists():
+        return []
+    return json.loads(p.read_text(encoding="utf-8"))
+
+
+def _save_threads(threads: list[dict]) -> None:
+    _threads_path().write_text(
+        json.dumps(threads, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def _upsert_thread(tid: str, first_message: str) -> None:
+    threads = _load_threads()
+    stamp = datetime.datetime.now().isoformat(timespec="microseconds")
+    for t in threads:
+        if t["id"] == tid:
+            t["updated"] = stamp
+            break
+    else:
+        title = first_message.strip().replace("\n", " ")[:24] or "新对话"
+        threads.append({"id": tid, "title": title, "updated": stamp})
+    _save_threads(threads)
+
+
+@app.get("/api/threads")
+def threads(request: Request):
+    if not _authed(request):
+        return _deny()
+    return sorted(_load_threads(), key=lambda t: t["updated"], reverse=True)
+
+
+@app.get("/api/history")
+def history(request: Request, thread_id: str):
+    if not _authed(request):
+        return _deny()
+    state = _get_agent().get_state({"configurable": {"thread_id": thread_id}})
+    out = []
+    for m in (state.values or {}).get("messages", []):
+        if m.type == "human":
+            out.append({"role": "user", "content": _chunk_text(m.content)})
+        elif m.type == "ai":
+            text = _chunk_text(m.content)
+            if text.strip():
+                out.append({"role": "assistant", "content": text})
+    return out
+
+
+@app.delete("/api/thread")
+def delete_thread(request: Request, thread_id: str):
+    if not _authed(request):
+        return _deny()
+    _save_threads([t for t in _load_threads() if t["id"] != thread_id])
+    try:
+        _get_agent().checkpointer.delete_thread(thread_id)
+    except Exception:
+        pass  # 记忆库里没有该线程也算删除成功
+    return {"ok": True}
+
+
 # ---------- 业务接口（登录后可用） ----------
 
 @app.get("/api/dashboard")
@@ -157,6 +223,7 @@ def chat(request: Request, body: ChatIn):
         _update_location(request, body)
     except Exception:
         pass  # 定位失败不拦对话
+    _upsert_thread(body.thread_id, body.message)
 
     def gen():
         global _chat_count
