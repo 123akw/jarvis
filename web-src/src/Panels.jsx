@@ -18,7 +18,7 @@ export default function Panels({ refreshKey, onData, onExpired }) {
   const nowMin = d.time.slice(0, 16)
   const sch = d.schedule.filter(x => x.when.slice(0, 10) >= today)
   return (
-    <section className="right">
+    <>
       <div className="pane card">
         <div className="eyebrow">今日日程 <small>{sch.length ? `${sch.length} 项` : ''}</small></div>
         {sch.length === 0 && <div className="empty">今日无安排</div>}
@@ -43,6 +43,6 @@ export default function Panels({ refreshKey, onData, onExpired }) {
           <li key={x.id}><span className="tickbox">·</span><span>{x.content}</span></li>
         ))}</ul>
       </div>
-    </section>
+    </>
   )
 }

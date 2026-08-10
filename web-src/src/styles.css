@@ -142,11 +142,22 @@ header{height:58px;display:flex;align-items:center;gap:18px;padding:0 22px;flex:
 .logout{color:var(--dim);transition:color .2s,border-color .2s}
 .logout:hover{color:var(--alert);border-color:rgba(255,92,92,.4)}
 
-main{display:grid;grid-template-columns:260px minmax(0,1fr) 300px;gap:16px;
+main{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:16px;
   padding:16px 22px;flex:1;min-height:0;position:relative;z-index:2}
+main.hide-left .left{display:none}
+main.hide-right .right{display:none}
+.navbtn{cursor:pointer;font-size:14px;padding:4px 11px;transition:background .2s}
+.navbtn:hover{background:rgba(83,232,255,.16)}
+.navbtn.on{background:rgba(83,232,255,.22)}
+.drawer-backdrop{display:none}
+
+/* 三列钉死轨道，防止折叠后自动排位跑偏 */
+.left{grid-column:1}
+.center{grid-column:2}
+.right{grid-column:3}
 
 /* 左栏：会话历史 */
-.left{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.left{width:260px;display:flex;flex-direction:column;min-height:0;overflow:hidden}
 .threads{flex:1;display:flex;flex-direction:column;min-height:0;padding:12px 12px 6px}
 .newchat{font-weight:600;font-size:14.5px;letter-spacing:.12em;color:var(--arc);
   background:rgba(83,232,255,.08);border:1px solid var(--line);padding:10px 0;width:100%;
@@ -237,7 +248,7 @@ main{display:grid;grid-template-columns:260px minmax(0,1fr) 300px;gap:16px;
 .stopbtn{background:var(--alert);color:#fff}
 
 /* 右栏 */
-.right{display:flex;flex-direction:column;gap:16px;min-height:0;overflow-y:auto}
+.right{width:300px;display:flex;flex-direction:column;gap:16px;min-height:0;overflow-y:auto}
 .right::-webkit-scrollbar{width:0}
 .card ul{list-style:none;padding:8px 14px 12px}
 .card li{padding:7px 0;border-bottom:1px dashed rgba(83,232,255,.12);font-size:14.5px;line-height:1.5;display:flex;gap:8px}
@@ -248,14 +259,21 @@ main{display:grid;grid-template-columns:260px minmax(0,1fr) 300px;gap:16px;
 .tickbox{color:var(--arc);font-family:var(--mono)}
 
 /* ---------- 响应式 / 动效偏好 ---------- */
-@media (max-width:1120px){
-  body{overflow:auto}
-  .hud{height:auto}
-  main{grid-template-columns:1fr}
-  .left{display:none}
-  .log{height:56vh}
+@media (max-width:1180px){
+  main{display:flex;padding:10px 12px;gap:0}
+  .center{flex:1;min-width:0}
+  main.hide-left .left,main.hide-right .right{display:flex}  /* 窄屏显隐交给抽屉 */
+  .left,.right{position:fixed;top:58px;bottom:0;z-index:22;
+    transition:transform .28s ease;background:rgba(5,11,18,.97);
+    box-shadow:0 0 44px rgba(0,0,0,.6)}
+  .left{left:0;width:282px;border-right:1px solid var(--line);transform:translateX(-105%)}
+  .left.open{transform:none}
+  .right{right:0;width:302px;border-left:1px solid var(--line);padding:14px;transform:translateX(105%)}
+  .right.open{transform:none}
+  .drawer-backdrop{display:block;position:fixed;inset:58px 0 0 0;z-index:21;background:rgba(0,0,0,.45)}
+  .hide-sm{display:none}
 }
-@media (max-width:640px){.ubox{max-width:92%}.tagline{display:none}}
+@media (max-width:640px){.ubox{max-width:92%}.tagline{display:none}.logcol{padding:16px 10px 8px}}
 @media (prefers-reduced-motion:reduce){
   .sweep,.grain{display:none}
   .row-user,.row-jarvis{animation:none}

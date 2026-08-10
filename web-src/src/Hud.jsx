@@ -9,6 +9,8 @@ function newThreadId() {
   return 't-' + (crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10))
 }
 
+const isNarrow = () => window.innerWidth <= 1180
+
 export default function Hud({ onLogout }) {
   const [busy, setBusy] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -16,6 +18,8 @@ export default function Hud({ onLogout }) {
   const [clock, setClock] = useState('')
   const [geo, setGeo] = useState(null)
   const [thread, setThread] = useState(() => localStorage.getItem('jws_thread') || 'web')
+  const [leftOpen, setLeftOpen] = useState(() => !isNarrow())
+  const [rightOpen, setRightOpen] = useState(() => !isNarrow())
 
   useEffect(() => { localStorage.setItem('jws_thread', thread) }, [thread])
 
@@ -36,22 +40,31 @@ export default function Hud({ onLogout }) {
     onLogout()
   }
 
+  function selectThread(id) {
+    setThread(id)
+    if (isNarrow()) setLeftOpen(false)  // 窄屏选完会话自动收抽屉
+  }
+
   return (
     <div className="hud">
       <div className="sweep" /><div className="grain" />
       <header>
+        <button className={`chip navbtn${leftOpen ? ' on' : ''}`}
+          onClick={() => setLeftOpen(v => !v)} title="会话历史">☰</button>
         <span className="wordmark">J.A.R.V.I.S.</span>
         <span className="tagline">私人管家 · v{dash?.version ?? '—'}</span>
         <span className="spacer" />
-        <span className="chip">{dash?.model ?? '—'}</span>
-        <span className="chip online"><span className="dot" />{dash?.place || '在线'}</span>
-        <span className="chip">{clock}</span>
+        <span className="chip hide-sm">{dash?.model ?? '—'}</span>
+        <span className="chip online hide-sm"><span className="dot" />{dash?.place || '在线'}</span>
+        <span className="chip hide-sm">{clock}</span>
+        <button className={`chip navbtn${rightOpen ? ' on' : ''}`}
+          onClick={() => setRightOpen(v => !v)} title="日程 / 待办 / 备忘">▦</button>
         <button className="chip logout" onClick={quit} title="退出登录">⏻</button>
       </header>
-      <main>
-        <section className="left pane">
+      <main className={`${leftOpen ? '' : 'hide-left'} ${rightOpen ? '' : 'hide-right'}`}>
+        <section className={`left pane${leftOpen ? ' open' : ''}`}>
           <Threads current={thread} refreshKey={refreshKey}
-            onSelect={setThread} onNew={() => setThread(newThreadId())}
+            onSelect={selectThread} onNew={() => selectThread(newThreadId())}
             onExpired={onLogout} />
           <div className="sidefoot">
             <div className="minireactor"><MossMini busy={busy} /></div>
@@ -63,7 +76,13 @@ export default function Hud({ onLogout }) {
         </section>
         <Chat threadId={thread} location={geo} onBusy={setBusy}
           onTurnDone={() => setRefreshKey(k => k + 1)} onExpired={onLogout} />
-        <Panels refreshKey={refreshKey} onData={setDash} onExpired={onLogout} />
+        <section className={`right${rightOpen ? ' open' : ''}`}>
+          <Panels refreshKey={refreshKey} onData={setDash} onExpired={onLogout} />
+        </section>
+        {(leftOpen || rightOpen) && (
+          <div className="drawer-backdrop"
+            onClick={() => { setLeftOpen(false); setRightOpen(false) }} />
+        )}
       </main>
     </div>
   )
