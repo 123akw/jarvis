@@ -78,6 +78,29 @@ body.expanded #panel{display:flex}
 #send:disabled{opacity:.35}
 #plog .empty{color:var(--dim);font-family:var(--mono);font-size:12px;
   letter-spacing:.1em;text-align:center;padding:26px 0}
+
+/* ---------- 设置面板 ---------- */
+#settings{display:none;position:absolute;inset:0;background:#050B12;
+  z-index:5;flex-direction:column}
+body.show-settings #settings{display:flex}
+.s-head{-webkit-app-region:drag;display:flex;align-items:center;gap:10px;
+  padding:10px 14px;border-bottom:1px solid var(--line)}
+.s-title{font-family:var(--mono);font-size:12px;letter-spacing:.3em;color:var(--arc)}
+.s-body{flex:1;overflow-y:auto;padding:18px 18px;display:flex;flex-direction:column;gap:18px}
+.s-row{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:14px}
+.s-row.s-col{flex-direction:column;align-items:stretch;gap:8px}
+.s-row>span{color:var(--text);letter-spacing:.06em}
+.s-row select,.s-row input[type=text]{background:rgba(13,28,44,.7);border:1px solid var(--line);
+  color:var(--text);font-size:13px;padding:9px 10px;outline:none;font-family:inherit;
+  -webkit-user-select:text;user-select:text}
+.s-row select:focus,.s-row input[type=text]:focus{border-color:rgba(83,232,255,.55)}
+.s-row input[type=checkbox]{width:18px;height:18px;accent-color:#53E8FF}
+.s-hint{font-family:var(--mono);font-size:11px;color:var(--dim);letter-spacing:.06em;min-height:14px}
+.s-hint.ok{color:#7CF5B2}
+.s-hint.bad{color:var(--alert)}
+#s-save{border:none;background:var(--arc);color:var(--void);font-size:13px;
+  letter-spacing:.2em;padding:11px 0;cursor:pointer;font-weight:600}
+#s-save:hover{box-shadow:0 0 18px rgba(83,232,255,.5)}
 </style>
 </head>
 <body>
@@ -89,6 +112,7 @@ body.expanded #panel{display:flex}
       <span id="ptitle">J.A.R.V.I.S.</span>
       <span id="pstate">连接中…</span>
       <span class="sp"></span>
+      <button class="hbtn" id="setbtn" title="设置">⚙</button>
       <button class="hbtn" id="clearbtn" title="清空快捷对话">↺</button>
       <button class="hbtn" id="minbtn" title="收起为悬浮球">—</button>
     </div>
@@ -96,6 +120,38 @@ body.expanded #panel{display:flex}
     <div id="pinput">
       <textarea id="box" rows="1" placeholder="小声吩咐一句…（Enter 发送）"></textarea>
       <button id="send" title="发送">↑</button>
+    </div>
+
+    <div id="settings">
+      <div class="s-head">
+        <button class="hbtn" id="backbtn" title="返回">←</button>
+        <span class="s-title">设 置</span>
+      </div>
+      <div class="s-body">
+        <label class="s-row">
+          <span>开机自启</span>
+          <input type="checkbox" id="s-autolaunch">
+        </label>
+        <div class="s-row s-col">
+          <span>全局唤醒快捷键</span>
+          <select id="s-hotkey">
+            <option value="Alt+Space">⌥ Space</option>
+            <option value="CommandOrControl+Shift+J">⌘ ⇧ J</option>
+            <option value="Control+Space">⌃ Space</option>
+            <option value="CommandOrControl+Shift+M">⌘ ⇧ M</option>
+            <option value="">停用</option>
+            <option value="custom">自定义…</option>
+          </select>
+          <input type="text" id="s-hotkey-custom" placeholder="Electron 快捷键格式，如 Alt+Shift+K" style="display:none">
+          <div class="s-hint" id="s-hotkey-state"></div>
+        </div>
+        <div class="s-row s-col">
+          <span>服务器地址</span>
+          <input type="text" id="s-server" placeholder="https://jws.gkgeek-set.cn">
+        </div>
+        <button id="s-save">保存并应用</button>
+        <div class="s-hint" id="s-msg"></div>
+      </div>
     </div>
   </div>
 

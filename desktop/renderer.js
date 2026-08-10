@@ -151,6 +151,61 @@ box.addEventListener('input', () => {
   box.style.height = Math.min(box.scrollHeight, 96) + 'px'
 })
 window.jws.onForceExpand(() => document.body.classList.add('expanded'))
+window.jws.onSetExpanded(v => {  // 全局快捷键唤醒/收起时同步界面
+  document.body.classList.toggle('expanded', v)
+  if (v) box.focus()
+})
+
+/* ---------- 设置面板 ---------- */
+const PRESETS = ['Alt+Space', 'CommandOrControl+Shift+J', 'Control+Space', 'CommandOrControl+Shift+M', '']
+const hotkeySel = $('#s-hotkey'), hotkeyCustom = $('#s-hotkey-custom')
+
+async function openSettings() {
+  const s = await window.jws.getSettings()
+  $('#s-autolaunch').checked = !!s.openAtLogin
+  if (PRESETS.includes(s.hotkey)) {
+    hotkeySel.value = s.hotkey
+    hotkeyCustom.style.display = 'none'
+  } else {
+    hotkeySel.value = 'custom'
+    hotkeyCustom.style.display = ''
+    hotkeyCustom.value = s.hotkey
+  }
+  $('#s-hotkey-state').textContent = s.hotkey
+    ? (s.hotkeyOk ? `当前生效：${s.hotkey}` : `注册失败（可能被占用）：${s.hotkey}`)
+    : '未启用'
+  $('#s-hotkey-state').className = 's-hint ' + (s.hotkey ? (s.hotkeyOk ? 'ok' : 'bad') : '')
+  $('#s-server').value = SERVER
+  $('#s-msg').textContent = ''
+  document.body.classList.add('show-settings')
+}
+
+hotkeySel.addEventListener('change', () => {
+  hotkeyCustom.style.display = hotkeySel.value === 'custom' ? '' : 'none'
+})
+
+$('#setbtn').addEventListener('click', openSettings)
+$('#backbtn').addEventListener('click', () => document.body.classList.remove('show-settings'))
+
+$('#s-save').addEventListener('click', async () => {
+  const hotkey = hotkeySel.value === 'custom' ? hotkeyCustom.value.trim() : hotkeySel.value
+  const r = await window.jws.setSettings({
+    hotkey,
+    openAtLogin: $('#s-autolaunch').checked,
+  })
+  const server = $('#s-server').value.trim().replace(/\/+$/, '')
+  const serverChanged = server && server !== SERVER
+  if (serverChanged) localStorage.setItem('jws_server', server)
+  const msg = $('#s-msg')
+  if (hotkey && !r.hotkeyOk) {
+    msg.textContent = '⚠ 快捷键注册失败（可能与其他应用冲突），其余设置已保存'
+    msg.className = 's-hint bad'
+  } else {
+    msg.textContent = serverChanged ? '已保存，正在按新服务器地址重连…' : '已保存并生效'
+    msg.className = 's-hint ok'
+  }
+  if (serverChanged) setTimeout(() => location.reload(), 900)
+})
 
 /* 启动：登录 + 取历史 */
 ;(async () => {
