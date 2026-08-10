@@ -52,6 +52,17 @@ cp .env.example .env      # 填入 DEEPSEEK_API_KEY
 .venv/bin/python scripts/check_memory.py # 两个独立进程先后对话，记忆必须接上
 ```
 
+## 桌面悬浮窗（macOS）
+
+```bash
+cd desktop && npm install && npm start
+```
+
+- 屏幕右侧出现 **MOSS 红瞳悬浮球**：置顶所有窗口、全工作区可见、按住外圈可拖拽。
+- **点红瞳** → 原地向左展开快捷对话面板：最近历史 + 流式问答（独立 `desktop` 会话线程，不打扰网页端记录）；Enter 发送，`—` 收起回悬浮球，`↺` 清空快捷对话。
+- 默认连 `https://jws.gkgeek-set.cn`；要改服务器地址，在面板开发者工具里执行 `localStorage.setItem('jws_server','http://127.0.0.1:7789')`。
+- 若 `npm install` 后启动报缺二进制（npm 拦截了 Electron 安装脚本）：`npm rebuild electron`，仍不行就 `node node_modules/electron/install.js`。
+
 ## 加一个新工具（三步）
 
 1. 在 `jarvis/tools/` 里建模块，用 `@tool` 写函数，docstring 用中文说清用途（模型靠它决定何时调用）。

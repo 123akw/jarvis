@@ -1,0 +1,16 @@
+{
+  "name": "jws-desktop",
+  "private": true,
+  "version": "1.1.0",
+  "description": "贾维斯桌面悬浮窗：MOSS 悬浮球 + 快捷对话面板",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^38.2.0"
+  },
+  "allowScripts": {
+    "electron@38.8.6": true
+  }
+}
