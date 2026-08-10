@@ -16,6 +16,8 @@ from pydantic import BaseModel
 
 from jarvis import __version__, config
 from jarvis.graph import build_agent
+from jarvis.tools import TOOLS
+from jarvis.tools.location import get_location, locate_by_ip, set_location
 from jarvis.tools.memo import all_memos
 from jarvis.tools.schedule import all_schedule
 from jarvis.tools.todo import all_todos
@@ -108,6 +110,8 @@ def dashboard(request: Request):
     pending = [t for t in todos if not t["done"]]
     return {
         "version": __version__,
+        "tools": len(TOOLS),
+        "place": (get_location() or {}).get("place", ""),
         "model": config.model_name(),
         "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "uptime_min": int((datetime.datetime.now() - _started).total_seconds() // 60),
@@ -122,6 +126,19 @@ def dashboard(request: Request):
 class ChatIn(BaseModel):
     message: str
     thread_id: str = "web"
+    location: dict | None = None  # 浏览器定位 {lat, lon}，可选
+
+
+def _update_location(request: Request, body: "ChatIn") -> None:
+    loc = body.location or {}
+    if isinstance(loc.get("lat"), (int, float)) and isinstance(loc.get("lon"), (int, float)):
+        set_location(loc["lat"], loc["lon"], source="浏览器")
+        return
+    if get_location() is None:  # 没有任何定位时才用 IP 兜底
+        ip = request.headers.get("x-real-ip") or (request.client.host if request.client else "")
+        hit = locate_by_ip(ip)
+        if hit:
+            set_location(hit["lat"], hit["lon"], source="IP")
 
 
 def _chunk_text(content) -> str:
@@ -136,6 +153,10 @@ def _chunk_text(content) -> str:
 def chat(request: Request, body: ChatIn):
     if not _authed(request):
         return _deny()
+    try:
+        _update_location(request, body)
+    except Exception:
+        pass  # 定位失败不拦对话
 
     def gen():
         global _chat_count

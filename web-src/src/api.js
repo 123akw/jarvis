@@ -21,12 +21,12 @@ export async function getDashboard() {
   return r.json()
 }
 
-/** SSE 流式对话，逐事件产出 {type, ...} */
-export async function* chatStream(message) {
+/** SSE 流式对话，逐事件产出 {type, ...}；location 为浏览器定位 {lat, lon}，可空 */
+export async function* chatStream(message, location = null) {
   const r = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, thread_id: 'web' }),
+    body: JSON.stringify({ message, thread_id: 'web', location }),
   })
   if (r.status === 401) throw new Error('401')
   const reader = r.body.getReader()

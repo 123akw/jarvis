@@ -9,11 +9,18 @@ export default function Hud({ onLogout }) {
   const [refreshKey, setRefreshKey] = useState(0)
   const [dash, setDash] = useState(null)
   const [clock, setClock] = useState('')
+  const [geo, setGeo] = useState(null)
 
   useEffect(() => {
     const t = setInterval(() =>
       setClock(new Date().toLocaleTimeString('zh-CN', { hour12: false })), 1000)
     return () => clearInterval(t)
+  }, [])
+
+  useEffect(() => {  // 浏览器定位：拿到就随对话上报，拒绝则服务端按 IP 兜底
+    navigator.geolocation?.getCurrentPosition(
+      p => setGeo({ lat: p.coords.latitude, lon: p.coords.longitude }),
+      () => {}, { timeout: 8000, maximumAge: 600000 })
   }, [])
 
   async function quit() {
@@ -51,11 +58,13 @@ export default function Hud({ onLogout }) {
               <div><dt>在线时长</dt><dd>{dash ? `${dash.uptime_min} 分钟` : '—'}</dd></div>
               <div><dt>本次会话</dt><dd>{dash ? `${dash.chats} 轮` : '—'}</dd></div>
               <div><dt>记忆引擎</dt><dd>SQLite</dd></div>
-              <div><dt>工具阵列</dt><dd>13 项</dd></div>
+              <div><dt>工具阵列</dt><dd>{dash ? `${dash.tools} 项` : '—'}</dd></div>
+              <div><dt>当前定位</dt><dd>{geo ? '浏览器' : dash?.place ? 'IP' : '未授权'}</dd></div>
             </dl>
           </div>
         </section>
-        <Chat onBusy={setBusy} onTurnDone={() => setRefreshKey(k => k + 1)} onExpired={onLogout} />
+        <Chat onBusy={setBusy} onTurnDone={() => setRefreshKey(k => k + 1)}
+          onExpired={onLogout} location={geo} />
         <Panels refreshKey={refreshKey} onData={setDash} onExpired={onLogout} />
       </main>
     </div>

@@ -55,43 +55,55 @@ input{font-family:inherit}
 .glow-bed.glow-hot{background:radial-gradient(circle,rgba(83,232,255,.4),rgba(83,232,255,.1) 55%,transparent 75%)}
 .glow-bed.glow-red{background:radial-gradient(circle,rgba(255,92,92,.35),rgba(255,92,92,.08) 55%,transparent 72%)}
 
-/* ================= 登录页 ================= */
-.login{position:fixed;inset:0;display:grid;grid-template-columns:1.25fr 1fr;
-  align-items:center;overflow:hidden;transition:opacity .5s .45s,filter .5s .45s}
+/* ================= 登录页（电影化构图）================= */
+.shaderbg{position:fixed;inset:0;animation:kenburns 36s ease-in-out infinite alternate}
+@keyframes kenburns{from{transform:scale(1)}to{transform:scale(1.07)}}
+.login{position:fixed;inset:0;overflow:hidden;display:flex;align-items:center;
+  justify-content:flex-end;transition:opacity .5s .45s,filter .5s .45s}
 .login-out{opacity:0;filter:brightness(2.2) blur(3px);pointer-events:none}
-.login-gyro{height:min(88vh,88vw);justify-self:center;width:min(88vh,52vw)}
-.login-card{width:min(400px,86vw);justify-self:start;margin-right:8vw;
-  padding:38px 36px 30px;display:flex;flex-direction:column;gap:18px;
-  border:1px solid var(--line);background:linear-gradient(160deg,rgba(13,28,44,.82),rgba(13,28,44,.5));
-  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
-.login-mark{font-family:var(--disp);font-weight:900;font-size:26px;letter-spacing:.3em;color:var(--arc);
-  text-shadow:0 0 22px rgba(83,232,255,.6)}
-.login-sub{font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:var(--dim);margin-top:-10px}
+.login-type{position:fixed;left:6vw;bottom:9vh;z-index:2;display:flex;flex-direction:column;gap:10px;
+  pointer-events:none}
+.login-eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.32em;color:var(--arc);
+  text-shadow:0 0 14px rgba(83,232,255,.5)}
+.login-h1{font-family:var(--body);font-weight:600;font-size:clamp(38px,5.2vw,74px);
+  color:#EAF7FC;letter-spacing:.04em;line-height:1.1;text-shadow:0 2px 34px rgba(0,0,0,.55)}
+.login-date{font-family:var(--mono);font-size:13px;color:var(--dim);letter-spacing:.18em}
+.telemetry{margin-top:16px;display:flex;flex-direction:column;gap:4px}
+.tl{font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:var(--dim);
+  opacity:.35;transition:opacity .6s,color .6s}
+.tl.on{opacity:1;color:var(--arc)}
+.login-card{position:relative;z-index:2;width:min(380px,88vw);margin-right:7vw;
+  padding:26px 34px 24px;display:flex;flex-direction:column;gap:15px;
+  background:rgba(4,10,17,.88);border:1px solid rgba(83,232,255,.16);
+  box-shadow:0 30px 80px rgba(0,0,0,.55)}
+.login-core{width:118px;height:118px;align-self:center}
+.login-sub{font-family:var(--mono);font-size:11px;letter-spacing:.2em;color:var(--dim);
+  text-align:center;margin-top:-6px}
 .field{display:flex;flex-direction:column;gap:6px}
 .field span{font-family:var(--mono);font-size:11px;letter-spacing:.22em;color:var(--dim)}
-.field input{background:rgba(3,10,18,.6);border:1px solid var(--line);color:var(--text);
-  font-size:16px;padding:11px 12px;letter-spacing:.06em;outline:none;
-  border-left:2px solid var(--arc);transition:border-color .2s,box-shadow .2s}
-.field input:focus{border-color:rgba(83,232,255,.65);box-shadow:0 0 18px rgba(83,232,255,.15)}
-.login-btn{margin-top:6px;font-family:var(--disp);font-weight:700;font-size:13px;letter-spacing:.3em;
+.field input{background:rgba(13,28,44,.85);border:1px solid transparent;color:var(--text);
+  font-size:16px;padding:12px;letter-spacing:.06em;outline:none;
+  transition:border-color .2s,box-shadow .2s}
+.field input:focus{border-color:rgba(83,232,255,.6);box-shadow:0 0 18px rgba(83,232,255,.14)}
+.login-btn{margin-top:4px;font-family:var(--disp);font-weight:700;font-size:13px;letter-spacing:.3em;
   color:var(--void);background:var(--arc);border:none;padding:13px 0;
   transition:box-shadow .2s,opacity .2s}
 .login-btn:hover{box-shadow:0 0 26px rgba(83,232,255,.55)}
 .login-btn:disabled{opacity:.55}
 .login-hint{font-family:var(--mono);font-size:12px;letter-spacing:.1em;color:var(--alert);
-  opacity:0;transition:opacity .2s;min-height:15px}
+  opacity:0;transition:opacity .2s;min-height:15px;text-align:center}
 .login-hint.show{opacity:1}
 .shake{animation:shake .45s}
 @keyframes shake{
   10%,90%{transform:translateX(-2px)}20%,80%{transform:translateX(4px)}
   30%,50%,70%{transform:translateX(-7px)}40%,60%{transform:translateX(7px)}}
-.telemetry{position:fixed;left:26px;bottom:22px;display:flex;flex-direction:column;gap:4px}
-.tl{font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:var(--dim);
-  opacity:.35;transition:opacity .6s,color .6s}
-.tl.on{opacity:1;color:var(--arc)}
-.login-corner{position:fixed;width:52px;height:52px;pointer-events:none}
-.tl-c{top:18px;left:18px;border-top:1px solid var(--line);border-left:1px solid var(--line)}
-.br-c{bottom:18px;right:18px;border-bottom:1px solid var(--line);border-right:1px solid var(--line)}
+@media (max-width:900px){
+  .login{justify-content:center}
+  .login-card{margin-right:0}
+  .login-type{left:5vw;top:6vh;bottom:auto}
+  .login-h1{font-size:clamp(28px,7vw,44px)}
+  .telemetry{display:none}
+}
 
 /* ================= HUD 主界面 ================= */
 .hud{height:100%;display:flex;flex-direction:column}

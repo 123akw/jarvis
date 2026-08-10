@@ -9,7 +9,7 @@ const md = t => esc(t)
 
 let nextId = 1
 
-export default function Chat({ onBusy, onTurnDone, onExpired }) {
+export default function Chat({ onBusy, onTurnDone, onExpired, location }) {
   const [msgs, setMsgs] = useState([{
     id: 0, kind: 'jarvis', raw: '先生，各系统自检完毕，随时候命。日程、待办、备忘在右侧面板实时同步。',
     chips: [], streaming: false,
@@ -41,7 +41,7 @@ export default function Chat({ onBusy, onTurnDone, onExpired }) {
       { id: nextId++, kind: 'jarvis', raw: '', chips: [], streaming: true },
     ])
     try {
-      for await (const ev of chatStream(text)) {
+      for await (const ev of chatStream(text, location)) {
         if (ev.type === 'token') {
           patchLast(m => ({ ...m, raw: m.raw + ev.text }))
         } else if (ev.type === 'tool_start') {
