@@ -45,6 +45,18 @@ def test_forged_cookie_rejected():
     assert c.get("/api/dashboard").status_code == 401
 
 
+def test_header_token_grants_access():
+    c = _client()
+    token = c.post("/api/login", json={"username": "admin", "password": "admin"}).json()["token"]
+    c2 = _client()  # 无 cookie，仅带请求头令牌（桌面悬浮窗场景）
+    assert c2.get("/api/dashboard", headers={"X-JWS-Token": token}).status_code == 200
+
+
+def test_forged_header_token_rejected():
+    c = _client()
+    assert c.get("/api/dashboard", headers={"X-JWS-Token": "f" * 64}).status_code == 401
+
+
 def test_session_survives_restart_same_secret():
     c1 = _client()
     resp = c1.post("/api/login", json={"username": "admin", "password": "admin"})

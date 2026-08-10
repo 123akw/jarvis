@@ -48,7 +48,8 @@ def _session_token() -> str:
 
 
 def _authed(request: Request) -> bool:
-    got = request.cookies.get(_COOKIE, "")
+    # 同域网页走 cookie；桌面悬浮窗（file:// 跨站，cookie 被 SameSite 拦）走请求头令牌
+    got = request.cookies.get(_COOKIE, "") or request.headers.get("x-jws-token", "")
     return bool(got) and hmac.compare_digest(got, _session_token())
 
 
@@ -80,9 +81,10 @@ def login(body: LoginIn):
     if not ok:
         time.sleep(0.8)  # 失败节流，拖慢暴力猜解
         return JSONResponse({"error": "账号或口令不对"}, status_code=401)
-    resp = JSONResponse({"ok": True})
+    token = _session_token()
+    resp = JSONResponse({"ok": True, "token": token})
     resp.set_cookie(
-        _COOKIE, _session_token(), max_age=_SESSION_DAYS * 86400,
+        _COOKIE, token, max_age=_SESSION_DAYS * 86400,
         httponly=True, samesite="lax", path="/",
     )
     return resp
