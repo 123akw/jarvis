@@ -8,8 +8,12 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def load_env() -> None:
-    """加载项目根 .env；已存在的环境变量优先，不被覆盖。"""
-    load_dotenv(ROOT / ".env")
+    """加载项目根 .env；已存在的环境变量优先，不被覆盖。
+    读不到文件（不存在/无权限，如 systemd 已注入环境变量的部署场景）时静默跳过。"""
+    try:
+        load_dotenv(ROOT / ".env")
+    except OSError:
+        pass
     # SOCKS 代理需要额外的 socksio 包（不在依赖内）；
     # 摘掉 all_proxy 后 httpx 自动走 https_proxy 的 HTTP 代理。
     for var in ("all_proxy", "ALL_PROXY"):
