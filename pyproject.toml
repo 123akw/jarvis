@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarvis"
+version = "0.1.0"
+description = "终端私人管家贾维斯：LangGraph 底座 + SQLite 持久记忆 + 本地工具"
+requires-python = ">=3.10"
+dependencies = [
+    "langgraph>=1.2",
+    "langchain-openai>=1.4",
+    "langgraph-checkpoint-sqlite>=3.1",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+jarvis = "jarvis.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["jarvis*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
