@@ -20,34 +20,52 @@ html,body{height:100%;background:transparent;overflow:hidden;
   display:flex;align-items:center;justify-content:center;
   transition:transform .18s ease}
 #ball:hover{transform:scale(1.05)}
-#eye{-webkit-app-region:no-drag;cursor:pointer;width:72%;height:72%;border-radius:50%;
-  position:relative}
+#eye{-webkit-app-region:no-drag;cursor:pointer;width:80%;height:80%;border-radius:50%;
+  position:relative;z-index:3;background:transparent;border:none}
 body.expanded #ball{display:none}
 
-/* 样式一：MOSS 红瞳（默认）——玻璃暗环 + 红芯 */
-body.ball-moss #ball{
-  background:
-    radial-gradient(circle at 32% 26%,rgba(255,255,255,.16),transparent 34%),
-    radial-gradient(circle at 50% 50%,#232B34 40%,#12171D 72%,#0A0D11);
-  border:1px solid rgba(83,232,255,.35);
-  box-shadow:0 4px 16px rgba(0,0,0,.5),inset 0 1px 6px rgba(255,255,255,.07),
-    inset 0 -4px 10px rgba(0,0,0,.55)}
-body.ball-moss #eye{
-  background:radial-gradient(circle at 38% 32%,#FFC9BF 0%,#FF4A38 26%,#C21206 55%,#570803 85%,#2A0402);
-  border:2px solid #0C1015;
-  box-shadow:0 0 12px rgba(255,42,31,.7),0 0 30px rgba(255,42,31,.28),
-    inset 0 -2px 6px rgba(0,0,0,.5);
-  animation:breath 3s ease-in-out infinite}
-body.ball-moss #eye::after{content:'';position:absolute;left:24%;top:16%;width:22%;height:14%;
-  border-radius:50%;background:rgba(255,255,255,.75);filter:blur(1px)}
+/* 样式一：MOSS 能量核（默认）——玻璃球体 + 内部流体能量 */
+#orb{position:absolute;inset:0;border-radius:50%;overflow:hidden;display:none;
+  pointer-events:none;
+  background:radial-gradient(circle at 50% 58%,#0B1119 28%,#05080D 72%,#03050A)}
+body.ball-moss #orb{display:block}
+.sw{position:absolute;width:130%;height:130%;left:-15%;top:-15%;border-radius:50%;
+  filter:blur(4px) saturate(1.5);mix-blend-mode:screen}
+.sw1{background:radial-gradient(circle at 32% 42%,rgba(255,64,40,1),rgba(255,64,40,.3) 26%,transparent 44%);
+  animation:swA 7s ease-in-out infinite}
+.sw2{background:radial-gradient(circle at 68% 58%,rgba(83,232,255,.95),rgba(83,232,255,.25) 22%,transparent 38%);
+  animation:swB 9.5s ease-in-out infinite}
+.sw3{background:radial-gradient(circle at 55% 28%,rgba(255,150,66,.75),transparent 34%);
+  animation:swA 12s ease-in-out infinite reverse}
+.sw4{background:radial-gradient(circle at 42% 74%,rgba(150,90,255,.7),transparent 36%);
+  animation:swB 14s ease-in-out infinite reverse}
+.sw5{background:radial-gradient(circle at 50% 52%,rgba(255,170,140,.95),rgba(255,42,31,.55) 26%,transparent 48%);
+  animation:corePulse 3.2s ease-in-out infinite;filter:blur(3px) saturate(1.4)}
+@keyframes corePulse{50%{transform:scale(.88);opacity:.8}}
+@keyframes swA{
+  0%,100%{transform:translate(-5%,-3%) rotate(0) scale(1)}
+  33%{transform:translate(7%,5%) rotate(120deg) scale(1.18)}
+  66%{transform:translate(-3%,7%) rotate(240deg) scale(.92)}}
+@keyframes swB{
+  0%,100%{transform:translate(4%,2%) rotate(0) scale(1.05)}
+  50%{transform:translate(-6%,-5%) rotate(180deg) scale(.9)}}
+body.ball-moss #ball{border:1px solid rgba(150,225,255,.30);
+  box-shadow:0 6px 20px rgba(0,0,0,.55),0 0 22px rgba(255,60,40,.28),
+    0 0 34px rgba(83,232,255,.14)}
+body.ball-moss #ball::before{content:'';position:absolute;left:22%;top:8%;width:56%;height:26%;
+  border-radius:50%;z-index:2;pointer-events:none;filter:blur(2px);
+  background:linear-gradient(rgba(255,255,255,.20),rgba(255,255,255,0))}
+body.ball-moss #ball::after{content:'';position:absolute;inset:0;border-radius:50%;z-index:2;
+  pointer-events:none;
+  box-shadow:inset 0 -8px 16px rgba(0,0,0,.55),inset 0 0 10px rgba(83,232,255,.08)}
+body.busy.ball-moss .sw{animation-duration:2.6s}
 
 /* 样式二：极简暗球——低调小黑球 + 微红点 */
 body.ball-mini #ball{
   background:radial-gradient(circle at 34% 28%,#2A323C,#14181E 68%,#0B0E12);
   border:1px solid rgba(255,255,255,.08);
   box-shadow:0 3px 12px rgba(0,0,0,.5)}
-body.ball-mini #eye{width:100%;height:100%;background:transparent;border:none}
-body.ball-mini #eye::after{content:'';position:absolute;right:16%;bottom:16%;
+body.ball-mini #ball::after{content:'';position:absolute;right:16%;bottom:16%;
   width:18%;height:18%;border-radius:50%;
   background:radial-gradient(circle at 40% 35%,#FF8A7C,#FF2A1F 60%,#7A0E08);
   box-shadow:0 0 8px rgba(255,42,31,.8);animation:breath 3s infinite}
@@ -57,14 +75,12 @@ body.ball-img #ball{
   background-image:var(--ball-img);background-size:cover;background-position:center;
   border:2px solid rgba(83,232,255,.45);
   box-shadow:0 4px 16px rgba(0,0,0,.55),0 0 14px rgba(83,232,255,.2)}
-body.ball-img #eye{width:100%;height:100%;background:transparent;border:none}
-body.ball-img #eye::after{content:'';position:absolute;right:6%;bottom:6%;
+body.ball-img #ball::after{content:'';position:absolute;right:6%;bottom:6%;
   width:16%;height:16%;border-radius:50%;border:1.5px solid rgba(5,11,18,.9);
   background:#FF2A1F;box-shadow:0 0 6px rgba(255,42,31,.9);animation:breath 3s infinite}
 
 @keyframes breath{50%{opacity:.72;transform:scale(.95)}}
-body.busy.ball-moss #eye,body.busy.ball-mini #eye::after,body.busy.ball-img #eye::after{
-  animation-duration:.9s}
+body.busy.ball-mini #ball::after,body.busy.ball-img #ball::after{animation-duration:.9s}
 
 /* ---------- 对话面板（展开态） ---------- */
 #panel{display:none;position:fixed;inset:6px;flex-direction:column;
@@ -158,7 +174,10 @@ body.show-settings #settings{display:flex}
 </style>
 </head>
 <body>
-  <div id="ball" title="按住拖动"><div id="eye" title="打开对话"></div></div>
+  <div id="ball" title="按住拖动">
+    <div id="orb"><i class="sw sw1"></i><i class="sw sw2"></i><i class="sw sw3"></i><i class="sw sw4"></i><i class="sw sw5"></i></div>
+    <div id="eye" title="打开对话"></div>
+  </div>
 
   <div id="panel">
     <div id="phead">
@@ -197,7 +216,7 @@ body.show-settings #settings{display:flex}
         <div class="s-row s-col">
           <span>悬浮球样式</span>
           <select id="s-ballstyle">
-            <option value="moss">MOSS 红瞳</option>
+            <option value="moss">MOSS 能量核</option>
             <option value="mini">极简暗球</option>
             <option value="img">自定义图片</option>
           </select>
