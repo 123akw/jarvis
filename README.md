@@ -63,6 +63,14 @@ cd desktop && npm install && npm start
 - 面板右上 **⚙ 设置**：全局唤醒快捷键（默认 `⌥Space`，可换预设/自定义/停用）、开机自启（LaunchAgent 实现，`~/Library/LaunchAgents/com.jws.jarvis.desktop.plist`）、服务器地址（默认 `https://jws.gkgeek-set.cn`）。
 - 若 `npm install` 后启动报缺二进制（npm 拦截了 Electron 安装脚本）：`npm rebuild electron`，仍不行就 `node node_modules/electron/install.js`。
 
+## 个人微信桥接
+
+默认使用网页内置桥接：登录网页后点击顶栏 **微信**，生成二维码并用专用微信小号扫码确认。扫码后桥接在服务器进程内持续收发消息，浏览器和电脑都可以关闭；每个联系人使用独立的 `wx-<联系人>` 记忆线程。桌面悬浮窗也可在 **设置 → 个人微信** 中完成同一操作。
+
+微信 Token 只保存在 `JARVIS_DATA_DIR/wechat_token`（权限 `0600`），不会返回前端。服务重启会自动恢复连接；登录态失效时页面会提示重新扫码。群聊和非文本消息默认忽略。
+
+命令行备用桥仍位于 `wechat/ilink_gateway.py`。**不要让备用桥与网页内置桥同时连接同一个微信账号**，否则可能重复拉取或回复消息。第三方个人号接入存在账号风险，请使用专用小号，勿群发或营销。
+
 ## 加一个新工具（三步）
 
 1. 在 `jarvis/tools/` 里建模块，用 `@tool` 写函数，docstring 用中文说清用途（模型靠它决定何时调用）。

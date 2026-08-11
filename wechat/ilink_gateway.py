@@ -23,10 +23,16 @@ import time
 from pathlib import Path
 
 import httpx
+import segno
 
 ILINK = "https://ilinkai.weixin.qq.com/ilink/bot"
 ROOT = Path(__file__).resolve().parent
 CRED = ROOT / ".ilink_token"
+
+
+def write_qr_png(content: str, path: Path) -> None:
+    """把 iLink 返回的扫码 URL 编成真实 PNG，而不是误作 Base64 图片。"""
+    segno.make(content).save(path, scale=8, border=2)
 
 
 def _load_env():
@@ -58,11 +64,10 @@ def login(client: httpx.Client) -> str:
     r.raise_for_status()
     data = r.json()
     qrcode = data["qrcode"]
-    img = data.get("qrcode_img_content")
-    if img:
-        png = ROOT / "wx_login_qr.png"
-        png.write_bytes(base64.b64decode(img))
-        print(f"二维码已保存到 {png}，用微信扫码并在手机上确认登录。")
+    qr_content = data.get("qrcode_img_content") or qrcode
+    png = ROOT / "wx_login_qr.png"
+    write_qr_png(qr_content, png)
+    print(f"二维码已保存到 {png}，用微信扫码并在手机上确认登录。")
     print("等待扫码…")
     while True:
         s = client.get(f"{ILINK}/get_qrcode_status", params={"qrcode": qrcode}, timeout=15).json()
