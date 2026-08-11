@@ -2,7 +2,9 @@
 
 这个 Compose 单元为 JWS-Agent 的免费优先搜索链提供可选的本地第一跳。镜像固定为
 `ghcr.io/searxng/searxng:2026.7.28-c01178d03@sha256:5d6d903ab82afa56ee32792d477f36bc63d3e5ca04fcb6947e28a5cfd987fad3`，
-宿主机只发布 `127.0.0.1:8888`，不会监听公网地址。
+宿主机只发布 `127.0.0.1:18888`，不会监听公网地址。生产部署审计发现 BT-Panel
+已占用 `127.0.0.1:8888`；确认候选端口 18888 没有 IPv4、IPv6、防火墙或 Docker 引用后，
+本部署迁移到 18888。
 
 ## 启动与检查
 
@@ -17,7 +19,7 @@ docker compose -f deploy/searxng/compose.yaml ps
 然后在 `.env` 中设置：
 
 ```dotenv
-SEARXNG_BASE_URL=http://127.0.0.1:8888
+SEARXNG_BASE_URL=http://127.0.0.1:18888
 ```
 
 未启动或未配置本地 SearXNG 时，JWS-Agent 会继续尝试 DDGS；只有显式配置

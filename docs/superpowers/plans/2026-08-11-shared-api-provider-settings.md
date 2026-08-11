@@ -190,7 +190,9 @@ class ProbeResult:
     error_code: str | None = None
 ```
 
-1. Write RED tests for official host allowlists; public custom HTTPS; rejection of userinfo/query/fragment, private/loopback/link-local/reserved/metadata or mixed DNS; DNS rebinding; fixed approved peer IP with original Host/TLS SNI; sync/async parity; `trust_env=False`; redirects/proxies disabled; and separation of the exact SearXNG loopback `:8888` exception from LLM transport.
+> Production audit update: BT-Panel occupies loopback port 8888; candidate 18888 has zero IPv4, IPv6, firewall, and Docker references, so the exact local SearXNG exception is now `:18888`.
+
+1. Write RED tests for official host allowlists; public custom HTTPS; rejection of userinfo/query/fragment, private/loopback/link-local/reserved/metadata or mixed DNS; DNS rebinding; fixed approved peer IP with original Host/TLS SNI; sync/async parity; `trust_env=False`; redirects/proxies disabled; and separation of the exact SearXNG loopback `:18888` exception from LLM transport.
 
 2. Write RED Probe tests for `/models` success/unsupported manual model, authentication, 429, timeout, TLS and model-not-found mappings. Cover all required protocol paths: non-streaming forced tool call, streaming text with a normal terminator, and streaming forced tool call with incremental name/id/argument assembly.
 

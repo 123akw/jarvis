@@ -100,7 +100,7 @@ def test_searxng_compose_pins_exact_image_and_only_publishes_loopback():
     service = compose["services"]["searxng"]
 
     assert service["image"] == PINNED_IMAGE
-    assert service["ports"] == ["127.0.0.1:8888:8080"]
+    assert service["ports"] == ["127.0.0.1:18888:8080"]
     assert service.get("network_mode") != "host"
 
 

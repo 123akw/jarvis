@@ -206,7 +206,7 @@ The stub transport records the approved address and never opens a real socket; s
 .venv/bin/python -m pytest tests/test_search_fetcher.py -q
 ```
 
-3. Implement URL canonicalization and address policy. Resolve once per connection, reject the whole answer set if any IP is blocked, connect to an approved IP while retaining original Host/TLS SNI, use `trust_env=False`, and re-run the complete check for each redirect. Keep SearXNG's exact loopback `:8888` exception outside this generic public-web fetcher.
+3. Implement URL canonicalization and address policy. Resolve once per connection, reject the whole answer set if any IP is blocked, connect to an approved IP while retaining original Host/TLS SNI, use `trust_env=False`, and re-run the complete check for each redirect. Keep SearXNG's exact loopback `:18888` exception outside this generic public-web fetcher.
 
 4. Enforce the exact defaults above, reject non-HTML/text responses, stream bytes instead of trusting `Content-Length`, and redact URLs/query values from errors.
 
@@ -355,11 +355,13 @@ git commit -m "feat: bind agent tools to shared search service"
 - Modify: `.env.example`
 - Modify: `pyproject.toml`
 
-1. Write failing config/smoke tests that assert the container listens only on `127.0.0.1:8888`, JSON format is enabled, image is immutable, healthcheck/resource/restart limits exist, and the smoke script succeeds through a stub free chain without Tavily.
+> Production audit update: BT-Panel occupies `127.0.0.1:8888`; candidate 18888 has zero IPv4, IPv6, firewall, and Docker references, so the exact local SearXNG contract is now 18888.
+
+1. Write failing config/smoke tests that assert the container listens only on `127.0.0.1:18888`, JSON format is enabled, image is immutable, healthcheck/resource/restart limits exist, and the smoke script succeeds through a stub free chain without Tavily.
 
 ```python
 def test_searxng_compose_is_loopback_only(compose):
-    assert compose["services"]["searxng"]["ports"] == ["127.0.0.1:8888:8080"]
+    assert compose["services"]["searxng"]["ports"] == ["127.0.0.1:18888:8080"]
     assert "@sha256:" in compose["services"]["searxng"]["image"]
 ```
 

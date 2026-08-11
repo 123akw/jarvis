@@ -64,7 +64,7 @@ JARVIS_SEARCH_BACKEND=searxng
 JARVIS_SEARCH_FALLBACKS=ddgs,tavily
 JARVIS_EXTRACT_BACKEND=trafilatura
 JARVIS_EXTRACT_FALLBACKS=playwright
-SEARXNG_URL=http://127.0.0.1:8888
+SEARXNG_URL=http://127.0.0.1:18888
 
 # 以下全部可选，仅由运行环境注入真实值
 TAVILY_API_KEY=
@@ -76,7 +76,8 @@ PANDASCORE_TOKEN=
 ## SearXNG 部署
 
 - 使用官方容器镜像，固定可复现版本，不追随浮动 `latest`。
-- 只监听服务器回环地址 `127.0.0.1:8888`，不暴露为公网搜索实例。
+- 只监听服务器回环地址 `127.0.0.1:18888`，不暴露为公网搜索实例。
+- 生产部署审计发现 BT-Panel 已占用 `127.0.0.1:8888`；候选 18888 的 IPv4、IPv6、防火墙和 Docker 引用均为 0，因此本机 SearXNG exact loopback 统一迁移到 18888。
 - 在 SearXNG 设置中开启 JSON 输出格式，JWS-Agent 只调用 `/search` JSON 接口。
 - 配置健康检查、请求超时和资源限制；SearXNG 不健康时立即走 DDGS，避免拖慢对话。
 - 部署文档注明 SearXNG 的 AGPL-3.0 许可证及修改/分发时的相应义务。
@@ -162,7 +163,7 @@ PANDASCORE_TOKEN=
 ## 上线与回滚
 
 1. 部署前记录生产仓库 SHA、`jarvis-web.service` 状态和现有健康检查结果，备份 SearXNG 配置但不复制任何密钥到仓库。
-2. 先启动并验证只监听 `127.0.0.1:8888` 且设为开机自启的 SearXNG 容器，再安装锁定依赖，最后重启 `jarvis-web.service`。
+2. 先启动并验证只监听 `127.0.0.1:18888` 且设为开机自启的 SearXNG 容器，再安装锁定依赖，最后重启 `jarvis-web.service`。
 3. 重启后验证网站、`/api/session`、Provider 健康信息、中文搜索、正文提取及强制 SearXNG 故障时的 DDGS 回退；检查 systemd 与容器日志无敏感值。
 4. 任一关键检查失败，停止新 SearXNG 容器，把 `/opt/jarvis` 切回记录的 SHA，恢复对应依赖并重启 `jarvis-web.service`；保留 `/var/lib/jarvis`、微信登录状态和用户数据不动，再重复原健康检查。
 
