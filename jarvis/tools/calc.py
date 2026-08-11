@@ -3,6 +3,12 @@ import ast
 import operator
 
 from langchain_core.tools import tool
+from pydantic import BaseModel, Field
+
+
+class CalcArgs(BaseModel):
+    expression: str = Field(description="纯算术表达式，只含数字、+ - * / // % ** 和括号，"
+                                        "如「(2300*12)*0.85」；不接受变量、函数或单位")
 
 _BIN_OPS = {
     ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
@@ -22,9 +28,9 @@ def _eval(node):
     raise ValueError(f"不支持的表达式成分：{ast.dump(node)[:40]}")
 
 
-@tool
+@tool(args_schema=CalcArgs)
 def calc(expression: str) -> str:
-    """计算一个算术表达式，支持 + - * / // % ** 和括号，例如「(2300*12)*0.85」。"""
+    """精确计算算术表达式。凡是涉及数字运算都用它，不要心算。"""
     cleaned = expression.replace("×", "*").replace("÷", "/").replace("^", "**")
     try:
         result = _eval(ast.parse(cleaned, mode="eval").body)

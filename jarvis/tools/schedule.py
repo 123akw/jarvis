@@ -3,10 +3,22 @@ import datetime
 import json
 
 from langchain_core.tools import tool
+from pydantic import BaseModel, Field
 
 from jarvis.config import data_dir
 
 _FMT = "%Y-%m-%d %H:%M"
+
+
+class ScheduleAddArgs(BaseModel):
+    title: str = Field(description="日程事项内容，如「和王总开会」")
+    when: str = Field(description="发生时间，必须是 24 小时制「YYYY-MM-DD HH:MM」，"
+                                  "如 2026-08-12 09:00；领导说「明天」「周三」等相对时间时，"
+                                  "先调 now 工具确认今天日期再换算成绝对时间")
+
+
+class ScheduleDelArgs(BaseModel):
+    schedule_id: int = Field(ge=1, description="要删除的日程编号（schedule_list 返回的行首数字）")
 
 
 def _load() -> list[dict]:
@@ -39,10 +51,10 @@ def _tag(when: str) -> str:
     return ""
 
 
-@tool
+@tool(args_schema=ScheduleAddArgs)
 def schedule_add(title: str, when: str) -> str:
-    """新增一条日程。title 是事项，when 必须是「YYYY-MM-DD HH:MM」格式的具体时间；
-    用户说「明天」「周三」这类相对时间时，先用 now 工具确认今天日期再换算。"""
+    """新增一条有明确时间点的日程安排。适用于开会、约见、提醒这类「几点要做什么」；
+    没有具体时间点的事项该用 todo_add，随手记的信息该用 memo_add。"""
     try:
         datetime.datetime.strptime(when, _FMT)
     except ValueError:
@@ -64,9 +76,9 @@ def schedule_list() -> str:
                      for x in items)
 
 
-@tool
+@tool(args_schema=ScheduleDelArgs)
 def schedule_del(schedule_id: int) -> str:
-    """按编号删除一条日程。"""
+    """按编号删除一条日程。编号不确定时先调 schedule_list 查看。"""
     items = _load()
     kept = [x for x in items if x["id"] != schedule_id]
     if len(kept) == len(items):

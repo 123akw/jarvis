@@ -3,6 +3,12 @@ import os
 
 import httpx
 from langchain_core.tools import tool
+from pydantic import BaseModel, Field
+
+
+class WeatherArgs(BaseModel):
+    city: str = Field(description="城市名，中文或拼音，如「北京」「深圳」「shanghai」；"
+                                  "不要带省名或「市」字后缀")
 
 _GEO = "https://geocoding-api.open-meteo.com/v1/search"
 _FORECAST = "https://api.open-meteo.com/v1/forecast"
@@ -53,9 +59,10 @@ def _forecast_lines(lat: float, lon: float, label: str) -> str:
     return "\n".join(lines)
 
 
-@tool
+@tool(args_schema=WeatherArgs)
 def weather(city: str) -> str:
-    """查询某个城市的当前天气和未来三天预报，city 用城市名（如 北京、上海、深圳）。"""
+    """查询指定城市的当前天气和未来三天预报。仅当领导明确说了城市名时使用；
+    没提城市就改用 weather_here 按定位查询，不要反问。"""
     try:
         geo = _get_json(_GEO, {"name": city, "count": 1, "language": "zh"})
         hits = geo.get("results") or []

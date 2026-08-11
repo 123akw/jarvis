@@ -3,8 +3,17 @@ import datetime
 import json
 
 from langchain_core.tools import tool
+from pydantic import BaseModel, Field
 
 from jarvis.config import data_dir
+
+
+class MemoAddArgs(BaseModel):
+    content: str = Field(description="备忘内容原文，保留领导原话要点，如「周三交电费」")
+
+
+class MemoDelArgs(BaseModel):
+    memo_id: int = Field(ge=1, description="要删除的备忘编号（memo_list 返回的行首数字）")
 
 
 def _load_memos() -> list[dict]:
@@ -25,9 +34,10 @@ def all_memos() -> list[dict]:
     return _load_memos()
 
 
-@tool
+@tool(args_schema=MemoAddArgs)
 def memo_add(content: str) -> str:
-    """新增一条备忘，content 是备忘内容。"""
+    """记下一条备忘信息。适用于「记住/记一下」这类无时间点的随手记；
+    有明确时间点的安排用 schedule_add，要办的事项用 todo_add。"""
     memos = _load_memos()
     memo_id = max((m["id"] for m in memos), default=0) + 1
     memos.append({
@@ -48,9 +58,9 @@ def memo_list() -> str:
     return "\n".join(f"{m['id']}. {m['content']}" for m in memos)
 
 
-@tool
+@tool(args_schema=MemoDelArgs)
 def memo_del(memo_id: int) -> str:
-    """按编号删除一条备忘。"""
+    """按编号删除一条备忘。编号不确定时先调 memo_list 查看。"""
     memos = _load_memos()
     kept = [m for m in memos if m["id"] != memo_id]
     if len(kept) == len(memos):

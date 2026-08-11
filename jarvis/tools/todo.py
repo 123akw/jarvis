@@ -3,8 +3,17 @@ import datetime
 import json
 
 from langchain_core.tools import tool
+from pydantic import BaseModel, Field
 
 from jarvis.config import data_dir
+
+
+class TodoAddArgs(BaseModel):
+    content: str = Field(description="待办事项内容，如「给车做保养」")
+
+
+class TodoDoneArgs(BaseModel):
+    todo_id: int = Field(ge=1, description="要勾掉的待办编号（todo_list 返回的行首数字）")
 
 
 def _load() -> list[dict]:
@@ -25,9 +34,9 @@ def all_todos() -> list[dict]:
     return _load()
 
 
-@tool
+@tool(args_schema=TodoAddArgs)
 def todo_add(content: str) -> str:
-    """新增一条待办事项。"""
+    """新增一条要办的事项（无具体时间点）。有明确时间点的用 schedule_add。"""
     items = _load()
     tid = max((x["id"] for x in items), default=0) + 1
     items.append({
@@ -50,9 +59,9 @@ def todo_list() -> str:
     return "\n".join(lines) + f"\n（已完成 {done} 条）"
 
 
-@tool
+@tool(args_schema=TodoDoneArgs)
 def todo_done(todo_id: int) -> str:
-    """按编号把一条待办勾成已完成。"""
+    """领导说某件事办完了时，按编号把待办勾成已完成。编号不确定先调 todo_list。"""
     items = _load()
     for x in items:
         if x["id"] == todo_id:
