@@ -1,4 +1,5 @@
 """网页端后端：FastAPI。自研登录（cookie 会话）+ SSE 流式聊天 + 仪表盘接口。"""
+from contextlib import asynccontextmanager
 import datetime
 import hashlib
 import hmac
@@ -15,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import AIMessageChunk, ToolMessage
 from pydantic import BaseModel
 
-from jarvis import __version__, config
+from jarvis import __version__, config, wechat
 from jarvis.graph import build_agent
 from jarvis.tools import TOOLS
 from jarvis.tools.location import get_location, locate_by_ip, set_location
@@ -23,7 +24,18 @@ from jarvis.tools.memo import all_memos
 from jarvis.tools.schedule import all_schedule
 from jarvis.tools.todo import all_todos
 
-app = FastAPI(title="J.A.R.V.I.S.")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """恢复持久微信桥；退出时停线程但不删除 Token。"""
+    wechat.resume_on_boot()
+    try:
+        yield
+    finally:
+        wechat.shutdown()
+
+
+app = FastAPI(title="J.A.R.V.I.S.", lifespan=lifespan)
 _WEB = Path(__file__).parent / "web"
 _agent = None
 _started = datetime.datetime.now()
@@ -167,6 +179,29 @@ def delete_thread(request: Request, thread_id: str):
     except Exception:
         pass  # 记忆库里没有该线程也算删除成功
     return {"ok": True}
+
+
+# ---------- 个人微信接入 ----------
+
+@app.get("/api/wechat/status")
+def wechat_status(request: Request):
+    if not _authed(request):
+        return _deny()
+    return wechat.status()
+
+
+@app.post("/api/wechat/connect")
+def wechat_connect(request: Request):
+    if not _authed(request):
+        return _deny()
+    return wechat.connect()
+
+
+@app.post("/api/wechat/disconnect")
+def wechat_disconnect(request: Request):
+    if not _authed(request):
+        return _deny()
+    return wechat.disconnect()
 
 
 # ---------- 桌面端状态同步 ----------
@@ -368,6 +403,9 @@ def index():
 
 if (_WEB / "assets").is_dir():
     app.mount("/assets", StaticFiles(directory=_WEB / "assets"), name="assets")
+
+
+wechat.init(_get_agent, _chunk_text)
 
 
 def run() -> None:
