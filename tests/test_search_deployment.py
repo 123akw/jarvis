@@ -25,6 +25,13 @@ PINNED_IMAGE = (
     "ghcr.io/searxng/searxng:2026.7.28-c01178d03@"
     "sha256:5d6d903ab82afa56ee32792d477f36bc63d3e5ca04fcb6947e28a5cfd987fad3"
 )
+PINNED_HEALTHCHECK_TEST = [
+    "CMD-SHELL",
+    (
+        "wget --quiet --tries=1 --timeout=5 --output-document=- "
+        "http://127.0.0.1:8080/healthz >/dev/null || exit 1"
+    ),
+]
 DEV_ONLY_PACKAGES = {"pip-tools", "playwright", "pytest", "tox"}
 VCS_PREFIXES = ("git+", "hg+", "svn+", "bzr+")
 
@@ -46,18 +53,7 @@ def _load_search_smoke_module():
 
 
 def _assert_http_readiness(healthcheck: dict) -> None:
-    test = healthcheck["test"]
-    assert isinstance(test, list) and len(test) == 2
-    assert test[0] == "CMD-SHELL"
-    command = str(test[1]).strip()
-    assert re.search(r"(?:^|\s)(?:wget|curl)(?:\s|$)", command)
-    assert re.search(
-        r"(?:^|\s)http://127\.0\.0\.1:8080/healthz(?:\s|$)",
-        command,
-    )
-    assert not re.search(r"(?:^|[;&|]\s*)(?:echo|true)(?:\s|$)", command)
-    assert not re.search(r"(?:^|[;&|]\s*)exit\s+0(?:\s|$)", command)
-    assert re.search(r"\|\|\s*exit\s+1(?:\s|$)", command)
+    assert healthcheck["test"] == PINNED_HEALTHCHECK_TEST
 
 
 def _lock_requirement_lines(lock: str) -> list[str]:
@@ -130,6 +126,14 @@ def test_searxng_compose_has_bounded_lifecycle_and_local_healthcheck():
         ["CMD-SHELL", "wget http://127.0.0.1:8080/"],
         ["CMD-SHELL", "wget http://127.0.0.1:8080/healthz || exit 0"],
         ["CMD-SHELL", "wget http://127.0.0.1:8080/healthz ; exit 0"],
+        [
+            "CMD-SHELL",
+            (
+                "/bin/true || wget --quiet --tries=1 --timeout=5 "
+                "--output-document=- http://127.0.0.1:8080/healthz "
+                ">/dev/null || exit 1"
+            ),
+        ],
     ],
 )
 def test_healthcheck_contract_rejects_non_http_readiness_mutations(unsafe_test):
