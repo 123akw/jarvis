@@ -5,7 +5,14 @@ from datetime import datetime, timezone
 
 import httpx
 import jarvis.tools.entertainment as entertainment_mod
-from jarvis.tools.search import TavilySearch
+from jarvis.search.models import (
+    DEFAULT_CACHE_POLICY,
+    REALTIME_CACHE_POLICY,
+    SearchResponse,
+    SearchResult,
+)
+from jarvis.search.providers import TavilyProvider
+from jarvis.search.service import SearchService
 
 
 def _search_payload(results):
@@ -36,10 +43,43 @@ def _search_result(title, url, content, published_date="2026-08-10"):
 
 
 def _tavily_service(handler):
-    return TavilySearch(
-        api_key_getter=lambda: "tvly-test",
-        transport=httpx.MockTransport(handler),
+    return SearchService(
+        [
+            TavilyProvider(
+                api_key_getter=lambda: "tvly-test",
+                transport=httpx.MockTransport(handler),
+            )
+        ],
         now=lambda: datetime(2026, 8, 11, 6, 30, tzinfo=timezone.utc),
+    )
+
+
+class _RecordingSearchService:
+    generation = 17
+
+    def __init__(self, results):
+        self.requests = []
+        self.response = SearchResponse(
+            results=tuple(results),
+            checked_at=datetime(2026, 8, 11, 6, 30, tzinfo=timezone.utc),
+            attempted_providers=("fake-public",),
+        )
+
+    def search(self, request):
+        self.requests.append(request)
+        return self.response
+
+    def format_response(self, response):
+        return SearchService.format_response(self, response)
+
+
+def _public_result(title, url, snippet, published_at="2026-08-10"):
+    return SearchResult(
+        title=title,
+        url=url,
+        snippet=snippet,
+        published_at=published_at,
+        provider="fake-public",
     )
 
 
@@ -86,6 +126,34 @@ def test_movie_ratings_keeps_platform_scales_and_voter_counts_separate():
         "douban.com", "imdb.com", "rottentomatoes.com", "metacritic.com"
     }
     assert "哪吒之魔童闹海" in requests[0]["query"] and "2025" in requests[0]["query"]
+
+
+def test_movie_ratings_uses_default_cache_and_preserves_public_rating_metadata():
+    """A realtime override or lossy formatter would distort stable platform ratings."""
+    search = _RecordingSearchService(
+        [
+            _public_result(
+                "豆瓣电影：哪吒之魔童闹海",
+                "https://movie.douban.com/subject/34780991/",
+                "豆瓣评分 8.5/10，123456 人评价。",
+            ),
+            _public_result(
+                "Ne Zha 2 - Rotten Tomatoes",
+                "https://www.rottentomatoes.com/m/ne_zha_2",
+                "Tomatometer 91%，verified audience 20K ratings。",
+            ),
+        ]
+    )
+    service = entertainment_mod.EntertainmentSearch(search_service=search)
+
+    out = service.movie_ratings("哪吒之魔童闹海", year="2025")
+
+    assert search.requests[0].cache_policy == DEFAULT_CACHE_POLICY
+    assert "checked_at：2026-08-11 14:30:00 CST" in out
+    assert "来源：https://movie.douban.com/subject/34780991/" in out
+    assert "来源：https://www.rottentomatoes.com/m/ne_zha_2" in out
+    assert "8.5/10" in out and "123456 人评价" in out
+    assert "91%" in out and "20K ratings" in out
 
 
 def test_movie_ratings_explicitly_flags_conflicting_scores_from_the_same_platform():
@@ -166,6 +234,34 @@ def test_ticket_search_returns_two_platforms_prices_links_and_disclaimer():
     assert "https://www.showstart.com/event/456" in out
     assert "展示价/起价/票面价，不是最终成交价" in out
     assert "上海" in requests[0]["query"] and "2026-09" in requests[0]["query"]
+
+
+def test_ticket_search_uses_realtime_cache_and_preserves_public_prices_and_sources():
+    """Caching quotes as ordinary pages or stripping price provenance can mislead buyers."""
+    search = _RecordingSearchService(
+        [
+            _public_result(
+                "大麦：上海音乐节",
+                "https://detail.damai.cn/item.htm?id=123",
+                "公开票面价 380元起，余票以购票页为准。",
+            ),
+            _public_result(
+                "秀动：上海音乐节",
+                "https://www.showstart.com/event/456",
+                "预售票 ¥420，现场票信息待公布。",
+            ),
+        ]
+    )
+    service = entertainment_mod.EntertainmentSearch(search_service=search)
+
+    out = service.ticket_search("上海音乐节", city="上海", date="2026-09")
+
+    assert search.requests[0].cache_policy == REALTIME_CACHE_POLICY
+    assert "checked_at：2026-08-11 14:30:00 CST" in out
+    assert "来源：https://detail.damai.cn/item.htm?id=123" in out
+    assert "来源：https://www.showstart.com/event/456" in out
+    assert "380元起" in out and "¥420" in out
+    assert "不是最终成交价" in out
 
 
 def test_ticket_search_explicitly_says_when_no_reliable_public_price_exists():
@@ -278,6 +374,30 @@ def test_esports_scores_without_pandascore_token_falls_back_to_tavily():
     assert "https://lolesports.com/standings/lpl" in out
 
 
+def test_esports_public_fallback_uses_realtime_cache_and_preserves_score_metadata():
+    """Live score fallbacks must be short-lived and retain their timestamp and source."""
+    search = _RecordingSearchService(
+        [
+            _public_result(
+                "BLG 2:1 TES - LPL",
+                "https://lolesports.com/standings/lpl",
+                "BLG defeated TES 2-1 in the latest LPL match.",
+            )
+        ]
+    )
+    service = entertainment_mod.EntertainmentSearch(
+        search_service=search,
+        pandascore_token_getter=lambda: "",
+    )
+
+    out = service.esports_scores("BLG", game="League of Legends")
+
+    assert search.requests[0].cache_policy == REALTIME_CACHE_POLICY
+    assert "checked_at：2026-08-11 14:30:00 CST" in out
+    assert "来源：https://lolesports.com/standings/lpl" in out
+    assert "BLG defeated TES 2-1" in out
+
+
 def test_esports_scores_falls_back_when_pandascore_rejects_request():
     """PandaScore 403 不应让整个比分查询失败。"""
     result = _search_result(
@@ -318,14 +438,20 @@ def test_three_entertainment_functions_are_real_langchain_tools(monkeypatch):
     assert "未配置 TAVILY_API_KEY" in ticket
 
 
-def test_agent_registry_exposes_all_four_search_tools_and_has_twenty_tools():
+def test_agent_registry_exposes_all_five_search_tools_and_has_twenty_one_tools():
     """垂直工具与通用搜索必须进入 Agent 的唯一工具注册表。"""
     from jarvis.tools import TOOLS
 
     names = [item.name for item in TOOLS]
 
-    assert len(names) == 20
-    assert {"web_search", "movie_ratings", "esports_scores", "ticket_search"} <= set(names)
+    assert len(names) == 21
+    assert {
+        "web_search",
+        "web_extract",
+        "movie_ratings",
+        "esports_scores",
+        "ticket_search",
+    } <= set(names)
 
 
 def test_search_provider_config_is_read_at_call_time(monkeypatch):

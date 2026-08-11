@@ -7,11 +7,18 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 import httpx
-from langchain_core.tools import tool
+from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field
 
 from jarvis import config
-from jarvis.tools.search import TavilySearch
+from jarvis.search.models import (
+    DEFAULT_CACHE_POLICY,
+    REALTIME_CACHE_POLICY,
+    CachePolicy,
+    SearchRequest,
+)
+from jarvis.search.providers import TavilyProvider
+from jarvis.search.service import SearchService
 
 
 _PANDASCORE_API = "https://api.pandascore.co"
@@ -96,27 +103,30 @@ class EntertainmentSearch:
 
     def __init__(
         self,
-        search_service: TavilySearch | None = None,
+        search_service: SearchService | None = None,
         pandascore_token_getter: Callable[[], str] | None = None,
         pandascore_transport: httpx.BaseTransport | None = None,
         now: Callable[[], datetime] | None = None,
     ):
-        self._search = search_service or TavilySearch()
+        self._search = (
+            SearchService([TavilyProvider()])
+            if search_service is None
+            else search_service
+        )
         self._pandascore_token_getter = pandascore_token_getter or config.pandascore_token
         self._pandascore_transport = pandascore_transport
         self._now = now or (lambda: datetime.now(timezone.utc))
 
     def movie_ratings(self, title: str, year: str = "") -> str:
         """Search rating platforms while preserving each platform's own scale."""
-        result = self._search.search(
-            query=_query(
+        result = self._public_search(
+            _query(
                 title,
                 year,
                 "电影 最新评分 豆瓣 IMDb Rotten Tomatoes Metacritic 评价人数",
             ),
-            topic="general",
             domains=_MOVIE_DOMAINS,
-            max_results=5,
+            cache_policy=DEFAULT_CACHE_POLICY,
         )
         lines = [
             "电影评分引用规则：不同平台分制与评价人数必须分别引用，不得合并；"
@@ -128,16 +138,15 @@ class EntertainmentSearch:
 
     def ticket_search(self, event: str, city: str = "", date: str = "") -> str:
         """Search public ticket listings without presenting them as a final quote."""
-        result = self._search.search(
-            query=_query(
+        result = self._public_search(
+            _query(
                 event,
                 city,
                 date,
                 "官方售票 公开票价 起价 余票 购票平台",
             ),
-            topic="general",
             domains=_TICKET_DOMAINS,
-            max_results=5,
+            cache_policy=REALTIME_CACHE_POLICY,
         )
         lines = [
             "票务提示：以下仅为平台公开的展示价/起价/票面价，不是最终成交价；"
@@ -167,12 +176,33 @@ class EntertainmentSearch:
             )
 
     def _esports_web(self, team: str, game: str, date: str) -> str:
-        return self._search.search(
-            query=_query(team, game, date, "最近比赛 比分 赛果 赛事"),
-            topic="general",
+        return self._public_search(
+            _query(team, game, date, "最近比赛 比分 赛果 赛事"),
             domains=_ESPORTS_DOMAINS,
-            max_results=5,
+            cache_policy=REALTIME_CACHE_POLICY,
         )
+
+    def _public_search(
+        self,
+        query: str,
+        *,
+        domains: list[str],
+        cache_policy: CachePolicy,
+    ) -> str:
+        response = self._search.search(
+            SearchRequest(
+                query=query,
+                topic="general",
+                domains=tuple(domains),
+                max_results=5,
+                cache_policy=cache_policy,
+            )
+        )
+        if not response.results and not response.attempted_providers:
+            health = {item.provider: item for item in self._search.health()}
+            if "tavily" in health and not health["tavily"].configured:
+                return "联网搜索未配置 TAVILY_API_KEY，暂时不能查询实时信息。"
+        return self._search.format_response(response)
 
     def _pandascore_latest(
         self,
@@ -353,22 +383,53 @@ class TicketSearchArgs(BaseModel):
     date: str = Field(default="", max_length=30, description="可选日期或月份")
 
 
-_default_entertainment = EntertainmentSearch()
+def make_entertainment_tools(search_service: SearchService) -> tuple[BaseTool, ...]:
+    """Bind all entertainment tools to one caller-owned search service."""
+    entertainment = EntertainmentSearch(search_service=search_service)
+
+    @tool("movie_ratings", args_schema=MovieRatingsArgs)
+    def bound_movie_ratings(title: str, year: str = "") -> str:
+        """查询电影在多个评分平台的实时评分、分制和评价人数。"""
+        return entertainment.movie_ratings(title=title, year=year)
+
+    @tool("esports_scores", args_schema=EsportsScoresArgs)
+    def bound_esports_scores(team: str, game: str = "", date: str = "") -> str:
+        """查询电竞战队的近期比赛、比分、状态和来源。"""
+        return entertainment.esports_scores(team=team, game=game, date=date)
+
+    @tool("ticket_search", args_schema=TicketSearchArgs)
+    def bound_ticket_search(event: str, city: str = "", date: str = "") -> str:
+        """查询活动的公开售票平台、展示价格、余票说明和购票链接。"""
+        return entertainment.ticket_search(event=event, city=city, date=date)
+
+    return bound_movie_ratings, bound_esports_scores, bound_ticket_search
+
+
+def _compatibility_entertainment_call(method: str, **kwargs) -> str:
+    service = SearchService([TavilyProvider()])
+    try:
+        return getattr(EntertainmentSearch(search_service=service), method)(**kwargs)
+    finally:
+        service.close()
 
 
 @tool(args_schema=MovieRatingsArgs)
 def movie_ratings(title: str, year: str = "") -> str:
     """查询电影在多个评分平台的实时评分、分制和评价人数。"""
-    return _default_entertainment.movie_ratings(title=title, year=year)
+    return _compatibility_entertainment_call("movie_ratings", title=title, year=year)
 
 
 @tool(args_schema=EsportsScoresArgs)
 def esports_scores(team: str, game: str = "", date: str = "") -> str:
     """查询电竞战队的近期比赛、比分、状态和来源。"""
-    return _default_entertainment.esports_scores(team=team, game=game, date=date)
+    return _compatibility_entertainment_call(
+        "esports_scores", team=team, game=game, date=date
+    )
 
 
 @tool(args_schema=TicketSearchArgs)
 def ticket_search(event: str, city: str = "", date: str = "") -> str:
     """查询活动的公开售票平台、展示价格、余票说明和购票链接。"""
-    return _default_entertainment.ticket_search(event=event, city=city, date=date)
+    return _compatibility_entertainment_call(
+        "ticket_search", event=event, city=city, date=date
+    )
