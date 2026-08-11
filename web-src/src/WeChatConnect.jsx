@@ -63,6 +63,9 @@ export default function WeChatConnect({ onClose, onExpired }) {
             <div className="wx-big">请用微信扫码</div>
             <p className="wx-hint">打开微信 → 扫一扫 → 扫描上方二维码 → 手机上确认登录。<br/>建议用<b>专用小号</b>，扫码后可关闭本窗口。</p>
             <div className="wx-wait">● 等待扫码…（{s.since} 起）</div>
+            <button type="button" className="wx-btn ghost" onClick={disconnect}>
+              取消本次扫码
+            </button>
           </div>
         ) : state === 'loading' ? (
           <div className="wx-body wx-center"><div className="wx-big">正在取二维码…</div></div>

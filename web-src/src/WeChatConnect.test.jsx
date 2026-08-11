@@ -71,4 +71,29 @@ describe('WeChatConnect', () => {
     expect(screen.getByRole('button', { name: '生成二维码，开始接入' }))
       .toBeInTheDocument()
   })
+
+  it('cancels a waiting QR session and returns to the connect action', async () => {
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        ok: true,
+        json: async () => ({
+          state: 'waiting', qr_uri: 'data:image/svg+xml,qr', error: '', since: '13:40:00',
+        }),
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        ok: true,
+        json: async () => ({ state: 'idle', qr_uri: '', error: '', since: '' }),
+      })
+    const user = userEvent.setup()
+    render(<WeChatConnect onClose={() => {}} onExpired={() => {}} />)
+
+    await user.click(await screen.findByRole('button', { name: '取消本次扫码' }))
+
+    expect(await screen.findByRole('button', { name: '生成二维码，开始接入' }))
+      .toBeInTheDocument()
+    expect(global.fetch).toHaveBeenNthCalledWith(
+      2, '/api/wechat/disconnect', { method: 'POST' })
+  })
 })

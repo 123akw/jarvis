@@ -18,6 +18,7 @@
         qrUri: state.qr_uri || '',
         status: '用微信「扫一扫」扫描上方二维码，手机确认登录（建议用专用小号）',
         statusClass: 's-hint wait',
+        canDisconnect: true,
       }
     }
     if (state.state === 'loading') {

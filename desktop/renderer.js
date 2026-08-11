@@ -423,6 +423,14 @@ function renderWx(s = {}) {
     img.src = view.qrUri
     img.alt = '微信登录二维码'
     area.append(img)
+    if (view.canDisconnect) {
+      const cancel = document.createElement('button')
+      cancel.type = 'button'
+      cancel.id = 'wx-disc'
+      cancel.textContent = '取消本次扫码'
+      cancel.addEventListener('click', () => wxController.disconnect())
+      area.append(cancel)
+    }
   } else if (view.kind === 'loading') {
     area.innerHTML = ''
   } else {

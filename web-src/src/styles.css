@@ -305,6 +305,10 @@ main.hide-right .right{display:none}
   .hide-sm{display:none}
 }
 @media (max-width:640px){
+  header{gap:8px;padding-inline:10px}
+  .wordmark{font-size:15px;letter-spacing:.18em}
+  header .chip{padding-inline:7px}
+  header .navbtn{padding-inline:8px}
   .ubox{max-width:92%}.tagline{display:none}.logcol{padding:16px 10px 8px}
   .wx-backdrop{padding:12px}.wx-card{width:calc(100vw - 24px);max-height:calc(100vh - 24px)}
   .wx-body{padding:20px 18px 22px}.wxnav{padding-inline:8px}
