@@ -259,6 +259,42 @@ def test_head_uses_real_method_status_and_safe_headers_without_reading_body():
     }
 
 
+def test_gzip_get_recomputes_content_length_but_head_preserves_representation_length():
+    """A decompressed GET body must not retain compressed length; HEAD describes representation."""
+    expanded = b"expanded response body"
+    compressed = gzip.compress(expanded)
+    headers = {
+        "Content-Type": "text/plain",
+        "Content-Encoding": "gzip",
+        "Content-Length": str(len(compressed)),
+    }
+    get_fetcher, _, _ = _fetcher({"headers": headers, "chunks": (compressed,)})
+
+    fetched_get = get_fetcher.fetch("https://news.example/gzip")
+
+    assert fetched_get.content == expanded
+    assert dict(fetched_get.headers)["content-length"] == str(len(expanded))
+    assert "content-encoding" not in dict(fetched_get.headers)
+
+    body_touched = False
+
+    def forbidden_body():
+        nonlocal body_touched
+        body_touched = True
+        raise AssertionError("HEAD body must remain unread")
+        yield b"unreachable"
+
+    head_fetcher, _, _ = _fetcher(
+        {"headers": headers, "chunks": forbidden_body()}
+    )
+
+    fetched_head = head_fetcher.fetch("https://news.example/gzip", method="HEAD")
+
+    assert fetched_head.content == b""
+    assert dict(fetched_head.headers)["content-length"] == str(len(compressed))
+    assert body_touched is False
+
+
 @pytest.mark.parametrize(
     "url",
     (

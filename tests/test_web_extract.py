@@ -426,9 +426,16 @@ class _FakeLocator:
 
     def text_content(self, *, timeout):
         self.page.dom_timeouts.append(("title", timeout))
+        if self.page.missing_title:
+            raise TimeoutError("missing title waited")
         if self.page.block_dom:
             raise TimeoutError("title blocked")
         return "Rendered title"
+
+    def count(self):
+        if self.selector == "title" and self.page.missing_title:
+            return 0
+        return 1
 
 
 class _FakePage:
@@ -442,6 +449,7 @@ class _FakePage:
         self.waited_milliseconds = []
         self.dom_timeouts = []
         self.block_dom = False
+        self.missing_title = False
 
     def on(self, event, callback):
         self.events.setdefault(event, []).append(callback)
@@ -675,6 +683,13 @@ def test_browser_routes_http_get_and_head_through_safe_fetcher_and_never_nativel
             ("access-control-allow-origin", "*"),
         ),
     )
+    fetcher.responses[script] = FetchedDocument(
+        url=script,
+        content=b"expanded",
+        content_type="text/plain",
+        peer_ip="93.184.216.34",
+        headers=(("content-type", "text/plain"), ("content-length", "3")),
+    )
 
     result = _browser_extractor(api, fetcher, manager).extract(PUBLIC_URL)
 
@@ -688,6 +703,10 @@ def test_browser_routes_http_get_and_head_through_safe_fetcher_and_never_nativel
         "content-length": "0",
         "access-control-allow-origin": "*",
     }
+    assert routes[1].fulfilled["body"] == b"expanded"
+    assert routes[1].fulfilled["headers"]["content-length"] == str(
+        len(routes[1].fulfilled["body"])
+    )
     assert fetcher.call_options[2]["method"] == "HEAD"
     assert fetcher.call_options[2]["allow_http_errors"] is True
     assert result.text.startswith("Rendered body")
@@ -794,6 +813,30 @@ def test_browser_waits_once_for_a_short_bounded_render_stabilization():
         "body",
     ]
     assert all(timeout <= 15_000 for _, timeout in browser.context.page.dom_timeouts)
+
+
+def test_missing_title_is_empty_without_waiting_and_valid_body_is_still_read():
+    """A legal title-less document must not spend the total deadline before body extraction."""
+    api = _api()
+    fetcher, browser, manager = _browser_fixture(
+        [{"url": PUBLIC_URL, "method": "GET", "resource_type": "document"}]
+    )
+    original_new_context = browser.new_context
+
+    def titleless_context(**kwargs):
+        context = original_new_context(**kwargs)
+        context.page.missing_title = True
+        return context
+
+    browser.new_context = titleless_context
+
+    result = _browser_extractor(api, fetcher, manager, timeout_seconds=1.0).extract(
+        PUBLIC_URL
+    )
+
+    assert result.title == ""
+    assert result.text.startswith("Rendered body")
+    assert [name for name, _timeout in browser.context.page.dom_timeouts] == ["body"]
 
 
 def test_blocked_dom_read_uses_remaining_timeout_and_forces_resource_close():

@@ -299,13 +299,16 @@ class SafeFetcher:
                         max_decompressed_bytes=max_decompressed_bytes,
                     )
                 )
+                safe_headers = dict(_safe_response_headers(response.headers))
+                if method == "GET":
+                    safe_headers["content-length"] = str(len(content))
                 return FetchedDocument(
                     url=current.url,
                     content=content,
                     content_type=content_type,
                     peer_ip=_normalize_ip(response.peer_ip),
                     status_code=response.status_code,
-                    headers=_safe_response_headers(response.headers),
+                    headers=tuple(safe_headers.items()),
                 )
             finally:
                 try:

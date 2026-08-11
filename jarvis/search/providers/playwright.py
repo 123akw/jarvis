@@ -429,6 +429,8 @@ class PlaywrightExtractor:
                 main_document_seen = True
             headers = dict(fetched.headers)
             headers.setdefault("content-type", fetched.content_type)
+            if request.method == "GET":
+                headers["content-length"] = str(len(fetched.content))
             route.fulfill(
                 status=fetched.status_code,
                 headers=headers,
@@ -454,9 +456,15 @@ class PlaywrightExtractor:
         )
         if settle_for:
             page.wait_for_timeout(settle_for)
-        title = page.locator("title").text_content(
-            timeout=self._remaining_milliseconds(deadline)
-        )
+        title_locator = page.locator("title")
+        title = ""
+        if title_locator.count():
+            try:
+                title = title_locator.text_content(
+                    timeout=min(50, self._remaining_milliseconds(deadline))
+                )
+            except Exception:
+                title = ""
         text = page.locator("body").inner_text(
             timeout=self._remaining_milliseconds(deadline)
         )
