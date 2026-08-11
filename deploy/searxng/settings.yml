@@ -3,6 +3,9 @@ use_default_settings: true
 server:
   bind_address: "0.0.0.0"
   port: 8080
+  # Public upstream placeholder; the external env_file must override it via SEARXNG_SECRET.
+  # The pinned SearXNG image rejects startup if this default remains active.
+  secret_key: "ultrasecretkey"
 
 search:
   formats:

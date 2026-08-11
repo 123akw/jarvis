@@ -6,6 +6,28 @@
 已占用 `127.0.0.1:8888`；确认候选端口 18888 没有 IPv4、IPv6、防火墙或 Docker 引用后，
 本部署迁移到 18888。
 
+## 运行时 secret
+
+固定的 SearXNG 镜像会拒绝使用 `server.secret_key` 的公开默认占位值启动。Compose 默认从
+仓库外的 `/etc/jarvis/searxng-runtime.env` 读取 `SEARXNG_SECRET`，由它覆盖
+`settings.yml` 中保留的官方占位值。首次启动前，以 root 执行以下非回显流程：
+
+```bash
+sudo install -d -o root -g root -m 0700 /etc/jarvis
+sudo sh -c 'umask 077; openssl rand -hex 32 | sed "s/^/SEARXNG_SECRET=/" > /etc/jarvis/searxng-runtime.env'
+sudo chown root:root /etc/jarvis/searxng-runtime.env
+sudo chmod 0600 /etc/jarvis/searxng-runtime.env
+```
+
+不要打印、`cat`、提交或复制该文件到仓库。若部署必须使用其他仓库外路径，可在运行
+Compose 时通过 `SEARXNG_ENV_FILE` 只覆盖文件路径。Compose 把该文件标为
+`required: false`，仅为了让没有生产 secret 文件的开发机仍能执行静态 `config` 校验；
+缺少文件时不会注入弱 secret，容器启动仍会因官方占位值未被覆盖而被固定镜像拒绝。
+
+注入后的环境变量可被 root 通过 Docker inspect 读取，因此运行时 secret 的信任边界包括
+root 权限与 Docker daemon。生产 Docker socket 必须保持 root-only，不得向普通用户或其他
+服务账号开放。
+
 ## 启动与检查
 
 从仓库根目录执行：

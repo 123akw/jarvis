@@ -32,6 +32,13 @@ PINNED_HEALTHCHECK_TEST = [
         "http://127.0.0.1:8080/healthz >/dev/null || exit 1"
     ),
 ]
+RUNTIME_SECRET_ENV_FILE = [
+    {
+        "path": "${SEARXNG_ENV_FILE:-/etc/jarvis/searxng-runtime.env}",
+        "required": False,
+    },
+]
+OFFICIAL_SECRET_PLACEHOLDER = "ultrasecretkey"
 DEV_ONLY_PACKAGES = {"pip-tools", "playwright", "pytest", "tox"}
 VCS_PREFIXES = ("git+", "hg+", "svn+", "bzr+")
 
@@ -54,6 +61,18 @@ def _load_search_smoke_module():
 
 def _assert_http_readiness(healthcheck: dict) -> None:
     assert healthcheck["test"] == PINNED_HEALTHCHECK_TEST
+
+
+def _assert_runtime_secret_contract(service: dict, settings: dict) -> None:
+    assert service.get("env_file") == RUNTIME_SECRET_ENV_FILE
+    environment = service.get("environment", {})
+    if isinstance(environment, dict):
+        assert "SEARXNG_SECRET" not in environment
+    else:
+        assert not any(
+            str(item).split("=", 1)[0] == "SEARXNG_SECRET" for item in environment
+        )
+    assert settings.get("server", {}).get("secret_key") == OFFICIAL_SECRET_PLACEHOLDER
 
 
 def _lock_requirement_lines(lock: str) -> list[str]:
@@ -152,6 +171,45 @@ def test_searxng_settings_enable_json_and_are_mounted_read_only():
     assert service["volumes"] == [
         "./settings.yml:/etc/searxng/settings.yml:ro",
     ]
+
+
+def test_searxng_secret_is_loaded_only_from_the_external_runtime_env_file():
+    """A missing env file contract or embedded value would leave unsafe secret handling."""
+    service = _yaml(COMPOSE_PATH)["services"]["searxng"]
+    settings = _yaml(SETTINGS_PATH)
+
+    _assert_runtime_secret_contract(service, settings)
+
+
+@pytest.mark.parametrize(
+    ("service", "settings"),
+    [
+        (
+            {"env_file": RUNTIME_SECRET_ENV_FILE},
+            {"server": {"secret_key": "not-the-official-placeholder"}},
+        ),
+        (
+            {
+                "env_file": RUNTIME_SECRET_ENV_FILE,
+                "environment": {"SEARXNG_SECRET": "must-not-be-embedded"},
+            },
+            {"server": {"secret_key": OFFICIAL_SECRET_PLACEHOLDER}},
+        ),
+        (
+            {
+                "env_file": RUNTIME_SECRET_ENV_FILE,
+                "environment": ["SEARXNG_SECRET=must-not-be-embedded"],
+            },
+            {"server": {"secret_key": OFFICIAL_SECRET_PLACEHOLDER}},
+        ),
+    ],
+)
+def test_searxng_secret_contract_rejects_literals_outside_the_placeholder(
+    service, settings
+):
+    """Only the documented upstream placeholder may be tracked; runtime values stay external."""
+    with pytest.raises(AssertionError):
+        _assert_runtime_secret_contract(service, settings)
 
 
 def test_packaging_keeps_browser_optional_and_pins_reproducibility_tools():
