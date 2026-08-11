@@ -258,6 +258,37 @@ main.hide-right .right{display:none}
 .empty{color:var(--dim);font-size:13.5px;padding:12px 14px;font-family:var(--mono);letter-spacing:.06em}
 .tickbox{color:var(--arc);font-family:var(--mono)}
 
+/* 个人微信接入 */
+.wxnav{color:#7CF5B2;border-color:rgba(124,245,178,.35);background:rgba(124,245,178,.08)}
+.wxnav:hover{background:rgba(124,245,178,.16)}
+.wx-backdrop{position:fixed;inset:0;z-index:80;display:grid;place-items:center;padding:20px;
+  background:rgba(1,5,10,.76);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.wx-card{width:min(480px,calc(100vw - 32px));max-height:calc(100vh - 40px);overflow-y:auto;
+  background:linear-gradient(160deg,rgba(11,27,42,.98),rgba(4,12,21,.99));
+  border:1px solid rgba(83,232,255,.32);box-shadow:0 28px 90px rgba(0,0,0,.7),0 0 40px rgba(83,232,255,.1)}
+.wx-head{display:flex;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line)}
+.wx-title{font-family:var(--disp);font-weight:700;font-size:14px;letter-spacing:.18em;color:var(--arc)}
+.wx-x{margin-left:auto;width:32px;height:32px;border:1px solid transparent;background:none;color:var(--dim);
+  font-size:16px;cursor:pointer}.wx-x:hover,.wx-x:focus-visible{color:var(--alert);border-color:rgba(255,92,92,.35)}
+.wx-body{padding:24px 28px 28px}.wx-center{text-align:center}
+.wx-lead,.wx-hint{margin:0;color:var(--text);font-size:14.5px;line-height:1.75}
+.wx-lead b,.wx-hint b,.wx-steps b{color:#fff}
+.wx-steps{margin:18px 0 22px;padding-left:22px;color:var(--text);font-size:14px;line-height:1.85}
+.wx-big{margin:14px 0 8px;font-size:21px;font-weight:600;color:#EAF7FC;letter-spacing:.06em}
+.wx-ok{width:62px;height:62px;margin:8px auto 18px;border-radius:50%;display:grid;place-items:center;
+  color:#02110b;background:#7CF5B2;font-size:30px;box-shadow:0 0 34px rgba(124,245,178,.38)}
+.wx-qrwrap{width:min(260px,72vw);height:min(260px,72vw);margin:0 auto 18px;padding:12px;
+  display:grid;place-items:center;background:#fff;box-shadow:0 0 28px rgba(83,232,255,.18)}
+.wx-qr{display:block;width:100%;height:100%;object-fit:contain}
+.wx-wait{margin-top:16px;font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;color:var(--gold)}
+.wx-err{margin:0 0 16px;padding:9px 12px;border-left:2px solid var(--alert);background:rgba(255,92,92,.08);
+  color:var(--alert);font-family:var(--mono);font-size:12px;line-height:1.6}
+.wx-btn{width:100%;border:1px solid var(--arc);background:var(--arc);color:var(--void);padding:11px 16px;
+  font-family:var(--disp);font-weight:700;font-size:13px;letter-spacing:.12em;cursor:pointer}
+.wx-btn:hover,.wx-btn:focus-visible{box-shadow:0 0 24px rgba(83,232,255,.38)}
+.wx-btn.ghost{margin-top:22px;background:transparent;color:var(--alert);border-color:rgba(255,92,92,.45)}
+.wx-btn.ghost:hover,.wx-btn.ghost:focus-visible{box-shadow:0 0 20px rgba(255,92,92,.2)}
+
 /* ---------- 响应式 / 动效偏好 ---------- */
 @media (max-width:1180px){
   main{display:flex;padding:10px 12px;gap:0}
@@ -273,7 +304,11 @@ main.hide-right .right{display:none}
   .drawer-backdrop{display:block;position:fixed;inset:58px 0 0 0;z-index:21;background:rgba(0,0,0,.45)}
   .hide-sm{display:none}
 }
-@media (max-width:640px){.ubox{max-width:92%}.tagline{display:none}.logcol{padding:16px 10px 8px}}
+@media (max-width:640px){
+  .ubox{max-width:92%}.tagline{display:none}.logcol{padding:16px 10px 8px}
+  .wx-backdrop{padding:12px}.wx-card{width:calc(100vw - 24px);max-height:calc(100vh - 24px)}
+  .wx-body{padding:20px 18px 22px}.wxnav{padding-inline:8px}
+}
 @media (prefers-reduced-motion:reduce){
   .sweep,.grain{display:none}
   .row-user,.row-jarvis{animation:none}

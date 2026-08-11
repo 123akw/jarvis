@@ -4,6 +4,7 @@ import Chat from './Chat.jsx'
 import { MossMini } from './Moss.jsx'
 import Panels from './Panels.jsx'
 import Threads from './Threads.jsx'
+import WeChatConnect from './WeChatConnect.jsx'
 
 function newThreadId() {
   return 't-' + (crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10))
@@ -20,6 +21,7 @@ export default function Hud({ onLogout }) {
   const [thread, setThread] = useState(() => localStorage.getItem('jws_thread') || 'web')
   const [leftOpen, setLeftOpen] = useState(() => !isNarrow())
   const [rightOpen, setRightOpen] = useState(() => !isNarrow())
+  const [wxOpen, setWxOpen] = useState(false)
 
   useEffect(() => { localStorage.setItem('jws_thread', thread) }, [thread])
 
@@ -57,6 +59,8 @@ export default function Hud({ onLogout }) {
         <span className="chip hide-sm">{dash?.model ?? '—'}</span>
         <span className="chip online hide-sm"><span className="dot" />{dash?.place || '在线'}</span>
         <span className="chip hide-sm">{clock}</span>
+        <button className="chip navbtn wxnav" aria-label="接入个人微信"
+          onClick={() => setWxOpen(true)} title="接入个人微信">微信</button>
         <button className={`chip navbtn${rightOpen ? ' on' : ''}`}
           onClick={() => setRightOpen(v => !v)} title="日程 / 待办 / 备忘">▦</button>
         <button className="chip logout" onClick={quit} title="退出登录">⏻</button>
@@ -84,6 +88,9 @@ export default function Hud({ onLogout }) {
             onClick={() => { setLeftOpen(false); setRightOpen(false) }} />
         )}
       </main>
+      {wxOpen ? (
+        <WeChatConnect onClose={() => setWxOpen(false)} onExpired={onLogout} />
+      ) : null}
     </div>
   )
 }
