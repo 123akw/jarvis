@@ -1,6 +1,6 @@
 # 贾维斯（JWS-Agent）
 
-私人管家：LangGraph ReAct agent 底座，SQLite 持久记忆（重启不忘事），13 项本地技能——时间、计算器、天气（Open-Meteo 免 key）、备忘、带时间的日程、可勾选的待办、白名单系统查询。中文交互，模型走 OpenAI 兼容接口，默认 DeepSeek。终端和网页端（钢铁侠 HUD 风格，流式回复+工具调用实时可视）双入口。
+私人管家：LangGraph ReAct agent 底座，SQLite 持久记忆（重启不忘事），20 项工具——时间、计算器、天气（Open-Meteo 免 key）、备忘、日程、待办、系统查询，以及带来源的实时网页、电影评分、电竞比分和票务搜索。中文交互，模型走 OpenAI 兼容接口，默认 DeepSeek。终端和网页端（钢铁侠 HUD 风格，流式回复+工具调用实时可视）双入口。
 
 ## 项目结构
 
@@ -23,6 +23,8 @@ JWS-Agent/
 │       ├── memo.py       # 备忘增查删（data/memos.json）
 │       ├── schedule.py   # 日程：带 YYYY-MM-DD HH:MM 时间点
 │       ├── todo.py       # 待办：增/列表/勾完成
+│       ├── search.py     # Tavily 实时网页/新闻搜索（来源、时间、缓存与边界）
+│       ├── entertainment.py # 电影评分、电竞比分、票务搜索
 │       └── system.py     # 白名单系统查询
 ├── tests/                # 单元测试（不碰大模型，确定性判定）
 ├── scripts/              # 验收脚本（真模型冒烟 / 跨进程记忆）
@@ -34,7 +36,7 @@ JWS-Agent/
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
-cp .env.example .env      # 填入 DEEPSEEK_API_KEY
+cp .env.example .env      # 填入 DEEPSEEK_API_KEY 和 TAVILY_API_KEY
 
 .venv/bin/jarvis-web      # 网页端 → http://127.0.0.1:7789
 .venv/bin/jarvis          # 或终端对话，输 quit 退出
@@ -47,9 +49,28 @@ cp .env.example .env      # 填入 DEEPSEEK_API_KEY
 ## 验收
 
 ```bash
-.venv/bin/python -m pytest -q            # 13 条单元测试，0 跳过
+.venv/bin/python -m pytest -q            # 全量单元测试，必须 0 失败、0 跳过
 .venv/bin/python scripts/check_smoke.py  # 真模型冒烟：必须真的调用了工具
 .venv/bin/python scripts/check_memory.py # 两个独立进程先后对话，记忆必须接上
+.venv/bin/python scripts/search_smoke.py # 真模型四类实时查询：JSON 输出，必须 4/4
+```
+
+## 实时娱乐搜索
+
+`TAVILY_API_KEY` 是实时公开信息的主搜索源；免费额度和密钥在 [Tavily 控制台](https://app.tavily.com/home) 管理。工具固定使用 Basic 深度、Safe Search、最多 5 条结果、12 秒超时和 5 分钟进程内缓存。结果会保留查询时间、标题、摘要与 HTTP(S) 来源，并把网页文本视为不可信资料而非 Agent 指令。
+
+- `web_search`：近期新闻、娱乐动态和一般公开网页。
+- `movie_ratings`：分别查询豆瓣、IMDb、Rotten Tomatoes、Metacritic，不合并不同量表。
+- `esports_scores`：配置 `PANDASCORE_TOKEN` 时优先结构化比分，否则自动回退可信电竞网页。
+- `ticket_search`：优先大麦、秀动、猫眼/淘票票、携程、Ticketmaster；只给公开价和深链接，不登录、占座、下单或支付。
+
+票务的展示价、起价和票面价都不是最终成交价，库存、手续费与最终价格以平台结算页为准。`httpx` 作为直接依赖，为 Tavily/PandaScore 提供固定超时、可测试 transport 和明确的 HTTP 错误处理。
+
+反向验收可临时注入无效搜索密钥，命令必须非零退出并在 JSON 的工具输出中出现“联网搜索认证失败”；随后恢复 `.env` 中的真实 Key 再运行正常 4/4 验收：
+
+```bash
+TAVILY_API_KEY=invalid-smoke-key .venv/bin/python scripts/search_smoke.py
+.venv/bin/python scripts/search_smoke.py
 ```
 
 ## 桌面悬浮窗（macOS）
@@ -86,3 +107,5 @@ cd desktop && npm install && npm start
 | `JARVIS_MODEL` | `deepseek-chat` | 模型名（本项目实际用 deepseek-v4-flash） |
 | `JARVIS_DATA_DIR` | `<项目根>/data` | 记忆库与备忘的存放目录 |
 | `JARVIS_PORT` | `7789` | 网页端监听端口 |
+| `TAVILY_API_KEY` | 无（实时搜索必填） | Tavily Basic 网页/新闻搜索密钥；缺失时明确报未配置 |
+| `PANDASCORE_TOKEN` | 无（可选） | PandaScore 结构化电竞数据；缺失或失败时回退 Tavily |

@@ -40,3 +40,13 @@ def base_url() -> str:
 
 def api_key() -> str:
     return os.environ["DEEPSEEK_API_KEY"]
+
+
+def tavily_api_key() -> str:
+    """可选的实时网页搜索密钥；缺失时由工具返回可操作提示。"""
+    return os.getenv("TAVILY_API_KEY", "").strip()
+
+
+def pandascore_token() -> str:
+    """可选的结构化电竞数据 Token；缺失时自动回退网页搜索。"""
+    return os.getenv("PANDASCORE_TOKEN", "").strip()

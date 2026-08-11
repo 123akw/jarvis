@@ -4,9 +4,11 @@
 """
 from jarvis.tools.calc import calc
 from jarvis.tools.clock import now
+from jarvis.tools.entertainment import esports_scores, movie_ratings, ticket_search
 from jarvis.tools.location import coding_status, my_location
 from jarvis.tools.memo import memo_add, memo_del, memo_list
 from jarvis.tools.schedule import schedule_add, schedule_del, schedule_list
+from jarvis.tools.search import web_search
 from jarvis.tools.system import sys_query
 from jarvis.tools.todo import todo_add, todo_done, todo_list
 from jarvis.tools.weather import weather, weather_here
@@ -17,6 +19,7 @@ TOOLS = [
     schedule_add, schedule_list, schedule_del,
     todo_add, todo_list, todo_done,
     sys_query,
+    web_search, movie_ratings, esports_scores, ticket_search,
 ]
 
 __all__ = [
@@ -25,4 +28,5 @@ __all__ = [
     "schedule_add", "schedule_list", "schedule_del",
     "todo_add", "todo_list", "todo_done",
     "sys_query",
+    "web_search", "movie_ratings", "esports_scores", "ticket_search",
 ]
