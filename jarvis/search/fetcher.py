@@ -28,6 +28,13 @@ _NAT64_WELL_KNOWN = ipaddress.ip_network("64:ff9b::/96")
 _NAT64_LOCAL_USE = ipaddress.ip_network("64:ff9b:1::/48")
 _SIX_TO_FOUR = ipaddress.ip_network("2002::/16")
 _TEREDO = ipaddress.ip_network("2001::/32")
+_INHERENT_IPV6_REPRESENTATIONS = (
+    _IPV4_MAPPED,
+    _IPV4_TRANSLATED,
+    _SIX_TO_FOUR,
+    _TEREDO,
+    _NAT64_WELL_KNOWN,
+)
 _NAT64_PREFIX_LENGTHS = frozenset((32, 40, 48, 56, 64, 96))
 _NON_PUBLIC_IPV4 = tuple(
     ipaddress.ip_network(network)
@@ -498,11 +505,13 @@ class _HTTPWireFile:
         wire_limit: int,
         metadata_limit: int,
         chunk_limit: int,
+        remaining: Callable[[], float],
     ) -> None:
         self._sock = sock
         self._wire = _WireBudget(wire_limit)
         self._metadata_limit = metadata_limit
         self._chunk_limit = chunk_limit
+        self._remaining = remaining
         self._metadata_used = 0
         self._chunks_seen = 0
         self._buffer = bytearray()
@@ -520,7 +529,9 @@ class _HTTPWireFile:
         if self._eof:
             return
         size = min(_READ_SIZE, max(1, self._wire.remaining + 1))
+        self._sock.settimeout(self._remaining())
         data = self._sock.recv(size)
+        self._remaining()
         if not data:
             self._eof = True
             return
@@ -674,6 +685,7 @@ class _SocketTransport:
                 wire_limit=self._max_wire_bytes,
                 metadata_limit=self._max_metadata_bytes,
                 chunk_limit=self._max_chunks,
+                remaining=remaining,
             )
             response = http.client.HTTPResponse(_HTTPResponseSocket(wire_file))
             sock.settimeout(remaining())
@@ -801,18 +813,19 @@ def _is_public_address(
             and not address.is_unspecified
         )
 
-    for prefix in local_nat64_prefixes:
-        if address in prefix:
-            embedded = _extract_nat64_ipv4(address, prefix)
-            return embedded is not None and _is_public_address(embedded)
-
     if address in _IPV4_MAPPED or address in _IPV4_TRANSLATED:
         return _is_public_address(ipaddress.IPv4Address(address.packed[-4:]))
     if address in _NAT64_WELL_KNOWN:
         return _is_public_address(ipaddress.IPv4Address(address.packed[-4:]))
     if address in _SIX_TO_FOUR:
         return _is_public_address(ipaddress.IPv4Address(address.packed[2:6]))
-    if address in _TEREDO or address in _NAT64_LOCAL_USE:
+    if address in _TEREDO:
+        return False
+    for prefix in local_nat64_prefixes:
+        if address in prefix:
+            embedded = _extract_nat64_ipv4(address, prefix)
+            return embedded is not None and _is_public_address(embedded)
+    if address in _NAT64_LOCAL_USE:
         return False
     if any(address in network for network in _NON_PUBLIC_IPV6):
         return False
@@ -839,6 +852,13 @@ def _parse_nat64_prefixes(values: Sequence[str]) -> tuple[ipaddress.IPv6Network,
             or network.prefixlen not in _NAT64_PREFIX_LENGTHS
         ):
             raise ValueError("local_nat64_prefixes use unsupported prefix lengths")
+        if any(
+            network.overlaps(inherent)
+            for inherent in _INHERENT_IPV6_REPRESENTATIONS
+        ):
+            raise ValueError(
+                "local_nat64_prefixes must not overlap inherent IPv6 representations"
+            )
         if any(network.overlaps(existing) for existing in prefixes):
             raise ValueError("local_nat64_prefixes must not overlap")
         prefixes.append(network)

@@ -120,6 +120,23 @@ class _FakeSocket:
         self.closed = True
 
 
+class _TrickleSocket(_FakeSocket):
+    def __init__(self, raw_response, *, clock, seconds_per_byte):
+        super().__init__(raw_response)
+        self.clock = clock
+        self.seconds_per_byte = seconds_per_byte
+        self.current_timeout = None
+        self.recv_timeouts = []
+
+    def settimeout(self, timeout):
+        self.current_timeout = timeout
+
+    def recv(self, _size):
+        self.recv_timeouts.append(self.current_timeout)
+        self.clock.advance(self.seconds_per_byte)
+        return super().recv(1)
+
+
 class _FakeTLSContext:
     def __init__(self, tls_socket):
         self.tls_socket = tls_socket
@@ -542,6 +559,39 @@ def test_configured_local_nat64_prefix_recursively_checks_embedded_ipv4(
         assert transport.calls == []
 
 
+@pytest.mark.parametrize(
+    "prefix",
+    (
+        "::ffff:0:0/96",
+        "::ffff:0:0:0/96",
+        "2002:c0a8::/32",
+        "2001::/32",
+        "64:ff9b::/96",
+    ),
+    ids=("mapped", "translated", "6to4", "teredo", "well-known-nat64"),
+)
+def test_local_nat64_configuration_rejects_inherent_special_range_overlap(prefix):
+    """Allowing local NAT64 to overlap an inherent representation would change its meaning."""
+    _, _, safe_fetcher, _ = _api()
+
+    with pytest.raises(ValueError, match="overlap"):
+        safe_fetcher(
+            resolver=_StubResolver({}),
+            transport=_StubTransport(({},)),
+            local_nat64_prefixes=(prefix,),
+        )
+
+
+def test_inherent_6to4_semantics_precede_preparsed_local_nat64_prefix():
+    """Checking local NAT64 first would reinterpret private 6to4 as a public IPv4 target."""
+    from jarvis.search.fetcher import _is_public_address
+
+    target = ipaddress.ip_address("2002:c0a8:5db8:d822::")
+    overlapping_prefix = ipaddress.ip_network("2002:c0a8::/32")
+
+    assert _is_public_address(target, (overlapping_prefix,)) is False
+
+
 def _fetch_raw_response(monkeypatch, raw_response):
     from jarvis.search import fetcher as fetcher_module
 
@@ -565,6 +615,34 @@ def test_wire_limit_counts_status_headers_and_framing_not_only_payload(monkeypat
 
     with pytest.raises(fetch_error, match="wire"):
         fetcher.fetch("http://news.example/a")
+
+
+def test_wire_reader_recomputes_total_deadline_for_each_trickled_byte(monkeypatch):
+    """Reusing one socket timeout would let sub-timeout bytes extend the total indefinitely."""
+    from jarvis.search import fetcher as fetcher_module
+
+    clock = _Clock()
+    raw = b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\nok"
+    fake_socket = _TrickleSocket(raw, clock=clock, seconds_per_byte=0.75)
+    monkeypatch.setattr(fetcher_module.socket, "socket", lambda *_args: fake_socket)
+    monkeypatch.setattr(fetcher_module.time, "monotonic", clock.now)
+    fetcher = fetcher_module.SafeFetcher(
+        policy=fetcher_module.FetchPolicy(total_timeout_seconds=3.0),
+        resolver=_StubResolver({"news.example": (PUBLIC_IP,)}),
+        monotonic=clock.now,
+    )
+
+    with pytest.raises(fetcher_module.FetchError, match="timeout"):
+        fetcher.fetch("http://news.example/a")
+
+    assert len(fake_socket.recv_timeouts) <= 4
+    assert all(
+        earlier > later
+        for earlier, later in zip(
+            fake_socket.recv_timeouts,
+            fake_socket.recv_timeouts[1:],
+        )
+    )
 
 
 def _large_initial_headers():
