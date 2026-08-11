@@ -6,6 +6,7 @@ import json
 import os
 import secrets
 import time
+import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -274,6 +275,88 @@ def chat(request: Request, body: ChatIn):
         gen(), media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ---------- OpenAI 兼容接口（供 Hermes 等生态工具把贾维斯当模型接入） ----------
+
+class OAIMessage(BaseModel):
+    role: str
+    content: object = ""
+
+
+class OAIChatIn(BaseModel):
+    model: str = "jarvis"
+    messages: list[OAIMessage] = []
+    stream: bool = False
+
+
+def _bearer_ok(request: Request) -> bool:
+    auth = request.headers.get("authorization", "")
+    return auth.startswith("Bearer ") and hmac.compare_digest(auth[7:], _session_token())
+
+
+def _oai_user_text(messages: list[OAIMessage]) -> str:
+    for m in reversed(messages):
+        if m.role != "user":
+            continue
+        c = m.content
+        if isinstance(c, list):
+            c = "".join(p.get("text", "") for p in c if isinstance(p, dict))
+        return str(c)
+    return ""
+
+
+@app.post("/v1/chat/completions")
+def oai_chat(request: Request, body: OAIChatIn):
+    if not (_authed(request) or _bearer_ok(request)):
+        return JSONResponse({"error": {"message": "unauthorized"}}, status_code=401)
+    text = _oai_user_text(body.messages)
+    if not text.strip():
+        return JSONResponse({"error": {"message": "empty user message"}}, status_code=400)
+    # 多轮记忆在贾维斯侧（按线程），外部只需传最后一句
+    tid = request.headers.get("x-thread-id", "wechat")
+    _upsert_thread(tid, text)
+    rid = f"chatcmpl-{uuid.uuid4().hex[:24]}"
+    created = int(time.time())
+
+    if not body.stream:
+        result = _get_agent().invoke(
+            {"messages": [{"role": "user", "content": text}]},
+            config={"configurable": {"thread_id": tid}},
+        )
+        reply = _chunk_text(result["messages"][-1].content)
+        return {
+            "id": rid, "object": "chat.completion", "created": created, "model": "jarvis",
+            "choices": [{"index": 0, "finish_reason": "stop",
+                         "message": {"role": "assistant", "content": reply}}],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        }
+
+    def gen():
+        def chunk(delta, finish=None):
+            return "data: " + json.dumps({
+                "id": rid, "object": "chat.completion.chunk", "created": created,
+                "model": "jarvis",
+                "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
+            }, ensure_ascii=False) + "\n\n"
+        yield chunk({"role": "assistant"})
+        try:
+            for ck, _meta in _get_agent().stream(
+                {"messages": [{"role": "user", "content": text}]},
+                config={"configurable": {"thread_id": tid}},
+                stream_mode="messages",
+            ):
+                if isinstance(ck, AIMessageChunk):
+                    t = _chunk_text(ck.content)
+                    if t:
+                        yield chunk({"content": t})
+        except Exception as e:
+            yield chunk({"content": f"（出错了：{type(e).__name__}）"})
+        yield chunk({}, finish="stop")
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache"})
 
 
 # ---------- 静态页 ----------

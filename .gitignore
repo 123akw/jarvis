@@ -7,3 +7,6 @@ data/
 *.egg-info/
 web-src/node_modules/
 desktop/node_modules/
+wechat/.env
+wechat/.ilink_token
+wechat/wx_login_qr.png
