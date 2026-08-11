@@ -1,8 +1,92 @@
 """集中配置：路径、环境变量、模型参数。所有取值都在调用时读取，方便测试与热切换。"""
 import os
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+
+_SEARCH_PROVIDERS = frozenset(("searxng", "ddgs", "tavily"))
+_EXTRACT_PROVIDERS = frozenset(("trafilatura", "playwright"))
+_DEFAULT_SEARCH_BACKENDS = ("searxng", "ddgs", "tavily")
+_DEFAULT_EXTRACT_BACKENDS = ("trafilatura", "playwright")
+
+
+@dataclass(frozen=True)
+class OptionalCredential:
+    """Optional secret whose representation never contains its value."""
+
+    _value: str = field(repr=False, compare=False)
+
+    @property
+    def configured(self) -> bool:
+        return bool(self._value)
+
+    def reveal(self) -> str:
+        """Return the secret for a provider transport at the last responsible moment."""
+        return self._value
+
+
+@dataclass(frozen=True)
+class SearchSettings:
+    """One explicit, immutable configuration snapshot for the provider chain."""
+
+    search_backends: tuple[str, ...]
+    extract_backends: tuple[str, ...]
+    _tavily: OptionalCredential = field(repr=False, compare=False)
+    _searxng_endpoint: str = field(repr=False, compare=False)
+
+    def provider_diagnostics(self) -> dict[str, bool]:
+        """Expose configuration state without revealing endpoints or credentials."""
+        return {
+            "searxng": bool(self._searxng_endpoint),
+            "ddgs": True,
+            "tavily": self._tavily.configured,
+            "trafilatura": True,
+            "playwright": True,
+        }
+
+    def credential_for(self, provider_name: str) -> OptionalCredential:
+        if provider_name != "tavily":
+            raise ValueError(f"unknown credential provider: {provider_name}")
+        return self._tavily
+
+    def endpoint_for(self, provider_name: str) -> str:
+        if provider_name != "searxng":
+            raise ValueError(f"unknown endpoint provider: {provider_name}")
+        return self._searxng_endpoint
+
+
+def _parse_backend_chain(value: str, *, supported: frozenset[str], label: str) -> tuple[str, ...]:
+    names = tuple(part.strip().lower() for part in value.split(",") if part.strip())
+    if not names:
+        raise ValueError(f"{label} must contain at least one provider")
+    unknown = [name for name in names if name not in supported]
+    if unknown:
+        raise ValueError(f"unknown {label} provider: {unknown[0]}")
+    if len(names) != len(set(names)):
+        raise ValueError(f"duplicate {label} provider")
+    return names
+
+
+def load_search_settings() -> SearchSettings:
+    """Assemble the web-research configuration once from the environment."""
+    search_backends = _parse_backend_chain(
+        os.getenv("JARVIS_SEARCH_BACKENDS", ",".join(_DEFAULT_SEARCH_BACKENDS)),
+        supported=_SEARCH_PROVIDERS,
+        label="search backend",
+    )
+    extract_backends = _parse_backend_chain(
+        os.getenv("JARVIS_EXTRACT_BACKENDS", ",".join(_DEFAULT_EXTRACT_BACKENDS)),
+        supported=_EXTRACT_PROVIDERS,
+        label="extract backend",
+    )
+    return SearchSettings(
+        search_backends=search_backends,
+        extract_backends=extract_backends,
+        _tavily=OptionalCredential(os.getenv("TAVILY_API_KEY", "").strip()),
+        _searxng_endpoint=os.getenv("SEARXNG_BASE_URL", "").strip(),
+    )
 
 ROOT = Path(__file__).resolve().parent.parent
 
