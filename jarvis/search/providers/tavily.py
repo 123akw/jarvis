@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable
+from datetime import datetime, timezone
 
 import httpx
 
@@ -16,6 +17,7 @@ from jarvis.search.providers.base import (
     ProviderResponseError,
     ProviderTimeoutError,
     clean_text,
+    parse_retry_after,
     safe_http_url,
 )
 
@@ -34,9 +36,11 @@ class TavilyProvider:
         self,
         api_key_getter: Callable[[], str] | None = None,
         transport: httpx.BaseTransport | None = None,
+        now: Callable[[], datetime] | None = None,
     ):
         self._api_key_getter = api_key_getter or config.tavily_api_key
         self._transport = transport
+        self._now = now or (lambda: datetime.now(timezone.utc))
 
     def _api_key(self) -> str:
         return clean_text(self._api_key_getter())
@@ -81,7 +85,9 @@ class TavilyProvider:
                 raise ProviderAuthError("Tavily authentication rejected")
             if response.status_code in {429, 432, 433}:
                 raise ProviderRateLimitError(
-                    retry_after=_retry_after(response.headers.get("Retry-After"))
+                    retry_after=parse_retry_after(
+                        response.headers.get("Retry-After"), now=self._now()
+                    )
                 )
             response.raise_for_status()
             payload = response.json()
@@ -97,13 +103,6 @@ class TavilyProvider:
 
     def close(self) -> None:
         return None
-
-
-def _retry_after(value: str | None) -> float:
-    try:
-        return max(0.0, float(value or 0.0))
-    except ValueError:
-        return 0.0
 
 
 def _parse_results(payload: object, max_results: int) -> tuple[SearchResult, ...]:

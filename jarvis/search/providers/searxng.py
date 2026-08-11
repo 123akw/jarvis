@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable
+from datetime import datetime, timezone
 from urllib.parse import urljoin
 
 import httpx
@@ -17,6 +18,7 @@ from jarvis.search.providers.base import (
     ProviderResponseError,
     ProviderTimeoutError,
     clean_text,
+    parse_retry_after,
     provider_query,
     safe_http_url,
 )
@@ -33,11 +35,13 @@ class SearXNGProvider:
         self,
         endpoint_getter: Callable[[], str] | None = None,
         transport: httpx.BaseTransport | None = None,
+        now: Callable[[], datetime] | None = None,
     ):
         self._endpoint_getter = endpoint_getter or (
             lambda: config.load_search_settings().endpoint_for("searxng")
         )
         self._transport = transport
+        self._now = now or (lambda: datetime.now(timezone.utc))
 
     def _endpoint(self) -> str:
         return clean_text(self._endpoint_getter()).rstrip("/")
@@ -68,7 +72,9 @@ class SearXNGProvider:
                 raise ProviderAuthError("SearXNG authentication rejected")
             if response.status_code == 429:
                 raise ProviderRateLimitError(
-                    retry_after=_retry_after(response.headers.get("Retry-After"))
+                    retry_after=parse_retry_after(
+                        response.headers.get("Retry-After"), now=self._now()
+                    )
                 )
             response.raise_for_status()
             payload = response.json()
@@ -84,13 +90,6 @@ class SearXNGProvider:
 
     def close(self) -> None:
         return None
-
-
-def _retry_after(value: str | None) -> float:
-    try:
-        return max(0.0, float(value or 0.0))
-    except ValueError:
-        return 0.0
 
 
 def _parse_results(payload: object, max_results: int) -> tuple[SearchResult, ...]:

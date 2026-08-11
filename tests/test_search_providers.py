@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
+from email.utils import format_datetime
 
 import httpx
 import pytest
@@ -11,6 +13,7 @@ from jarvis.search.providers.base import ProviderResponseError
 from jarvis.search.providers.ddgs import DDGSProvider
 from jarvis.search.providers.searxng import SearXNGProvider
 from jarvis.search.providers.tavily import TavilyProvider
+from jarvis.search.service import SearchService
 
 
 def test_searxng_maps_request_and_drops_malformed_rows():
@@ -209,3 +212,43 @@ def test_provider_snippets_are_capped_at_300_characters():
     result = provider.search(SearchRequest("film"))[0]
 
     assert len(result.snippet) == 300
+
+
+@pytest.mark.parametrize("provider_name", ["searxng", "tavily"])
+@pytest.mark.parametrize("header_kind", ["delta-seconds", "http-date"])
+def test_http_provider_retry_after_formats_are_parsed_and_service_bounded(
+    provider_name, header_kind
+):
+    """Both HTTP Retry-After formats must reach the same bounded service wait."""
+    fixed_now = datetime(2026, 8, 11, 6, 30, tzinfo=timezone.utc)
+    retry_after = (
+        "7"
+        if header_kind == "delta-seconds"
+        else format_datetime(fixed_now + timedelta(seconds=90), usegmt=True)
+    )
+    calls = []
+
+    def handler(_request):
+        calls.append(True)
+        if len(calls) == 1:
+            return httpx.Response(429, headers={"Retry-After": retry_after})
+        if provider_name == "searxng":
+            return httpx.Response(200, json={"results": []})
+        return httpx.Response(200, json={"results": [], "query": "film"})
+
+    kwargs = {"transport": httpx.MockTransport(handler)}
+    if header_kind == "http-date":
+        kwargs["now"] = lambda: fixed_now
+    provider = (
+        SearXNGProvider(endpoint_getter=lambda: "https://search.example", **kwargs)
+        if provider_name == "searxng"
+        else TavilyProvider(api_key_getter=lambda: "tvly-test", **kwargs)
+    )
+    sleeps = []
+
+    SearchService([provider], now=lambda: fixed_now, sleep=sleeps.append).search(
+        SearchRequest("film")
+    )
+
+    assert len(calls) == 2
+    assert sleeps == [2.0]

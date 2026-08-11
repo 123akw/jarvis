@@ -7,7 +7,14 @@ from types import SimpleNamespace
 
 import httpx
 import jarvis.tools.search as search_mod
-from jarvis.search.models import REALTIME_CACHE_POLICY, SearchResponse, SearchResult
+import pytest
+from jarvis.search.models import (
+    DEFAULT_CACHE_POLICY,
+    REALTIME_CACHE_POLICY,
+    ProviderHealth,
+    SearchResponse,
+    SearchResult,
+)
 
 
 def _payload(results):
@@ -219,7 +226,15 @@ def test_legacy_search_accepts_one_domain_string_without_splitting_characters():
     assert bodies[0]["include_domains"] == ["example.com"]
 
 
-def test_web_search_builds_realtime_request_and_formats_service_response(monkeypatch):
+@pytest.mark.parametrize(
+    "query",
+    [
+        "今晚比赛比分",
+        "最近比赛 比分 赛果 赛事",
+        "上海音乐节门票报价",
+    ],
+)
+def test_web_search_builds_realtime_request_for_production_queries(monkeypatch, query):
     """The public tool must use the provider chain and its immutable realtime cache policy."""
     seen = []
 
@@ -245,10 +260,18 @@ def test_web_search_builds_realtime_request_and_formats_service_response(monkeyp
 
     monkeypatch.setattr(search_mod, "_default_service", FakeService())
 
-    out = search_mod.web_search.invoke({"query": "今晚实时比分"})
+    out = search_mod.web_search.invoke({"query": query})
 
     assert out == "formatted:ddgs"
     assert seen[0].cache_policy == REALTIME_CACHE_POLICY
+
+
+def test_validated_movie_request_keeps_default_cache_policy():
+    """Broadening realtime detection must not shorten ordinary movie research caching."""
+    request = search_mod._validated_request("哪吒电影评分", "general", "", (), 5)
+
+    assert not isinstance(request, str)
+    assert request.cache_policy == DEFAULT_CACHE_POLICY
 
 
 def test_search_output_is_bounded_to_ten_kibibytes():
@@ -267,15 +290,44 @@ def test_search_output_is_bounded_to_ten_kibibytes():
     assert "影" * 301 not in out
 
 
-def test_web_search_tool_uses_real_service_and_reports_missing_key(monkeypatch):
-    """未注册成 LangChain 工具，模型即使知道名字也无法联网。"""
-    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+def test_web_search_tool_is_offline_and_reports_missing_configuration(monkeypatch):
+    """工具注册测试必须注入完整服务边界，不能探测任何真实 provider。"""
+    calls = []
+
+    class OfflineService:
+        def search(self, request):
+            calls.append(request)
+            return SearchResponse(
+                results=(),
+                checked_at=datetime(2026, 8, 11, 6, 30, tzinfo=timezone.utc),
+                attempted_providers=(),
+            )
+
+        def health(self):
+            return (
+                ProviderHealth("searxng", False, "unconfigured"),
+                ProviderHealth("ddgs", False, "unconfigured"),
+                ProviderHealth("tavily", False, "unconfigured"),
+            )
+
+        def format_response(self, _response):
+            raise AssertionError("empty unconfigured response must not be formatted")
+
+    monkeypatch.setattr(search_mod, "_default_service", OfflineService())
+    monkeypatch.setattr(
+        httpx,
+        "Client",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("network client must not be constructed")
+        ),
+    )
 
     tool = search_mod.web_search
     out = tool.invoke({"query": "最近一周娱乐新闻"})
 
     assert tool.name == "web_search"
     assert "未配置 TAVILY_API_KEY" in out
+    assert [request.query for request in calls] == ["最近一周娱乐新闻"]
 
 
 def _load_search_smoke_module():

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Protocol
 import unicodedata
 from urllib.parse import urlparse
@@ -81,6 +83,26 @@ def provider_query(request: SearchRequest) -> str:
     clauses = [f"site:{domain}" for domain in request.domains]
     suffix = clauses[0] if len(clauses) == 1 else f"({' OR '.join(clauses)})"
     return f"{query} {suffix}"
+
+
+def parse_retry_after(value: str | None, *, now: datetime | None = None) -> float:
+    """Parse Retry-After delta-seconds or HTTP-date into non-negative seconds."""
+    if not value:
+        return 0.0
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        pass
+    try:
+        retry_at = parsedate_to_datetime(value)
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+    if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=timezone.utc)
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    return max(0.0, (retry_at - current).total_seconds())
 
 
 class SearchProvider(Protocol):

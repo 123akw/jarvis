@@ -404,9 +404,13 @@ def cache_policy_for_query(query: str):
 
     normalized = _normalize_query(query)
     realtime_markers = (
+        "比分",
+        "赛果",
         "实时比分",
         "即时比分",
         "live score",
+        "match score",
+        "match result",
         "票价",
         "票面价",
         "门票报价",
