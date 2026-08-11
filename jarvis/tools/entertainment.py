@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -15,7 +15,9 @@ from jarvis.search.models import (
     DEFAULT_CACHE_POLICY,
     REALTIME_CACHE_POLICY,
     CachePolicy,
+    ProviderHealth,
     SearchRequest,
+    SearchResponse,
 )
 from jarvis.search.providers import TavilyProvider
 from jarvis.search.service import SearchService
@@ -58,6 +60,35 @@ _GAME_ALIASES = {
     "dota2": "dota2",
     "valorant": "valorant",
 }
+_SEARCH_FAILURE_MESSAGES = {
+    "authentication": "联网搜索认证失败，请检查搜索服务配置。",
+    "rate_limit": "联网搜索触发额度或频率限制，请稍后再试。",
+    "timeout": "联网搜索请求超时，请稍后再试。",
+    "network": "联网搜索暂时不可用（网络错误），请稍后再试。",
+    "response": "联网搜索响应异常，请稍后再试。",
+}
+
+
+def render_search_failure(
+    response: SearchResponse,
+    health: Iterable[ProviderHealth],
+) -> str | None:
+    """Render only known failure categories, never provider exception details."""
+    if response.results or not response.attempted_providers:
+        return None
+    health_by_provider = {item.provider: item for item in health}
+    for provider in response.attempted_providers:
+        snapshot = health_by_provider.get(provider)
+        if snapshot is None:
+            continue
+        category = {
+            "auth_open": "authentication",
+            "rate_open": "rate_limit",
+        }.get(snapshot.state, snapshot.last_error)
+        message = _SEARCH_FAILURE_MESSAGES.get(category)
+        if message is not None:
+            return message
+    return None
 
 
 def _query(*parts: str) -> str:
@@ -198,9 +229,17 @@ class EntertainmentSearch:
                 cache_policy=cache_policy,
             )
         )
+        if not response.results:
+            health = self._search.health()
+            failure = render_search_failure(response, health)
+            if failure is not None:
+                return failure
         if not response.results and not response.attempted_providers:
-            health = {item.provider: item for item in self._search.health()}
-            if "tavily" in health and not health["tavily"].configured:
+            health_by_provider = {item.provider: item for item in health}
+            if (
+                "tavily" in health_by_provider
+                and not health_by_provider["tavily"].configured
+            ):
                 return "联网搜索未配置 TAVILY_API_KEY，暂时不能查询实时信息。"
         return self._search.format_response(response)
 

@@ -7,11 +7,13 @@ import httpx
 import jarvis.tools.entertainment as entertainment_mod
 from jarvis.search.models import (
     DEFAULT_CACHE_POLICY,
+    ProviderCapabilities,
     REALTIME_CACHE_POLICY,
     SearchResponse,
     SearchResult,
 )
 from jarvis.search.providers import TavilyProvider
+from jarvis.search.providers.base import ProviderTimeoutError
 from jarvis.search.service import SearchService
 
 
@@ -83,6 +85,32 @@ def _public_result(title, url, snippet, published_at="2026-08-10"):
     )
 
 
+class _TimeoutProvider:
+    name = "stub"
+    capabilities = ProviderCapabilities(
+        topics=frozenset(("general",)),
+        time_ranges=frozenset(("",)),
+    )
+
+    def __init__(self):
+        self.errors = [
+            ProviderTimeoutError("https://user:token@example.test/?secret=timeout"),
+            ProviderTimeoutError("https://user:token@example.test/?secret=timeout"),
+        ]
+
+    def configured(self):
+        return True
+
+    def configuration_token(self):
+        return "opaque-revision"
+
+    def search(self, request):
+        raise self.errors.pop(0)
+
+    def close(self):
+        pass
+
+
 def test_entertainment_module_is_available():
     """删除垂直模块会让三类实时问题退回无约束通用搜索。"""
     assert importlib.util.find_spec("jarvis.tools.entertainment") is not None
@@ -91,6 +119,22 @@ def test_entertainment_module_is_available():
 def test_entertainment_service_is_available():
     """垂直查询需要可注入真实搜索边界的服务对象。"""
     assert hasattr(entertainment_mod, "EntertainmentSearch")
+
+
+def test_entertainment_search_reports_provider_timeout_instead_of_not_found():
+    """An entertainment fallback timeout must stop further search rather than look empty."""
+    search = SearchService([_TimeoutProvider()], sleep=lambda _seconds: None)
+    service = entertainment_mod.EntertainmentSearch(
+        search_service=search,
+        pandascore_token_getter=lambda: "",
+    )
+
+    out = service.esports_scores("BLG", game="League of Legends")
+
+    assert "请求超时" in out
+    assert "未找到带有效 HTTP(S) 来源" not in out
+    assert "user:token" not in out
+    assert "secret=timeout" not in out
 
 
 def test_movie_ratings_keeps_platform_scales_and_voter_counts_separate():

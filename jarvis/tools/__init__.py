@@ -8,7 +8,7 @@ from langchain_core.tools import BaseTool, tool
 
 from jarvis.tools.calc import calc
 from jarvis.tools.clock import now
-from jarvis.tools.entertainment import make_entertainment_tools
+from jarvis.tools.entertainment import make_entertainment_tools, render_search_failure
 from jarvis.tools.location import coding_status, my_location
 from jarvis.tools.memo import memo_add, memo_del, memo_list
 from jarvis.tools.schedule import schedule_add, schedule_del, schedule_list
@@ -50,9 +50,17 @@ def _make_web_search_tool(service: SearchService) -> BaseTool:
         if isinstance(request, str):
             return request
         response = service.search(request)
+        if not response.results:
+            health = service.health()
+            failure = render_search_failure(response, health)
+            if failure is not None:
+                return failure
         if not response.results and not response.attempted_providers:
-            health = {item.provider: item for item in service.health()}
-            if "tavily" in health and not health["tavily"].configured:
+            health_by_provider = {item.provider: item for item in health}
+            if (
+                "tavily" in health_by_provider
+                and not health_by_provider["tavily"].configured
+            ):
                 return "联网搜索未配置 TAVILY_API_KEY，暂时不能查询实时信息。"
         return service.format_response(response)
 

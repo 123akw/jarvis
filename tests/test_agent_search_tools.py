@@ -5,7 +5,17 @@ from types import SimpleNamespace
 
 import jarvis.graph as graph_mod
 import jarvis.tools as tools_mod
+import pytest
 from jarvis.prompts import SYSTEM_PROMPT
+from jarvis.search.models import ProviderCapabilities, ProviderHealth
+from jarvis.search.providers.base import (
+    ProviderAuthError,
+    ProviderNetworkError,
+    ProviderRateLimitError,
+    ProviderResponseError,
+    ProviderTimeoutError,
+)
+from jarvis.search.service import SearchService
 
 
 EXPECTED_TOOL_NAMES = {
@@ -43,6 +53,32 @@ SEARCH_TOOL_NAMES = {
 class FakeSearchService:
     def __init__(self, generation: int):
         self.generation = generation
+
+
+class StubProvider:
+    name = "stub"
+    capabilities = ProviderCapabilities(
+        topics=frozenset(("general", "news")),
+        time_ranges=frozenset(("", "day", "week", "month", "year")),
+    )
+
+    def __init__(self, *, errors=(), results=()):
+        self.errors = list(errors)
+        self.results = tuple(results)
+
+    def configured(self):
+        return True
+
+    def configuration_token(self):
+        return "opaque-revision"
+
+    def search(self, request):
+        if self.errors:
+            raise self.errors.pop(0)
+        return self.results
+
+    def close(self):
+        pass
 
 
 def _build_tools():
@@ -86,6 +122,9 @@ def test_build_tools_does_not_replace_an_explicit_falsey_search_service(monkeypa
         def format_response(self, response):
             return "bound-service-response"
 
+        def health(self):
+            return (ProviderHealth(provider="fake", configured=True, state="healthy"),)
+
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
     service = FalseySearchService(generation=23)
     tools = _build_tools()(service)
@@ -102,6 +141,66 @@ def test_build_tools_keeps_no_argument_compatibility():
     tools = _build_tools()()
 
     assert {item.name for item in tools} == EXPECTED_TOOL_NAMES
+
+
+@pytest.mark.parametrize(
+    ("errors", "expected_category"),
+    [
+        ([ProviderAuthError("https://user:token@example.test/?secret=auth")], "认证失败"),
+        (
+            [
+                ProviderRateLimitError("secret=rate", retry_after=0),
+                ProviderRateLimitError("secret=rate", retry_after=0),
+            ],
+            "额度或频率限制",
+        ),
+        (
+            [
+                ProviderTimeoutError("https://example.test/?token=timeout"),
+                ProviderTimeoutError("https://example.test/?token=timeout"),
+            ],
+            "请求超时",
+        ),
+        (
+            [
+                ProviderNetworkError("https://user:network@example.test/private"),
+                ProviderNetworkError("https://user:network@example.test/private"),
+            ],
+            "网络错误",
+        ),
+        ([ProviderResponseError("secret=response")], "响应异常"),
+    ],
+)
+def test_web_search_renders_attempted_provider_failures_without_sensitive_details(
+    errors,
+    expected_category,
+):
+    """A caught provider failure must not be presented as a healthy empty result."""
+    service = SearchService([StubProvider(errors=errors)], sleep=lambda _seconds: None)
+    web_search = next(item for item in _build_tools()(service) if item.name == "web_search")
+
+    out = web_search.invoke({"query": "今日公开新闻"})
+
+    assert expected_category in out
+    assert "未找到带有效 HTTP(S) 来源" not in out
+    assert "user:token" not in out
+    assert "user:network" not in out
+    assert "secret=" not in out
+    assert "token=timeout" not in out
+
+
+def test_web_search_keeps_not_found_for_a_healthy_provider_with_no_results():
+    """A successful provider returning no rows is absence of results, not an outage."""
+    service = SearchService([StubProvider(results=())], sleep=lambda _seconds: None)
+    web_search = next(item for item in _build_tools()(service) if item.name == "web_search")
+
+    out = web_search.invoke({"query": "不存在的公开资料"})
+
+    assert "未找到带有效 HTTP(S) 来源的公开结果" in out
+    assert all(
+        category not in out
+        for category in ("认证失败", "额度或频率限制", "请求超时", "网络错误", "响应异常")
+    )
 
 
 def test_no_argument_build_agent_constructs_runtime_tools_instead_of_using_module_tools(
