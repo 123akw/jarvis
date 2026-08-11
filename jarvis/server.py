@@ -168,6 +168,24 @@ def delete_thread(request: Request, thread_id: str):
     return {"ok": True}
 
 
+# ---------- 桌面端状态同步 ----------
+
+class LocalStatusIn(BaseModel):
+    coding: list[dict] = []
+
+
+@app.post("/api/local-status")
+def local_status(request: Request, body: LocalStatusIn):
+    if not _authed(request):
+        return _deny()
+    (config.data_dir() / "local_status.json").write_text(
+        json.dumps({
+            "updated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "coding": body.coding[:10],
+        }, ensure_ascii=False, indent=1), encoding="utf-8")
+    return {"ok": True}
+
+
 # ---------- 业务接口（登录后可用） ----------
 
 @app.get("/api/dashboard")

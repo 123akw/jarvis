@@ -111,7 +111,65 @@ function createWindow() {
   win.loadFile('index.html')
 }
 
+/* ---------- Claude Code 编程进度采集（读 ~/.claude/projects 会话记录） ---------- */
+const CLAUDE_PROJECTS = path.join(os.homedir(), '.claude', 'projects')
+
+function extractTask(file) {
+  try {
+    const sz = fs.statSync(file).size
+    const len = Math.min(sz, 262144)
+    const buf = Buffer.alloc(len)
+    const fd = fs.openSync(file, 'r')
+    fs.readSync(fd, buf, 0, len, sz - len)
+    fs.closeSync(fd)
+    for (const line of buf.toString('utf-8').split('\n').reverse()) {
+      if (!line.includes('"type":"user"')) continue
+      try {
+        const j = JSON.parse(line)
+        let c = j.message && j.message.content
+        if (Array.isArray(c)) {
+          const t = c.find(x => x && x.type === 'text')
+          c = t && t.text
+        }
+        if (typeof c === 'string' && c.trim() && !c.trim().startsWith('<')) {
+          return c.trim().replace(/\s+/g, ' ').slice(0, 60)
+        }
+      } catch { /* 跳过坏行 */ }
+    }
+  } catch { /* 文件读不了就算了 */ }
+  return ''
+}
+
+function collectCoding() {
+  const out = []
+  let dirs = []
+  try { dirs = fs.readdirSync(CLAUDE_PROJECTS) } catch { return out }
+  for (const d of dirs) {
+    const dir = path.join(CLAUDE_PROJECTS, d)
+    let newest = null
+    try {
+      for (const f of fs.readdirSync(dir)) {
+        if (!f.endsWith('.jsonl')) continue
+        const st = fs.statSync(path.join(dir, f))
+        if (!newest || st.mtimeMs > newest.m) newest = { f: path.join(dir, f), m: st.mtimeMs }
+      }
+    } catch { continue }
+    if (!newest || Date.now() - newest.m > 48 * 3600000) continue
+    out.push({
+      project: d.replace(/^-Users-[^-]+-/, '') || d,
+      active: Date.now() - newest.m < 10 * 60000,
+      last_active: new Date(newest.m).toLocaleString('zh-CN',
+        { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }),
+      task: extractTask(newest.f),
+      _m: newest.m,
+    })
+  }
+  out.sort((a, b) => b._m - a._m)
+  return out.slice(0, 5).map(({ _m, ...rest }) => rest)
+}
+
 /* ---------- IPC ---------- */
+ipcMain.handle('coding-status', () => collectCoding())
 ipcMain.handle('toggle', () => toggleWindow())
 ipcMain.handle('collapse', () => {
   if (expanded) toggleWindow()
@@ -154,6 +212,10 @@ app.whenReady().then(() => {
         win.setBounds({ x: b.x + b.width - PANEL.w, y: b.y, width: PANEL.w, height: PANEL.h })
         expanded = true
         win.webContents.send('force-expand')
+        if (process.env.JWS_SHOT_VIEW === 'board') {
+          setTimeout(() => win.webContents.executeJavaScript(
+            "document.querySelector('#boardbtn').click()"), 900)
+        }
         if (process.env.JWS_SHOT_VIEW === 'settings') {
           setTimeout(() => win.webContents.executeJavaScript(`
             document.querySelector('#setbtn').click()

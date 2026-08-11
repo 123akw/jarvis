@@ -4,7 +4,7 @@
 """
 from jarvis.tools.calc import calc
 from jarvis.tools.clock import now
-from jarvis.tools.location import my_location
+from jarvis.tools.location import coding_status, my_location
 from jarvis.tools.memo import memo_add, memo_del, memo_list
 from jarvis.tools.schedule import schedule_add, schedule_del, schedule_list
 from jarvis.tools.system import sys_query
@@ -12,7 +12,7 @@ from jarvis.tools.todo import todo_add, todo_done, todo_list
 from jarvis.tools.weather import weather, weather_here
 
 TOOLS = [
-    now, calc, weather, weather_here, my_location,
+    now, calc, weather, weather_here, my_location, coding_status,
     memo_add, memo_list, memo_del,
     schedule_add, schedule_list, schedule_del,
     todo_add, todo_list, todo_done,
@@ -20,7 +20,7 @@ TOOLS = [
 ]
 
 __all__ = [
-    "TOOLS", "now", "calc", "weather", "weather_here", "my_location",
+    "TOOLS", "now", "calc", "weather", "weather_here", "my_location", "coding_status",
     "memo_add", "memo_list", "memo_del",
     "schedule_add", "schedule_list", "schedule_del",
     "todo_add", "todo_list", "todo_done",

@@ -11,6 +11,8 @@ SYSTEM_PROMPT = (
     "- 有具体时间点的安排用 schedule_add／schedule_list／schedule_del；"
     "when 参数必须是「YYYY-MM-DD HH:MM」，用户说「明天」「周三」时先调 now 确认今天再换算。\n"
     "- 要办的事项用 todo_add／todo_list／todo_done。\n"
+    "- 领导问「我在做什么任务／编程进度」用 coding_status；"
+    "问「今天有什么任务」时综合 schedule_list、todo_list、coding_status 一起汇报。\n"
     "- 查本机状态用 sys_query（只有 date、uptime、df -h、ls 可用）。\n"
     "用户问「今天有什么安排」时，综合 schedule_list 和 todo_list 一起汇报。"
 )

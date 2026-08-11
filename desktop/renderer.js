@@ -198,6 +198,48 @@ window.jws.onSetExpanded(v => {  // 全局快捷键唤醒/收起时同步界面
   if (v) box.focus()
 })
 
+/* ---------- 编程进度采集：同步到服务器，任务台展示 ---------- */
+async function syncCoding() {
+  try {
+    const coding = await window.jws.codingStatus()
+    await api('/api/local-status', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ coding }),
+    })
+    return coding
+  } catch { return [] }
+}
+setInterval(syncCoding, 5 * 60 * 1000)
+
+function rowsHtml(items, render) {
+  if (!items || !items.length) return '<div class="b-empty">暂无</div>'
+  return items.map(render).join('')
+}
+
+async function openBoard() {
+  document.body.classList.add('show-board')
+  $('#b-coding').innerHTML = '<div class="b-empty">读取中…</div>'
+  const coding = await syncCoding()
+  $('#b-coding').innerHTML = rowsHtml(coding, c => `
+    <div class="row"><span class="tag${c.active ? ' on' : ''}">${c.active ? '● 进行中' : c.last_active}</span>
+    <span class="txt"><b>${esc(c.project)}</b>${c.task ? ' · ' + esc(c.task) : ''}</span></div>`)
+  try {
+    const d = await (await api('/api/dashboard')).json()
+    const today = d.time.slice(0, 10)
+    const sch = (d.schedule || []).filter(x => x.when.slice(0, 10) === today)
+    $('#b-sched').innerHTML = rowsHtml(sch, x => `
+      <div class="row"><span class="tag">${esc(x.when.slice(11))}</span>
+      <span class="txt">${esc(x.title)}</span></div>`)
+    $('#b-todos').innerHTML = rowsHtml(d.todos, x => `
+      <div class="row"><span class="tag">[ ]</span><span class="txt">${esc(x.content)}</span></div>`)
+  } catch {
+    $('#b-sched').innerHTML = $('#b-todos').innerHTML = '<div class="b-empty">连不上服务器</div>'
+  }
+}
+$('#boardbtn').addEventListener('click', openBoard)
+$('#boardback').addEventListener('click', () => document.body.classList.remove('show-board'))
+$('#boardrefresh').addEventListener('click', openBoard)
+
 /* ---------- 设置面板：按键录制器 ---------- */
 const hkField = $('#hk-rec')
 let pendingHotkey = ''   // Electron accelerator 字符串
@@ -364,7 +406,10 @@ $('#s-save').addEventListener('click', async () => {
   try {
     const ok = await ensureLogin()
     state.textContent = ok ? '在线' : '登录失败'
-    if (ok) await loadHistory()
+    if (ok) {
+      await loadHistory()
+      syncCoding()  // 启动即同步一次编程进度
+    }
   } catch (e) {
     state.textContent = '离线'
     sys('连不上服务器：' + e.message)

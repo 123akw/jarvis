@@ -70,6 +70,26 @@ def locate_by_ip(ip: str) -> dict | None:
 
 
 @tool
+def coding_status() -> str:
+    """查询领导在 Claude Code 里的编程进度（由桌面端定时同步）。
+    领导问「我在做什么任务」「编程进度怎么样」「刚才在写什么代码」时用。"""
+    p = data_dir() / "local_status.json"
+    if not p.exists():
+        return "桌面端还没同步过编程状态。请领导确认桌面悬浮窗在运行。"
+    d = json.loads(p.read_text(encoding="utf-8"))
+    coding = d.get("coding", [])
+    if not coding:
+        return f"最近 48 小时没有 Claude Code 编程活动（同步于 {d.get('updated','?')}）。"
+    lines = []
+    for c in coding:
+        state = "🟢进行中" if c.get("active") else "已暂停"
+        lines.append(f"- {c.get('project','?')}（{state}，最近活动 {c.get('last_active','?')}）："
+                     f"{c.get('task','（无任务摘要）')}")
+    lines.append(f"（桌面端同步于 {d.get('updated','?')}）")
+    return "\n".join(lines)
+
+
+@tool
 def my_location() -> str:
     """查询领导当前所在位置（网页端定位或 IP 推断）。"""
     loc = get_location()

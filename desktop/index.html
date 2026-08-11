@@ -131,6 +131,22 @@ body.expanded #panel{display:flex}
 #plog .empty{color:var(--dim);font-family:var(--mono);font-size:12px;
   letter-spacing:.1em;text-align:center;padding:26px 0}
 
+/* ---------- 任务台 ---------- */
+#board{display:none;position:absolute;inset:0;background:#050B12;
+  z-index:5;flex-direction:column}
+body.show-board #board{display:flex}
+.b-sec{border:1px solid var(--line);padding:10px 12px}
+.b-title{font-family:var(--mono);font-size:11px;letter-spacing:.2em;color:var(--arc);
+  margin-bottom:8px}
+.b-list{font-size:13px;line-height:1.7;color:var(--text)}
+.b-list .row{display:flex;gap:8px;padding:3px 0;border-bottom:1px dashed rgba(83,232,255,.1)}
+.b-list .row:last-child{border-bottom:none}
+.b-list .tag{font-family:var(--mono);font-size:11px;color:var(--dim);white-space:nowrap;padding-top:2px}
+.b-list .tag.on{color:#7CF5B2}
+.b-list .txt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.b-off{color:var(--dim);font-family:var(--mono);font-size:11.5px;letter-spacing:.06em}
+.b-empty{color:var(--dim);font-family:var(--mono);font-size:12px}
+
 /* ---------- 设置面板 ---------- */
 #settings{display:none;position:absolute;inset:0;background:#050B12;
   z-index:5;flex-direction:column}
@@ -185,6 +201,7 @@ body.show-settings #settings{display:flex}
       <span id="ptitle">J.A.R.V.I.S.</span>
       <span id="pstate">连接中…</span>
       <span class="sp"></span>
+      <button class="hbtn" id="boardbtn" title="任务台">📋</button>
       <button class="hbtn" id="setbtn" title="设置">⚙</button>
       <button class="hbtn" id="clearbtn" title="清空快捷对话">↺</button>
       <button class="hbtn" id="minbtn" title="收起为悬浮球">—</button>
@@ -193,6 +210,22 @@ body.show-settings #settings{display:flex}
     <div id="pinput">
       <textarea id="box" rows="1" placeholder="小声吩咐一句…（Enter 发送）"></textarea>
       <button id="send" title="发送">↑</button>
+    </div>
+
+    <div id="board">
+      <div class="s-head">
+        <button class="hbtn" id="boardback" title="返回">←</button>
+        <span class="s-title">任 务 台</span>
+        <span class="sp"></span>
+        <button class="hbtn" id="boardrefresh" title="刷新">↻</button>
+      </div>
+      <div class="s-body" id="board-body">
+        <div class="b-sec"><div class="b-title">⌨ Claude Code 编程进度</div><div id="b-coding" class="b-list"></div></div>
+        <div class="b-sec"><div class="b-title">📅 今日日程</div><div id="b-sched" class="b-list"></div></div>
+        <div class="b-sec"><div class="b-title">☑ 待办事项</div><div id="b-todos" class="b-list"></div></div>
+        <div class="b-sec"><div class="b-title">🕊 飞书</div><div class="b-list b-off">未接入 · 需要企业应用凭证（app_id / secret）</div></div>
+        <div class="b-sec"><div class="b-title">💼 企业微信</div><div class="b-list b-off">未接入 · 需要企业应用凭证（corp_id / secret）</div></div>
+      </div>
     </div>
 
     <div id="settings">
