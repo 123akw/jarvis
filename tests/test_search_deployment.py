@@ -56,6 +56,8 @@ def _assert_http_readiness(healthcheck: dict) -> None:
         command,
     )
     assert not re.search(r"(?:^|[;&|]\s*)(?:echo|true)(?:\s|$)", command)
+    assert not re.search(r"(?:^|[;&|]\s*)exit\s+0(?:\s|$)", command)
+    assert re.search(r"\|\|\s*exit\s+1(?:\s|$)", command)
 
 
 def _lock_requirement_lines(lock: str) -> list[str]:
@@ -126,6 +128,8 @@ def test_searxng_compose_has_bounded_lifecycle_and_local_healthcheck():
         ["CMD-SHELL", "echo http://127.0.0.1:8080/healthz"],
         ["CMD-SHELL", "true"],
         ["CMD-SHELL", "wget http://127.0.0.1:8080/"],
+        ["CMD-SHELL", "wget http://127.0.0.1:8080/healthz || exit 0"],
+        ["CMD-SHELL", "wget http://127.0.0.1:8080/healthz ; exit 0"],
     ],
 )
 def test_healthcheck_contract_rejects_non_http_readiness_mutations(unsafe_test):
