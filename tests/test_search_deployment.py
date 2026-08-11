@@ -4,11 +4,16 @@ from __future__ import annotations
 import configparser
 import importlib.util
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import urlsplit
 
+import pytest
 import yaml
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -20,6 +25,8 @@ PINNED_IMAGE = (
     "ghcr.io/searxng/searxng:2026.7.28-c01178d03@"
     "sha256:5d6d903ab82afa56ee32792d477f36bc63d3e5ca04fcb6947e28a5cfd987fad3"
 )
+DEV_ONLY_PACKAGES = {"pip-tools", "playwright", "pytest", "tox"}
+VCS_PREFIXES = ("git+", "hg+", "svn+", "bzr+")
 
 
 def _yaml(path: Path) -> dict:
@@ -36,6 +43,57 @@ def _load_search_smoke_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _assert_http_readiness(healthcheck: dict) -> None:
+    test = healthcheck["test"]
+    assert isinstance(test, list) and len(test) == 2
+    assert test[0] == "CMD-SHELL"
+    command = str(test[1]).strip()
+    assert re.search(r"(?:^|\s)(?:wget|curl)(?:\s|$)", command)
+    assert re.search(
+        r"(?:^|\s)http://127\.0\.0\.1:8080/healthz(?:\s|$)",
+        command,
+    )
+    assert not re.search(r"(?:^|[;&|]\s*)(?:echo|true)(?:\s|$)", command)
+
+
+def _lock_requirement_lines(lock: str) -> list[str]:
+    return [
+        line.strip()
+        for line in lock.splitlines()
+        if line.strip() and not line.lstrip().startswith(("#", "--"))
+    ]
+
+
+def _assert_safe_lock_line(line: str) -> None:
+    stripped = line.strip()
+    lowered = stripped.casefold()
+    assert "file:" not in lowered
+    assert not any(prefix in lowered for prefix in VCS_PREFIXES)
+    for url in re.findall(r"https?://[^\s]+", stripped, flags=re.IGNORECASE):
+        parsed = urlsplit(url)
+        assert parsed.username is None and parsed.password is None
+        assert parsed.query == "" and parsed.fragment == ""
+    if stripped.startswith("#"):
+        return
+    if lowered.startswith("--index-url"):
+        parts = stripped.split(maxsplit=1)
+        assert len(parts) == 2
+        parsed = urlsplit(parts[1])
+        assert parsed.scheme == "https"
+        assert parsed.hostname == "pypi.org"
+        assert parsed.username is None and parsed.password is None
+        assert parsed.query == "" and parsed.fragment == ""
+        return
+    assert not lowered.startswith(
+        ("--extra-index-url", "--find-links", "--trusted-host", "-i ")
+    )
+    assert not lowered.startswith(("-e ", "--editable ", "/", "./", "../"))
+    assert not re.match(r"^[a-zA-Z]:[\\/]", stripped)
+    requirement = Requirement(stripped)
+    assert canonicalize_name(requirement.name) not in DEV_ONLY_PACKAGES
+    assert requirement.url is None
 
 
 def test_searxng_compose_pins_exact_image_and_only_publishes_loopback():
@@ -56,9 +114,24 @@ def test_searxng_compose_has_bounded_lifecycle_and_local_healthcheck():
 
     assert service["restart"] == "unless-stopped"
     assert {"test", "interval", "timeout", "retries", "start_period"} <= healthcheck.keys()
-    assert "127.0.0.1" in " ".join(str(part) for part in healthcheck["test"])
+    _assert_http_readiness(healthcheck)
     assert float(limits["cpus"]) > 0
     assert limits["memory"]
+
+
+@pytest.mark.parametrize(
+    "unsafe_test",
+    [
+        ["CMD", "wget", "http://127.0.0.1:8080/healthz"],
+        ["CMD-SHELL", "echo http://127.0.0.1:8080/healthz"],
+        ["CMD-SHELL", "true"],
+        ["CMD-SHELL", "wget http://127.0.0.1:8080/"],
+    ],
+)
+def test_healthcheck_contract_rejects_non_http_readiness_mutations(unsafe_test):
+    """No-op, exec-form, or wrong-path checks must not satisfy readiness."""
+    with pytest.raises(AssertionError):
+        _assert_http_readiness({"test": unsafe_test})
 
 
 def test_searxng_settings_enable_json_and_are_mounted_read_only():
@@ -110,6 +183,84 @@ def test_runtime_lock_is_pip_compiled_from_pyproject_without_browser_extra():
     assert "ddgs==9.14.4" in lock
     assert "trafilatura==2.1.0" in lock
     assert "playwright==" not in lock.casefold()
+
+
+def test_runtime_lock_covers_every_direct_dependency_with_an_exact_pin():
+    """Omitting one direct runtime dependency would make the lock incomplete."""
+    import tomllib
+
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    direct_names = {
+        canonicalize_name(Requirement(item).name)
+        for item in project["dependencies"]
+    }
+    locked = {
+        canonicalize_name(requirement.name): requirement
+        for line in _lock_requirement_lines(LOCK_PATH.read_text(encoding="utf-8"))
+        if not line.startswith("-")
+        for requirement in [Requirement(line)]
+    }
+
+    assert direct_names <= locked.keys()
+    for name in direct_names:
+        specifiers = list(locked[name].specifier)
+        assert len(specifiers) == 1
+        assert specifiers[0].operator == "=="
+
+
+@pytest.mark.parametrize(
+    "unsafe_line",
+    [
+        "--index-url https://packages.example/simple",
+        "--index-url https://user:secret@pypi.org/simple",
+        "--extra-index-url https://pypi.org/simple",
+        "demo @ https://user:secret@files.pythonhosted.org/demo.whl",
+        "demo @ https://files.pythonhosted.org/demo.whl?token=secret",
+        "# source https://user:secret@files.pythonhosted.org/demo.whl",
+        "demo @ git+https://github.com/example/demo.git",
+        "demo @ file:///tmp/demo.whl",
+        "-e ../demo",
+        "/tmp/demo.whl",
+        "playwright==1.61.0",
+        "pip-tools==7.6.0",
+        "pytest==9.0.2",
+        "tox==4.58.0",
+    ],
+)
+def test_lock_line_contract_rejects_unsafe_or_non_runtime_mutations(unsafe_line):
+    """Unsafe origins and dev/browser packages must never enter the runtime lock."""
+    with pytest.raises((AssertionError, ValueError)):
+        _assert_safe_lock_line(unsafe_line)
+
+
+def test_runtime_lock_lines_have_only_official_reproducible_origins():
+    """Every emitted lock line must reject private origins and local source references."""
+    for line in LOCK_PATH.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            _assert_safe_lock_line(line)
+
+
+def test_python310_lock_includes_anyio_exceptiongroup_marker():
+    """Resolving only on Python 3.14 drops anyio's Python 3.10 compatibility dependency."""
+    lock = LOCK_PATH.read_text(encoding="utf-8")
+    assert "autogenerated by pip-compile with Python 3.10" in lock
+    requirements = {
+        canonicalize_name(requirement.name): requirement
+        for line in _lock_requirement_lines(lock)
+        for requirement in [Requirement(line)]
+    }
+
+    assert "anyio" in requirements
+    assert "exceptiongroup" in requirements
+    exceptiongroup = requirements["exceptiongroup"]
+    specifiers = list(exceptiongroup.specifier)
+    assert len(specifiers) == 1
+    assert specifiers[0].operator == "=="
+
+    marker = Requirement('exceptiongroup; python_version < "3.11"').marker
+    assert marker is not None
+    assert marker.evaluate({"python_version": "3.10"}) is True
+    assert marker.evaluate({"python_version": "3.14"}) is False
 
 
 class _StubFreeAgent:
