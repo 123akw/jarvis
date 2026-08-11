@@ -96,6 +96,16 @@ class SearchResult:
 
 
 @dataclass(frozen=True)
+class FetchedDocument:
+    """A bounded public response whose network peer passed address policy."""
+
+    url: str
+    content: bytes
+    content_type: str
+    peer_ip: str
+
+
+@dataclass(frozen=True)
 class SearchResponse:
     results: tuple[SearchResult, ...]
     checked_at: datetime
