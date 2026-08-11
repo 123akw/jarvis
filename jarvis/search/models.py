@@ -115,3 +115,14 @@ class ProviderCapabilities:
     def __post_init__(self) -> None:
         object.__setattr__(self, "topics", frozenset(self.topics))
         object.__setattr__(self, "time_ranges", frozenset(self.time_ranges))
+
+
+@dataclass(frozen=True)
+class ProviderHealth:
+    """A credential-free provider status snapshot safe for diagnostics."""
+
+    provider: str
+    configured: bool
+    state: str
+    consecutive_failures: int = 0
+    last_error: str = ""

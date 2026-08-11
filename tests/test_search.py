@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import httpx
 import jarvis.tools.search as search_mod
+from jarvis.search.models import REALTIME_CACHE_POLICY, SearchResponse, SearchResult
 
 
 def _payload(results):
@@ -200,6 +201,56 @@ def test_identical_searches_within_five_minutes_use_cache():
     assert len(requests) == 1
 
 
+def test_legacy_search_accepts_one_domain_string_without_splitting_characters():
+    """Keeping the documented string default must not turn a hostname into one-letter domains."""
+    bodies = []
+
+    def handler(request):
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json=_payload([]))
+
+    service = search_mod.TavilySearch(
+        api_key_getter=lambda: "tvly-test",
+        transport=httpx.MockTransport(handler),
+    )
+
+    service.search("电影", domains="example.com")
+
+    assert bodies[0]["include_domains"] == ["example.com"]
+
+
+def test_web_search_builds_realtime_request_and_formats_service_response(monkeypatch):
+    """The public tool must use the provider chain and its immutable realtime cache policy."""
+    seen = []
+
+    class FakeService:
+        def search(self, request):
+            seen.append(request)
+            return SearchResponse(
+                results=(
+                    SearchResult(
+                        title="比分",
+                        url="https://sport.example/final",
+                        snippet="2:1",
+                        published_at="2026-08-11",
+                        provider="ddgs",
+                    ),
+                ),
+                checked_at=datetime(2026, 8, 11, 6, 30, tzinfo=timezone.utc),
+                attempted_providers=("ddgs",),
+            )
+
+        def format_response(self, response):
+            return f"formatted:{response.results[0].provider}"
+
+    monkeypatch.setattr(search_mod, "_default_service", FakeService())
+
+    out = search_mod.web_search.invoke({"query": "今晚实时比分"})
+
+    assert out == "formatted:ddgs"
+    assert seen[0].cache_policy == REALTIME_CACHE_POLICY
+
+
 def test_search_output_is_bounded_to_ten_kibibytes():
     """移除输出上限会让搜索结果撑爆模型上下文。"""
     results = [_result(title=f"结果{i}", content="影" * 6000) for i in range(5)]
@@ -213,7 +264,7 @@ def test_search_output_is_bounded_to_ten_kibibytes():
     out = service.search("很多结果", max_results=5)
 
     assert len(out.encode("utf-8")) <= 10 * 1024
-    assert out.endswith("\n[结果已截断]")
+    assert "影" * 301 not in out
 
 
 def test_web_search_tool_uses_real_service_and_reports_missing_key(monkeypatch):
