@@ -178,6 +178,7 @@ body.show-settings #settings{display:flex}
 .s-hint{font-family:var(--mono);font-size:11px;color:var(--dim);letter-spacing:.06em;min-height:14px}
 .s-hint.ok{color:#7CF5B2}
 .s-hint.bad{color:var(--alert)}
+.s-hint.wait{color:var(--gold)}
 #s-save{border:none;background:var(--arc);color:var(--void);font-size:13px;
   letter-spacing:.2em;padding:11px 0;cursor:pointer;font-weight:600}
 #s-save:hover{box-shadow:0 0 18px rgba(83,232,255,.5)}
@@ -199,6 +200,15 @@ body.show-settings #settings{display:flex}
 .hk-field.off{color:var(--dim);letter-spacing:.06em;font-size:13px}
 .hk-x{height:auto}
 @keyframes pulse{50%{opacity:.55}}
+.wx-setting{padding-top:16px;border-top:1px solid var(--line)}
+#wx-area{min-height:40px;display:grid;place-items:center}
+#wx-area button{width:100%;border:1px solid rgba(83,232,255,.5);background:rgba(83,232,255,.08);
+  color:var(--arc);font-family:var(--mono);font-size:12px;letter-spacing:.08em;padding:9px;cursor:pointer}
+#wx-area button:hover{background:rgba(83,232,255,.16)}
+#wx-area #wx-disc{color:var(--alert);border-color:rgba(255,92,92,.42);background:rgba(255,92,92,.06)}
+#wx-qr{display:block;width:220px;height:220px;object-fit:contain;padding:10px;background:#fff;
+  box-shadow:0 0 24px rgba(83,232,255,.16)}
+.wx-risk{font-family:var(--mono);font-size:10px;color:var(--dim);line-height:1.55}
 </style>
 </head>
 <body>
@@ -281,12 +291,19 @@ body.show-settings #settings{display:flex}
           <span>服务器地址</span>
           <input type="text" id="s-server" placeholder="https://jws.gkgeek-set.cn">
         </div>
+        <div class="s-row s-col wx-setting">
+          <span>个人微信</span>
+          <div id="wx-area"></div>
+          <div class="s-hint" id="wx-state">正在读取微信桥状态…</div>
+          <div class="wx-risk">建议使用专用小号；第三方接入存在账号风险，勿群发或营销。</div>
+        </div>
         <button id="s-save">保存并应用</button>
         <div class="s-hint" id="s-msg"></div>
       </div>
     </div>
   </div>
 
+  <script src="wechat-ui.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

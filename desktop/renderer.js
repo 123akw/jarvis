@@ -405,6 +405,37 @@ $('#s-ballstyle').addEventListener('change', () => {
   $('#s-imgrow').style.display = $('#s-ballstyle').value === 'img' ? '' : 'none'
 })
 
+/* ---------- 接入个人微信（复用服务器 /api/wechat/*，桌面走令牌鉴权） ---------- */
+let wxController = null
+function renderWx(s = {}) {
+  const area = $('#wx-area'), st = $('#wx-state')
+  if (!area || !st || !window.JarvisWeChatUI) return
+  const view = window.JarvisWeChatUI.viewFor(s)
+  st.textContent = view.status
+  st.className = view.statusClass
+  if (view.kind === 'connected') {
+    area.innerHTML = '<button type="button" id="wx-disc">断开连接</button>'
+    $('#wx-disc').addEventListener('click', () => wxController.disconnect())
+  } else if (view.kind === 'waiting') {
+    area.innerHTML = ''
+    const img = document.createElement('img')
+    img.id = 'wx-qr'
+    img.src = view.qrUri
+    img.alt = '微信登录二维码'
+    area.append(img)
+  } else if (view.kind === 'loading') {
+    area.innerHTML = ''
+  } else {
+    area.innerHTML = '<button type="button" id="wx-connect">生成二维码接入</button>'
+    $('#wx-connect').addEventListener('click', () => wxController.connect())
+  }
+}
+wxController = window.JarvisWeChatUI.createController({
+  request: api,
+  render: renderWx,
+  reauthenticate: ensureLogin,
+})
+
 async function openSettings() {
   const s = await window.jws.getSettings()
   $('#s-autolaunch').checked = !!s.openAtLogin
@@ -423,11 +454,13 @@ async function openSettings() {
   $('#s-server').value = SERVER
   $('#s-msg').textContent = ''
   document.body.classList.add('show-settings')
+  void wxController.start()
 }
 
 $('#setbtn').addEventListener('click', openSettings)
 $('#backbtn').addEventListener('click', () => {
   stopRecording()
+  wxController.stop()
   document.body.classList.remove('show-settings')
 })
 
