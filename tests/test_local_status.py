@@ -23,7 +23,8 @@ def test_sync_then_tool_reports():
     c = _authed_client()
     r = c.post("/api/local-status", json={"coding": [
         {"project": "JWS-Agent", "active": True,
-         "last_active": "2026-08-11 10:00", "task": "增加监控桌面组件"},
+         "last_active": "2026-08-11 10:00", "task": "增加监控桌面组件",
+         "step": "Edit desktop/main.js", "files": ["main.js", "renderer.js"]},
         {"project": "blog", "active": False,
          "last_active": "2026-08-10 21:00", "task": "改样式"},
     ]})
@@ -32,6 +33,8 @@ def test_sync_then_tool_reports():
     assert "JWS-Agent" in out and "🟢进行中" in out
     assert "blog" in out and "已暂停" in out
     assert "增加监控桌面组件" in out
+    assert "当前动作：Edit desktop/main.js" in out
+    assert "最近改动：main.js、renderer.js" in out
 
 
 def test_sync_empty_reports_no_activity():

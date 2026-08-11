@@ -16,11 +16,12 @@ html,body{height:100%;background:transparent;overflow:hidden;
 /* ---------- 悬浮球（收起态，三种样式，尺寸可调） ---------- */
 :root{--ball:64px}
 #ball{position:fixed;right:4px;top:4px;width:var(--ball);height:var(--ball);
-  border-radius:50%;-webkit-app-region:drag;cursor:grab;
+  border-radius:50%;cursor:grab;
   display:flex;align-items:center;justify-content:center;
   transition:transform .18s ease}
+#ball:active{cursor:grabbing}
 #ball:hover{transform:scale(1.05)}
-#eye{-webkit-app-region:no-drag;cursor:pointer;width:80%;height:80%;border-radius:50%;
+#eye{pointer-events:none;width:80%;height:80%;border-radius:50%;
   position:relative;z-index:3;background:transparent;border:none}
 body.expanded #ball{display:none}
 
@@ -145,6 +146,8 @@ body.show-board #board{display:flex}
 .b-list .tag.on{color:#7CF5B2}
 .b-list .txt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .b-off{color:var(--dim);font-family:var(--mono);font-size:11.5px;letter-spacing:.06em}
+.b-list .sub{font-family:var(--mono);font-size:11px;color:var(--dim);
+  margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .b-empty{color:var(--dim);font-family:var(--mono);font-size:12px}
 
 /* ---------- 设置面板 ---------- */

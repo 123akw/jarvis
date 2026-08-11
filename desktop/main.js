@@ -114,7 +114,8 @@ function createWindow() {
 /* ---------- Claude Code 编程进度采集（读 ~/.claude/projects 会话记录） ---------- */
 const CLAUDE_PROJECTS = path.join(os.homedir(), '.claude', 'projects')
 
-function extractTask(file) {
+function extractDetail(file) {
+  const detail = { task: '', step: '', files: [] }
   try {
     const sz = fs.statSync(file).size
     const len = Math.min(sz, 262144)
@@ -123,21 +124,44 @@ function extractTask(file) {
     fs.readSync(fd, buf, 0, len, sz - len)
     fs.closeSync(fd)
     for (const line of buf.toString('utf-8').split('\n').reverse()) {
-      if (!line.includes('"type":"user"')) continue
-      try {
-        const j = JSON.parse(line)
-        let c = j.message && j.message.content
-        if (Array.isArray(c)) {
-          const t = c.find(x => x && x.type === 'text')
-          c = t && t.text
-        }
-        if (typeof c === 'string' && c.trim() && !c.trim().startsWith('<')) {
-          return c.trim().replace(/\s+/g, ' ').slice(0, 60)
-        }
-      } catch { /* 跳过坏行 */ }
+      if (!detail.task && line.includes('"type":"user"')) {
+        try {
+          const j = JSON.parse(line)
+          let c = j.message && j.message.content
+          if (Array.isArray(c)) {
+            const t = c.find(x => x && x.type === 'text')
+            c = t && t.text
+          }
+          if (typeof c === 'string' && c.trim() && !c.trim().startsWith('<')) {
+            detail.task = c.trim().replace(/\s+/g, ' ').slice(0, 80)
+          }
+        } catch { /* 跳过坏行 */ }
+      }
+      if (line.includes('"tool_use"') && (!detail.step || detail.files.length < 3)) {
+        try {
+          const j = JSON.parse(line)
+          const items = (j.message && j.message.content) || []
+          if (!Array.isArray(items)) continue
+          for (const it of items) {
+            if (!it || it.type !== 'tool_use') continue
+            const inp = it.input || {}
+            if (!detail.step) {
+              const target = inp.file_path
+                ? inp.file_path.split('/').slice(-2).join('/')
+                : (inp.description || inp.command || inp.query || '')
+              detail.step = `${it.name} ${String(target).replace(/\s+/g, ' ').slice(0, 48)}`.trim()
+            }
+            if (inp.file_path && ['Edit', 'Write', 'NotebookEdit'].includes(it.name)) {
+              const base = inp.file_path.split('/').pop()
+              if (!detail.files.includes(base) && detail.files.length < 3) detail.files.push(base)
+            }
+          }
+        } catch { /* 跳过坏行 */ }
+      }
+      if (detail.task && detail.step && detail.files.length >= 3) break
     }
   } catch { /* 文件读不了就算了 */ }
-  return ''
+  return detail
 }
 
 function collectCoding() {
@@ -160,13 +184,25 @@ function collectCoding() {
       active: Date.now() - newest.m < 10 * 60000,
       last_active: new Date(newest.m).toLocaleString('zh-CN',
         { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }),
-      task: extractTask(newest.f),
+      ...extractDetail(newest.f),
       _m: newest.m,
     })
   }
   out.sort((a, b) => b._m - a._m)
   return out.slice(0, 5).map(({ _m, ...rest }) => rest)
 }
+
+/* ---------- 悬浮球 JS 拖动（整球可拖，松手未移动视为点击） ---------- */
+let dragOffset = null
+ipcMain.on('ball-drag-start', (_e, { mx, my }) => {
+  const [wx, wy] = win.getPosition()
+  dragOffset = { ox: mx - wx, oy: my - wy }
+})
+ipcMain.on('ball-drag-move', (_e, { mx, my }) => {
+  if (!dragOffset) return
+  win.setPosition(Math.round(mx - dragOffset.ox), Math.round(my - dragOffset.oy))
+})
+ipcMain.on('ball-drag-end', () => { dragOffset = null })
 
 /* ---------- IPC ---------- */
 ipcMain.handle('coding-status', () => collectCoding())

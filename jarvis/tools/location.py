@@ -85,6 +85,10 @@ def coding_status() -> str:
         state = "🟢进行中" if c.get("active") else "已暂停"
         lines.append(f"- {c.get('project','?')}（{state}，最近活动 {c.get('last_active','?')}）："
                      f"{c.get('task','（无任务摘要）')}")
+        if c.get("step"):
+            lines.append(f"  当前动作：{c['step']}")
+        if c.get("files"):
+            lines.append(f"  最近改动：{'、'.join(c['files'])}")
     lines.append(f"（桌面端同步于 {d.get('updated','?')}）")
     return "\n".join(lines)
 

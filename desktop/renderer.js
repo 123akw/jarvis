@@ -154,11 +154,31 @@ async function ask() {
   }
 }
 
-/* 交互接线 */
-$('#eye').addEventListener('click', async () => {
-  await window.jws.toggle()
-  document.body.classList.add('expanded')
-  box.focus()
+/* 交互接线：整球 JS 拖动，松手未移动视为点击展开 */
+const ballEl = $('#ball')
+let dragState = null
+ballEl.addEventListener('mousedown', e => {
+  dragState = { sx: e.screenX, sy: e.screenY, moved: false }
+  window.jws.dragStart(e.screenX, e.screenY)
+  e.preventDefault()
+})
+window.addEventListener('mousemove', e => {
+  if (!dragState) return
+  if (Math.abs(e.screenX - dragState.sx) + Math.abs(e.screenY - dragState.sy) > 3) {
+    dragState.moved = true
+  }
+  if (dragState.moved) window.jws.dragMove(e.screenX, e.screenY)
+})
+window.addEventListener('mouseup', async () => {
+  if (!dragState) return
+  const moved = dragState.moved
+  dragState = null
+  window.jws.dragEnd()
+  if (!moved) {
+    await window.jws.toggle()
+    document.body.classList.add('expanded')
+    box.focus()
+  }
 })
 $('#minbtn').addEventListener('click', async () => {
   await window.jws.collapse()
@@ -222,7 +242,10 @@ async function openBoard() {
   const coding = await syncCoding()
   $('#b-coding').innerHTML = rowsHtml(coding, c => `
     <div class="row"><span class="tag${c.active ? ' on' : ''}">${c.active ? '● 进行中' : c.last_active}</span>
-    <span class="txt"><b>${esc(c.project)}</b>${c.task ? ' · ' + esc(c.task) : ''}</span></div>`)
+    <span class="txt"><b>${esc(c.project)}</b>${c.task ? ' · ' + esc(c.task) : ''}
+      ${c.step ? `<div class="sub">⚙ ${esc(c.step)}</div>` : ''}
+      ${c.files && c.files.length ? `<div class="sub">✎ ${esc(c.files.join('  '))}</div>` : ''}
+    </span></div>`)
   try {
     const d = await (await api('/api/dashboard')).json()
     const today = d.time.slice(0, 10)
