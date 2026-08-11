@@ -1,0 +1,23 @@
+services:
+  searxng:
+    image: ghcr.io/searxng/searxng:2026.7.28-c01178d03@sha256:5d6d903ab82afa56ee32792d477f36bc63d3e5ca04fcb6947e28a5cfd987fad3
+    ports:
+      - "127.0.0.1:8888:8080"
+    volumes:
+      - "./settings.yml:/etc/searxng/settings.yml:ro"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          wget --quiet --tries=1 --timeout=5 --output-document=-
+          http://127.0.0.1:8080/healthz >/dev/null || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M

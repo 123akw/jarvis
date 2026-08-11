@@ -21,6 +21,8 @@
 
 > **非商用项目：仅供学习、研究与个人非商业用途。禁止未经授权的商业部署、商业集成、付费分发或收费服务。**
 
+> 本声明只描述 JWS-Agent 自身的使用范围。可选部署中的第三方 SearXNG 采用独立的 AGPL-3.0；二者不能互相替代。详见 [`deploy/searxng/README.md`](deploy/searxng/README.md)。
+
 </div>
 
 ![JWS-Agent 网页端任务台与对话界面](docs/assets/readme/web-dashboard.png)
@@ -41,18 +43,18 @@
 ## 为什么是 JWS-Agent
 
 - **持久记忆**：LangGraph 的 SQLite checkpointer 把对话状态落到本地数据库，进程重启后仍可沿同一线程继续。
-- **多入口，同一套能力**：网页端、macOS 桌面悬浮窗、终端 CLI 和个人微信都连接同一个 Agent 与 20 项工具。
+- **多入口，同一套能力**：网页端、macOS 桌面悬浮窗、终端 CLI 和个人微信都连接同一个 Agent 与 21 项工具。
 - **不仅回答，也能行动**：可增删备忘和日程、维护待办、查询天气与系统状态，并按需调用实时搜索工具。
 - **实时信息可追溯**：搜索结果保留查询时间、摘要和 HTTP(S) 来源；电影评分分平台呈现，票务只提供公开信息与深链接。
 - **面向私有部署**：模型地址、模型名、数据目录和服务端口均可配置；记忆、备忘、日程、待办和微信 Token 留在你的运行环境中。
 
-> 实时网页、新闻、电影评分、票务查询，以及未使用 PandaScore 时的电竞网页回退，都需要配置 `TAVILY_API_KEY`。仓库不会附带密钥，也不代表任何线上部署已经启用 Tavily。
+> 搜索默认按 `SearXNG → DDGS → 可选 Tavily` 降级，正文提取默认按 `Trafilatura → 可选 Playwright` 降级。SearXNG 未配置或不健康时会继续尝试无需付费 key 的 DDGS；Tavily 与 PandaScore 都是可选增强。仓库不附带密钥，也不代表演示入口已经配置或在线运行其中任何 provider。
 
 ## 一个 Agent，四种入口
 
 | 能力 | 网页端 | 桌面悬浮窗 | 终端 CLI | 个人微信 |
 | --- | --- | --- | --- | --- |
-| 中文自然语言对话与 20 项工具 | ✅ | ✅ | ✅ | ✅（文本消息） |
+| 中文自然语言对话与 21 项工具 | ✅ | ✅ | ✅ | ✅（文本消息） |
 | 流式展示 | ✅ SSE 逐字输出并展示工具调用 | ✅ SSE 逐字输出并展示工具调用 | — 单次完整返回 | — 消息式回复 |
 | 记忆线程 | 每个会话独立 `thread_id` | 固定 `desktop` 线程 | 默认 `main`，可用 `--thread` 指定 | 每个联系人独立 `wx-<联系人>` 线程 |
 | 日程、待办、备忘 | 对话操作 + 任务台展示 | 对话操作 + 日程 / 待办任务台展示 | 对话操作 | 对话操作 |
@@ -85,19 +87,19 @@
 >
 > J.A.R.V.I.S.：在同一线程中读取 SQLite 检查点并接续上下文。
 
-**4. 娱乐新闻**（需要配置 `TAVILY_API_KEY`）
+**4. 娱乐新闻**
 
 > 你：查一下最近一周的娱乐新闻，列出重点、查询时间和来源。
 >
 > J.A.R.V.I.S.：调用 `web_search`，基于带时间戳和链接的公开搜索资料整理回答。
 
-**5. 分平台电影评分**（需要配置 `TAVILY_API_KEY`）
+**5. 分平台电影评分**
 
 > 你：查这部电影在豆瓣、IMDb、Rotten Tomatoes 和 Metacritic 的评分。
 >
 > J.A.R.V.I.S.：分别给出各平台量表、评价人数和来源，不把不同分制合并成“综合分”。
 
-**6. 电竞比分 / 票务查询**（PandaScore 可选；网页回退与票务需要配置 `TAVILY_API_KEY`）
+**6. 电竞比分 / 票务查询**（PandaScore 与 Tavily 均为可选增强）
 
 > 你：查某战队最近一场比赛的比分、赛事和来源。
 >
@@ -115,20 +117,23 @@ flowchart LR
   U --> X[个人微信]
   W & D & C & X --> A[FastAPI + LangGraph Agent]
   A --> M[DeepSeek / OpenAI 兼容模型]
-  A --> T[20 项工具]
+  A --> T[21 项工具]
   A --> S[(SQLite 持久记忆)]
   T --> L[本地日程·待办·备忘]
-  T --> E[天气·Tavily·PandaScore]
+  T --> Q[SearchService]
+  Q --> P[SearXNG → DDGS → 可选 Tavily]
+  Q --> R[Trafilatura → 可选 Playwright]
+  T --> E[天气·可选 PandaScore]
 ```
 
-### 20 项工具如何分层
+### 21 项工具如何分层
 
 | 层级 | 工具 | 作用与数据边界 |
 | --- | --- | --- |
 | 基础与上下文（6） | `now`、`calc`、`weather`、`weather_here`、`my_location`、`coding_status` | 时间与白名单计算；Open-Meteo 天气无需 key；定位和编程状态保存在本地数据目录 |
 | 个人信息管理（9） | `memo_add/list/del`、`schedule_add/list/del`、`todo_add/list/done` | 备忘、日程与待办在 `JARVIS_DATA_DIR` 下持久化 |
 | 系统查询（1） | `sys_query` | 只执行代码允许的白名单系统查询 |
-| 实时信息（4） | `web_search`、`movie_ratings`、`esports_scores`、`ticket_search` | Tavily 负责公开网页搜索；PandaScore 可提供结构化电竞数据；都不会代替用户完成交易 |
+| 实时信息（5） | `web_search`、`web_extract`、`movie_ratings`、`esports_scores`、`ticket_search` | SearchService 统一调度免费优先搜索与有界正文提取；Tavily、PandaScore 和 Playwright 都是可选增强；工具不会代替用户完成交易 |
 
 ### 流式、线程与记忆
 
@@ -137,12 +142,12 @@ flowchart LR
 - `SqliteSaver` 将 LangGraph 检查点写入 `JARVIS_DATA_DIR/jarvis.db`。网页会话列表另存为 `threads.json`，备忘、日程和待办使用各自的本地数据文件。
 - 服务还提供带 Bearer 鉴权的 `/v1/chat/completions` OpenAI 兼容接口，供微信备用网关等客户端接入；它不是完整的 OpenAI API 实现。
 
-### 实时搜索的来源边界
+### 实时搜索与正文提取的来源边界
 
-- `TAVILY_API_KEY` **不是可选装饰项**：没有它，Tavily 驱动的联网查询会明确返回“未配置”，不会伪装成实时结果。
-- Tavily 请求使用 Basic 深度、Safe Search、最多 5 条结果、12 秒超时和 5 分钟进程内缓存；输出记录查询时间、标题、摘要与有效 HTTP(S) 来源。
-- 网页文本被标记为外部资料而不是 Agent 指令，但公开网页仍可能过时或有误；重要信息应打开原始链接复核。
-- `PANDASCORE_TOKEN` 可选。配置后电竞比分优先走结构化接口，缺失或失败时才回退 Tavily；回退要可用仍需 `TAVILY_API_KEY`。
+- `SearchService` 默认依次尝试本地 SearXNG、DDGS 和显式配置的可选 Tavily。仓库提供的 SearXNG Compose 只监听 `127.0.0.1:8888`；未启动或未配置时会自动继续 DDGS。
+- 静态正文优先由 Trafilatura 有界提取；只有安装 browser extra 和 Chromium 后，动态页面才可回退 Playwright。提取器限制响应体与输出长度，并拒绝 loopback、私网和其他不安全目标。
+- 每次搜索输出记录查询时间、provider、标题、摘要与有效 HTTP(S) 来源。网页文本被标记为外部资料而不是 Agent 指令，但公开网页仍可能过时或有误；重要信息应打开原始链接复核。
+- `TAVILY_API_KEY` 与 `PANDASCORE_TOKEN` 都可选。PandaScore 配置后可优先提供结构化电竞数据，缺失或失败时回退默认网页搜索链。
 - 电影评分按平台和分制分开；票务价格只代表公开展示价、起价或票面价，库存、手续费和最终成交价以平台结算页为准。
 
 ## 快速开始
@@ -164,7 +169,17 @@ python3 -m venv .venv
 cp .env.example .env
 ```
 
-然后至少填写 `DEEPSEEK_API_KEY`。如果要使用实时网页、新闻、电影评分或票务查询，再填写 `TAVILY_API_KEY`；请勿提交 `.env`。
+然后至少填写 `DEEPSEEK_API_KEY`；请勿提交 `.env`。实时网页查询默认可使用 DDGS，无需付费搜索 key。若已启动仓库提供的本地 SearXNG，可按下文配置其 loopback 地址；Tavily 仅在你主动选择该可选增强时才需要 key。
+
+默认静态提取不需要浏览器。需要处理动态页面时，改用 browser extra 并单独安装 Chromium：
+
+```bash
+.venv/bin/pip install -e ".[dev,browser]"
+.venv/bin/python -m playwright install chromium
+.venv/bin/python -c "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.launch(); b.close(); p.stop()"
+```
+
+最后一条只启动并关闭本机 Chromium，不访问任何 URL。未安装 Playwright 或 Chromium 时，静态提取仍可用，动态回退会明确跳过。
 
 ### 2. 启动网页端
 
@@ -205,8 +220,11 @@ npm start
 | `JARVIS_MODEL` | 否 | 代码回退为 `deepseek-chat` | 模型名；仓库 `.env.example` 当前示例为 `deepseek-v4-flash` |
 | `JARVIS_DATA_DIR` | 否 | `<项目根>/data` | SQLite 记忆、本地日程/待办/备忘、会话元数据和微信 Token 的目录 |
 | `JARVIS_PORT` | 否 | `7789` | Web 服务监听端口 |
-| `TAVILY_API_KEY` | 使用实时搜索时是 | 无 | Tavily 网页/新闻搜索密钥；仓库与演示入口均不保证已配置 |
-| `PANDASCORE_TOKEN` | 否 | 无 | PandaScore 结构化电竞数据 Token；缺失或失败时回退 Tavily |
+| `JARVIS_SEARCH_BACKENDS` | 否 | `searxng,ddgs,tavily` | 搜索 provider 降级顺序；名称不能重复 |
+| `SEARXNG_BASE_URL` | 否 | 无 | 本地 Compose 可设为 `http://127.0.0.1:8888`；未配置或不健康时继续 DDGS |
+| `JARVIS_EXTRACT_BACKENDS` | 否 | `trafilatura,playwright` | 正文提取降级顺序；Playwright 未安装时明确跳过 |
+| `TAVILY_API_KEY` | 否 | 无 | 可选 Tavily 搜索密钥；未配置不影响 SearXNG/DDGS 免费链，仓库与演示入口均不保证已配置 |
+| `PANDASCORE_TOKEN` | 否 | 无 | 可选 PandaScore 结构化电竞数据 Token；缺失或失败时回退默认网页搜索链 |
 
 ## 个人微信桥接
 
@@ -222,21 +240,23 @@ npm start
 
 ## 验收与测试
 
-当前仓库的确定性单元测试基线为 **109 项**。单元测试不调用真实大模型；其余三条脚本会连接真实模型或外部搜索服务，运行前应准备相应 key，并注意 `check_memory.py` 会重建默认 `data/jarvis.db` 以验证跨进程记忆。
+确定性单元测试不调用真实大模型或外部搜索服务。`search_smoke.py` 默认也使用内置 stub，验证四类问题的路由、来源和脱敏，且无需任何付费 key；只有显式传入 `--live` 才使用当前配置的模型与 provider。`check_memory.py` 会重建默认 `data/jarvis.db` 以验证跨进程记忆。
 
 ```bash
 .venv/bin/python -m pytest -q
 .venv/bin/python scripts/check_smoke.py
 .venv/bin/python scripts/check_memory.py
 .venv/bin/python scripts/search_smoke.py
+# 可选：显式进行真实模型/provider 验收
+.venv/bin/python scripts/search_smoke.py --live
 ```
 
 验收含义：
 
-1. `pytest -q`：全量单元测试应为 0 失败、0 跳过，当前基线 109 项。
+1. `pytest -q`：全量确定性单元测试应为 0 失败。
 2. `check_smoke.py`：真实模型回答“现在几点了”，且必须产生实际工具调用。
 3. `check_memory.py`：两个独立 CLI 进程先后对话，验证第二次能读取第一次写入的 SQLite 历史。
-4. `search_smoke.py`：真实模型分别路由新闻、电影评分、电竞比分和票务四类查询，JSON 结果应为 4/4，并包含查询时间与可追溯来源；需要 `TAVILY_API_KEY`，电竞结构化路径可另配 `PANDASCORE_TOKEN`。
+4. `search_smoke.py`：默认由离线 stub 覆盖 SearXNG/DDGS 风格的免费链结果，JSON 应为 4/4，并包含查询时间与可追溯来源；`--live` 才进行真实模型/provider 验收，Tavily 与 PandaScore 仍为可选项。
 
 ## 项目结构
 
@@ -249,7 +269,7 @@ JWS-Agent/
 │   ├── cli.py             # 交互式与单发 CLI
 │   ├── wechat.py          # Web 服务内置个人微信桥
 │   ├── web/               # 零构建的网页端
-│   └── tools/             # 20 项工具及注册表
+│   └── tools/             # 21 项工具及注册表
 ├── desktop/               # macOS Electron 悬浮球与设置页
 ├── wechat/                # 命令行备用网关
 ├── tests/                 # 确定性单元测试
@@ -262,9 +282,9 @@ JWS-Agent/
 ## FAQ
 
 <details>
-<summary><strong>为什么搜索提示“未配置 TAVILY_API_KEY”？</strong></summary>
+<summary><strong>为什么搜索没有使用本地 SearXNG？</strong></summary>
 
-实时搜索默认不会偷偷使用其他服务。复制 `.env.example` 为 `.env`，填入有效的 `TAVILY_API_KEY` 后重启 Python 服务。天气使用 Open-Meteo，不依赖 Tavily；若只使用本地日程、待办、备忘和基础工具，可以不配置 Tavily。
+先按 [`deploy/searxng/README.md`](deploy/searxng/README.md) 静态检查并启动本地服务，再把 `SEARXNG_BASE_URL` 设为 `http://127.0.0.1:8888` 后重启 Python 服务。未配置或健康检查失败时，SearchService 会按顺序继续 DDGS，而不是把 SearXNG 声称为在线；需要时可另行配置可选 Tavily。天气使用 Open-Meteo，不依赖这些搜索 provider。
 
 </details>
 

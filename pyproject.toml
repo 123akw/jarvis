@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "pip-tools==7.6.0", "tox==4.58.0", "PyYAML==6.0.3"]
 browser = ["playwright==1.61.0"]
 
 [project.scripts]
