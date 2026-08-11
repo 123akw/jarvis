@@ -68,6 +68,13 @@ async function ensureLogin() {
   return true
 }
 
+const EMPTY_HTML = `<div class="empty">这里是桌面快捷通道。有什么吩咐？</div>
+<div class="qchips">
+  <button data-q="给我今日晨报">☀ 今日晨报</button>
+  <button data-q="我在做什么任务？">⌨ 编程进度</button>
+  <button data-q="今天有什么安排和待办？">📅 今日安排</button>
+</div>`
+
 async function loadHistory() {
   let r = await api(`/api/history?thread_id=${THREAD}`)
   if (r.status === 401) {  // 登录态失效：静默重连后重试
@@ -77,7 +84,7 @@ async function loadHistory() {
   const h = await r.json()
   log.innerHTML = ''
   if (!h.length) {
-    log.innerHTML = '<div class="empty">这里是桌面快捷通道。有什么吩咐？</div>'
+    log.innerHTML = EMPTY_HTML
     return
   }
   for (const m of h.slice(-24)) {
@@ -91,6 +98,7 @@ async function ask() {
   const text = box.value.trim()
   if (!text || busy) return
   box.value = ''; box.style.height = 'auto'
+  clipbar.style.display = 'none'
   busy = true; send.disabled = true
   document.body.classList.add('busy')
   state.textContent = '思考中…'
@@ -178,6 +186,7 @@ window.addEventListener('mouseup', async () => {
     await window.jws.toggle()
     document.body.classList.add('expanded')
     box.focus()
+    maybeOfferClip()
   }
 })
 $('#minbtn').addEventListener('click', async () => {
@@ -188,6 +197,32 @@ $('#clearbtn').addEventListener('click', async () => {
   await api(`/api/thread?thread_id=${THREAD}`, { method: 'DELETE' })
   log.innerHTML = '<div class="empty">已清空。有什么吩咐？</div>'
 })
+log.addEventListener('click', e => {  // 空态快捷芯片
+  const q = e.target && e.target.dataset && e.target.dataset.q
+  if (q) { box.value = q; ask() }
+})
+
+/* 剪贴板一键问：展开时若有新剪贴内容，给一条金色快捷条 */
+const clipbar = $('#clipbar')
+let lastClip = ''
+async function maybeOfferClip() {
+  try {
+    const t = (await window.jws.clipboardText()).trim()
+    if (t && t !== lastClip && t.length <= 4000) {
+      clipbar.dataset.text = t
+      clipbar.textContent = `📋 问剪贴板内容（${t.length} 字）：${t.slice(0, 40).replace(/\s+/g, ' ')}…`
+      clipbar.style.display = ''
+    }
+  } catch { /* 读不到剪贴板就不给条 */ }
+}
+clipbar.addEventListener('click', () => {
+  const t = clipbar.dataset.text || ''
+  lastClip = t
+  clipbar.style.display = 'none'
+  box.value = `帮我看看这个：\n\`\`\`\n${t}\n\`\`\``
+  ask()
+})
+
 send.addEventListener('click', ask)
 box.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask() }
@@ -215,7 +250,7 @@ function applyBallLook(size, style) {
 })()
 window.jws.onSetExpanded(v => {  // 全局快捷键唤醒/收起时同步界面
   document.body.classList.toggle('expanded', v)
-  if (v) box.focus()
+  if (v) { box.focus(); maybeOfferClip() }
 })
 
 /* ---------- 编程进度采集：同步到服务器，任务台展示 ---------- */
@@ -245,6 +280,7 @@ async function openBoard() {
     <span class="txt"><b>${esc(c.project)}</b>${c.task ? ' · ' + esc(c.task) : ''}
       ${c.step ? `<div class="sub">⚙ ${esc(c.step)}</div>` : ''}
       ${c.files && c.files.length ? `<div class="sub">✎ ${esc(c.files.join('  '))}</div>` : ''}
+      ${c.branch ? `<div class="sub">⎇ ${esc(c.branch)}${c.dirty ? ` · 未提交 ${c.dirty} 处` : ''}${c.commits_today ? ` · 今日提交 ${c.commits_today} 个` : ''}</div>` : ''}
     </span></div>`)
   try {
     const d = await (await api('/api/dashboard')).json()

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, screen } = require('electron')
+const { app, BrowserWindow, clipboard, globalShortcut, ipcMain, screen } = require('electron')
 const { execSync } = require('child_process')
 const fs = require('fs')
 const os = require('os')
@@ -114,8 +114,19 @@ function createWindow() {
 /* ---------- Claude Code 编程进度采集（读 ~/.claude/projects 会话记录） ---------- */
 const CLAUDE_PROJECTS = path.join(os.homedir(), '.claude', 'projects')
 
+function gitInfo(cwd) {
+  if (!cwd) return {}
+  const opt = { cwd, timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }
+  try {
+    const branch = execSync('git rev-parse --abbrev-ref HEAD', opt).toString().trim()
+    const dirty = execSync('git status --porcelain', opt).toString().split('\n').filter(Boolean).length
+    const log = execSync('git log --since=midnight --pretty=%s', opt).toString().split('\n').filter(Boolean)
+    return { branch, dirty, commits_today: log.length, last_commit: (log[0] || '').slice(0, 50) }
+  } catch { return {} }
+}
+
 function extractDetail(file) {
-  const detail = { task: '', step: '', files: [] }
+  const detail = { task: '', step: '', files: [], cwd: '' }
   try {
     const sz = fs.statSync(file).size
     const len = Math.min(sz, 262144)
@@ -123,7 +134,10 @@ function extractDetail(file) {
     const fd = fs.openSync(file, 'r')
     fs.readSync(fd, buf, 0, len, sz - len)
     fs.closeSync(fd)
-    for (const line of buf.toString('utf-8').split('\n').reverse()) {
+    const text = buf.toString('utf-8')
+    const cwdHit = text.match(/"cwd":"([^"]+)"/)
+    if (cwdHit) detail.cwd = cwdHit[1]
+    for (const line of text.split('\n').reverse()) {
       if (!detail.task && line.includes('"type":"user"')) {
         try {
           const j = JSON.parse(line)
@@ -179,12 +193,14 @@ function collectCoding() {
       }
     } catch { continue }
     if (!newest || Date.now() - newest.m > 48 * 3600000) continue
+    const { cwd, ...detail } = extractDetail(newest.f)
     out.push({
       project: d.replace(/^-Users-[^-]+-/, '') || d,
       active: Date.now() - newest.m < 10 * 60000,
       last_active: new Date(newest.m).toLocaleString('zh-CN',
         { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }),
-      ...extractDetail(newest.f),
+      ...detail,
+      ...gitInfo(cwd),
       _m: newest.m,
     })
   }
@@ -205,6 +221,7 @@ ipcMain.on('ball-drag-move', (_e, { mx, my }) => {
 ipcMain.on('ball-drag-end', () => { dragOffset = null })
 
 /* ---------- IPC ---------- */
+ipcMain.handle('clipboard-text', () => clipboard.readText() || '')
 ipcMain.handle('coding-status', () => collectCoding())
 ipcMain.handle('toggle', () => toggleWindow())
 ipcMain.handle('collapse', () => {

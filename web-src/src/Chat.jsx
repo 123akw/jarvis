@@ -21,7 +21,7 @@ function md(t) {
   return s
 }
 
-const SUGGESTIONS = ['今天天气怎么样？', '我今天有什么安排？', '记一条备忘：']
+const SUGGESTIONS = ['给我今日晨报', '我在做什么任务？', '今天天气怎么样？', '记一条备忘：']
 
 let nextId = 1
 

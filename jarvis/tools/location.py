@@ -89,6 +89,13 @@ def coding_status() -> str:
             lines.append(f"  当前动作：{c['step']}")
         if c.get("files"):
             lines.append(f"  最近改动：{'、'.join(c['files'])}")
+        if c.get("branch"):
+            git = f"  Git：分支 {c['branch']}"
+            if c.get("dirty"):
+                git += f"，未提交改动 {c['dirty']} 处"
+            if c.get("commits_today"):
+                git += f"，今日提交 {c['commits_today']} 个（最近：{c.get('last_commit', '')}）"
+            lines.append(git)
     lines.append(f"（桌面端同步于 {d.get('updated','?')}）")
     return "\n".join(lines)
 

@@ -130,7 +130,16 @@ body.expanded #panel{display:flex}
   color:var(--void);background:var(--arc)}
 #send:disabled{opacity:.35}
 #plog .empty{color:var(--dim);font-family:var(--mono);font-size:12px;
-  letter-spacing:.1em;text-align:center;padding:26px 0}
+  letter-spacing:.1em;text-align:center;padding:26px 0 10px}
+.qchips{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;padding-bottom:10px}
+.qchips button{background:rgba(13,28,44,.6);border:1px solid var(--line);color:var(--text);
+  font-size:12.5px;padding:7px 12px;cursor:pointer;transition:border-color .2s,color .2s}
+.qchips button:hover{border-color:rgba(83,232,255,.5);color:var(--arc)}
+#clipbar{margin:0 12px;background:rgba(240,180,90,.1);border:1px dashed rgba(240,180,90,.45);
+  color:var(--gold);font-size:12px;font-family:var(--mono);letter-spacing:.06em;
+  padding:7px 10px;cursor:pointer;text-align:left;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+#clipbar:hover{background:rgba(240,180,90,.18)}
 
 /* ---------- 任务台 ---------- */
 #board{display:none;position:absolute;inset:0;background:#050B12;
@@ -210,6 +219,7 @@ body.show-settings #settings{display:flex}
       <button class="hbtn" id="minbtn" title="收起为悬浮球">—</button>
     </div>
     <div id="plog"><div class="empty">正在取回最近的对话…</div></div>
+    <button id="clipbar" style="display:none"></button>
     <div id="pinput">
       <textarea id="box" rows="1" placeholder="小声吩咐一句…（Enter 发送）"></textarea>
       <button id="send" title="发送">↑</button>

@@ -14,5 +14,7 @@ SYSTEM_PROMPT = (
     "- 领导问「我在做什么任务／编程进度」用 coding_status；"
     "问「今天有什么任务」时综合 schedule_list、todo_list、coding_status 一起汇报。\n"
     "- 查本机状态用 sys_query（只有 date、uptime、df -h、ls 可用）。\n"
-    "用户问「今天有什么安排」时，综合 schedule_list 和 todo_list 一起汇报。"
+    "用户问「今天有什么安排」时，综合 schedule_list 和 todo_list 一起汇报。\n"
+    "领导说「晨报」「今日晨报」时：依次调 weather_here、schedule_list、todo_list、coding_status，"
+    "汇成一份简报——天气一句带穿衣/带伞建议、今日日程、待办、编程进度（含 Git 情况）、最后一句今日建议。"
 )
