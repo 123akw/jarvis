@@ -15,10 +15,24 @@ class StaticExtraction:
     text: str
 
 
-def _trafilatura_extract(content: bytes, **kwargs):
-    from trafilatura import extract
+class ExtractionUnavailable(RuntimeError):
+    """The required static extraction dependency is unavailable."""
 
-    return extract(content, **kwargs)
+
+class ExtractionFailed(RuntimeError):
+    """Trafilatura could not parse a fetched document."""
+
+
+def _trafilatura_extract(content: bytes, **kwargs):
+    try:
+        from trafilatura import extract
+    except (ImportError, ModuleNotFoundError):
+        raise ExtractionUnavailable("static extractor unavailable") from None
+
+    try:
+        return extract(content, **kwargs)
+    except Exception:
+        raise ExtractionFailed("static extraction failed") from None
 
 
 class TrafilaturaExtractor:

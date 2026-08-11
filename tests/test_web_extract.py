@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import platform
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -21,16 +23,24 @@ def _api():
         from jarvis.search.providers.playwright import (
             BrowserUnavailable,
             PlaywrightExtractor,
+            ProcessNetworkSandbox,
         )
-        from jarvis.search.providers.trafilatura import TrafilaturaExtractor
+        from jarvis.search.providers.trafilatura import (
+            ExtractionFailed,
+            ExtractionUnavailable,
+            TrafilaturaExtractor,
+        )
         from jarvis.search.service import SearchService, render_extracted_document
         from jarvis.tools.search import make_web_extract_tool
     except (ImportError, ModuleNotFoundError) as exc:
         pytest.fail(f"web extraction API is not implemented: {type(exc).__name__}")
     return SimpleNamespace(
         BrowserUnavailable=BrowserUnavailable,
+        ExtractionFailed=ExtractionFailed,
+        ExtractionUnavailable=ExtractionUnavailable,
         ExtractedDocument=ExtractedDocument,
         PlaywrightExtractor=PlaywrightExtractor,
+        ProcessNetworkSandbox=ProcessNetworkSandbox,
         SearchService=SearchService,
         TrafilaturaExtractor=TrafilaturaExtractor,
         make_web_extract_tool=make_web_extract_tool,
@@ -43,12 +53,14 @@ class _StubFetcher:
         self.responses = dict(responses or {})
         self.rejected = set(rejected)
         self.calls = []
+        self.call_options = []
 
-    def fetch(self, url):
+    def fetch(self, url, **kwargs):
         self.calls.append(url)
+        self.call_options.append(kwargs)
         if url in self.rejected:
             raise FetchError("public address required")
-        return self.responses.get(
+        document = self.responses.get(
             url,
             FetchedDocument(
                 url=url,
@@ -57,6 +69,13 @@ class _StubFetcher:
                 peer_ip="93.184.216.34",
             ),
         )
+        wire_limit = kwargs.get("max_wire_bytes")
+        decoded_limit = kwargs.get("max_decompressed_bytes")
+        if wire_limit is not None and len(document.content) > wire_limit:
+            raise FetchError("wire response exceeded limit")
+        if decoded_limit is not None and len(document.content) > decoded_limit:
+            raise FetchError("decompressed response exceeded limit")
+        return document
 
 
 class _StaticExtractor:
@@ -164,6 +183,50 @@ def test_missing_browser_gracefully_keeps_the_static_result():
     assert dynamic.calls == [FINAL_URL]
 
 
+def test_expected_static_extraction_failure_uses_dynamic_fallback():
+    """A known parser failure is another insufficient-static result, not an empty success."""
+    api = _api()
+
+    class ExpectedFailure:
+        def extract(self, _document):
+            raise api.ExtractionFailed("parser rejected document")
+
+    dynamic = _DynamicExtractor()
+    service = api.SearchService(
+        [],
+        fetcher=_StubFetcher({PUBLIC_URL: _fetched()}),
+        static_extractor=ExpectedFailure(),
+        dynamic_extractor=dynamic,
+    )
+
+    result = service.extract(PUBLIC_URL)
+
+    assert dynamic.calls == [FINAL_URL]
+    assert result.provider == "playwright"
+
+
+def test_unexpected_static_programming_error_is_not_swallowed_or_browserized():
+    """Catching every static exception hides defects and can unexpectedly start Chromium."""
+    api = _api()
+
+    class BrokenStatic:
+        def extract(self, _document):
+            raise ValueError("programming defect")
+
+    dynamic = _DynamicExtractor()
+    service = api.SearchService(
+        [],
+        fetcher=_StubFetcher({PUBLIC_URL: _fetched()}),
+        static_extractor=BrokenStatic(),
+        dynamic_extractor=dynamic,
+    )
+
+    with pytest.raises(ValueError, match="programming defect"):
+        service.extract(PUBLIC_URL)
+
+    assert dynamic.calls == []
+
+
 def test_missing_playwright_python_package_is_reported_as_browser_unavailable():
     """Importing an optional package eagerly would break static search and extraction."""
     api = _api()
@@ -182,14 +245,18 @@ def test_missing_chromium_executable_is_reported_as_browser_unavailable():
     api = _api()
 
     class BrokenChromium:
-        def launch(self):
+        executable_path = "/fake/missing-chromium"
+
+        def launch(self, **_kwargs):
             raise RuntimeError("Executable doesn't exist")
 
     runtime = SimpleNamespace(chromium=BrokenChromium())
 
     with pytest.raises(api.BrowserUnavailable, match="browser unavailable"):
         api.PlaywrightExtractor(
-            _StubFetcher(), runtime_factory=lambda: _RuntimeManager(runtime)
+            _StubFetcher(),
+            runtime_factory=lambda: _RuntimeManager(runtime),
+            network_sandbox=_FakeNetworkSandbox(),
         ).extract(PUBLIC_URL)
 
 
@@ -216,8 +283,8 @@ def test_rendered_extraction_preserves_security_metadata_before_utf8_truncation(
     rendered.encode("utf-8")
 
 
-def test_renderer_honors_even_a_limit_smaller_than_its_truncation_marker():
-    """Negative slicing must not make a caller-supplied byte ceiling expand output."""
+def test_renderer_rejects_a_limit_that_cannot_hold_complete_trusted_metadata():
+    """A small ceiling must fail explicitly instead of returning partial trust metadata."""
     api = _api()
     document = api.ExtractedDocument(
         url=FINAL_URL,
@@ -227,15 +294,14 @@ def test_renderer_honors_even_a_limit_smaller_than_its_truncation_marker():
         provider="trafilatura",
     )
 
-    rendered = api.render_extracted_document(document, limit=4)
+    with pytest.raises(ValueError, match="metadata"):
+        api.render_extracted_document(document, limit=4)
 
-    assert len(rendered.encode("utf-8")) <= 4
 
-
-def test_renderer_preserves_a_long_final_url_when_it_fits_the_output_budget():
+def test_renderer_preserves_a_near_nine_kib_final_url_when_metadata_fits():
     """An arbitrary short character cap must not erase usable final-URL provenance."""
     api = _api()
-    long_url = "https://public.example/article?source=" + "x" * 4096
+    long_url = "https://public.example/article?source=" + "x" * 8800
     document = api.ExtractedDocument(
         url=long_url,
         title="title",
@@ -248,6 +314,22 @@ def test_renderer_preserves_a_long_final_url_when_it_fits_the_output_budget():
 
     assert long_url in rendered
     assert len(rendered.encode("utf-8")) <= 10 * 1024
+
+
+def test_renderer_rejects_final_url_over_explicit_input_limit_without_truncating():
+    """Silently shortening provenance fabricates a URL different from the fetched source."""
+    api = _api()
+    too_long_url = "https://public.example/article?source=" + "x" * 9300
+    document = api.ExtractedDocument(
+        url=too_long_url,
+        title="title",
+        text="body",
+        checked_at=datetime(2026, 8, 11, tzinfo=timezone.utc),
+        provider="playwright",
+    )
+
+    with pytest.raises(ValueError, match="URL"):
+        api.render_extracted_document(document)
 
 
 def test_extracted_document_is_exported_as_a_public_search_contract():
@@ -330,13 +412,23 @@ class _FakeDownload:
 
 
 class _FakeLocator:
-    def __init__(self, page):
+    def __init__(self, page, selector):
         self.page = page
+        self.selector = selector
 
-    def inner_text(self):
+    def inner_text(self, *, timeout):
+        self.page.dom_timeouts.append(("body", timeout))
+        if self.page.block_dom:
+            raise TimeoutError("body blocked")
         if self.page.waited_milliseconds:
             return "Rendered body " * 30
         return "DOMContentLoaded body"
+
+    def text_content(self, *, timeout):
+        self.page.dom_timeouts.append(("title", timeout))
+        if self.page.block_dom:
+            raise TimeoutError("title blocked")
+        return "Rendered title"
 
 
 class _FakePage:
@@ -348,6 +440,8 @@ class _FakePage:
         self.popup = _FakePopup()
         self.download = _FakeDownload()
         self.waited_milliseconds = []
+        self.dom_timeouts = []
+        self.block_dom = False
 
     def on(self, event, callback):
         self.events.setdefault(event, []).append(callback)
@@ -365,15 +459,12 @@ class _FakePage:
         for callback in self.events.get("download", ()):
             callback(self.download)
 
-    def title(self):
-        return "Rendered title"
-
     def wait_for_timeout(self, milliseconds):
         self.waited_milliseconds.append(milliseconds)
 
     def locator(self, selector):
-        assert selector == "body"
-        return _FakeLocator(self)
+        assert selector in {"body", "title"}
+        return _FakeLocator(self, selector)
 
 
 class _FakeContext:
@@ -430,6 +521,7 @@ class _FakeChromium:
     def __init__(self, browser):
         self.browser = browser
         self.launch_calls = 0
+        self.executable_path = "/fake/chromium"
 
     def launch(self, **kwargs):
         self.launch_calls += 1
@@ -449,10 +541,25 @@ class _RuntimeManager:
         self.exited = True
 
 
+class _FakeNetworkSandbox:
+    def __init__(self, *, available=True):
+        self.available = available
+        self.executables = []
+        self.wrapper_path = "/fake/network-denied-chromium"
+
+    @contextmanager
+    def guarded_executable(self, executable_path):
+        self.executables.append(executable_path)
+        if not self.available:
+            raise RuntimeError("network sandbox unavailable")
+        yield self.wrapper_path
+
+
 def _browser_fixture(request_specs, *, rejected=()):
     requests = [SimpleNamespace(**spec) for spec in request_specs]
     browser = _FakeBrowser(requests)
     manager = _RuntimeManager(SimpleNamespace(chromium=_FakeChromium(browser)))
+    manager.network_sandbox = _FakeNetworkSandbox()
     fetcher = _StubFetcher(
         {
             PUBLIC_URL: FetchedDocument(
@@ -465,6 +572,60 @@ def _browser_fixture(request_specs, *, rejected=()):
         rejected=rejected,
     )
     return fetcher, browser, manager
+
+
+def _browser_extractor(api, fetcher, manager, **kwargs):
+    return api.PlaywrightExtractor(
+        fetcher,
+        runtime_factory=lambda: manager,
+        network_sandbox=manager.network_sandbox,
+        **kwargs,
+    )
+
+
+def test_browser_is_unavailable_when_verified_os_network_sandbox_is_unavailable():
+    """Route interception cannot block WebRTC, ICE, STUN, or WebTransport native egress."""
+    api = _api()
+    fetcher, browser, manager = _browser_fixture(
+        [{"url": PUBLIC_URL, "method": "GET", "resource_type": "document"}]
+    )
+    manager.network_sandbox = _FakeNetworkSandbox(available=False)
+
+    with pytest.raises(api.BrowserUnavailable, match="browser unavailable"):
+        _browser_extractor(api, fetcher, manager).extract(PUBLIC_URL)
+
+    assert manager.runtime.chromium.launch_calls == 0
+    assert browser.context is None
+
+
+def test_browser_launches_only_wrapped_executable_with_fail_closed_network_flags():
+    """Defense-in-depth flags must accompany, not replace, the verified OS sandbox wrapper."""
+    api = _api()
+    fetcher, browser, manager = _browser_fixture(
+        [{"url": PUBLIC_URL, "method": "GET", "resource_type": "document"}]
+    )
+
+    _browser_extractor(api, fetcher, manager).extract(PUBLIC_URL)
+
+    options = manager.runtime.chromium.launch_options
+    assert manager.network_sandbox.executables == ["/fake/chromium"]
+    assert options["executable_path"] == manager.network_sandbox.wrapper_path
+    flags = set(options["args"])
+    assert "--proxy-server=http://127.0.0.1:9" in flags
+    assert "--host-resolver-rules=MAP * ~NOTFOUND" in flags
+    assert "--disable-webrtc" in flags
+    assert "--disable-quic" in flags
+    assert any("WebTransport" in flag for flag in flags)
+
+
+@pytest.mark.skipif(platform.system() != "Darwin", reason="macOS sandbox-exec probe")
+def test_macos_network_sandbox_helper_denies_ipv4_and_ipv6_network_operations():
+    """The production guard must verify deny-network behavior using only loopback probes."""
+    api = _api()
+
+    guard = api.ProcessNetworkSandbox()
+
+    assert guard.verified() is True
 
 
 @pytest.mark.parametrize("resource_type", ("iframe", "script", "xhr", "fetch"))
@@ -480,9 +641,7 @@ def test_browser_aborts_every_child_request_rejected_by_safe_fetcher(resource_ty
         rejected=(blocked,),
     )
 
-    result = api.PlaywrightExtractor(
-        fetcher, runtime_factory=lambda: manager
-    ).extract(PUBLIC_URL)
+    result = _browser_extractor(api, fetcher, manager).extract(PUBLIC_URL)
 
     main_route, child_route = browser.context.page.routes
     assert main_route.fulfilled["body"].startswith(b"<html>")
@@ -504,15 +663,33 @@ def test_browser_routes_http_get_and_head_through_safe_fetcher_and_never_nativel
             {"url": probe, "method": "HEAD", "resource_type": "fetch"},
         ]
     )
+    fetcher.responses[probe] = FetchedDocument(
+        url=probe,
+        content=b"",
+        content_type="text/plain",
+        peer_ip="93.184.216.34",
+        status_code=404,
+        headers=(
+            ("content-type", "text/plain"),
+            ("content-length", "0"),
+            ("access-control-allow-origin", "*"),
+        ),
+    )
 
-    result = api.PlaywrightExtractor(
-        fetcher, runtime_factory=lambda: manager
-    ).extract(PUBLIC_URL)
+    result = _browser_extractor(api, fetcher, manager).extract(PUBLIC_URL)
 
     routes = browser.context.page.routes
     assert fetcher.calls == [PUBLIC_URL, script, probe]
     assert all(route.fulfilled is not None for route in routes)
     assert routes[2].fulfilled["body"] == b""
+    assert routes[2].fulfilled["status"] == 404
+    assert routes[2].fulfilled["headers"] == {
+        "content-type": "text/plain",
+        "content-length": "0",
+        "access-control-allow-origin": "*",
+    }
+    assert fetcher.call_options[2]["method"] == "HEAD"
+    assert fetcher.call_options[2]["allow_http_errors"] is True
     assert result.text.startswith("Rendered body")
     assert browser.context.page.goto_call[0] == PUBLIC_URL
 
@@ -528,9 +705,7 @@ def test_browser_caps_aggregate_safe_fetch_requests():
         ]
     )
 
-    api.PlaywrightExtractor(
-        fetcher, runtime_factory=lambda: manager, max_requests=1
-    ).extract(PUBLIC_URL)
+    _browser_extractor(api, fetcher, manager, max_requests=1).extract(PUBLIC_URL)
 
     assert fetcher.calls == [PUBLIC_URL]
     assert browser.context.page.routes[1].aborted is True
@@ -547,12 +722,14 @@ def test_browser_caps_cumulative_fetched_bytes_before_processing_more_requests()
         ]
     )
 
-    api.PlaywrightExtractor(
-        fetcher, runtime_factory=lambda: manager, max_response_bytes=1
+    _browser_extractor(
+        api, fetcher, manager, max_response_bytes=1
     ).extract(PUBLIC_URL)
 
-    assert fetcher.calls == [PUBLIC_URL]
+    assert fetcher.calls == [PUBLIC_URL, child]
     assert all(route.aborted for route in browser.context.page.routes)
+    assert all(options["max_wire_bytes"] == 1 for options in fetcher.call_options)
+    assert all(options["max_decompressed_bytes"] == 1 for options in fetcher.call_options)
 
 
 def test_browser_caps_total_wall_clock_across_safe_fetches():
@@ -578,22 +755,27 @@ def test_browser_caps_total_wall_clock_across_safe_fetches():
     )
     original_fetch = fetcher.fetch
 
-    def advancing_fetch(url):
-        result = original_fetch(url)
+    def advancing_fetch(url, **kwargs):
+        result = original_fetch(url, **kwargs)
         clock.value += 1.1
+        if clock.value >= kwargs["deadline"]:
+            raise FetchError("fetch timeout")
         return result
 
     fetcher.fetch = advancing_fetch
 
-    api.PlaywrightExtractor(
-        fetcher,
-        runtime_factory=lambda: manager,
-        timeout_seconds=1.0,
-        monotonic=clock.monotonic,
-    ).extract(PUBLIC_URL)
+    with pytest.raises(TimeoutError, match="timeout"):
+        _browser_extractor(
+            api,
+            fetcher,
+            manager,
+            timeout_seconds=1.0,
+            monotonic=clock.monotonic,
+        ).extract(PUBLIC_URL)
 
     assert fetcher.calls == [PUBLIC_URL]
     assert all(route.aborted for route in browser.context.page.routes)
+    assert fetcher.call_options[0]["deadline"] == 1.0
 
 
 def test_browser_waits_once_for_a_short_bounded_render_stabilization():
@@ -603,12 +785,44 @@ def test_browser_waits_once_for_a_short_bounded_render_stabilization():
         [{"url": PUBLIC_URL, "method": "GET", "resource_type": "document"}]
     )
 
-    result = api.PlaywrightExtractor(
-        fetcher, runtime_factory=lambda: manager
-    ).extract(PUBLIC_URL)
+    result = _browser_extractor(api, fetcher, manager).extract(PUBLIC_URL)
 
     assert browser.context.page.waited_milliseconds == [200]
     assert result.text.startswith("Rendered body")
+    assert [name for name, _timeout in browser.context.page.dom_timeouts] == [
+        "title",
+        "body",
+    ]
+    assert all(timeout <= 15_000 for _, timeout in browser.context.page.dom_timeouts)
+
+
+def test_blocked_dom_read_uses_remaining_timeout_and_forces_resource_close():
+    """Default Playwright DOM waits can exceed the extraction deadline unless explicitly bounded."""
+    api = _api()
+    fetcher, browser, manager = _browser_fixture(
+        [{"url": PUBLIC_URL, "method": "GET", "resource_type": "document"}]
+    )
+    browser_page = None
+    extractor = _browser_extractor(api, fetcher, manager, timeout_seconds=1.0)
+
+    # new_context creates the page during extract, so make it block through the factory hook.
+    original_new_context = browser.new_context
+
+    def blocking_context(**kwargs):
+        nonlocal browser_page
+        context = original_new_context(**kwargs)
+        browser_page = context.page
+        context.page.block_dom = True
+        return context
+
+    browser.new_context = blocking_context
+
+    with pytest.raises(TimeoutError, match="blocked"):
+        extractor.extract(PUBLIC_URL)
+
+    assert browser_page.dom_timeouts[0][1] <= 1000
+    assert browser.context.closed is True
+    assert browser.closed is True
 
 
 @pytest.mark.parametrize(
@@ -634,7 +848,7 @@ def test_browser_aborts_non_http_or_non_read_only_requests_without_fetching(url,
         ]
     )
 
-    api.PlaywrightExtractor(fetcher, runtime_factory=lambda: manager).extract(PUBLIC_URL)
+    _browser_extractor(api, fetcher, manager).extract(PUBLIC_URL)
 
     blocked_route = browser.context.page.routes[1]
     assert blocked_route.aborted is True
@@ -649,7 +863,7 @@ def test_browser_context_blocks_side_channels_and_is_closed_after_one_shot():
         [{"url": PUBLIC_URL, "method": "GET", "resource_type": "document"}]
     )
 
-    api.PlaywrightExtractor(fetcher, runtime_factory=lambda: manager).extract(PUBLIC_URL)
+    _browser_extractor(api, fetcher, manager).extract(PUBLIC_URL)
 
     assert browser.context_options["service_workers"] == "block"
     assert browser.context_options["accept_downloads"] is False

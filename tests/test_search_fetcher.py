@@ -174,6 +174,91 @@ def test_fetch_policy_exposes_the_exact_public_safety_defaults():
     ) == (3, 2 * 1024 * 1024, 8 * 1024 * 1024, 15.0)
 
 
+def test_per_call_absolute_deadline_is_enforced_inside_the_body_read_loop():
+    """Checking a browser deadline only after fetch returns permits a full extra fetch window."""
+    fetch_error, _, _, _ = _api()
+    clock = _Clock()
+
+    def trickle():
+        clock.advance(0.6)
+        yield b"late"
+
+    fetcher, _, transport = _fetcher(
+        {"chunks": trickle()}, monotonic=clock.now
+    )
+
+    with pytest.raises(fetch_error, match="timeout"):
+        fetcher.fetch("https://news.example/story", deadline=clock.now() + 0.5)
+
+    assert transport.calls[0]["timeout"] <= 0.5
+
+
+def test_per_call_wire_and_decompressed_overrides_are_enforced_before_return():
+    """Post-return accounting can overfetch by one full policy-sized response."""
+    fetch_error, _, _, _ = _api()
+    fetcher, _, transport = _fetcher({"chunks": (b"1234",)})
+
+    with pytest.raises(fetch_error, match="limit"):
+        fetcher.fetch("https://news.example/story", max_wire_bytes=3)
+
+    assert transport.calls[0]["max_wire_bytes"] == 3
+
+    compressed = gzip.compress(b"expanded")
+    fetcher, _, _ = _fetcher(
+        {
+            "headers": {
+                "Content-Type": "text/plain",
+                "Content-Encoding": "gzip",
+            },
+            "chunks": (compressed,),
+        }
+    )
+    with pytest.raises(fetch_error, match="decompressed"):
+        fetcher.fetch("https://news.example/story", max_decompressed_bytes=3)
+
+
+def test_head_uses_real_method_status_and_safe_headers_without_reading_body():
+    """Turning browser HEAD into a GET and a fabricated 200 changes upstream semantics."""
+    body_touched = False
+
+    def forbidden_body():
+        nonlocal body_touched
+        body_touched = True
+        raise AssertionError("HEAD response body must not be consumed")
+        yield b"unreachable"
+
+    fetcher, _, transport = _fetcher(
+        {
+            "status": 404,
+            "headers": {
+                "Content-Type": "text/plain; charset=utf-8",
+                "Content-Length": "42",
+                "Access-Control-Allow-Origin": "https://reader.example",
+                "Access-Control-Allow-Credentials": "true",
+                "X-Secret-Upstream": "must-not-cross",
+            },
+            "chunks": forbidden_body(),
+        }
+    )
+
+    document = fetcher.fetch(
+        "https://news.example/missing",
+        method="HEAD",
+        allow_http_errors=True,
+    )
+
+    assert transport.calls[0]["method"] == "HEAD"
+    assert document.status_code == 404
+    assert document.content == b""
+    assert body_touched is False
+    assert dict(document.headers) == {
+        "content-type": "text/plain; charset=utf-8",
+        "content-length": "42",
+        "access-control-allow-origin": "https://reader.example",
+        "access-control-allow-credentials": "true",
+    }
+
+
 @pytest.mark.parametrize(
     "url",
     (

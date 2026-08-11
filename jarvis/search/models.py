@@ -103,6 +103,11 @@ class FetchedDocument:
     content: bytes
     content_type: str
     peer_ip: str
+    status_code: int = 200
+    headers: tuple[tuple[str, str], ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "headers", tuple(self.headers))
 
 
 @dataclass(frozen=True)

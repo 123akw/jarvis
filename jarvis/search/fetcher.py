@@ -150,6 +150,8 @@ class Transport(Protocol):
         host_header: str,
         server_hostname: str | None,
         timeout: float,
+        method: str = "GET",
+        max_wire_bytes: int | None = None,
     ) -> TransportResponse: ...
 
 
@@ -188,10 +190,44 @@ class SafeFetcher:
         if getattr(self._transport, "trust_env", None) is not False:
             raise ValueError("SafeFetcher transport must set trust_env=False")
 
-    def fetch(self, url: str) -> FetchedDocument:
+    def fetch(
+        self,
+        url: str,
+        *,
+        method: str = "GET",
+        deadline: float | None = None,
+        max_wire_bytes: int | None = None,
+        max_decompressed_bytes: int | None = None,
+        allow_http_errors: bool = False,
+    ) -> FetchedDocument:
         """Return a bounded public response or a query-redacted FetchError."""
         try:
-            return self._fetch(url)
+            normalized_method = method.upper() if isinstance(method, str) else ""
+            if normalized_method not in {"GET", "HEAD"}:
+                raise FetchError("fetch method rejected")
+            wire_limit = _bounded_override(
+                max_wire_bytes,
+                self._policy.max_compressed_bytes,
+                "max_wire_bytes",
+            )
+            decompressed_limit = _bounded_override(
+                max_decompressed_bytes,
+                self._policy.max_decompressed_bytes,
+                "max_decompressed_bytes",
+            )
+            policy_deadline = self._monotonic() + self._policy.total_timeout_seconds
+            effective_deadline = (
+                policy_deadline if deadline is None else min(float(deadline), policy_deadline)
+            )
+            self._remaining(effective_deadline)
+            return self._fetch(
+                url,
+                method=normalized_method,
+                deadline=effective_deadline,
+                max_wire_bytes=wire_limit,
+                max_decompressed_bytes=decompressed_limit,
+                allow_http_errors=bool(allow_http_errors),
+            )
         except FetchError:
             raise
         except (TimeoutError, socket.timeout):
@@ -199,8 +235,16 @@ class SafeFetcher:
         except Exception:
             raise FetchError("public fetch failed") from None
 
-    def _fetch(self, url: str) -> FetchedDocument:
-        deadline = self._monotonic() + self._policy.total_timeout_seconds
+    def _fetch(
+        self,
+        url: str,
+        *,
+        method: str,
+        deadline: float,
+        max_wire_bytes: int,
+        max_decompressed_bytes: int,
+        allow_http_errors: bool,
+    ) -> FetchedDocument:
         current = _canonicalize_url(url)
         visited: set[str] = set()
         redirects = 0
@@ -220,6 +264,8 @@ class SafeFetcher:
                 host_header=current.host_header,
                 server_hostname=current.host if current.scheme == "https" else None,
                 timeout=self._remaining(deadline),
+                method=method,
+                max_wire_bytes=max_wire_bytes,
             )
             try:
                 self._remaining(deadline)
@@ -238,20 +284,28 @@ class SafeFetcher:
                     current = next_url
                     continue
 
-                if not 200 <= response.status_code < 300:
+                if not 200 <= response.status_code < 300 and not allow_http_errors:
                     raise FetchError("upstream response status rejected")
                 content_type = _accepted_content_type(response.headers)
                 content_encoding = _accepted_content_encoding(response.headers)
-                content = self._read_body(
-                    response.chunks,
-                    content_encoding,
-                    deadline,
+                content = (
+                    b""
+                    if method == "HEAD"
+                    else self._read_body(
+                        response.chunks,
+                        content_encoding,
+                        deadline,
+                        max_wire_bytes=max_wire_bytes,
+                        max_decompressed_bytes=max_decompressed_bytes,
+                    )
                 )
                 return FetchedDocument(
                     url=current.url,
                     content=content,
                     content_type=content_type,
                     peer_ip=_normalize_ip(response.peer_ip),
+                    status_code=response.status_code,
+                    headers=_safe_response_headers(response.headers),
                 )
             finally:
                 try:
@@ -303,6 +357,9 @@ class SafeFetcher:
         chunks: Iterable[bytes],
         content_encoding: str,
         deadline: float,
+        *,
+        max_wire_bytes: int,
+        max_decompressed_bytes: int,
     ) -> bytes:
         encoding = content_encoding.strip().lower()
         if encoding in ("", "identity"):
@@ -330,7 +387,7 @@ class SafeFetcher:
                     raise FetchError("invalid response byte stream")
                 data = bytes(chunk)
                 compressed_count += len(data)
-                if compressed_count > self._policy.max_compressed_bytes:
+                if compressed_count > max_wire_bytes:
                     raise FetchError("compressed response exceeded limit")
 
                 if decompressor is None:
@@ -339,18 +396,18 @@ class SafeFetcher:
                     decoded_parts = self._decompress_chunk(
                         decompressor,
                         data,
-                        self._policy.max_decompressed_bytes - decompressed_count,
+                        max_decompressed_bytes - decompressed_count,
                     )
                 for decoded in decoded_parts:
                     decompressed_count += len(decoded)
-                    if decompressed_count > self._policy.max_decompressed_bytes:
+                    if decompressed_count > max_decompressed_bytes:
                         raise FetchError("decompressed response exceeded limit")
                     output.append(decoded)
 
             if decompressor is not None:
                 if not decompressor.eof:
                     raise FetchError("invalid compressed response")
-                remaining = self._policy.max_decompressed_bytes - decompressed_count
+                remaining = max_decompressed_bytes - decompressed_count
                 tail = decompressor.flush(remaining + 1)
                 if len(tail) > remaining:
                     raise FetchError("decompressed response exceeded limit")
@@ -642,6 +699,8 @@ class _SocketTransport:
         host_header: str,
         server_hostname: str | None,
         timeout: float,
+        method: str = "GET",
+        max_wire_bytes: int | None = None,
     ) -> TransportResponse:
         deadline = time.monotonic() + timeout
 
@@ -671,7 +730,7 @@ class _SocketTransport:
                 peer_ip = _assert_connected_peer(sock, connect_ip)
 
             request = (
-                f"GET {request_target} HTTP/1.1\r\n"
+                f"{method} {request_target} HTTP/1.1\r\n"
                 f"Host: {host_header}\r\n"
                 "User-Agent: Jarvis-SafeFetcher/1.0\r\n"
                 "Accept: text/html, text/plain;q=0.9, application/xhtml+xml;q=0.9\r\n"
@@ -682,12 +741,13 @@ class _SocketTransport:
             sock.sendall(request)
             wire_file = _HTTPWireFile(
                 sock,
-                wire_limit=self._max_wire_bytes,
+                wire_limit=min(max_wire_bytes or self._max_wire_bytes, self._max_wire_bytes),
                 metadata_limit=self._max_metadata_bytes,
                 chunk_limit=self._max_chunks,
                 remaining=remaining,
             )
             response = http.client.HTTPResponse(_HTTPResponseSocket(wire_file))
+            response._method = method
             sock.settimeout(remaining())
             response.begin()
             wire_file.mark_body(chunked=response.chunked)
@@ -922,6 +982,41 @@ def _single_header(
     if len(values) > 1:
         raise FetchError(f"response {name.replace('-', ' ')} rejected")
     return values[0] if values else ""
+
+
+def _bounded_override(value: int | None, policy_limit: int, name: str) -> int:
+    if value is None:
+        return policy_limit
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise FetchError(f"{name} rejected")
+    return min(value, policy_limit)
+
+
+def _safe_response_headers(
+    headers: Mapping[str, str] | Sequence[tuple[str, str]],
+) -> tuple[tuple[str, str], ...]:
+    allowed = (
+        "content-type",
+        "content-length",
+        "access-control-allow-origin",
+        "access-control-allow-credentials",
+        "access-control-allow-headers",
+        "access-control-allow-methods",
+        "access-control-expose-headers",
+    )
+    safe: list[tuple[str, str]] = []
+    for name in allowed:
+        value = _single_header(headers, name)
+        if not value:
+            continue
+        if len(value.encode("utf-8")) > 4096 or any(
+            unicodedata.category(character).startswith("C") for character in value
+        ):
+            raise FetchError("response header rejected")
+        if name == "content-length" and (not value.isascii() or not value.isdigit()):
+            raise FetchError("response content length rejected")
+        safe.append((name, value))
+    return tuple(safe)
 
 
 def _accepted_content_type(
