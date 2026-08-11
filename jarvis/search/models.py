@@ -106,6 +106,17 @@ class FetchedDocument:
 
 
 @dataclass(frozen=True)
+class ExtractedDocument:
+    """Sanitized article text plus the provenance needed at the trust boundary."""
+
+    url: str
+    title: str
+    text: str
+    checked_at: datetime
+    provider: str
+
+
+@dataclass(frozen=True)
 class SearchResponse:
     results: tuple[SearchResult, ...]
     checked_at: datetime

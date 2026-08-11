@@ -5,12 +5,16 @@ from collections.abc import Callable, Sequence
 from datetime import datetime
 
 import httpx
-from langchain_core.tools import tool
+from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field
 
 from jarvis.search.models import SearchRequest
 from jarvis.search.providers import DDGSProvider, SearXNGProvider, TavilyProvider
-from jarvis.search.service import SearchService, cache_policy_for_query
+from jarvis.search.service import (
+    SearchService,
+    cache_policy_for_query,
+    render_extracted_document,
+)
 
 
 def _domain_values(domains: str | Sequence[str] | None) -> tuple[str, ...]:
@@ -119,9 +123,27 @@ class WebSearchArgs(BaseModel):
     )
 
 
+class WebExtractArgs(BaseModel):
+    url: str = Field(description="要提取正文的公开 HTTP(S) 网页 URL")
+
+
 _default_service = SearchService(
     [SearXNGProvider(), DDGSProvider(), TavilyProvider()]
 )
+
+
+def make_web_extract_tool(service: SearchService) -> BaseTool:
+    """Bind webpage extraction to the caller's fetch and browser policy service."""
+
+    @tool("web_extract", args_schema=WebExtractArgs)
+    def bound_web_extract(url: str) -> str:
+        """安全提取公开网页正文；返回带来源、时间与不可信资料边界的文本。"""
+        return render_extracted_document(service.extract(url))
+
+    return bound_web_extract
+
+
+web_extract = make_web_extract_tool(_default_service)
 
 
 @tool(args_schema=WebSearchArgs)
