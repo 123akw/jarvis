@@ -8,6 +8,7 @@ import httpx
 from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field
 
+from jarvis.search.fetcher import FetchError
 from jarvis.search.models import SearchRequest
 from jarvis.search.providers import DDGSProvider, SearXNGProvider, TavilyProvider
 from jarvis.search.service import (
@@ -138,7 +139,14 @@ def make_web_extract_tool(service: SearchService) -> BaseTool:
     @tool("web_extract", args_schema=WebExtractArgs)
     def bound_web_extract(url: str) -> str:
         """安全提取公开网页正文；返回带来源、时间与不可信资料边界的文本。"""
-        return render_extracted_document(service.extract(url))
+        # 提取失败必须回失败文本而不是抛异常：异常会穿透 agent.invoke，
+        # 让微信/网页整轮回复直接失败（FetchError 事故，2026-08-12）。
+        try:
+            return render_extracted_document(service.extract(url))
+        except FetchError as exc:
+            return f"网页提取失败（{exc}）：该来源暂不可达，请换其他来源链接或稍后重试。"
+        except ValueError:
+            return "网页提取失败：目标地址不是可安全提取的公开 HTTP(S) 网页，请换其他来源链接。"
 
     return bound_web_extract
 

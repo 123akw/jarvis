@@ -372,6 +372,30 @@ def test_web_extract_tool_is_bound_to_the_service_passed_to_its_factory():
     assert second_service.calls == ["https://two.example/page"]
 
 
+def test_web_extract_tool_returns_failure_text_instead_of_raising():
+    """A raised FetchError escapes agent.invoke and kills the whole WeChat/web reply."""
+    api = _api()
+
+    class FailingService:
+        def __init__(self, error):
+            self._error = error
+
+        def extract(self, url):
+            raise self._error
+
+    fetch_failed = api.make_web_extract_tool(FailingService(FetchError("fetch timeout")))
+    invalid_url = api.make_web_extract_tool(FailingService(ValueError("final URL is not valid")))
+
+    fetch_text = fetch_failed.invoke({"url": "https://slow.example/page"})
+    invalid_text = invalid_url.invoke({"url": "https://bad.example/page"})
+
+    assert "网页提取失败" in fetch_text
+    assert "fetch timeout" in fetch_text
+    assert "网页提取失败" in invalid_text
+    for text in (fetch_text, invalid_text):
+        assert "Traceback" not in text
+
+
 class _FakeRoute:
     def __init__(self, request):
         self.request = request
