@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
 
-const { createLoginController } = require('./login-controller.js')
+const { createAuthenticatedApi, createLoginController } = require('./login-controller.js')
 
 test('first launch expands login and lets an unauthenticated user configure the server', async () => {
   const states = []
@@ -40,4 +40,34 @@ test('successful first login closes the fail-closed overlay and loads authentica
   assert.deepEqual(await controller.login('owner', 'secret'), { ok: true })
   assert.deepEqual(visible, [false])
   assert.equal(loaded, 1)
+})
+
+test('every ordinary API 401 enters one login boundary and succeeds after re-login', async () => {
+  let authorized = true
+  let expanded = 0
+  const visible = []
+  const rawApi = {
+    request: async operation => authorized
+      ? { status: 200, ok: true, data: operation === 'session' ? { authed: true } : { operation } }
+      : { status: 401, ok: false, data: {} },
+    login: async () => { authorized = true; return { ok: true } },
+  }
+  const controller = createLoginController({
+    api: rawApi,
+    getSettings: async () => ({ server: 'https://self-host.test' }),
+    showLogin: async () => { expanded += 1 },
+    setLoginVisible: value => visible.push(value),
+  })
+  const api = createAuthenticatedApi(rawApi, { onUnauthorized: controller.requireLogin })
+
+  assert.equal((await controller.init()).authenticated, true)
+  for (const operation of ['dashboard', 'history', 'deleteThread', 'coding']) {
+    authorized = false
+    await assert.rejects(() => api.request(operation, {}), error => error.code === 'AUTH_REQUIRED')
+    assert.equal(visible.at(-1), true)
+    await controller.login('owner', 'secret')
+    assert.equal(visible.at(-1), false)
+    assert.deepEqual(await api.request(operation, {}), { status: 200, ok: true, data: { operation } })
+  }
+  assert.equal(expanded, 4)
 })

@@ -4,7 +4,7 @@ const os = require('node:os')
 const path = require('node:path')
 const { test } = require('node:test')
 
-const { createSessionGateway, isAllowedServer } = require('./session.js')
+const { createSessionGateway, isAllowedServer, replaceSessionGateway } = require('./session.js')
 
 const response = (status, data = {}) => ({
   status,
@@ -145,6 +145,58 @@ test('server switching clears credentials before publishing the new origin', asy
   await instance.login('owner', 'test-password')
   await assert.rejects(async () => instance.setServer('https://new.test'), /clear failed/)
   assert.equal(instance.server(), 'https://example.test')
+})
+
+test('a valid HTTPS setting repairs an invalid legacy server without constructing it', async () => {
+  const calls = []
+  const settings = { server: 'http://legacy-host.test' }
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jws-repair-'))
+  fs.writeFileSync(path.join(directory, 'desktop-session.enc'), 'legacy-ciphertext', { mode: 0o600 })
+  const createGateway = server => createSessionGateway({
+    fetchImpl: async url => { calls.push(url); return response(200, url.endsWith('/api/desktop/login') ? { access_token: 'replacement-token' } : {}) },
+    safeStorage: {
+      isEncryptionAvailable: () => true,
+      encryptString: value => Buffer.from(value).toString('base64'),
+      decryptString: value => Buffer.from(value.toString(), 'base64').toString(),
+    },
+    fs, path, dataDir: directory, server,
+  })
+  const replacement = replaceSessionGateway({
+    currentGateway: null,
+    previousSettings: settings,
+    nextSettings: { server: 'https://repaired.test' },
+    createGateway,
+    persistSettings: next => { Object.assign(settings, next) },
+  })
+  assert.equal(fs.existsSync(path.join(directory, 'desktop-session.enc')), false)
+  await replacement.login('owner', 'secret')
+  assert.equal(settings.server, 'https://repaired.test')
+  assert.deepEqual(calls, ['https://repaired.test/api/desktop/login'])
+})
+
+test('a failed server settings save stays unauthenticated and remains retryable', () => {
+  let clears = 0
+  const oldGateway = { clear: () => { clears += 1 } }
+  const nextSettings = { server: 'https://repaired.test' }
+  const createGateway = server => ({ clear: () => { clears += 1 }, server: () => server })
+
+  assert.throws(() => replaceSessionGateway({
+    currentGateway: oldGateway,
+    previousSettings: { server: 'http://legacy-host.test' },
+    nextSettings,
+    createGateway,
+    persistSettings: () => { throw new Error('save failed') },
+  }), /save failed/)
+  assert.equal(clears, 2)
+
+  const recovered = replaceSessionGateway({
+    currentGateway: null,
+    previousSettings: { server: 'http://legacy-host.test' },
+    nextSettings,
+    createGateway,
+    persistSettings: () => {},
+  })
+  assert.equal(recovered.server(), 'https://repaired.test')
 })
 
 test('SSE events are emitted incrementally without response.text buffering and obey event limits', async () => {

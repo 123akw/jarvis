@@ -40,26 +40,28 @@ function sys(text) {
 
 /* The renderer only names approved operations. Main owns token, headers and server URL. */
 async function api(operation, body = {}) {
-  const result = await window.jws.api.request(operation, body)
+  const result = await authenticatedApi.request(operation, body)
   return { status: result.status, ok: result.ok, json: async () => result.data }
-}
-function requireLogin() {
-  document.body.classList.add('needs-login'); state.textContent = '请登录'
-  void window.jws.showLogin()
 }
 const loginController = window.JWSLoginController.createLoginController({
   api: window.jws.api,
   getSettings: window.jws.getSettings,
   setSettings: window.jws.setSettings,
   showLogin: window.jws.showLogin,
-  setLoginVisible: visible => document.body.classList.toggle('needs-login', visible),
+  setLoginVisible: visible => {
+    document.body.classList.toggle('needs-login', visible)
+    if (visible) state.textContent = '请登录'
+  },
   clearPassword: () => { $('#desktop-password').value = '' },
   onAuthenticated: async () => {
     state.textContent = '在线'
     await loadHistory()
-    void syncCoding()
+    void syncCoding().catch(() => {})
   },
 })
+function requireLogin() { return loginController.requireLogin() }
+const authenticatedApi = window.JWSLoginController.createAuthenticatedApi(window.jws.api, { onUnauthorized: requireLogin })
+const isAuthenticationRequired = window.JWSLoginController.isAuthenticationRequired
 async function submitDesktopLogin(event) {
   event.preventDefault()
   const username = $('#desktop-username').value.trim()
@@ -92,17 +94,19 @@ const EMPTY_HTML = `<div class="empty">这里是桌面快捷通道。有什么�
 </div>`
 
 async function loadHistory() {
-  const r = await api('history', { thread_id: THREAD })
-  if (r.status === 401) { requireLogin(); return }
-  const h = await r.json()
-  log.innerHTML = ''
-  if (!h.length) {
-    log.innerHTML = EMPTY_HTML
-    return
-  }
-  for (const m of h.slice(-24)) {
-    if (m.role === 'user') addUser(m.content)
-    else addAI(m.content)
+  try {
+    const h = await (await api('history', { thread_id: THREAD })).json()
+    log.innerHTML = ''
+    if (!h.length) {
+      log.innerHTML = EMPTY_HTML
+      return
+    }
+    for (const m of h.slice(-24)) {
+      if (m.role === 'user') addUser(m.content)
+      else addAI(m.content)
+    }
+  } catch (error) {
+    if (!isAuthenticationRequired(error)) sys('无法读取历史记录')
   }
 }
 
@@ -139,7 +143,6 @@ async function ask() {
       } else if (ev.type === 'error') sys(ev.message)
     } })
     const r = await currentStream.done
-    if (r.status === 401) { requireLogin(); throw new Error('登录已失效，请重新登录') }
     if (!r.ok && !r.cancelled) throw new Error('链路中断')
     el.innerHTML = md(raw) || '<span style="color:var(--dim)">（无回复）</span>'
   } catch (e) {
@@ -186,8 +189,12 @@ $('#minbtn').addEventListener('click', async () => {
   document.body.classList.remove('expanded')
 })
 $('#clearbtn').addEventListener('click', async () => {
-  await api('deleteThread', { thread_id: THREAD })
-  log.innerHTML = '<div class="empty">已清空。有什么吩咐？</div>'
+  try {
+    await api('deleteThread', { thread_id: THREAD })
+    log.innerHTML = '<div class="empty">已清空。有什么吩咐？</div>'
+  } catch (error) {
+    if (!isAuthenticationRequired(error)) sys('无法清空记录')
+  }
 })
 log.addEventListener('click', e => {  // 空态快捷芯片
   const q = e.target && e.target.dataset && e.target.dataset.q
@@ -251,9 +258,12 @@ async function syncCoding() {
     const coding = await window.jws.codingStatus()
     await api('coding', { coding })
     return coding
-  } catch { return [] }
+  } catch (error) {
+    if (isAuthenticationRequired(error)) throw error
+    return []
+  }
 }
-setInterval(syncCoding, 5 * 60 * 1000)
+setInterval(() => { void syncCoding().catch(() => {}) }, 5 * 60 * 1000)
 
 function rowsHtml(items, render) {
   if (!items || !items.length) return '<div class="b-empty">暂无</div>'
@@ -263,15 +273,15 @@ function rowsHtml(items, render) {
 async function openBoard() {
   document.body.classList.add('show-board')
   $('#b-coding').innerHTML = '<div class="b-empty">读取中…</div>'
-  const coding = await syncCoding()
-  $('#b-coding').innerHTML = rowsHtml(coding, c => `
-    <div class="row"><span class="tag${c.active ? ' on' : ''}">${c.active ? '● 进行中' : c.last_active}</span>
-    <span class="txt"><b>${esc(c.project)}</b>${c.task ? ' · ' + esc(c.task) : ''}
-      ${c.step ? `<div class="sub">⚙ ${esc(c.step)}</div>` : ''}
-      ${c.files && c.files.length ? `<div class="sub">✎ ${esc(c.files.join('  '))}</div>` : ''}
-      ${c.branch ? `<div class="sub">⎇ ${esc(c.branch)}${c.dirty ? ` · 未提交 ${c.dirty} 处` : ''}${c.commits_today ? ` · 今日提交 ${c.commits_today} 个` : ''}</div>` : ''}
-    </span></div>`)
   try {
+    const coding = await syncCoding()
+    $('#b-coding').innerHTML = rowsHtml(coding, c => `
+      <div class="row"><span class="tag${c.active ? ' on' : ''}">${c.active ? '● 进行中' : c.last_active}</span>
+      <span class="txt"><b>${esc(c.project)}</b>${c.task ? ' · ' + esc(c.task) : ''}
+        ${c.step ? `<div class="sub">⚙ ${esc(c.step)}</div>` : ''}
+        ${c.files && c.files.length ? `<div class="sub">✎ ${esc(c.files.join('  '))}</div>` : ''}
+        ${c.branch ? `<div class="sub">⎇ ${esc(c.branch)}${c.dirty ? ` · 未提交 ${c.dirty} 处` : ''}${c.commits_today ? ` · 今日提交 ${c.commits_today} 个` : ''}</div>` : ''}
+      </span></div>`)
     const d = await (await api('dashboard')).json()
     const today = d.time.slice(0, 10)
     const sch = (d.schedule || []).filter(x => x.when.slice(0, 10) === today)
@@ -280,8 +290,10 @@ async function openBoard() {
       <span class="txt">${esc(x.title)}</span></div>`)
     $('#b-todos').innerHTML = rowsHtml(d.todos, x => `
       <div class="row"><span class="tag">[ ]</span><span class="txt">${esc(x.content)}</span></div>`)
-  } catch {
-    $('#b-sched').innerHTML = $('#b-todos').innerHTML = '<div class="b-empty">连不上服务器</div>'
+  } catch (error) {
+    if (!isAuthenticationRequired(error)) {
+      $('#b-sched').innerHTML = $('#b-todos').innerHTML = '<div class="b-empty">连不上服务器</div>'
+    }
   }
 }
 $('#boardbtn').addEventListener('click', openBoard)

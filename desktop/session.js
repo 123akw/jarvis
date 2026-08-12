@@ -134,6 +134,18 @@ function createSessionGateway({ fetchImpl, safeStorage, fs, path, dataDir, serve
   return { login, request, stream, clear, load, setServer, server: () => serverUrl }
 }
 
+function replaceSessionGateway({ currentGateway, previousSettings, nextSettings, createGateway, persistSettings }) {
+  if (previousSettings.server === nextSettings.server) {
+    persistSettings(nextSettings)
+    return currentGateway
+  }
+  if (currentGateway) currentGateway.clear()
+  const replacement = createGateway(nextSettings.server)
+  replacement.clear()
+  persistSettings(nextSettings)
+  return replacement
+}
+
 async function readEvents(response, onEvent, signal) {
   if (!response.body) throw new Error('stream body is unavailable')
   const reader = response.body.getReader ? response.body.getReader() : null
@@ -205,4 +217,4 @@ function codingItem(item) {
   return item
 }
 
-module.exports = { createSessionGateway, isAllowedServer, readEvents }
+module.exports = { createSessionGateway, isAllowedServer, readEvents, replaceSessionGateway }

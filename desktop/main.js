@@ -4,7 +4,7 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 const { pathToFileURL } = require('url')
-const { createSessionGateway } = require('./session.js')
+const { createSessionGateway, replaceSessionGateway } = require('./session.js')
 const { createApiHandlers } = require('./ipc-api.js')
 const { assertTrustedSender, hardenWindow, validateSettingsPatch } = require('./security.js')
 
@@ -35,12 +35,12 @@ function saveSettings(s) {
   fs.chmodSync(settingsPath(), 0o600)
 }
 
+function gatewayFor(server) {
+  return createSessionGateway({ fetchImpl: fetch, safeStorage, fs, path, dataDir: app.getPath('userData'),
+    server, development: process.env.JWS_DESKTOP_DEV === '1' })
+}
 function gateway() {
-  if (!apiGateway) {
-    const settings = loadSettings()
-    apiGateway = createSessionGateway({ fetchImpl: fetch, safeStorage, fs, path, dataDir: app.getPath('userData'),
-      server: settings.server, development: process.env.JWS_DESKTOP_DEV === '1' })
-  }
+  if (!apiGateway) apiGateway = gatewayFor(loadSettings().server)
   return apiGateway
 }
 
@@ -274,11 +274,12 @@ ipcMain.handle('set-settings', (event, suppliedPatch) => {
   const patch = validateSettingsPatch(suppliedPatch, process.env.JWS_DESKTOP_DEV === '1')
   const candidate = { ...previous, ...patch }
   const s = candidate
-  if (s.server !== previous.server) gateway().setServer(s.server)
-  try { saveSettings(s) } catch (error) {
-    if (s.server !== previous.server) gateway().setServer(previous.server)
-    throw error
-  }
+  if (s.server !== previous.server) {
+    const currentGateway = apiGateway
+    apiGateway = null
+    apiGateway = replaceSessionGateway({ currentGateway, previousSettings: previous, nextSettings: s,
+      createGateway: gatewayFor, persistSettings: saveSettings })
+  } else saveSettings(s)
   const hotkeyOk = applyHotkey(s.hotkey)
   try { setAutoLaunch(s.openAtLogin) } catch {}
   if (!expanded && win) {  // 收起态下即时按新尺寸重排（右缘钉住）

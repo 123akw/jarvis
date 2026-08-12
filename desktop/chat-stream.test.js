@@ -24,6 +24,6 @@ test('renderer chat orchestration sends 401 to the login boundary', async () => 
   let expired = 0
   const api = { startStream: () => 'stream-2', streamDone: async () => ({ status: 401, ok: false }), cancelStream: async () => ({}) }
   const chat = startChatStream(api, { thread_id: 'desktop', message: 'hello' }, { onEvent: () => {}, onUnauthorized: () => { expired += 1 } })
-  assert.deepEqual(await chat.done, { status: 401, ok: false })
+  await assert.rejects(() => chat.done, error => error.code === 'AUTH_REQUIRED')
   assert.equal(expired, 1)
 })
