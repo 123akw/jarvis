@@ -17,7 +17,7 @@ from langchain_core.messages import AIMessageChunk, ToolMessage
 from pydantic import BaseModel
 
 from jarvis import __version__, config, wechat
-from jarvis.accounts import AccountStore, Principal, csrf_token
+from jarvis.accounts import AccountStore, Principal, csrf_token, session_secret_configured
 from jarvis.graph import build_agent, heal_dangling_tool_calls
 from jarvis.tenancy import TenantMigrationError, TenantStore, tenant_scope
 from jarvis.tools import TOOLS
@@ -48,32 +48,66 @@ _accounts = AccountStore()
 
 
 class LoginAttemptLimiter:
-    """Bounded in-memory rate limiter keyed by the direct ASGI client address."""
+    """Bounded per-identity and source-wide limiter shared by login transports."""
 
-    def __init__(self, *, attempts: int = 5, window_seconds: int = 60, clock=time.monotonic) -> None:
+    def __init__(self, *, attempts: int = 5, spray_attempts: int = 25,
+                 window_seconds: int = 60, clock=time.monotonic, max_entries: int = 1024) -> None:
         self.attempts = attempts
+        self.spray_attempts = spray_attempts
         self.window_seconds = window_seconds
         self.clock = clock
-        self._entries: OrderedDict[str, deque[float]] = OrderedDict()
+        self.max_entries = max_entries
+        self._entries: OrderedDict[tuple[str, str], deque[float]] = OrderedDict()
+        self._spray: OrderedDict[str, deque[float]] = OrderedDict()
         self._lock = threading.Lock()
 
-    def check(self, source: str) -> int | None:
+    @staticmethod
+    def _normalized(value: str, fallback: str = "") -> str:
+        normalized = str(value).strip().casefold()
+        return (normalized or fallback)[:256]
+
+    def _prune(self, values: deque[float], now: float) -> None:
+        while values and now - values[0] >= self.window_seconds:
+            values.popleft()
+
+    def _retry_after(self, values: deque[float], now: float) -> int:
+        return max(1, int(self.window_seconds - (now - values[0])))
+
+    def check(self, source: str, username: str = "") -> int | None:
         now = self.clock()
+        normalized_source = self._normalized(source, "unknown")
+        key = (normalized_source, self._normalized(username))
         with self._lock:
-            values = self._entries.setdefault(source, deque())
-            self._entries.move_to_end(source)
-            while values and now - values[0] >= self.window_seconds:
-                values.popleft()
+            values = self._entries.setdefault(key, deque())
+            spray = self._spray.setdefault(normalized_source, deque())
+            self._entries.move_to_end(key)
+            self._spray.move_to_end(normalized_source)
+            self._prune(values, now)
+            self._prune(spray, now)
             if len(values) >= self.attempts:
-                return max(1, int(self.window_seconds - (now - values[0])))
+                return self._retry_after(values, now)
+            if len(spray) >= self.spray_attempts:
+                return self._retry_after(spray, now)
             values.append(now)
-            while len(self._entries) > 1024:
+            spray.append(now)
+            while len(self._entries) > self.max_entries:
                 self._entries.popitem(last=False)
+            while len(self._spray) > self.max_entries:
+                self._spray.popitem(last=False)
         return None
 
-    def success(self, source: str) -> None:
+    def success(self, source: str, username: str = "") -> None:
+        normalized_source = self._normalized(source, "unknown")
+        key = (normalized_source, self._normalized(username))
         with self._lock:
-            self._entries.pop(source, None)
+            self._entries.pop(key, None)
+            # check() reserves one source slot before password work. Remove only
+            # this successful attempt; earlier failures from every username stay.
+            spray = self._spray.get(normalized_source)
+            if spray:
+                spray.pop()
+                if not spray:
+                    self._spray.pop(normalized_source, None)
 
 
 _login_limiter = LoginAttemptLimiter()
@@ -100,8 +134,8 @@ def _client_address(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def _rate_limited(request: Request) -> JSONResponse | None:
-    retry_after = _login_limiter.check(_client_address(request))
+def _rate_limited(request: Request, username: str) -> JSONResponse | None:
+    retry_after = _login_limiter.check(_client_address(request), username)
     if retry_after is None:
         return None
     return JSONResponse(
@@ -157,14 +191,14 @@ class LoginIn(BaseModel):
 
 @app.post("/api/login")
 def login(request: Request, body: LoginIn):
-    if not os.getenv("JARVIS_SESSION_SECRET") or len(os.getenv("JARVIS_SESSION_SECRET", "").encode("utf-8")) < 32:
+    if not session_secret_configured():
         return JSONResponse({"error": "服务未配置"}, status_code=503, headers={"Cache-Control": "no-store"})
-    if limited := _rate_limited(request):
+    if limited := _rate_limited(request, body.username):
         return limited
     authenticated = _accounts.authenticate(body.username, body.password, "web")
     if not authenticated:
         return JSONResponse({"error": "账号或口令不对"}, status_code=401, headers={"Cache-Control": "no-store"})
-    _login_limiter.success(_client_address(request))
+    _login_limiter.success(_client_address(request), body.username)
     _principal, token, _csrf = authenticated
     resp = JSONResponse({"ok": True}, headers={"Cache-Control": "no-store"})
     resp.set_cookie(
@@ -177,7 +211,7 @@ def login(request: Request, body: LoginIn):
 
 @app.post("/api/desktop/login")
 def desktop_login(request: Request, body: LoginIn):
-    if limited := _rate_limited(request):
+    if limited := _rate_limited(request, body.username):
         return limited
     user = _accounts.authenticate_user(body.username, body.password)
     if not user:
@@ -185,7 +219,7 @@ def desktop_login(request: Request, body: LoginIn):
     issued = _accounts.issue_desktop_and_openai(user[0])
     if not issued:
         return JSONResponse({"error": "服务不可用"}, status_code=503, headers={"Cache-Control": "no-store"})
-    _login_limiter.success(_client_address(request))
+    _login_limiter.success(_client_address(request), body.username)
     (_desktop_principal, token), (_openai_principal, openai_token) = issued
     return JSONResponse(
         {

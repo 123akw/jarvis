@@ -2,6 +2,7 @@
 from concurrent.futures import ThreadPoolExecutor
 import json
 import os
+import threading
 
 import pytest
 
@@ -200,6 +201,42 @@ def test_migration_rechecks_unique_owner_inside_import_transaction(tmp_path, mon
         assert not connection.execute("SELECT 1 FROM tenant_legacy_migrations WHERE name='legacy-json-v1'").fetchone()
         assert connection.execute("SELECT COUNT(*) FROM tenant_memos").fetchone()[0] == 0
     assert (tmp_path / "memos.json.tenant-v1.bak").exists()
+
+
+def test_concurrent_first_migration_returns_one_stable_winner(tmp_path, monkeypatch):
+    """Two first callers must not race a shared temporary backup or surface an exception."""
+    owner, _member = _users(tmp_path)
+    del owner
+    (tmp_path / "memos.json").write_text(
+        json.dumps([{"id": 1, "content": "concurrent"}]), encoding="utf-8"
+    )
+    stores = [
+        TenantStore(tmp_path / "accounts.sqlite3", legacy_dir=tmp_path),
+        TenantStore(tmp_path / "accounts.sqlite3", legacy_dir=tmp_path),
+    ]
+    entry = threading.Barrier(2)
+    replace = threading.Barrier(2)
+    original_backup = TenantStore._backup
+    original_replace = os.replace
+
+    def aligned_backup(self, path, content):
+        entry.wait(timeout=5)
+        return original_backup(self, path, content)
+
+    def aligned_replace(source, destination):
+        if str(destination).endswith(".tenant-v1.bak"):
+            replace.wait(timeout=5)
+        return original_replace(source, destination)
+
+    monkeypatch.setattr(TenantStore, "_backup", aligned_backup)
+    monkeypatch.setattr(os, "replace", aligned_replace)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda store: store.migrate_legacy(), stores))
+
+    assert sorted(results) == [False, True]
+    assert (tmp_path / "memos.json.tenant-v1.bak").read_text(encoding="utf-8") == json.dumps(
+        [{"id": 1, "content": "concurrent"}]
+    )
 
 
 def test_schema_creation_failure_rolls_back(tmp_path, monkeypatch):

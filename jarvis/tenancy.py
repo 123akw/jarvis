@@ -263,8 +263,25 @@ class TenantStore:
             if backup.read_bytes() != content: raise TenantMigrationError("legacy backup differs")
             if backup.stat().st_mode & 0o777 != 0o600: backup.chmod(0o600)
             return
-        temporary = backup.with_name(backup.name + ".tmp")
-        temporary.write_bytes(content); temporary.chmod(0o600); os.replace(temporary, backup); backup.chmod(0o600)
+        temporary = backup.with_name(
+            f"{backup.name}.{os.getpid()}.{threading.get_ident()}.{uuid.uuid4().hex}.tmp"
+        )
+        try:
+            with temporary.open("xb") as handle:
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            temporary.chmod(0o600)
+            try:
+                # A hard link publishes a complete file without overwriting a winner
+                # from another thread or process.
+                os.link(temporary, backup)
+            except FileExistsError:
+                if backup.read_bytes() != content:
+                    raise TenantMigrationError("legacy backup differs")
+            backup.chmod(0o600)
+        finally:
+            temporary.unlink(missing_ok=True)
 
     def migrate_legacy(self) -> bool:
         """Backup then atomically import old JSON only when exactly one Owner exists."""

@@ -43,3 +43,10 @@ Status: complete for the Task 3 scope.
 - Server repair: applying a validated HTTPS endpoint no longer constructs the invalid legacy endpoint. It clears any live/stale credential, builds a fresh gateway for the validated origin, then persists and publishes it; persistence failure leaves gateway authority unpublished and the repair retryable.
 - Streaming: stream 401 now has one responsibility point, which prompts once and rejects with the same typed authentication error; the renderer no longer prompts a second time.
 - Focused final verification: `node --test desktop/*.test.js` → **33 passed**; `node --check desktop/main.js`, `node --check desktop/renderer.js`, and `git diff --check` succeeded. Web and Python were not rerun because this round changed only Desktop code and this report.
+
+## Final whole-branch fix wave
+
+- RED contracts covered unsafe copied bootstrap placeholders, cross-account/source login throttling, raw Electron event exposure, and concurrent legacy backup publication.
+- GREEN: `.env.example` now leaves secrets empty and bootstrap rejects documented placeholders; login throttling uses bounded normalized identity buckets plus a shared source spray budget; preload event subscriptions expose only approved primitive values; legacy backups publish complete `0600` files atomically through unique temporary files.
+- README now identifies both SQLite databases, legacy JSON snapshots and the independent WeChat token, with stopped-service/SQLite-safe backup and explicit rollback mapping.
+- Focused verification: `.venv/bin/python -m pytest tests/test_accounts.py tests/test_tenant_isolation.py -q` → **44 passed**, one existing TestClient deprecation warning; `node --test desktop/preload-api.test.js desktop/auth.test.js` → **3 passed**; `git diff --check` succeeded.

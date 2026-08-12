@@ -2,7 +2,32 @@ const assert = require('node:assert/strict')
 const { EventEmitter } = require('node:events')
 const { test } = require('node:test')
 
-const { createPreloadApi } = require('./preload-api.js')
+const { createEventApi, createPreloadApi } = require('./preload-api.js')
+
+test('preload event subscriptions expose only approved primitives and can unsubscribe', () => {
+  assert.equal(typeof createEventApi, 'function')
+  const ipc = new EventEmitter()
+  const api = createEventApi(ipc)
+  const forceArgs = []
+  const expandedArgs = []
+  const stopForce = api.onForceExpand((...args) => forceArgs.push(args))
+  const stopExpanded = api.onSetExpanded((...args) => expandedArgs.push(args))
+
+  ipc.emit('force-expand', { sender: { secret: 'raw-electron-event' } })
+  ipc.emit('set-expanded', { sender: { secret: 'raw-electron-event' } }, true)
+  ipc.emit('set-expanded', { sender: { secret: 'raw-electron-event' } }, { sender: 'unapproved' })
+
+  assert.deepEqual(forceArgs, [[]])
+  assert.deepEqual(expandedArgs, [[true]])
+  assert.equal(typeof stopForce, 'function')
+  assert.equal(typeof stopExpanded, 'function')
+  stopForce()
+  stopExpanded()
+  ipc.emit('force-expand', { sender: {} })
+  ipc.emit('set-expanded', { sender: {} }, false)
+  assert.deepEqual(forceArgs, [[]])
+  assert.deepEqual(expandedArgs, [[true]])
+})
 
 test('preload stream uses fixed IPC channels, forwards incrementally, and cancels', async () => {
   const ipc = new EventEmitter()

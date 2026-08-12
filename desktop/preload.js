@@ -1,9 +1,11 @@
 const { contextBridge, ipcRenderer } = require('electron')
 const { randomUUID } = require('crypto')
-const { createPreloadApi } = require('./preload-api.js')
+const { createEventApi, createPreloadApi } = require('./preload-api.js')
 
 // Remove the former renderer token before any renderer script can read it.
 try { window.localStorage.removeItem('jws_token') } catch {}
+
+const eventApi = createEventApi(ipcRenderer)
 
 contextBridge.exposeInMainWorld('jws', {
   toggle: () => ipcRenderer.invoke('toggle'),
@@ -16,7 +18,7 @@ contextBridge.exposeInMainWorld('jws', {
   getSettings: () => ipcRenderer.invoke('get-settings'),
   setSettings: patch => ipcRenderer.invoke('set-settings', patch),
   showLogin: () => ipcRenderer.invoke('show-login'),
-  onForceExpand: cb => ipcRenderer.on('force-expand', cb),
-  onSetExpanded: cb => ipcRenderer.on('set-expanded', (_e, v) => cb(v)),
+  onForceExpand: eventApi.onForceExpand,
+  onSetExpanded: eventApi.onSetExpanded,
   api: createPreloadApi(ipcRenderer, randomUUID),
 })

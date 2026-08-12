@@ -24,6 +24,14 @@ _DUMMY_HASH = _PASSWORDS.hash("not-a-real-password")
 _ROLES = frozenset(("Owner", "Member"))
 _AUDIT_LIMIT = 10_000
 _MIGRATION_LOCK = threading.Lock()
+_KNOWN_PLACEHOLDERS = frozenset({
+    "<initial-owner-username>",
+    "<initial-owner-password>",
+    "<at-least-32-byte-random-secret>",
+    "changeme",
+    "change-me",
+    "replace-me",
+})
 
 
 @dataclass(frozen=True)
@@ -49,11 +57,25 @@ def _digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def _is_placeholder(value: str) -> bool:
+    normalized = value.strip().casefold()
+    return normalized in _KNOWN_PLACEHOLDERS or (
+        normalized.startswith("<") and normalized.endswith(">")
+    )
+
+
 def _session_secret() -> bytes | None:
     """Read the explicitly configured CSRF secret; never create a fallback secret."""
-    value = os.getenv("JARVIS_SESSION_SECRET", "")
+    value = os.getenv("JARVIS_SESSION_SECRET", "").strip()
+    if _is_placeholder(value):
+        return None
     encoded = value.encode("utf-8")
     return encoded if len(encoded) >= 32 else None
+
+
+def session_secret_configured() -> bool:
+    """Report configuration readiness without exposing the session secret."""
+    return _session_secret() is not None
 
 
 def csrf_token(token: str, session_id: str) -> str | None:
@@ -209,7 +231,8 @@ class AccountStore:
                 return
         username = _clean_username(os.getenv("JARVIS_ADMIN_USERNAME", ""))
         password = os.getenv("JARVIS_ADMIN_PASSWORD", "")
-        if not username or not password:
+        if (not username or not password or _is_placeholder(username)
+                or _is_placeholder(password) or not session_secret_configured()):
             return
         now = _utcnow()
         user_id = str(uuid.uuid4())

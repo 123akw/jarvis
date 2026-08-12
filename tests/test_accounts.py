@@ -3,6 +3,7 @@ import hashlib
 import base64
 from concurrent.futures import ThreadPoolExecutor
 import hmac
+from pathlib import Path
 import sqlite3
 
 import pytest
@@ -49,6 +50,44 @@ def test_unconfigured_first_start_fails_closed_and_login_errors_do_not_enumerate
 
     assert (missing.status_code, missing.json()) == (401, {"error": "账号或口令不对"})
     assert (guessed.status_code, guessed.json()) == (401, {"error": "账号或口令不对"})
+
+
+def test_copying_env_example_verbatim_creates_no_owner_and_both_logins_fail_closed(monkeypatch):
+    """A copied repository example must not itself contain usable bootstrap credentials."""
+    for line in (Path(__file__).parents[1] / ".env.example").read_text(encoding="utf-8").splitlines():
+        if line and not line.lstrip().startswith("#") and "=" in line:
+            name, value = line.split("=", 1)
+            monkeypatch.setenv(name, value)
+
+    store = AccountStore()
+    store._ensure_bootstrap()
+    assert store.list_users() == []
+
+    client = _client()
+    web = client.post("/api/login", json={"username": "owner", "password": "password"})
+    desktop = client.post("/api/desktop/login", json={"username": "owner", "password": "password"})
+    assert web.status_code != 200
+    assert desktop.status_code != 200
+
+
+@pytest.mark.parametrize(
+    ("username", "password", "secret"),
+    [
+        ("<initial-owner-username>", "real-password", "strong-random-session-secret-for-test-only"),
+        ("owner", "<initial-owner-password>", "strong-random-session-secret-for-test-only"),
+        ("owner", "real-password", "<at-least-32-byte-random-secret>"),
+    ],
+)
+def test_known_bootstrap_placeholders_never_create_an_owner(monkeypatch, username, password, secret):
+    """Accepting a documented sentinel would turn a copied example into a live credential."""
+    monkeypatch.setenv("JARVIS_ADMIN_USERNAME", username)
+    monkeypatch.setenv("JARVIS_ADMIN_PASSWORD", password)
+    monkeypatch.setenv("JARVIS_SESSION_SECRET", secret)
+
+    store = AccountStore()
+    store._ensure_bootstrap()
+
+    assert store.list_users() == []
 
 
 def test_invalid_login_payload_does_not_echo_password(monkeypatch):
@@ -341,6 +380,63 @@ def test_login_attempts_are_rate_limited_by_direct_client_address(monkeypatch):
 
     assert [first.status_code, second.status_code, limited.status_code] == [401, 401, 429]
     assert limited.headers["retry-after"] == "30"
+
+
+def test_login_limiter_normalizes_identity_and_preserves_other_user_and_spray_buckets():
+    """A successful Member login must not forgive Owner failures or source-wide spraying."""
+    clock = [0.0]
+    limiter = server_mod.LoginAttemptLimiter(
+        attempts=2, spray_attempts=4, window_seconds=30, clock=lambda: clock[0]
+    )
+
+    assert limiter.check("local", " Owner ") is None
+    assert limiter.check("local", "owner") is None
+    assert limiter.check("local", "OWNER") == 30
+
+    assert limiter.check("local", "member") is None
+    limiter.success("local", "member")
+    assert limiter.check("local", "owner") == 30
+    assert limiter.check("local", "another") is None
+    assert limiter.check("local", "sprayed") is None
+    assert limiter.check("local", "blocked") == 30
+
+
+def test_web_and_desktop_share_source_wide_spray_budget(monkeypatch):
+    """Alternating transports and usernames must not bypass one source's spray ceiling."""
+    _bootstrap(monkeypatch)
+    monkeypatch.setattr(
+        server_mod,
+        "_login_limiter",
+        server_mod.LoginAttemptLimiter(attempts=5, spray_attempts=2, window_seconds=60),
+    )
+    client = _client()
+
+    web = client.post("/api/login", json={"username": "first", "password": "wrong"})
+    desktop = client.post("/api/desktop/login", json={"username": "second", "password": "wrong"})
+    limited = client.post("/api/login", json={"username": "third", "password": "wrong"})
+
+    assert [web.status_code, desktop.status_code, limited.status_code] == [401, 401, 429]
+
+
+def test_member_success_does_not_clear_owner_login_bucket(monkeypatch):
+    """Clearing a successful tuple must leave a different normalized username throttled."""
+    _bootstrap(monkeypatch)
+    accounts = AccountStore()
+    accounts._ensure_bootstrap()
+    assert accounts.create_user("member", "member-password", "Member")
+    monkeypatch.setattr(
+        server_mod,
+        "_login_limiter",
+        server_mod.LoginAttemptLimiter(attempts=2, spray_attempts=10, window_seconds=60),
+    )
+    client = _client()
+
+    assert client.post("/api/login", json={"username": "owner", "password": "wrong"}).status_code == 401
+    assert client.post("/api/desktop/login", json={"username": " OWNER ", "password": "wrong"}).status_code == 401
+    assert client.post(
+        "/api/desktop/login", json={"username": "member", "password": "member-password"}
+    ).status_code == 200
+    assert client.post("/api/login", json={"username": "owner", "password": "wrong"}).status_code == 429
 
 
 def test_eighty_local_failed_logins_are_limited_without_sqlite_errors(monkeypatch):

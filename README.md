@@ -150,7 +150,7 @@ flowchart LR
 
 - 网页和桌面端调用 FastAPI `/api/chat`，服务端以 `text/event-stream` 返回 `token`、`tool_start`、`tool_result`、`done` 或 `error` 事件。
 - 每次 Agent 调用都带 `thread_id`。网页会话、桌面固定线程、CLI 自定义线程和微信联系人线程相互隔离，避免不同入口的上下文串线。
-- `SqliteSaver` 将 LangGraph 检查点写入 `JARVIS_DATA_DIR/jarvis.db`。网页会话列表另存为 `threads.json`，备忘、日程和待办使用各自的本地数据文件。
+- `JARVIS_DATA_DIR/jarvis.db` 保存 LangGraph 检查点；`accounts.sqlite3` 保存账号、会话、审计以及按 Owner 隔离的线程/备忘/待办/日程/位置元数据。两个 SQLite 文件都是完整备份的一部分。
 - 服务还提供带 Bearer 鉴权的 `/v1/chat/completions` OpenAI 兼容接口，供微信备用网关等客户端接入；它不是完整的 OpenAI API 实现。
 
 ### 实时搜索与正文提取的来源边界
@@ -229,6 +229,8 @@ npm start
 
 ## 环境变量
 
+把 `.env.example` 复制为 `.env` 后不要直接启动。首先填入真实的 `DEEPSEEK_API_KEY`、唯一 Owner 的 `JARVIS_ADMIN_USERNAME`、强且唯一的 `JARVIS_ADMIN_PASSWORD`，并用密码学安全随机源生成至少 32 字节的 `JARVIS_SESSION_SECRET`（例如 `openssl rand -hex 32`）。留空、示例占位符或过短 secret 都会 fail closed，不会创建 Owner。
+
 | 变量 | 必需 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `DEEPSEEK_API_KEY` | 是 | 无 | OpenAI 兼容模型 API key；未配置时无法构建 Agent |
@@ -248,8 +250,10 @@ npm start
 ## 多用户、备份与回滚
 
 - Owner 可在网页账户设置中修改自己的口令，并创建、停用、改角色或重置 Member/Owner 口令；没有公开注册入口。Member 不会看到用户管理入口，服务端仍会强制 Owner 权限。
-- 所有新建的对话、备忘、待办、日程和位置数据按账户隔离。升级时旧数据会在原目录生成权限为 `0600` 的 `.tenant-v1.bak` 备份，再归入首次初始化的 Owner；不会移动或改写既有微信凭据。
-- 若升级验证失败，停止服务，保留数据库与 `.tenant-v1.bak` 文件，恢复升级前的程序版本后再按备份恢复数据目录。不要删除备份或微信 Token；完成验证后再由部署者决定归档策略。
+- 升级前必须先停止所有 Web、Desktop、CLI 和微信桥进程，再完整复制 `JARVIS_DATA_DIR`。若不能停服，必须对 `jarvis.db` 和 `accounts.sqlite3` 分别使用 SQLite backup API/等价的一致性快照，不得在运行中直接 `cp` SQLite 文件。
+- `jarvis.db` 是 Agent 检查点；`accounts.sqlite3` 是账号/会话/租户元数据。升级前的 `threads.json`、`memos.json`、`todos.json`、`schedule.json`、`location.json`、`local_status.json` 是仅归属 Owner 的 legacy 输入：迁移不改写原文件，并为每个实际存在的文件创建同目录 `0600` 快照 `<原文件名>.tenant-v1.bak`。
+- `wechat_token` 只是唯一 active Owner 的微信桥登录态；它不在 SQLite 中，不参与 legacy 导入，升级/回滚时都不得删除、改名或覆盖。
+- 若升级失败：先停服并保留失败现场，恢复旧程序；用升级前快照恢复 `jarvis.db`；将每个 `<name>.tenant-v1.bak` 复制回对应 `<name>`（如 `memos.json.tenant-v1.bak` → `memos.json`）；若升级前已有 `accounts.sqlite3` 则恢复其快照，否则把新文件移到隔离目录保留而不要删除；`wechat_token` 原样保留。恢复或重试升级后，预期 Web/Desktop/OpenAI 会话全部重新登录；微信 Token 若未失效可自动恢复，否则再扫码。
 - 个人微信固定属于唯一 active Owner。即使网页端误显示入口，后端也会在没有唯一 Owner 时拒绝连接、状态与写入。
 
 ## 个人微信桥接

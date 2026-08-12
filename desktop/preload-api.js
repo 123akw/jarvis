@@ -1,5 +1,22 @@
 'use strict'
 
+function createEventApi(ipcRenderer) {
+  function subscribe(channel, listener) {
+    ipcRenderer.on(channel, listener)
+    return () => ipcRenderer.removeListener(channel, listener)
+  }
+  return {
+    onForceExpand(callback) {
+      return subscribe('force-expand', () => callback())
+    },
+    onSetExpanded(callback) {
+      return subscribe('set-expanded', (_event, value) => {
+        if (typeof value === 'boolean') callback(value)
+      })
+    },
+  }
+}
+
 function createPreloadApi(ipcRenderer, randomId) {
   const streams = new Map()
   return {
@@ -25,4 +42,4 @@ function createPreloadApi(ipcRenderer, randomId) {
   }
 }
 
-module.exports = { createPreloadApi }
+module.exports = { createEventApi, createPreloadApi }
