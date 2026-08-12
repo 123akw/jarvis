@@ -20,7 +20,7 @@ def _patch_agent(monkeypatch):
 
 def _token():
     c = TestClient(server_mod.app)
-    return c.post("/api/desktop/login", json={"username": "admin", "password": "admin"}).json()["access_token"]
+    return c.post("/api/desktop/login", json={"username": "admin", "password": "admin"}).json()["openai_token"]
 
 
 def test_oai_requires_auth():

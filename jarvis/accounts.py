@@ -1,14 +1,14 @@
 """SQLite-backed account and session primitives for every JARVIS client."""
 from __future__ import annotations
 
-import datetime as dt
 import base64
+import datetime as dt
 import hashlib
 import hmac
 import os
 import secrets
 import sqlite3
-import time
+import threading
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +22,8 @@ _PASSWORDS = PasswordHash.recommended()
 _SESSION_DAYS = 30
 _DUMMY_HASH = _PASSWORDS.hash("not-a-real-password")
 _ROLES = frozenset(("Owner", "Member"))
+_AUDIT_LIMIT = 10_000
+_MIGRATION_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -83,7 +85,8 @@ class AccountStore:
         connection = sqlite3.connect(path, timeout=5, isolation_level=None)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
-        self._migrate(connection)
+        with _MIGRATION_LOCK:
+            self._migrate(connection)
         try:
             path.chmod(0o600)
         except OSError:
@@ -96,10 +99,9 @@ class AccountStore:
             "CREATE TABLE IF NOT EXISTS schema_migrations "
             "(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"
         )
-        if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 1").fetchone():
-            return
-        connection.executescript(
-            """
+        if not connection.execute("SELECT 1 FROM schema_migrations WHERE version = 1").fetchone():
+            connection.executescript(
+                """
             CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY,
                 username TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -113,7 +115,7 @@ class AccountStore:
                 id TEXT PRIMARY KEY,
                 user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                 token_hash TEXT NOT NULL UNIQUE,
-                transport TEXT NOT NULL CHECK (transport IN ('web', 'desktop')),
+                transport TEXT NOT NULL CHECK (transport IN ('web', 'desktop', 'openai')),
                 created_at TEXT NOT NULL,
                 expires_at TEXT NOT NULL,
                 revoked_at TEXT
@@ -127,11 +129,41 @@ class AccountStore:
                 created_at TEXT NOT NULL,
                 detail TEXT NOT NULL DEFAULT ''
             );
-            """
-        )
+                """
+            )
+            connection.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (1, ?)", (_utcnow(),)
+            )
+        if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 2").fetchone():
+            return
+        sql = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sessions'"
+        ).fetchone()[0]
+        if "'openai'" not in sql:
+            connection.execute("DROP INDEX IF EXISTS sessions_active_token")
+            connection.execute("ALTER TABLE sessions RENAME TO sessions_v1")
+            connection.executescript(
+                """
+                CREATE TABLE sessions (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    token_hash TEXT NOT NULL UNIQUE,
+                    transport TEXT NOT NULL CHECK (transport IN ('web', 'desktop', 'openai')),
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    revoked_at TEXT
+                );
+                CREATE INDEX sessions_active_token
+                    ON sessions(token_hash, expires_at) WHERE revoked_at IS NULL;
+                """
+            )
+            connection.execute(
+                "INSERT INTO sessions(id, user_id, token_hash, transport, created_at, expires_at, revoked_at) "
+                "SELECT id, user_id, token_hash, transport, created_at, expires_at, revoked_at FROM sessions_v1"
+            )
+            connection.execute("DROP TABLE sessions_v1")
         connection.execute(
-            "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (1, ?)",
-            (_utcnow(),),
+            "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (2, ?)", (_utcnow(),)
         )
 
     @staticmethod
@@ -140,46 +172,71 @@ class AccountStore:
             "INSERT INTO audit(id, user_id, action, created_at, detail) VALUES (?, ?, ?, ?, ?)",
             (str(uuid.uuid4()), user_id, action, _utcnow(), detail),
         )
+        connection.execute(
+            "DELETE FROM audit WHERE id IN ("
+            "SELECT id FROM audit ORDER BY created_at DESC LIMIT -1 OFFSET ?)", (_AUDIT_LIMIT,)
+        )
 
-    def _bootstrap_if_empty(self, connection: sqlite3.Connection) -> None:
-        if connection.execute("SELECT 1 FROM users LIMIT 1").fetchone():
-            return
+    def _ensure_bootstrap(self) -> None:
+        with self._connect() as connection:
+            if connection.execute("SELECT 1 FROM users LIMIT 1").fetchone():
+                return
         username = _clean_username(os.getenv("JARVIS_ADMIN_USERNAME", ""))
         password = os.getenv("JARVIS_ADMIN_PASSWORD", "")
         if not username or not password:
             return
         now = _utcnow()
         user_id = str(uuid.uuid4())
-        connection.execute(
-            "INSERT INTO users(id, username, role, password_hash, created_at, updated_at) "
-            "VALUES (?, ?, 'Owner', ?, ?, ?)",
-            (user_id, username, _PASSWORDS.hash(password), now, now),
-        )
-        self._audit(connection, "bootstrap_owner", user_id)
+        password_hash = _PASSWORDS.hash(password)
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if not connection.execute("SELECT 1 FROM users LIMIT 1").fetchone():
+                connection.execute(
+                    "INSERT INTO users(id, username, role, password_hash, created_at, updated_at) "
+                    "VALUES (?, ?, 'Owner', ?, ?, ?)",
+                    (user_id, username, password_hash, now, now),
+                )
+                self._audit(connection, "bootstrap_owner", user_id)
+            connection.commit()
 
     def authenticate(self, username: str, password: str, transport: str) -> tuple[Principal, str, str | None] | None:
         """Authenticate and mint one independent session; failed logins are deliberately uniform."""
         username = _clean_username(username)
+        self._ensure_bootstrap()
         with self._connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            self._bootstrap_if_empty(connection)
             row = connection.execute(
                 "SELECT id, username, role, password_hash FROM users WHERE username = ? AND active = 1",
                 (username,),
             ).fetchone()
-            candidate = row["password_hash"] if row else _DUMMY_HASH
-            try:
-                verified = _PASSWORDS.verify(password, candidate)
-            except Exception:
-                verified = False
-            if not row or not verified:
+        candidate = row["password_hash"] if row else _DUMMY_HASH
+        try:
+            verified = _PASSWORDS.verify(password, candidate)
+        except Exception:
+            verified = False
+        if not row or not verified:
+            with self._connect() as connection:
                 self._audit(connection, "login_failed")
-                connection.commit()
-                time.sleep(0.15)
+            return None
+        issued = self.issue_session(row["id"], transport)
+        if issued is None:
+            return None
+        principal, token = issued
+        return principal, token, csrf_token(token, principal.session_id) if transport == "web" else None
+
+    def issue_session(self, user_id: str, transport: str) -> tuple[Principal, str] | None:
+        if transport not in {"web", "desktop", "openai"}:
+            return None
+        token = secrets.token_urlsafe(32)
+        session_id = str(uuid.uuid4())
+        expires_at = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=_SESSION_DAYS)).isoformat()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT id, username, role FROM users WHERE id = ? AND active = 1", (user_id,)
+            ).fetchone()
+            if not row:
+                connection.rollback()
                 return None
-            token = secrets.token_urlsafe(32)
-            session_id = str(uuid.uuid4())
-            expires_at = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=_SESSION_DAYS)).isoformat()
             connection.execute(
                 "INSERT INTO sessions(id, user_id, token_hash, transport, created_at, expires_at) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
@@ -187,9 +244,7 @@ class AccountStore:
             )
             self._audit(connection, "login", row["id"], transport)
             connection.commit()
-        return Principal(row["id"], row["username"], row["role"], session_id, transport), token, (
-            csrf_token(token, session_id) if transport == "web" else None
-        )
+        return Principal(row["id"], row["username"], row["role"], session_id, transport), token
 
     def principal_for_token(self, token: str, transport: str) -> Principal | None:
         if not token:
@@ -277,8 +332,24 @@ class AccountStore:
         values.append(user_id)
         try:
             with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                existing = connection.execute("SELECT role, active FROM users WHERE id = ?", (user_id,)).fetchone()
+                if not existing:
+                    connection.rollback()
+                    return None
+                removes_last_owner = (
+                    existing["role"] == "Owner" and existing["active"]
+                    and (role == "Member" or active is False)
+                    and connection.execute(
+                        "SELECT COUNT(*) FROM users WHERE role = 'Owner' AND active = 1"
+                    ).fetchone()[0] == 1
+                )
+                if removes_last_owner:
+                    connection.rollback()
+                    return None
                 changed = connection.execute("UPDATE users SET " + ", ".join(updates) + " WHERE id = ?", values)
                 if not changed.rowcount:
+                    connection.rollback()
                     return None
                 if password is not None or active is False:
                     connection.execute("UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL", (_utcnow(), user_id))

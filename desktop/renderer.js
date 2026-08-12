@@ -41,31 +41,20 @@ function sys(text) {
   log.append(el); log.scrollTop = log.scrollHeight
 }
 
-/* file:// 页面对服务器属于跨站，SameSite cookie 带不上——改用请求头令牌认证 */
-let TOKEN = localStorage.getItem('jws_token') || ''
+/* file:// 页面对服务器属于跨站，SameSite cookie 带不上——改用 desktop session header。 */
+const desktopAuth = window.JWSDesktopAuth.createDesktopAuthenticator({
+  username: USER,
+  password: PASS,
+  request: (path, options) => fetch(SERVER + path, options),
+})
 
 async function api(path, opts = {}) {
-  const headers = { ...(opts.headers || {}) }
-  if (TOKEN) headers['X-JWS-Token'] = TOKEN
+  const headers = { ...desktopAuth.headers(), ...(opts.headers || {}) }
   return fetch(SERVER + path, { ...opts, headers })
 }
 
 async function ensureLogin() {
-  try {
-    const s = await (await api('/api/session')).json()
-    if (s.authed) return true
-  } catch { /* 继续走登录 */ }
-  const r = await api('/api/login', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: USER, password: PASS }),
-  })
-  if (!r.ok) return false
-  const d = await r.json()
-  if (d.token) {
-    TOKEN = d.token
-    localStorage.setItem('jws_token', TOKEN)
-  }
-  return true
+  return desktopAuth.ensureLogin()
 }
 
 const EMPTY_HTML = `<div class="empty">这里是桌面快捷通道。有什么吩咐？</div>

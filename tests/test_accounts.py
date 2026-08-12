@@ -1,6 +1,7 @@
 """账户与会话的安全边界测试。"""
 import hashlib
 import base64
+from concurrent.futures import ThreadPoolExecutor
 import hmac
 import sqlite3
 
@@ -182,6 +183,90 @@ def test_desktop_bearer_is_separate_session_and_does_not_need_csrf(monkeypatch):
     assert client.get("/api/dashboard", headers={"X-JWS-Token": token}).status_code == 401
 
 
+def test_last_active_owner_cannot_be_demoted_or_disabled(monkeypatch):
+    """No owner update may leave the system without an active Owner."""
+    _bootstrap(monkeypatch)
+    client = _client()
+    csrf = _login(client)
+    headers = {"X-JWS-CSRF": csrf}
+    owner_id = client.get("/api/admin/users").json()[0]["id"]
+
+    demoted = client.patch(f"/api/admin/users/{owner_id}", json={"role": "Member"}, headers=headers)
+    disabled = client.patch(f"/api/admin/users/{owner_id}", json={"active": False}, headers=headers)
+
+    assert demoted.status_code == 409
+    assert disabled.status_code == 409
+    assert client.get("/api/admin/users").json()[0]["role"] == "Owner"
+
+
+def test_desktop_and_openai_tokens_are_header_and_transport_bound(monkeypatch):
+    """Desktop tokens work only via X-JWS-Token; a distinct OpenAI token works only as Bearer."""
+    _bootstrap(monkeypatch)
+    client = _client()
+    issued = client.post("/api/desktop/login", json={"username": "owner", "password": "owner-password"}).json()
+
+    assert issued["token_type"] == "x-jws-token"
+    assert issued["openai_token_type"] == "bearer"
+    assert client.get("/api/dashboard", headers={"Authorization": f"Bearer {issued['access_token']}"}).status_code == 401
+    assert client.post(
+        "/v1/chat/completions", headers={"Authorization": f"Bearer {issued['access_token']}"},
+        json={"messages": [{"role": "assistant", "content": "not a user message"}]},
+    ).status_code == 401
+    assert client.get("/api/dashboard", headers={"X-JWS-Token": issued["openai_token"]}).status_code == 401
+    assert client.post(
+        "/v1/chat/completions", headers={"Authorization": f"Bearer {issued['openai_token']}"},
+        json={"messages": [{"role": "assistant", "content": "not a user message"}]},
+    ).status_code == 400
+
+
+def test_login_attempts_are_rate_limited_by_direct_client_address(monkeypatch):
+    """The limiter rejects excess attempts before password work and returns a stable retry hint."""
+    _bootstrap(monkeypatch)
+    clock = [0.0]
+    monkeypatch.setattr(server_mod, "_login_limiter", server_mod.LoginAttemptLimiter(
+        attempts=2, window_seconds=30, clock=lambda: clock[0]
+    ))
+    client = _client()
+
+    first = client.post("/api/login", json={"username": "owner", "password": "wrong"})
+    second = client.post("/api/login", json={"username": "owner", "password": "wrong"})
+    limited = client.post("/api/login", json={"username": "owner", "password": "wrong"},
+                          headers={"X-Forwarded-For": "different-client"})
+
+    assert [first.status_code, second.status_code, limited.status_code] == [401, 401, 429]
+    assert limited.headers["retry-after"] == "30"
+
+
+def test_eighty_local_failed_logins_are_limited_without_sqlite_errors(monkeypatch):
+    """A local burst is bounded before it can turn login auditing into SQLite 500s."""
+    _bootstrap(monkeypatch)
+    monkeypatch.setattr(server_mod, "_login_limiter", server_mod.LoginAttemptLimiter(attempts=3, window_seconds=60))
+
+    def attempt() -> int:
+        return _client().post("/api/login", json={"username": "owner", "password": "wrong"}).status_code
+
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        statuses = list(pool.map(lambda _: attempt(), range(80)))
+
+    assert set(statuses) <= {401, 429}
+    assert statuses.count(429) >= 77
+
+
+def test_sensitive_account_responses_are_not_cacheable(monkeypatch):
+    """User records and account mutations must not be stored by clients or intermediaries."""
+    _bootstrap(monkeypatch)
+    client = _client()
+    csrf = _login(client)
+    headers = {"X-JWS-CSRF": csrf}
+
+    listed = client.get("/api/admin/users")
+    created = client.post("/api/admin/users", json={"username": "member", "password": "member-pass", "role": "Member"}, headers=headers)
+    patched = client.patch(f"/api/admin/users/{created.json()['id']}", json={"username": "member2"}, headers=headers)
+    password = client.post("/api/account/password", json={"current_password": "owner-password", "new_password": "new-owner-password"}, headers=headers)
+
+    assert all(response.headers["cache-control"] == "no-store" for response in (listed, created, patched, password))
+
+
 def test_owner_manages_members_and_password_change_revokes_every_session(monkeypatch):
     """A member cannot administer accounts; changing a password invalidates all old sessions."""
     _bootstrap(monkeypatch)
@@ -196,7 +281,7 @@ def test_owner_manages_members_and_password_change_revokes_every_session(monkeyp
     assert created.status_code == 201
     member = _client()
     member_token = _desktop_token(member, "member", "member-password")
-    assert member.get("/api/admin/users", headers={"Authorization": f"Bearer {member_token}"}).status_code == 403
+    assert member.get("/api/admin/users", headers={"X-JWS-Token": member_token}).status_code == 403
 
     second = _client()
     old_token = _desktop_token(second)
@@ -206,7 +291,7 @@ def test_owner_manages_members_and_password_change_revokes_every_session(monkeyp
         headers=headers,
     )
     assert changed.status_code == 200
-    assert second.get("/api/dashboard", headers={"Authorization": f"Bearer {old_token}"}).status_code == 401
+    assert second.get("/api/dashboard", headers={"X-JWS-Token": old_token}).status_code == 401
     assert _desktop_token(_client(), "owner", "new-owner-password")
 
 

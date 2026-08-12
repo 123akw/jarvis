@@ -1,9 +1,11 @@
 """网页端后端：FastAPI。账户、服务端会话 + SSE 流式聊天 + 仪表盘接口。"""
 from contextlib import asynccontextmanager
+from collections import OrderedDict, deque
 import datetime
 import json
 import os
 import time
+import threading
 import uuid
 from pathlib import Path
 
@@ -44,6 +46,38 @@ _COOKIE = "jws_session"
 _accounts = AccountStore()
 
 
+class LoginAttemptLimiter:
+    """Bounded in-memory rate limiter keyed by the direct ASGI client address."""
+
+    def __init__(self, *, attempts: int = 5, window_seconds: int = 60, clock=time.monotonic) -> None:
+        self.attempts = attempts
+        self.window_seconds = window_seconds
+        self.clock = clock
+        self._entries: OrderedDict[str, deque[float]] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def check(self, source: str) -> int | None:
+        now = self.clock()
+        with self._lock:
+            values = self._entries.setdefault(source, deque())
+            self._entries.move_to_end(source)
+            while values and now - values[0] >= self.window_seconds:
+                values.popleft()
+            if len(values) >= self.attempts:
+                return max(1, int(self.window_seconds - (now - values[0])))
+            values.append(now)
+            while len(self._entries) > 1024:
+                self._entries.popitem(last=False)
+        return None
+
+    def success(self, source: str) -> None:
+        with self._lock:
+            self._entries.pop(source, None)
+
+
+_login_limiter = LoginAttemptLimiter()
+
+
 @app.exception_handler(RequestValidationError)
 async def invalid_request(_request: Request, _error: RequestValidationError):
     """Avoid FastAPI's default echo of invalid request fields, including passwords."""
@@ -51,18 +85,28 @@ async def invalid_request(_request: Request, _error: RequestValidationError):
 
 
 def _request_principal(request: Request) -> tuple[Principal | None, str]:
-    """Resolve a cookie or bearer to its server-side Principal."""
+    """Resolve only normal API transports: web cookie or desktop header."""
     cookie = request.cookies.get(_COOKIE, "")
     if cookie:
         return _accounts.principal_for_token(cookie, "web"), cookie
     desktop_token = request.headers.get("x-jws-token", "")
     if desktop_token:
         return _accounts.principal_for_token(desktop_token, "desktop"), desktop_token
-    auth = request.headers.get("authorization", "")
-    if auth.startswith("Bearer "):
-        token = auth[7:]
-        return _accounts.principal_for_token(token, "desktop"), token
     return None, ""
+
+
+def _client_address(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _rate_limited(request: Request) -> JSONResponse | None:
+    retry_after = _login_limiter.check(_client_address(request))
+    if retry_after is None:
+        return None
+    return JSONResponse(
+        {"error": "尝试过多，请稍后再试"}, status_code=429,
+        headers={"Retry-After": str(retry_after), "Cache-Control": "no-store"},
+    )
 
 
 def _authed(request: Request) -> bool:
@@ -81,11 +125,15 @@ def _write_authorized(request: Request) -> Principal | None:
 
 
 def _deny() -> JSONResponse:
-    return JSONResponse({"error": "未登录"}, status_code=401)
+    return JSONResponse({"error": "未登录"}, status_code=401, headers={"Cache-Control": "no-store"})
 
 
 def _csrf_deny() -> JSONResponse:
-    return JSONResponse({"error": "CSRF 校验失败"}, status_code=403)
+    return JSONResponse({"error": "CSRF 校验失败"}, status_code=403, headers={"Cache-Control": "no-store"})
+
+
+def _sensitive_json(content: object, status_code: int = 200) -> JSONResponse:
+    return JSONResponse(content, status_code=status_code, headers={"Cache-Control": "no-store"})
 
 
 def _get_agent():
@@ -107,12 +155,15 @@ class LoginIn(BaseModel):
 
 
 @app.post("/api/login")
-def login(body: LoginIn):
+def login(request: Request, body: LoginIn):
     if not os.getenv("JARVIS_SESSION_SECRET") or len(os.getenv("JARVIS_SESSION_SECRET", "").encode("utf-8")) < 32:
         return JSONResponse({"error": "服务未配置"}, status_code=503, headers={"Cache-Control": "no-store"})
+    if limited := _rate_limited(request):
+        return limited
     authenticated = _accounts.authenticate(body.username, body.password, "web")
     if not authenticated:
         return JSONResponse({"error": "账号或口令不对"}, status_code=401, headers={"Cache-Control": "no-store"})
+    _login_limiter.success(_client_address(request))
     _principal, token, _csrf = authenticated
     resp = JSONResponse({"ok": True}, headers={"Cache-Control": "no-store"})
     resp.set_cookie(
@@ -124,12 +175,27 @@ def login(body: LoginIn):
 
 
 @app.post("/api/desktop/login")
-def desktop_login(body: LoginIn):
+def desktop_login(request: Request, body: LoginIn):
+    if limited := _rate_limited(request):
+        return limited
     authenticated = _accounts.authenticate(body.username, body.password, "desktop")
     if not authenticated:
         return JSONResponse({"error": "账号或口令不对"}, status_code=401, headers={"Cache-Control": "no-store"})
-    _principal, token, _csrf = authenticated
-    return JSONResponse({"access_token": token, "token_type": "bearer"}, headers={"Cache-Control": "no-store"})
+    principal, token, _csrf = authenticated
+    issued_openai = _accounts.issue_session(principal.user_id, "openai")
+    if not issued_openai:
+        return JSONResponse({"error": "服务不可用"}, status_code=503, headers={"Cache-Control": "no-store"})
+    _login_limiter.success(_client_address(request))
+    _openai_principal, openai_token = issued_openai
+    return JSONResponse(
+        {
+            "access_token": token,
+            "token_type": "x-jws-token",
+            "openai_token": openai_token,
+            "openai_token_type": "bearer",
+        },
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.post("/api/logout")
@@ -140,7 +206,7 @@ def logout(request: Request):
     if principal.transport == "web" and not _write_authorized(request):
         return _csrf_deny()
     _accounts.revoke_session(principal.session_id)
-    resp = JSONResponse({"ok": True})
+    resp = _sensitive_json({"ok": True})
     resp.delete_cookie(_COOKIE, path="/")
     return resp
 
@@ -182,11 +248,11 @@ class PasswordChangeIn(BaseModel):
 def _owner_for_write(request: Request) -> Principal | JSONResponse:
     principal, _token = _request_principal(request)
     if not principal:
-        return _deny()
+        return _sensitive_json({"error": "未登录"}, 401)
     if not _write_authorized(request):
-        return _csrf_deny()
+        return _sensitive_json({"error": "CSRF 校验失败"}, 403)
     if not principal.is_owner:
-        return JSONResponse({"error": "权限不足"}, status_code=403)
+        return _sensitive_json({"error": "权限不足"}, 403)
     return principal
 
 
@@ -194,21 +260,21 @@ def _owner_for_write(request: Request) -> Principal | JSONResponse:
 def users(request: Request):
     principal, _token = _request_principal(request)
     if not principal:
-        return _deny()
+        return _sensitive_json({"error": "未登录"}, 401)
     if not principal.is_owner:
-        return JSONResponse({"error": "权限不足"}, status_code=403)
-    return _accounts.list_users()
+        return _sensitive_json({"error": "权限不足"}, 403)
+    return _sensitive_json(_accounts.list_users())
 
 
-@app.post("/api/admin/users", status_code=201)
+@app.post("/api/admin/users")
 def create_user(request: Request, body: UserCreateIn):
     allowed = _owner_for_write(request)
     if isinstance(allowed, JSONResponse):
         return allowed
     created = _accounts.create_user(body.username, body.password, body.role)
     if not created:
-        return JSONResponse({"error": "无法创建用户"}, status_code=400)
-    return created
+        return _sensitive_json({"error": "无法创建用户"}, 400)
+    return _sensitive_json(created, 201)
 
 
 @app.patch("/api/admin/users/{user_id}")
@@ -218,8 +284,8 @@ def update_user(user_id: str, request: Request, body: UserPatchIn):
         return allowed
     updated = _accounts.update_user(user_id, **body.model_dump(exclude_unset=True))
     if not updated:
-        return JSONResponse({"error": "无法更新用户"}, status_code=400)
-    return updated
+        return _sensitive_json({"error": "无法更新用户"}, 409)
+    return _sensitive_json(updated)
 
 
 @app.post("/api/account/password")
@@ -228,8 +294,8 @@ def change_password(request: Request, body: PasswordChangeIn):
     if not principal:
         return _csrf_deny() if _authed(request) else _deny()
     if not _accounts.change_password(principal, body.current_password, body.new_password):
-        return JSONResponse({"error": "当前口令不对或新口令无效"}, status_code=400)
-    resp = JSONResponse({"ok": True})
+        return _sensitive_json({"error": "当前口令不对或新口令无效"}, 400)
+    resp = _sensitive_json({"ok": True})
     resp.delete_cookie(_COOKIE, path="/")
     return resp
 
@@ -447,7 +513,7 @@ class OAIChatIn(BaseModel):
 
 def _bearer_ok(request: Request) -> bool:
     auth = request.headers.get("authorization", "")
-    return auth.startswith("Bearer ") and _accounts.principal_for_token(auth[7:], "desktop") is not None
+    return auth.startswith("Bearer ") and _accounts.principal_for_token(auth[7:], "openai") is not None
 
 
 def _oai_user_text(messages: list[OAIMessage]) -> str:
