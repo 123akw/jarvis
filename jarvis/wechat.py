@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import random
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Callable
 
@@ -15,6 +17,9 @@ import segno
 from jarvis import config
 
 ILINK = "https://ilinkai.weixin.qq.com/ilink/bot"
+ILINK_CHANNEL_VERSION = "2.4.6"
+ILINK_APP_ID = "bot"
+ILINK_APP_CLIENT_VERSION = str((2 << 16) | (4 << 8) | 6)
 QR_EXPIRES_SECONDS = 180
 REPLY_CHUNK_SIZE = 1500
 # 必须低于 iLink 心跳帧间隔（实测约 18 秒）：心跳字节会不断重置 read 超时，
@@ -67,11 +72,49 @@ class WeChatBridge:
         data_dir.mkdir(parents=True, exist_ok=True)
         return data_dir / "wechat_token"
 
+    def _sync_path(self) -> Path:
+        data_dir = self._data_dir_getter()
+        data_dir.mkdir(parents=True, exist_ok=True)
+        return data_dir / "wechat_sync.json"
+
+    def _load_sync_buf(self) -> str:
+        try:
+            payload = json.loads(self._sync_path().read_text(encoding="utf-8"))
+            value = payload.get("get_updates_buf", "")
+            return value if isinstance(value, str) else ""
+        except (OSError, TypeError, ValueError):
+            return ""
+
+    def _save_sync_buf(self, value: str) -> None:
+        if not value:
+            return
+        path = self._sync_path()
+        pending = path.with_suffix(".tmp")
+        pending.write_text(
+            json.dumps({"get_updates_buf": value}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        pending.chmod(0o600)
+        pending.replace(path)
+        path.chmod(0o600)
+
+    def _clear_sync_buf(self) -> None:
+        self._sync_path().unlink(missing_ok=True)
+
+    @staticmethod
+    def _base_info() -> dict:
+        return {
+            "channel_version": ILINK_CHANNEL_VERSION,
+            "bot_agent": "JWS-Agent",
+        }
+
     @staticmethod
     def _headers(token: str) -> dict:
         return {
             "Content-Type": "application/json",
             "AuthorizationType": "ilink_bot_token",
+            "iLink-App-Id": ILINK_APP_ID,
+            "iLink-App-ClientVersion": ILINK_APP_CLIENT_VERSION,
             "X-WECHAT-UIN": base64.b64encode(
                 str(random.randint(1, 2**32 - 1)).encode()
             ).decode(),
@@ -232,6 +275,7 @@ class WeChatBridge:
             if generation != self._generation:
                 return False
             path = self._token_path()
+            self._clear_sync_buf()
             path.write_text(token, encoding="utf-8")
             path.chmod(0o600)
             self._state.update(
@@ -293,6 +337,7 @@ class WeChatBridge:
         next_buf = payload.get("get_updates_buf", "")
         if not isinstance(next_buf, str):
             next_buf = ""
+        self._save_sync_buf(next_buf)
         messages = payload.get("msgs", [])
         if not isinstance(messages, list):
             raise ValueError("invalid messages")
@@ -323,14 +368,17 @@ class WeChatBridge:
                         timeout=20,
                         json={
                             "msg": {
+                                "from_user_id": "",
                                 "to_user_id": from_id,
+                                "client_id": f"jws-agent:{uuid.uuid4().hex}",
                                 "message_type": 2,
                                 "message_state": 2,
                                 "context_token": context_token,
                                 "item_list": [
                                     {"type": 1, "text_item": {"text": chunk}}
                                 ],
-                            }
+                            },
+                            "base_info": self._base_info(),
                         },
                     )
                     response.raise_for_status()
@@ -352,7 +400,7 @@ class WeChatBridge:
         self, generation: int, token: str, stop: threading.Event
     ) -> None:
         client = self._client_factory()
-        buffer = ""
+        buffer = self._load_sync_buf()
         try:
             while not stop.is_set():
                 with self._lock:
@@ -368,15 +416,28 @@ class WeChatBridge:
                         timeout=httpx.Timeout(45, read=UPDATES_READ_TIMEOUT_SECONDS),
                         json={
                             "get_updates_buf": buffer,
-                            "base_info": {"channel_version": "1.0.2"},
+                            "base_info": self._base_info(),
                         },
                     )
                     if response.status_code == 401:
                         self._handle_unauthorized(generation)
                         return
                     response.raise_for_status()
+                    payload = response.json()
+                    ret = payload.get("ret", 0) if isinstance(payload, dict) else 0
+                    errcode = payload.get("errcode", 0) if isinstance(payload, dict) else 0
+                    errmsg = payload.get("errmsg", "") if isinstance(payload, dict) else ""
+                    expired = ret == -14 or errcode == -14 or (
+                        (ret == -2 or errcode == -2)
+                        and str(errmsg).lower() == "unknown error"
+                    )
+                    if expired:
+                        self._handle_unauthorized(generation)
+                        return
+                    if ret not in (None, 0) or errcode not in (None, 0):
+                        raise ValueError("iLink API rejected getupdates")
                     buffer = self._handle_updates_response(
-                        client, token, response.json()
+                        client, token, payload
                     )
                 except httpx.TimeoutException:
                     # 空转长轮询到期是正常节奏：不告警、不退避，立即翻新请求。
@@ -394,6 +455,7 @@ class WeChatBridge:
             self._updates_stop.set()
             self._updates_thread = None
             self._token_path().unlink(missing_ok=True)
+            self._clear_sync_buf()
             self._state.update(
                 state="idle",
                 qr_uri="",
@@ -408,6 +470,7 @@ class WeChatBridge:
             self._updates_stop.set()
             self._updates_thread = None
             self._token_path().unlink(missing_ok=True)
+            self._clear_sync_buf()
             self._state.update(
                 state="idle", qr_uri="", error="", since=""
             )

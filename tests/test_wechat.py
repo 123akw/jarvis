@@ -285,3 +285,86 @@ def test_updates_poll_read_timeout_undercuts_heartbeat_and_recycles_immediately(
     assert timeout.read is not None and timeout.read < 18
     assert stop.waits == []
     assert bridge.status()["state"] == "idle"
+
+
+def test_updates_use_current_ilink_protocol_identity(tmp_path):
+    """旧版 channel/client identity 会被 iLink 接受连接却不可靠派发消息。"""
+    client = FakeClient(post_responses=[FakeResponse(status_code=401)])
+    bridge, _ = make_bridge(tmp_path, client)
+    bridge._generation = 1
+    bridge._set(state="connected")
+    (tmp_path / "wechat_token").write_text("saved", encoding="utf-8")
+
+    bridge._updates_loop(1, "saved", bridge._updates_stop)
+
+    assert len(client.post_calls) == 1
+    _url, request = client.post_calls[0]
+    assert request["headers"]["iLink-App-Id"] == "bot"
+    assert request["headers"]["iLink-App-ClientVersion"] == "132102"
+    assert request["json"]["base_info"] == {
+        "channel_version": "2.4.6",
+        "bot_agent": "JWS-Agent",
+    }
+
+
+def test_api_level_expired_session_stops_polling_and_requires_rescan(tmp_path):
+    """iLink 通过 HTTP 200 + errcode=-14 通知失效，不能继续假在线轮询。"""
+    client = FakeClient(post_responses=[
+        FakeResponse({"ret": 0, "errcode": -14, "msgs": []}),
+        FakeResponse(status_code=401),
+    ])
+    bridge, _ = make_bridge(tmp_path, client)
+    bridge._generation = 1
+    bridge._set(state="connected")
+    (tmp_path / "wechat_token").write_text("saved", encoding="utf-8")
+
+    bridge._updates_loop(1, "saved", bridge._updates_stop)
+
+    assert len(client.post_calls) == 1
+    assert bridge.status()["state"] == "idle"
+    assert "重新扫码" in bridge.status()["error"]
+    assert not (tmp_path / "wechat_token").exists()
+
+
+def test_updates_cursor_survives_bridge_restart(tmp_path):
+    """重启后必须延续 get_updates_buf，否则重启窗口内的微信消息会丢失。"""
+    first, _ = make_bridge(tmp_path, FakeClient())
+    first._handle_updates_response(
+        FakeClient(), "saved", {"ret": 0, "msgs": [], "get_updates_buf": "cursor-1"}
+    )
+
+    client = FakeClient(post_responses=[FakeResponse(status_code=401)])
+    resumed, _ = make_bridge(tmp_path, client)
+    resumed._generation = 1
+    resumed._set(state="connected")
+    (tmp_path / "wechat_token").write_text("saved", encoding="utf-8")
+
+    resumed._updates_loop(1, "saved", resumed._updates_stop)
+
+    assert client.post_calls[0][1]["json"]["get_updates_buf"] == "cursor-1"
+
+
+def test_reply_uses_complete_ilink_send_contract(tmp_path):
+    """缺 client_id/base_info 时 iLink 可能回 HTTP 200 但静默丢弃回复。"""
+    client = FakeClient()
+    bridge, _ = make_bridge(tmp_path, client)
+
+    bridge._handle_updates_response(client, "saved", {
+        "ret": 0,
+        "get_updates_buf": "next",
+        "msgs": [{
+            "message_type": 1,
+            "from_user_id": "contact@example",
+            "context_token": "ctx",
+            "item_list": [{"type": 1, "text_item": {"text": "你好"}}],
+        }],
+    })
+
+    send = next(call for call in client.post_calls if call[0].endswith("/sendmessage"))
+    payload = send[1]["json"]
+    assert payload["base_info"] == {
+        "channel_version": "2.4.6",
+        "bot_agent": "JWS-Agent",
+    }
+    assert payload["msg"]["from_user_id"] == ""
+    assert payload["msg"]["client_id"].startswith("jws-agent:")
