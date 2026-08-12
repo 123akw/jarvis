@@ -234,6 +234,19 @@ def test_resume_on_boot_starts_updates_without_deleting_token(tmp_path):
     assert len(DeferredThread.created) == 1
 
 
+def test_resume_on_boot_fails_closed_without_unique_owner_and_preserves_token(tmp_path):
+    (tmp_path / "wechat_token").write_text("saved", encoding="utf-8")
+    bridge = wechat.WeChatBridge(
+        data_dir_getter=lambda: tmp_path,
+        owner_getter=lambda: None,
+        thread_factory=DeferredThread,
+    )
+    DeferredThread.created.clear()
+    assert bridge.resume_on_boot()["state"] == "idle"
+    assert (tmp_path / "wechat_token").read_text(encoding="utf-8") == "saved"
+    assert DeferredThread.created == []
+
+
 def test_malformed_qr_response_becomes_retryable_error(tmp_path):
     """防回归：协议字段缺失时不得留在 loading 或泄露原始响应。"""
     client = FakeClient(get_responses=[FakeResponse({"ret": 0, "qrcode": "qr-id"})])

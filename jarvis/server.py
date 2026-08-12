@@ -371,24 +371,38 @@ def delete_thread(request: Request, thread_id: str):
 
 # ---------- 个人微信接入 ----------
 
+def _wechat_owner(principal: Principal) -> bool:
+    """WeChat has one fixed account, not merely an Owner role permission."""
+    owner = _accounts.unique_active_owner()
+    return bool(owner and owner.user_id == principal.user_id)
+
 @app.get("/api/wechat/status")
 def wechat_status(request: Request):
-    if not _authed(request):
+    principal, _token = _request_principal(request)
+    if not principal:
         return _deny()
+    if not _wechat_owner(principal):
+        return _sensitive_json({"error": "权限不足"}, 403)
     return wechat.status()
 
 
 @app.post("/api/wechat/connect")
 def wechat_connect(request: Request):
-    if not _write_authorized(request):
+    principal = _write_authorized(request)
+    if not principal:
         return _csrf_deny() if _authed(request) else _deny()
+    if not _wechat_owner(principal):
+        return _sensitive_json({"error": "权限不足"}, 403)
     return wechat.connect()
 
 
 @app.post("/api/wechat/disconnect")
 def wechat_disconnect(request: Request):
-    if not _write_authorized(request):
+    principal = _write_authorized(request)
+    if not principal:
         return _csrf_deny() if _authed(request) else _deny()
+    if not _wechat_owner(principal):
+        return _sensitive_json({"error": "权限不足"}, 403)
     return wechat.disconnect()
 
 

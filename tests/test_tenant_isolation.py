@@ -52,6 +52,21 @@ def test_same_owner_concurrent_ids_are_serialized(tmp_path):
     assert sorted(ids) == list(range(1, 17))
 
 
+def test_same_owner_concurrent_alias_upsert_is_atomic(tmp_path):
+    owner, member = _users(tmp_path)
+    store = TenantStore(tmp_path / "accounts.sqlite3", legacy_dir=tmp_path)
+
+    def upsert(index):
+        with tenant_scope(owner):
+            return store.upsert_thread("same-alias", f"title-{index}").checkpoint_thread_id
+
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        checkpoints = list(pool.map(upsert, range(32)))
+    assert len(set(checkpoints)) == 1
+    with tenant_scope(member):
+        assert store.upsert_thread("same-alias", "member").checkpoint_thread_id != checkpoints[0]
+
+
 def test_same_alias_has_distinct_checkpoint_and_owner_only_delete(tmp_path):
     owner, member = _users(tmp_path)
     store = TenantStore(tmp_path / "accounts.sqlite3", legacy_dir=tmp_path)
@@ -141,9 +156,29 @@ def test_malformed_legacy_never_marks_completion_or_partially_imports(tmp_path):
 
 def test_completed_migration_does_not_block_after_second_owner(tmp_path):
     owner, _member = _users(tmp_path)
+    (tmp_path / "memos.json").write_text(json.dumps([{"id": 1, "content": "old"}]), encoding="utf-8")
     store = TenantStore(tmp_path / "accounts.sqlite3", legacy_dir=tmp_path)
     assert store.migrate_legacy() is True
     assert AccountStore(tmp_path / "accounts.sqlite3").create_user("second-owner", "pw", "Owner")
+    assert store.migrate_legacy() is False
+
+
+def test_empty_legacy_directory_is_not_marked_and_can_migrate_later(tmp_path):
+    owner, _member = _users(tmp_path)
+    store = TenantStore(tmp_path / "accounts.sqlite3", legacy_dir=tmp_path)
+    assert store.migrate_legacy() is False
+    (tmp_path / "memos.json").write_text(json.dumps([{"id": 1, "content": "later"}]), encoding="utf-8")
+    assert store.migrate_legacy() is True
+    with tenant_scope(owner):
+        assert store.list_memos() == [{"id": 1, "content": "later"}]
+
+
+def test_completed_marker_precedes_legacy_file_read(tmp_path):
+    _owner, _member = _users(tmp_path)
+    store = TenantStore(tmp_path / "accounts.sqlite3", legacy_dir=tmp_path)
+    (tmp_path / "memos.json").write_text(json.dumps([{"id": 1, "content": "ok"}]), encoding="utf-8")
+    assert store.migrate_legacy() is True
+    (tmp_path / "memos.json").write_text("{broken", encoding="utf-8")
     assert store.migrate_legacy() is False
 
 

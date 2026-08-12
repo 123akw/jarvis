@@ -43,6 +43,38 @@ def test_authenticated_wechat_endpoints_return_bridge_state(monkeypatch):
     }
 
 
+def test_member_cannot_read_or_operate_owner_wechat_bridge(monkeypatch):
+    server._accounts._ensure_bootstrap()
+    assert server._accounts.create_user("wechat-member", "member", "Member")
+    calls = []
+    monkeypatch.setattr(server.wechat, "status", lambda: calls.append("status") or {"state": "waiting", "qr_uri": "secret"})
+    monkeypatch.setattr(server.wechat, "connect", lambda: calls.append("connect") or {"state": "waiting"})
+    monkeypatch.setattr(server.wechat, "disconnect", lambda: calls.append("disconnect") or {"state": "idle"})
+    client = TestClient(server.app)
+    assert client.post("/api/login", json={"username": "wechat-member", "password": "member"}).status_code == 200
+    csrf = client.get("/api/session").json()["csrf_token"]
+    assert client.get("/api/wechat/status").status_code == 403
+    assert client.post("/api/wechat/connect", headers={"X-JWS-CSRF": csrf}).status_code == 403
+    assert client.post("/api/wechat/disconnect", headers={"X-JWS-CSRF": csrf}).status_code == 403
+    assert calls == []
+
+
+def test_second_owner_cannot_operate_ambiguous_wechat_bridge(monkeypatch):
+    server._accounts._ensure_bootstrap()
+    assert server._accounts.create_user("wechat-owner-two", "owner", "Owner")
+    calls = []
+    monkeypatch.setattr(server.wechat, "status", lambda: calls.append("status") or {})
+    monkeypatch.setattr(server.wechat, "connect", lambda: calls.append("connect") or {})
+    monkeypatch.setattr(server.wechat, "disconnect", lambda: calls.append("disconnect") or {})
+    client = TestClient(server.app)
+    assert client.post("/api/login", json={"username": "wechat-owner-two", "password": "owner"}).status_code == 200
+    csrf = client.get("/api/session").json()["csrf_token"]
+    assert client.get("/api/wechat/status").status_code == 403
+    assert client.post("/api/wechat/connect", headers={"X-JWS-CSRF": csrf}).status_code == 403
+    assert client.post("/api/wechat/disconnect", headers={"X-JWS-CSRF": csrf}).status_code == 403
+    assert calls == []
+
+
 def test_app_lifespan_resumes_and_shuts_down_wechat(monkeypatch):
     """防回归：服务启动要恢复 Token，退出要停线程且保留凭据。"""
     calls = []

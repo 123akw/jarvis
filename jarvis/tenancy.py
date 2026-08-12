@@ -127,14 +127,21 @@ class TenantStore:
             raise ValueError("thread alias is required")
         now = updated_at or _now()
         with self._connect() as c:
-            row = c.execute("SELECT alias, title, checkpoint_thread_id, updated_at FROM tenant_threads WHERE owner_id=? AND alias=?", (owner, alias)).fetchone()
-            if row:
-                c.execute("UPDATE tenant_threads SET updated_at=? WHERE owner_id=? AND alias=?", (now, owner, alias))
-                return TenantThread(alias, row["title"], row["checkpoint_thread_id"], now)
-            checkpoint = checkpoint_thread_id or f"tenant:{owner}:{uuid.uuid4().hex}"
-            thread_title = title or first_message.strip().replace("\n", " ")[:24] or "新对话"
-            c.execute("INSERT INTO tenant_threads(owner_id,alias,checkpoint_thread_id,title,created_at,updated_at) VALUES(?,?,?,?,?,?)", (owner, alias, checkpoint, thread_title, now, now))
-            return TenantThread(alias, thread_title, checkpoint, now)
+            c.execute("BEGIN IMMEDIATE")
+            try:
+                row = c.execute("SELECT alias, title, checkpoint_thread_id, updated_at FROM tenant_threads WHERE owner_id=? AND alias=?", (owner, alias)).fetchone()
+                if row:
+                    c.execute("UPDATE tenant_threads SET updated_at=? WHERE owner_id=? AND alias=?", (now, owner, alias))
+                    c.commit()
+                    return TenantThread(alias, row["title"], row["checkpoint_thread_id"], now)
+                checkpoint = checkpoint_thread_id or f"tenant:{owner}:{uuid.uuid4().hex}"
+                thread_title = title or first_message.strip().replace("\n", " ")[:24] or "新对话"
+                c.execute("INSERT INTO tenant_threads(owner_id,alias,checkpoint_thread_id,title,created_at,updated_at) VALUES(?,?,?,?,?,?)", (owner, alias, checkpoint, thread_title, now, now))
+                c.commit()
+                return TenantThread(alias, thread_title, checkpoint, now)
+            except Exception:
+                c.rollback()
+                raise
 
     def get_thread(self, alias: str, *, owner_id: str | None = None) -> TenantThread | None:
         owner = self._owner(owner_id)
@@ -261,6 +268,10 @@ class TenantStore:
 
     def migrate_legacy(self) -> bool:
         """Backup then atomically import old JSON only when exactly one Owner exists."""
+        # Completion is authoritative: do not even read old files after a completed import.
+        with self._connect() as c:
+            if c.execute("SELECT 1 FROM tenant_legacy_migrations WHERE name='legacy-json-v1'").fetchone():
+                return False
         files: dict[str, object] = {}
         raw: dict[str, bytes] = {}
         for name in _LEGACY:
@@ -270,9 +281,11 @@ class TenantStore:
                     raw[name] = path.read_bytes(); files[name] = json.loads(raw[name].decode("utf-8"))
                 except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
                     raise TenantMigrationError("invalid legacy JSON") from exc
+        # An empty data directory is not a migration.  Do not write a marker: files might
+        # be restored later, and ordinary tenant requests must remain read-only here.
+        if not raw:
+            return False
         with self._connect() as c:
-            if c.execute("SELECT 1 FROM tenant_legacy_migrations WHERE name='legacy-json-v1'").fetchone():
-                return False
             owner = self._unique_owner(c)
         if owner is None: raise TenantMigrationError("legacy migration requires exactly one active Owner")
         for name, content in raw.items(): self._backup(self.legacy_dir / name, content)

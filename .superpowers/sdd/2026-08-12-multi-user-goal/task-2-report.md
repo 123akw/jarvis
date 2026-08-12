@@ -21,3 +21,11 @@ Status: complete for the Task 2 scope.
 ## Remaining concern
 
 The pre-existing `BLOCKED.md` concerns optional external search credentials and is outside Task 2. No provider settings, production state, old data files, or WeChat credentials were changed.
+
+## Review round 1 fixes
+
+- TDD RED: the new review-targeted set initially had **4 failures**: empty legacy data was incorrectly marked complete, completed migration still read malformed input, a Member could read the WeChat bridge, and boot resumed a token without an Owner. A temporary two-Owner authorization mutation produced **1 additional RED failure** (HTTP 200 instead of 403). Both mutations were restored after the green implementation.
+- WeChat HTTP routes now require that the current principal is the **unique** active Owner; Members and ambiguous two-Owner configurations receive 403 before bridge status/connect/disconnect is called. `resume_on_boot` resolves that same Owner before opening a token file, preserving credentials and leaving workers stopped when absent/ambiguous.
+- `upsert_thread` now serializes its select/update-or-insert under `BEGIN IMMEDIATE`; a 32-way same-alias test returns one checkpoint with no integrity errors, while another owner gets a distinct namespace.
+- Legacy migration first checks the completion marker, then only reads files when incomplete. An empty directory returns false without marker/Owner requirement; a later legacy file remains migratable. Completed migration ignores subsequently malformed originals.
+- GREEN after the review fixes: `pytest tests/test_{accounts,auth,threads,tenant_isolation,wechat,wechat_api,openai_api}.py tests/test_{new_tools,location,local_status}.py -q` => **102 passed** (one existing TestClient deprecation warning); `git diff --check` passed.

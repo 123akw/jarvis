@@ -489,6 +489,14 @@ class WeChatBridge:
 
     def resume_on_boot(self) -> dict:
         """服务启动时复用保存的 Token，并取得消息轮询所有权。"""
+        # Token ownership is fixed to the one active Owner.  Do this check before
+        # opening the credential file so an ambiguous account set cannot inspect it.
+        try:
+            owner = self._owner_getter() if self._owner_getter else None
+        except Exception:
+            owner = None
+        if owner is None:
+            return self.status()
         path = self._token_path()
         if not path.exists():
             return self.status()
