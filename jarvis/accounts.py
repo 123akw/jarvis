@@ -85,8 +85,12 @@ class AccountStore:
         connection = sqlite3.connect(path, timeout=5, isolation_level=None)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
-        with _MIGRATION_LOCK:
-            self._migrate(connection)
+        try:
+            with _MIGRATION_LOCK:
+                self._migrate(connection)
+        except Exception:
+            connection.close()
+            raise
         try:
             path.chmod(0o600)
         except OSError:
@@ -136,34 +140,52 @@ class AccountStore:
             )
         if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 2").fetchone():
             return
-        sql = connection.execute(
-            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sessions'"
-        ).fetchone()[0]
-        if "'openai'" not in sql:
-            connection.execute("DROP INDEX IF EXISTS sessions_active_token")
-            connection.execute("ALTER TABLE sessions RENAME TO sessions_v1")
-            connection.executescript(
-                """
-                CREATE TABLE sessions (
-                    id TEXT PRIMARY KEY,
-                    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                    token_hash TEXT NOT NULL UNIQUE,
-                    transport TEXT NOT NULL CHECK (transport IN ('web', 'desktop', 'openai')),
-                    created_at TEXT NOT NULL,
-                    expires_at TEXT NOT NULL,
-                    revoked_at TEXT
-                );
-                CREATE INDEX sessions_active_token
-                    ON sessions(token_hash, expires_at) WHERE revoked_at IS NULL;
-                """
-            )
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            if connection.execute("SELECT 1 FROM schema_migrations WHERE version = 2").fetchone():
+                connection.commit()
+                return
+            has_backup = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sessions_v1'"
+            ).fetchone()
+            if has_backup:
+                # Recover old autocommit-era partial migration before retrying atomically.
+                connection.execute("DROP INDEX IF EXISTS sessions_active_token")
+                connection.execute("DROP TABLE sessions")
+                connection.execute("ALTER TABLE sessions_v1 RENAME TO sessions")
+            sql = connection.execute(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sessions'"
+            ).fetchone()[0]
+            if "'openai'" not in sql:
+                connection.execute("DROP INDEX IF EXISTS sessions_active_token")
+                connection.execute("ALTER TABLE sessions RENAME TO sessions_v1")
+                connection.execute(
+                    "CREATE TABLE sessions ("
+                    "id TEXT PRIMARY KEY, "
+                    "user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+                    "token_hash TEXT NOT NULL UNIQUE, "
+                    "transport TEXT NOT NULL CHECK (transport IN ('web', 'desktop', 'openai')), "
+                    "created_at TEXT NOT NULL, expires_at TEXT NOT NULL, revoked_at TEXT)"
+                )
+                connection.execute(
+                    "CREATE INDEX sessions_active_token "
+                    "ON sessions(token_hash, expires_at) WHERE revoked_at IS NULL"
+                )
+                AccountStore._copy_v1_sessions(connection)
+                connection.execute("DROP TABLE sessions_v1")
             connection.execute(
-                "INSERT INTO sessions(id, user_id, token_hash, transport, created_at, expires_at, revoked_at) "
-                "SELECT id, user_id, token_hash, transport, created_at, expires_at, revoked_at FROM sessions_v1"
+                "INSERT INTO schema_migrations(version, applied_at) VALUES (2, ?)", (_utcnow(),)
             )
-            connection.execute("DROP TABLE sessions_v1")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+
+    @staticmethod
+    def _copy_v1_sessions(connection: sqlite3.Connection) -> None:
         connection.execute(
-            "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (2, ?)", (_utcnow(),)
+            "INSERT INTO sessions(id, user_id, token_hash, transport, created_at, expires_at, revoked_at) "
+            "SELECT id, user_id, token_hash, transport, created_at, expires_at, revoked_at FROM sessions_v1"
         )
 
     @staticmethod
@@ -199,8 +221,8 @@ class AccountStore:
                 self._audit(connection, "bootstrap_owner", user_id)
             connection.commit()
 
-    def authenticate(self, username: str, password: str, transport: str) -> tuple[Principal, str, str | None] | None:
-        """Authenticate and mint one independent session; failed logins are deliberately uniform."""
+    def authenticate_user(self, username: str, password: str) -> tuple[str, str, str] | None:
+        """Verify credentials without holding a SQLite write transaction during Argon2 work."""
         username = _clean_username(username)
         self._ensure_bootstrap()
         with self._connect() as connection:
@@ -217,11 +239,27 @@ class AccountStore:
             with self._connect() as connection:
                 self._audit(connection, "login_failed")
             return None
-        issued = self.issue_session(row["id"], transport)
+        return row["id"], row["username"], row["role"]
+
+    def authenticate(self, username: str, password: str, transport: str) -> tuple[Principal, str, str | None] | None:
+        """Authenticate and mint one independent session; failed logins are deliberately uniform."""
+        user = self.authenticate_user(username, password)
+        if user is None:
+            return None
+        issued = self.issue_session(user[0], transport)
         if issued is None:
             return None
         principal, token = issued
         return principal, token, csrf_token(token, principal.session_id) if transport == "web" else None
+
+    @staticmethod
+    def _insert_session(connection: sqlite3.Connection, user_id: str, transport: str,
+                        token: str, session_id: str, expires_at: str) -> None:
+        connection.execute(
+            "INSERT INTO sessions(id, user_id, token_hash, transport, created_at, expires_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (session_id, user_id, _digest(token), transport, _utcnow(), expires_at),
+        )
 
     def issue_session(self, user_id: str, transport: str) -> tuple[Principal, str] | None:
         if transport not in {"web", "desktop", "openai"}:
@@ -237,14 +275,35 @@ class AccountStore:
             if not row:
                 connection.rollback()
                 return None
-            connection.execute(
-                "INSERT INTO sessions(id, user_id, token_hash, transport, created_at, expires_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (session_id, row["id"], _digest(token), transport, _utcnow(), expires_at),
-            )
+            self._insert_session(connection, row["id"], transport, token, session_id, expires_at)
             self._audit(connection, "login", row["id"], transport)
             connection.commit()
         return Principal(row["id"], row["username"], row["role"], session_id, transport), token
+
+    def issue_desktop_and_openai(self, user_id: str) -> tuple[tuple[Principal, str], tuple[Principal, str]] | None:
+        """Create paired desktop and OpenAI sessions atomically after one credential check."""
+        desktop_token, openai_token = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
+        desktop_id, openai_id = str(uuid.uuid4()), str(uuid.uuid4())
+        expires_at = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=_SESSION_DAYS)).isoformat()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                row = connection.execute(
+                    "SELECT id, username, role FROM users WHERE id = ? AND active = 1", (user_id,)
+                ).fetchone()
+                if not row:
+                    connection.rollback()
+                    return None
+                self._insert_session(connection, row["id"], "desktop", desktop_token, desktop_id, expires_at)
+                self._insert_session(connection, row["id"], "openai", openai_token, openai_id, expires_at)
+                self._audit(connection, "desktop_login", row["id"])
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                return None
+        desktop = Principal(row["id"], row["username"], row["role"], desktop_id, "desktop"), desktop_token
+        openai = Principal(row["id"], row["username"], row["role"], openai_id, "openai"), openai_token
+        return desktop, openai
 
     def principal_for_token(self, token: str, transport: str) -> Principal | None:
         if not token:

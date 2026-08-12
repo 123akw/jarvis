@@ -1,4 +1,6 @@
 const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const path = require('node:path')
 const { test } = require('node:test')
 
 let auth = {}
@@ -29,4 +31,13 @@ test('desktop authentication starts clean and mints a desktop access token', asy
       body: JSON.stringify({ username: 'owner', password: 'owner-password' }),
     } },
   ])
+})
+
+test('production desktop wiring loads the memory-only desktop authenticator', () => {
+  const index = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8')
+  const renderer = fs.readFileSync(path.join(__dirname, 'renderer.js'), 'utf8')
+
+  assert.match(index, /<script src="auth\.js"><\/script>/)
+  assert.match(renderer, /createDesktopAuthenticator/)
+  assert.doesNotMatch(renderer, /jws_token|localStorage[^\n]*token/i)
 })

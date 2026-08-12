@@ -5,6 +5,8 @@ from concurrent.futures import ThreadPoolExecutor
 import hmac
 import sqlite3
 
+import pytest
+from jarvis.accounts import AccountStore
 import jarvis.server as server_mod
 from fastapi.testclient import TestClient
 
@@ -58,7 +60,77 @@ def test_invalid_login_payload_does_not_echo_password(monkeypatch):
     )
 
     assert response.status_code == 422
+    assert response.headers["cache-control"] == "no-store"
     assert "password-must-not-leak" not in response.text
+
+
+def test_v1_to_v2_migration_rolls_back_copy_failure_and_retries_without_losing_sessions(tmp_path, monkeypatch):
+    """A failed v2 copy leaves the v1 schema untouched, so a retry retains every session."""
+    path = tmp_path / "accounts.sqlite3"
+    db = sqlite3.connect(path)
+    db.executescript(
+        """
+        CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+        INSERT INTO schema_migrations VALUES (1, '2026-01-01T00:00:00+00:00');
+        CREATE TABLE users (
+          id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, role TEXT NOT NULL,
+          password_hash TEXT NOT NULL, active INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+        );
+        CREATE TABLE sessions (
+          id TEXT PRIMARY KEY, user_id TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE,
+          transport TEXT NOT NULL CHECK (transport IN ('web', 'desktop')),
+          created_at TEXT NOT NULL, expires_at TEXT NOT NULL, revoked_at TEXT
+        );
+        INSERT INTO users VALUES ('user-1', 'owner', 'Owner', 'hash', 1, 't', 't');
+        INSERT INTO sessions VALUES ('session-1', 'user-1', 'digest-1', 'desktop', 't', 'future', NULL);
+        """
+    )
+    db.close()
+
+    def explode_at_copy(_connection):
+        raise RuntimeError("copy interrupted")
+
+    monkeypatch.setattr(AccountStore, "_copy_v1_sessions", staticmethod(explode_at_copy), raising=False)
+    with pytest.raises(RuntimeError, match="copy interrupted"):
+        AccountStore(path)._connect()
+
+    after_failure = sqlite3.connect(path)
+    assert after_failure.execute("SELECT id, token_hash, transport FROM sessions").fetchall() == [
+        ("session-1", "digest-1", "desktop")
+    ]
+    assert after_failure.execute("SELECT 1 FROM schema_migrations WHERE version = 2").fetchone() is None
+    assert after_failure.execute("SELECT 1 FROM sqlite_master WHERE name = 'sessions_v1'").fetchone() is None
+    after_failure.close()
+
+    monkeypatch.undo()
+    connection = AccountStore(path)._connect()
+    connection.close()
+    migrated = sqlite3.connect(path)
+    assert migrated.execute("SELECT id, token_hash, transport FROM sessions").fetchall() == [
+        ("session-1", "digest-1", "desktop")
+    ]
+    assert migrated.execute("SELECT 1 FROM schema_migrations WHERE version = 2").fetchone()
+    assert migrated.execute("SELECT 1 FROM sqlite_master WHERE name = 'sessions_v1'").fetchone() is None
+
+
+def test_desktop_dual_session_issuance_rolls_back_when_openai_insert_fails(monkeypatch, isolated_data_dir):
+    """Desktop login must leave no active session if its paired OpenAI session cannot be inserted."""
+    _bootstrap(monkeypatch)
+    calls = [0]
+    original_insert = AccountStore._insert_session
+
+    def fail_second_insert(*args):
+        calls[0] += 1
+        if calls[0] == 2:
+            raise sqlite3.IntegrityError("openai insert failed")
+        original_insert(*args)
+
+    monkeypatch.setattr(AccountStore, "_insert_session", staticmethod(fail_second_insert), raising=False)
+    response = _client().post("/api/desktop/login", json={"username": "owner", "password": "owner-password"})
+
+    assert response.status_code == 503
+    db = sqlite3.connect(isolated_data_dir / "accounts.sqlite3")
+    assert db.execute("SELECT COUNT(*) FROM sessions WHERE revoked_at IS NULL").fetchone()[0] == 0
 
 
 def test_bootstrap_owner_uses_argon2id_and_stores_only_token_digests(monkeypatch, isolated_data_dir):

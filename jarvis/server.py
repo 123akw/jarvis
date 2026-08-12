@@ -81,7 +81,7 @@ _login_limiter = LoginAttemptLimiter()
 @app.exception_handler(RequestValidationError)
 async def invalid_request(_request: Request, _error: RequestValidationError):
     """Avoid FastAPI's default echo of invalid request fields, including passwords."""
-    return JSONResponse({"error": "请求格式不正确"}, status_code=422)
+    return JSONResponse({"error": "请求格式不正确"}, status_code=422, headers={"Cache-Control": "no-store"})
 
 
 def _request_principal(request: Request) -> tuple[Principal | None, str]:
@@ -178,15 +178,14 @@ def login(request: Request, body: LoginIn):
 def desktop_login(request: Request, body: LoginIn):
     if limited := _rate_limited(request):
         return limited
-    authenticated = _accounts.authenticate(body.username, body.password, "desktop")
-    if not authenticated:
+    user = _accounts.authenticate_user(body.username, body.password)
+    if not user:
         return JSONResponse({"error": "账号或口令不对"}, status_code=401, headers={"Cache-Control": "no-store"})
-    principal, token, _csrf = authenticated
-    issued_openai = _accounts.issue_session(principal.user_id, "openai")
-    if not issued_openai:
+    issued = _accounts.issue_desktop_and_openai(user[0])
+    if not issued:
         return JSONResponse({"error": "服务不可用"}, status_code=503, headers={"Cache-Control": "no-store"})
     _login_limiter.success(_client_address(request))
-    _openai_principal, openai_token = issued_openai
+    (_desktop_principal, token), (_openai_principal, openai_token) = issued
     return JSONResponse(
         {
             "access_token": token,
