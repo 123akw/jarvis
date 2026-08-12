@@ -242,3 +242,46 @@ def test_malformed_qr_response_becomes_retryable_error(tmp_path):
     assert result["qr_uri"] == ""
     assert "响应异常" in result["error"]
     assert "qr-id" not in result["error"]
+
+
+def test_updates_poll_read_timeout_undercuts_heartbeat_and_recycles_immediately(tmp_path):
+    """iLink 心跳帧（实测约 18 秒一个）会重置 read 超时；read 超时不压到心跳
+    间隔以下，僵死会话（心跳在发、响应永不完成、消息不派发）会无限挂起，
+    表现为状态已连接却永远收不到消息（2026-08-12 线上事故）。超时翻新必须
+    立即重发，不得按错误退避。"""
+
+    class HeartbeatWedgedClient(FakeClient):
+        def post(self, url, **kwargs):
+            self.post_calls.append((url, kwargs))
+            if len(self.post_calls) == 1:
+                raise httpx.ReadTimeout("wedged long poll")
+            return FakeResponse(status_code=401)
+
+    class RecordingStop:
+        def __init__(self):
+            self.waits = []
+
+        def is_set(self):
+            return False
+
+        def set(self):
+            pass
+
+        def wait(self, seconds):
+            self.waits.append(seconds)
+
+    client = HeartbeatWedgedClient()
+    bridge, _ = make_bridge(tmp_path, client)
+    bridge._generation = 1
+    bridge._set(state="connected")
+    (tmp_path / "wechat_token").write_text("saved", encoding="utf-8")
+    stop = RecordingStop()
+
+    bridge._updates_loop(1, "saved", stop)
+
+    assert len(client.post_calls) == 2
+    timeout = client.post_calls[0][1]["timeout"]
+    assert isinstance(timeout, httpx.Timeout)
+    assert timeout.read is not None and timeout.read < 18
+    assert stop.waits == []
+    assert bridge.status()["state"] == "idle"

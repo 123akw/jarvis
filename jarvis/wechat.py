@@ -17,6 +17,10 @@ from jarvis import config
 ILINK = "https://ilinkai.weixin.qq.com/ilink/bot"
 QR_EXPIRES_SECONDS = 180
 REPLY_CHUNK_SIZE = 1500
+# 必须低于 iLink 心跳帧间隔（实测约 18 秒）：心跳字节会不断重置 read 超时，
+# 僵死会话（连接活、心跳在发、但响应永不完成也不派消息）在更长的超时下
+# 永远不会被翻新，表现为「状态已连接却收不到任何消息」（2026-08-12 线上）。
+UPDATES_READ_TIMEOUT_SECONDS = 15
 
 log = logging.getLogger(__name__)
 
@@ -361,7 +365,7 @@ class WeChatBridge:
                     response = client.post(
                         f"{ILINK}/getupdates",
                         headers=self._headers(token),
-                        timeout=45,
+                        timeout=httpx.Timeout(45, read=UPDATES_READ_TIMEOUT_SECONDS),
                         json={
                             "get_updates_buf": buffer,
                             "base_info": {"channel_version": "1.0.2"},
@@ -374,6 +378,9 @@ class WeChatBridge:
                     buffer = self._handle_updates_response(
                         client, token, response.json()
                     )
+                except httpx.TimeoutException:
+                    # 空转长轮询到期是正常节奏：不告警、不退避，立即翻新请求。
+                    continue
                 except (httpx.HTTPError, TypeError, ValueError) as exc:
                     log.warning("iLink getupdates retry: %s", type(exc).__name__)
                     stop.wait(2)
