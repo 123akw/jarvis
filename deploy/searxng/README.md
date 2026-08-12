@@ -1,6 +1,16 @@
 # 本地 SearXNG 部署
 
-这个 Compose 单元为 JWS-Agent 的免费优先搜索链提供可选的本地第一跳。镜像固定为
+这个 Compose 单元为 JWS-Agent 的免费优先搜索链提供可选的本地第一跳。
+
+## 大陆网络的上游引擎约束
+
+生产服务器位于中国大陆（腾讯云），SearXNG 的默认上游引擎（google、duckduckgo、
+brave、startpage、wikipedia 等）从该网络全部连接超时，表现为查询返回 HTTP 200 但
+`results` 恒为空。因此 `settings.yml` 用 `keep_only` 只保留实测可达的引擎：
+baidu、bing（`base_url` 指向 `cn.bing.com`）、sogou、sogou wechat、360search、quark。
+news 类目由 sogou wechat 承接——大陆版 `cn.bing.com` 没有 news 垂类（RSS 请求被
+重定向回首页），bing news 在该网络下恒为 0 结果。
+在其他网络环境部署或恢复默认引擎前，先在目标网络实测各上游连通性。镜像固定为
 `ghcr.io/searxng/searxng:2026.7.28-c01178d03@sha256:5d6d903ab82afa56ee32792d477f36bc63d3e5ca04fcb6947e28a5cfd987fad3`，
 宿主机只发布 `127.0.0.1:18888`，不会监听公网地址。生产部署审计发现 BT-Panel
 已占用 `127.0.0.1:8888`；确认候选端口 18888 没有 IPv4、IPv6、防火墙或 Docker 引用后，

@@ -1,4 +1,15 @@
-use_default_settings: true
+# 生产服务器在中国大陆（腾讯云），上游默认引擎 google/duckduckgo/brave/startpage/
+# wikipedia 等全部不可达（连接超时），会导致所有查询 0 结果。
+# 因此只保留大陆网络实测可达的引擎；恢复默认引擎前必须先在目标网络实测连通性。
+use_default_settings:
+  engines:
+    keep_only:
+      - baidu
+      - bing
+      - sogou
+      - sogou wechat
+      - 360search
+      - quark
 
 server:
   bind_address: "0.0.0.0"
@@ -11,3 +22,20 @@ search:
   formats:
     - html
     - json
+
+engines:
+  - name: baidu
+    disabled: false
+  - name: bing
+    disabled: false
+    base_url: https://cn.bing.com
+  - name: sogou
+    disabled: false
+  # news 类目：大陆版 cn.bing.com 没有 news 垂类（RSS 被重定向回首页），
+  # 用搜狗微信文章搜索承接 news。
+  - name: sogou wechat
+    disabled: false
+  - name: 360search
+    disabled: false
+  - name: quark
+    disabled: false
