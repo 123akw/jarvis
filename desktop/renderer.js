@@ -1,7 +1,4 @@
 /* 悬浮窗渲染进程：登录 → 拉历史 → 快捷对话（独立线程 desktop，不打扰网页端记录） */
-const SERVER = localStorage.getItem('jws_server') || 'https://jws.gkgeek-set.cn'
-const USER = 'admin'
-const PASS = 'admin'
 const THREAD = 'desktop'
 
 const $ = s => document.querySelector(s)
@@ -41,21 +38,26 @@ function sys(text) {
   log.append(el); log.scrollTop = log.scrollHeight
 }
 
-/* file:// 页面对服务器属于跨站，SameSite cookie 带不上——改用 desktop session header。 */
-const desktopAuth = window.JWSDesktopAuth.createDesktopAuthenticator({
-  username: USER,
-  password: PASS,
-  request: (path, options) => fetch(SERVER + path, options),
-})
-
-async function api(path, opts = {}) {
-  const headers = { ...desktopAuth.headers(), ...(opts.headers || {}) }
-  return fetch(SERVER + path, { ...opts, headers })
+/* The renderer only names approved operations. Main owns token, headers and server URL. */
+async function api(operation, body = {}) {
+  const result = await window.jws.api.request(operation, body)
+  return { status: result.status, ok: result.ok, json: async () => result.data }
 }
-
-async function ensureLogin() {
-  return desktopAuth.ensureLogin()
+const apiStream = (operation, body) => window.jws.api.stream(operation, body)
+function requireLogin() { document.body.classList.add('needs-login'); state.textContent = '请登录' }
+async function submitDesktopLogin(event) {
+  event.preventDefault()
+  const username = $('#desktop-username').value.trim()
+  const password = $('#desktop-password').value
+  $('#desktop-login-error').textContent = ''
+  const result = await window.jws.api.login(username, password)
+  $('#desktop-password').value = ''
+  if (!result.ok) { $('#desktop-login-error').textContent = '身份未确认，请重试'; return }
+  document.body.classList.remove('needs-login')
+  state.textContent = '在线'
+  await loadHistory(); void syncCoding()
 }
+$('#desktop-login-form').addEventListener('submit', event => { void submitDesktopLogin(event) })
 
 const EMPTY_HTML = `<div class="empty">这里是桌面快捷通道。有什么吩咐？</div>
 <div class="qchips">
@@ -65,11 +67,8 @@ const EMPTY_HTML = `<div class="empty">这里是桌面快捷通道。有什么�
 </div>`
 
 async function loadHistory() {
-  let r = await api(`/api/history?thread_id=${THREAD}`)
-  if (r.status === 401) {  // 登录态失效：静默重连后重试
-    await ensureLogin()
-    r = await api(`/api/history?thread_id=${THREAD}`)
-  }
+  const r = await api('history', { thread_id: THREAD })
+  if (r.status === 401) { requireLogin(); return }
   const h = await r.json()
   log.innerHTML = ''
   if (!h.length) {
@@ -97,30 +96,9 @@ async function ask() {
   let raw = ''
   let toolLine = null
   try {
-    let r = await api('/api/chat', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text, thread_id: THREAD }),
-    })
-    if (r.status === 401) {  // 登录态失效：自动重连并自动重发，不劳领导动手
-      state.textContent = '重连中…'
-      await ensureLogin()
-      r = await api('/api/chat', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, thread_id: THREAD }),
-      })
-      if (r.status === 401) throw new Error('登录失败，请到设置里核对服务器地址')
-      state.textContent = '思考中…'
-    }
-    const reader = r.body.getReader(), dec = new TextDecoder()
-    let buf = ''
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += dec.decode(value, { stream: true })
-      const parts = buf.split('\n\n'); buf = parts.pop()
-      for (const p of parts) {
-        if (!p.startsWith('data: ')) continue
-        const ev = JSON.parse(p.slice(6))
+    const r = await apiStream('chat', { message: text, thread_id: THREAD })
+    if (r.status === 401) { requireLogin(); throw new Error('登录已失效，请重新登录') }
+    for (const ev of r.events) {
         if (ev.type === 'token') {
           raw += ev.text
           el.innerHTML = md(raw) + '<span class="caret"></span>'
@@ -137,7 +115,6 @@ async function ask() {
         } else if (ev.type === 'error') {
           sys(ev.message)
         }
-      }
     }
     el.innerHTML = md(raw) || '<span style="color:var(--dim)">（无回复）</span>'
   } catch (e) {
@@ -183,7 +160,7 @@ $('#minbtn').addEventListener('click', async () => {
   document.body.classList.remove('expanded')
 })
 $('#clearbtn').addEventListener('click', async () => {
-  await api(`/api/thread?thread_id=${THREAD}`, { method: 'DELETE' })
+  await api('deleteThread', { thread_id: THREAD })
   log.innerHTML = '<div class="empty">已清空。有什么吩咐？</div>'
 })
 log.addEventListener('click', e => {  // 空态快捷芯片
@@ -246,10 +223,7 @@ window.jws.onSetExpanded(v => {  // 全局快捷键唤醒/收起时同步界面
 async function syncCoding() {
   try {
     const coding = await window.jws.codingStatus()
-    await api('/api/local-status', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ coding }),
-    })
+    await api('coding', { coding })
     return coding
   } catch { return [] }
 }
@@ -272,7 +246,7 @@ async function openBoard() {
       ${c.branch ? `<div class="sub">⎇ ${esc(c.branch)}${c.dirty ? ` · 未提交 ${c.dirty} 处` : ''}${c.commits_today ? ` · 今日提交 ${c.commits_today} 个` : ''}</div>` : ''}
     </span></div>`)
   try {
-    const d = await (await api('/api/dashboard')).json()
+    const d = await (await api('dashboard')).json()
     const today = d.time.slice(0, 10)
     const sch = (d.schedule || []).filter(x => x.when.slice(0, 10) === today)
     $('#b-sched').innerHTML = rowsHtml(sch, x => `
@@ -428,9 +402,15 @@ function renderWx(s = {}) {
   }
 }
 wxController = window.JarvisWeChatUI.createController({
-  request: api,
+  request: async (path, options = {}) => {
+    const operation = ({
+      '/api/wechat/status': 'wechatStatus', '/api/wechat/connect': 'wechatConnect', '/api/wechat/disconnect': 'wechatDisconnect',
+    })[path]
+    if (!operation) throw new Error('unsupported WeChat operation')
+    return api(operation, options.body)
+  },
   render: renderWx,
-  reauthenticate: ensureLogin,
+  reauthenticate: async () => { requireLogin(); return false },
 })
 
 async function openSettings() {
@@ -448,7 +428,7 @@ async function openSettings() {
     ? (s.hotkeyOk ? `当前生效：${displayAcc(s.hotkey)}` : `注册失败（可能被占用）：${displayAcc(s.hotkey)}`)
     : '未启用'
   $('#s-hotkey-state').className = 's-hint ' + (s.hotkey ? (s.hotkeyOk ? 'ok' : 'bad') : '')
-  $('#s-server').value = SERVER
+  $('#s-server').value = s.server || ''
   $('#s-msg').textContent = ''
   document.body.classList.add('show-settings')
   void wxController.start()
@@ -464,16 +444,15 @@ $('#backbtn').addEventListener('click', () => {
 $('#s-save').addEventListener('click', async () => {
   const ballSize = parseInt($('#s-ballsize').value, 10)
   const ballStyle = $('#s-ballstyle').value
+  const server = $('#s-server').value.trim().replace(/\/+$/, '')
   const r = await window.jws.setSettings({
     hotkey: pendingHotkey,
     openAtLogin: $('#s-autolaunch').checked,
     ballSize,
     ballStyle,
+    server,
   })
   applyBallLook(ballSize, ballStyle)
-  const server = $('#s-server').value.trim().replace(/\/+$/, '')
-  const serverChanged = server && server !== SERVER
-  if (serverChanged) localStorage.setItem('jws_server', server)
   const msg = $('#s-msg')
   const st = $('#s-hotkey-state')
   if (pendingHotkey && !r.hotkeyOk) {
@@ -482,25 +461,24 @@ $('#s-save').addEventListener('click', async () => {
     st.textContent = `注册失败：${displayAcc(pendingHotkey)}`
     st.className = 's-hint bad'
   } else {
-    msg.textContent = serverChanged ? '已保存，正在按新服务器地址重连…' : '已保存并生效'
+    msg.textContent = '已保存并生效；如更换服务器，请重新登录'
     msg.className = 's-hint ok'
     st.textContent = pendingHotkey ? `当前生效：${displayAcc(pendingHotkey)}` : '未启用'
     st.className = 's-hint ' + (pendingHotkey ? 'ok' : '')
   }
-  if (serverChanged) setTimeout(() => location.reload(), 900)
 })
 
-/* 启动：登录 + 取历史 */
+/* 启动：仅主进程可恢复安全会话；失效时显示口令表单。 */
 ;(async () => {
   try {
-    const ok = await ensureLogin()
-    state.textContent = ok ? '在线' : '登录失败'
-    if (ok) {
+    const probe = await api('session')
+    if (probe.ok && (await probe.json()).authed) {
+      state.textContent = '在线'
       await loadHistory()
       syncCoding()  // 启动即同步一次编程进度
-    }
+    } else requireLogin()
   } catch (e) {
-    state.textContent = '离线'
+    requireLogin()
     sys('连不上服务器：' + e.message)
   }
 })()

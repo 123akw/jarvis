@@ -32,7 +32,7 @@ describe('HUD personal WeChat entry', () => {
 
   it('opens an accessible personal WeChat dialog from the header', async () => {
     const user = userEvent.setup()
-    render(<Hud onLogout={() => {}} />)
+    render(<Hud session={{ username: 'owner', role: 'Owner' }} onLogout={() => {}} />)
 
     await user.click(screen.getByRole('button', { name: '接入个人微信' }))
 

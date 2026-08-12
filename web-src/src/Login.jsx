@@ -106,11 +106,12 @@ export default function Login({ onAuthed }) {
     e.preventDefault()
     if (busy || spinup) return
     setBusy(true)
-    const ok = await login(u.trim(), p)
-    if (ok) {
+    const session = await login(u.trim(), p)
+    setP('')
+    if (session) {
       setSpinup(true)
       say(LINES_OK, { voice: true })
-      setTimeout(onAuthed, 950)
+      setTimeout(() => onAuthed(session), 950)
       return
     }
     setBusy(false)

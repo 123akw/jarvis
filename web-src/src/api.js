@@ -1,7 +1,14 @@
 let csrfToken = ''
 
+async function parse(response) {
+  if (response.status === 401) throw new Error('401')
+  const data = await response.json()
+  if (response.ok === false) throw new Error(data.error || '请求失败')
+  return data
+}
+
 export async function getSession() {
-  const session = await (await fetch('/api/session')).json()
+  const session = await parse(await fetch('/api/session'))
   csrfToken = session.csrf_token || ''
   return session
 }
@@ -16,38 +23,54 @@ export async function login(username, password) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password }),
   })
-  if (!r.ok) return false
-  await getSession()
-  return true
+  if (!r.ok) return null
+  return getSession()
 }
 
 export async function logout() {
-  await fetch('/api/logout', { method: 'POST', headers: csrfHeaders() })
+  await parse(await fetch('/api/logout', { method: 'POST', headers: csrfHeaders() }))
   csrfToken = ''
 }
 
 export async function getDashboard() {
-  const r = await fetch('/api/dashboard')
-  if (r.status === 401) throw new Error('401')
-  return r.json()
+  return parse(await fetch('/api/dashboard'))
 }
 
 export async function getThreads() {
-  const r = await fetch('/api/threads')
-  if (r.status === 401) throw new Error('401')
-  return r.json()
+  return parse(await fetch('/api/threads'))
 }
 
 export async function getHistory(threadId) {
-  const r = await fetch(`/api/history?thread_id=${encodeURIComponent(threadId)}`)
-  if (r.status === 401) throw new Error('401')
-  return r.json()
+  return parse(await fetch(`/api/history?thread_id=${encodeURIComponent(threadId)}`))
 }
 
 export async function deleteThread(threadId) {
-  await fetch(`/api/thread?thread_id=${encodeURIComponent(threadId)}`, {
+  return parse(await fetch(`/api/thread?thread_id=${encodeURIComponent(threadId)}`, {
     method: 'DELETE', headers: csrfHeaders(),
-  })
+  }))
+}
+
+export async function changePassword(currentPassword, newPassword) {
+  return parse(await fetch('/api/account/password', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  }))
+}
+
+export async function getUsers() {
+  return parse(await fetch('/api/admin/users'))
+}
+
+export async function createUser(user) {
+  return parse(await fetch('/api/admin/users', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...csrfHeaders() }, body: JSON.stringify(user),
+  }))
+}
+
+export async function updateUser(id, patch) {
+  return parse(await fetch(`/api/admin/users/${encodeURIComponent(id)}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', ...csrfHeaders() }, body: JSON.stringify(patch),
+  }))
 }
 
 /** SSE 流式对话，逐事件产出 {type, ...}；location 为浏览器定位 {lat, lon}，可空 */
@@ -59,6 +82,7 @@ export async function* chatStream(message, location = null, threadId = 'web', si
     signal,
   })
   if (r.status === 401) throw new Error('401')
+  if (!r.ok) throw new Error('请求失败')
   const reader = r.body.getReader()
   const dec = new TextDecoder()
   let buf = ''

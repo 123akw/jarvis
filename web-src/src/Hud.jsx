@@ -5,6 +5,7 @@ import { MossMini } from './Moss.jsx'
 import Panels from './Panels.jsx'
 import Threads from './Threads.jsx'
 import WeChatConnect from './WeChatConnect.jsx'
+import AccountSettings from './AccountSettings.jsx'
 
 function newThreadId() {
   return 't-' + (crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10))
@@ -12,7 +13,7 @@ function newThreadId() {
 
 const isNarrow = () => window.innerWidth <= 1180
 
-export default function Hud({ onLogout }) {
+export default function Hud({ session, onLogout }) {
   const [busy, setBusy] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const [dash, setDash] = useState(null)
@@ -22,6 +23,7 @@ export default function Hud({ onLogout }) {
   const [leftOpen, setLeftOpen] = useState(() => !isNarrow())
   const [rightOpen, setRightOpen] = useState(() => !isNarrow())
   const [wxOpen, setWxOpen] = useState(false)
+  const [accountOpen, setAccountOpen] = useState(false)
 
   useEffect(() => { localStorage.setItem('jws_thread', thread) }, [thread])
 
@@ -56,11 +58,12 @@ export default function Hud({ onLogout }) {
         <span className="wordmark">J.A.R.V.I.S.</span>
         <span className="tagline">私人管家 · v{dash?.version ?? '—'}</span>
         <span className="spacer" />
+        <button className="chip navbtn" onClick={() => setAccountOpen(true)} aria-label="账户设置">{session?.username || '账号'}{session?.role ? ` · ${session.role}` : ''}</button>
         <span className="chip hide-sm">{dash?.model ?? '—'}</span>
         <span className="chip online hide-sm"><span className="dot" />{dash?.place || '在线'}</span>
         <span className="chip hide-sm">{clock}</span>
-        <button className="chip navbtn wxnav" aria-label="接入个人微信"
-          onClick={() => setWxOpen(true)} title="接入个人微信">微信</button>
+        {session?.role === 'Owner' ? <button className="chip navbtn wxnav" aria-label="接入个人微信"
+          onClick={() => setWxOpen(true)} title="接入个人微信">微信</button> : null}
         <button className={`chip navbtn${rightOpen ? ' on' : ''}`}
           onClick={() => setRightOpen(v => !v)} title="日程 / 待办 / 备忘">▦</button>
         <button className="chip logout" onClick={quit} title="退出登录">⏻</button>
@@ -91,6 +94,7 @@ export default function Hud({ onLogout }) {
       {wxOpen ? (
         <WeChatConnect onClose={() => setWxOpen(false)} onExpired={onLogout} />
       ) : null}
+      {accountOpen ? <div className="wx-backdrop"><AccountSettings session={session} onClose={() => setAccountOpen(false)} onReauth={onLogout} /></div> : null}
     </div>
   )
 }

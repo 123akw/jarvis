@@ -4,12 +4,12 @@ import Hud from './Hud.jsx'
 import Login from './Login.jsx'
 
 export default function App() {
-  const [authed, setAuthed] = useState(null) // null=检查中
+  const [session, setSession] = useState(null) // null=检查中或未登录
   useEffect(() => {
-    getSession().then(s => setAuthed(s.authed)).catch(() => setAuthed(false))
+    getSession().then(s => setSession(s.authed ? s : false)).catch(() => setSession(false))
   }, [])
-  if (authed === null) return null
-  return authed
-    ? <Hud onLogout={() => setAuthed(false)} />
-    : <Login onAuthed={() => setAuthed(true)} />
+  if (session === null) return null
+  return session
+    ? <Hud session={session} onLogout={() => setSession(false)} />
+    : <Login onAuthed={setSession} />
 }

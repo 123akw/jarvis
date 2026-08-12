@@ -1,43 +1,21 @@
-const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const { test } = require('node:test')
 
-let auth = {}
-try {
-  auth = require('./auth.js')
-} catch {
-  // RED phase: behavior assertions below describe the required module contract.
-}
-
-test('desktop authentication starts clean and mints a desktop access token', async () => {
-  assert.equal(typeof auth.createDesktopAuthenticator, 'function')
-  const calls = []
-  const client = auth.createDesktopAuthenticator({
-    username: 'owner', password: 'owner-password',
-    request: async (path, options = {}) => {
-      calls.push({ path, options })
-      if (path === '/api/session') return { ok: true, json: async () => ({ authed: false }) }
-      return { ok: true, json: async () => ({ access_token: 'desktop-session-token' }) }
-    },
-  })
-
-  assert.equal(await client.ensureLogin(), true)
-  assert.deepEqual(client.headers(), { 'X-JWS-Token': 'desktop-session-token' })
-  assert.deepEqual(calls, [
-    { path: '/api/session', options: { headers: {} } },
-    { path: '/api/desktop/login', options: {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: 'owner', password: 'owner-password' }),
-    } },
-  ])
-})
-
-test('production desktop wiring loads the memory-only desktop authenticator', () => {
+test('production desktop wiring exposes only the narrow main-process API', () => {
+  const main = fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8')
+  const preload = fs.readFileSync(path.join(__dirname, 'preload.js'), 'utf8')
   const index = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8')
   const renderer = fs.readFileSync(path.join(__dirname, 'renderer.js'), 'utf8')
 
-  assert.match(index, /<script src="auth\.js"><\/script>/)
-  assert.match(renderer, /createDesktopAuthenticator/)
-  assert.doesNotMatch(renderer, /jws_token|localStorage[^\n]*token/i)
+  require('node:assert/strict').match(main, /safeStorage/)
+  require('node:assert/strict').match(main, /nodeIntegration:\s*false/)
+  require('node:assert/strict').match(main, /api-login/)
+  require('node:assert/strict').match(preload, /removeItem\('jws_token'\)/)
+  require('node:assert/strict').match(preload, /api:\s*\{/)
+  require('node:assert/strict').match(index, /<body class="needs-login">/)
+  require('node:assert/strict').doesNotMatch(index, /auth\.js/)
+  require('node:assert/strict').doesNotMatch(renderer, /\bfetch\s*\(/)
+  require('node:assert/strict').doesNotMatch(renderer, /jws_token|X-JWS-Token|access_token/)
+  require('node:assert/strict').match(renderer, /needs-login/)
 })

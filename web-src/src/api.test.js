@@ -11,6 +11,7 @@ describe('web CSRF transport', () => {
     global.fetch
       .mockResolvedValueOnce({ ok: true })
       .mockResolvedValueOnce({ json: async () => ({ authed: true, csrf_token: 'csrf-proof' }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ ok: true }) })
 
     await login('owner', 'password')
     await deleteThread('thread-1')

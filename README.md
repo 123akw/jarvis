@@ -225,7 +225,7 @@ npm install
 npm start
 ```
 
-首次启动后可在设置页把服务器地址改为本机 `http://127.0.0.1:7789` 或你自己的私有部署地址。悬浮球置顶并跨工作区显示，点击后向左展开快捷聊天；默认全局唤醒键为 `⌥Space`，也可修改或停用。开机自启通过 `~/Library/LaunchAgents/com.jws.jarvis.desktop.plist` 实现。
+首次启动后可在设置页把服务器地址改为 HTTPS 私有部署地址；只在设置 `JWS_DESKTOP_DEV=1` 时允许本机 `http://127.0.0.1` / `[::1]` 开发地址。桌面端会要求输入用户名和口令，认证 Token 只由 Electron 主进程保存于系统加密存储，渲染界面无法读取。悬浮球置顶并跨工作区显示，点击后向左展开快捷聊天；默认全局唤醒键为 `⌥Space`，也可修改或停用。开机自启通过 `~/Library/LaunchAgents/com.jws.jarvis.desktop.plist` 实现。
 
 ## 环境变量
 
@@ -236,11 +236,21 @@ npm start
 | `JARVIS_MODEL` | 否 | 代码回退为 `deepseek-chat` | 模型名；仓库 `.env.example` 当前示例为 `deepseek-v4-flash` |
 | `JARVIS_DATA_DIR` | 否 | `<项目根>/data` | SQLite 记忆、本地日程/待办/备忘、会话元数据和微信 Token 的目录 |
 | `JARVIS_PORT` | 否 | `7789` | Web 服务监听端口 |
+| `JARVIS_ADMIN_USERNAME` | 首次启动必需 | 无 | 首次数据库初始化时创建的唯一 Owner 用户名 |
+| `JARVIS_ADMIN_PASSWORD` | 首次启动必需 | 无 | 首次数据库初始化时创建的 Owner 口令；只存 Argon2id 哈希 |
+| `JARVIS_SESSION_SECRET` | 是 | 无 | 至少 32 字节随机值，用于会话与 CSRF；缺失时网页登录会 fail closed |
 | `JARVIS_SEARCH_BACKENDS` | 否 | `searxng,ddgs,tavily` | 搜索 provider 降级顺序；名称不能重复 |
 | `SEARXNG_BASE_URL` | 否 | 无 | 本地 Compose 可设为 `http://127.0.0.1:18888`；未配置或不健康时继续 DDGS |
 | `JARVIS_EXTRACT_BACKENDS` | 否 | `trafilatura,playwright` | 正文提取降级顺序；Playwright 未安装时明确跳过 |
 | `TAVILY_API_KEY` | 否 | 无 | 可选 Tavily 搜索密钥；未配置不影响 SearXNG/DDGS 免费链，仓库与演示入口均不保证已配置 |
 | `PANDASCORE_TOKEN` | 否 | 无 | 可选 PandaScore 结构化电竞数据 Token；缺失或失败时回退默认网页搜索链 |
+
+## 多用户、备份与回滚
+
+- Owner 可在网页账户设置中修改自己的口令，并创建、停用、改角色或重置 Member/Owner 口令；没有公开注册入口。Member 不会看到用户管理入口，服务端仍会强制 Owner 权限。
+- 所有新建的对话、备忘、待办、日程和位置数据按账户隔离。升级时旧数据会在原目录生成权限为 `0600` 的 `.tenant-v1.bak` 备份，再归入首次初始化的 Owner；不会移动或改写既有微信凭据。
+- 若升级验证失败，停止服务，保留数据库与 `.tenant-v1.bak` 文件，恢复升级前的程序版本后再按备份恢复数据目录。不要删除备份或微信 Token；完成验证后再由部署者决定归档策略。
+- 个人微信固定属于唯一 active Owner。即使网页端误显示入口，后端也会在没有唯一 Owner 时拒绝连接、状态与写入。
 
 ## 个人微信桥接
 

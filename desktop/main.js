@@ -1,21 +1,23 @@
-const { app, BrowserWindow, clipboard, globalShortcut, ipcMain, screen } = require('electron')
+const { app, BrowserWindow, clipboard, globalShortcut, ipcMain, screen, safeStorage } = require('electron')
 const { execSync } = require('child_process')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
+const { createSessionGateway, isAllowedServer } = require('./session.js')
 
 const PANEL = { w: 420, h: 640 }
 const ballWin = size => size + 8  // 球体 + 辉光留白
 const PLIST = path.join(os.homedir(), 'Library/LaunchAgents/com.jws.jarvis.desktop.plist')
 let win = null
 let expanded = false
+let apiGateway = null
 
 /* ---------- 设置持久化 ---------- */
 function settingsPath() {
   return path.join(app.getPath('userData'), 'settings.json')
 }
 function loadSettings() {
-  const defaults = { hotkey: 'Alt+Space', openAtLogin: false, ballSize: 64, ballStyle: 'moss' }
+  const defaults = { hotkey: 'Alt+Space', openAtLogin: false, ballSize: 64, ballStyle: 'moss', server: 'https://jws.gkgeek-set.cn' }
   try {
     return { ...defaults, ...JSON.parse(fs.readFileSync(settingsPath(), 'utf-8')) }
   } catch {
@@ -24,7 +26,17 @@ function loadSettings() {
 }
 function saveSettings(s) {
   fs.mkdirSync(path.dirname(settingsPath()), { recursive: true })
-  fs.writeFileSync(settingsPath(), JSON.stringify(s, null, 2))
+  fs.writeFileSync(settingsPath(), JSON.stringify(s, null, 2), { mode: 0o600 })
+  fs.chmodSync(settingsPath(), 0o600)
+}
+
+function gateway() {
+  if (!apiGateway) {
+    const settings = loadSettings()
+    apiGateway = createSessionGateway({ fetchImpl: fetch, safeStorage, fs, path, dataDir: app.getPath('userData'),
+      server: settings.server, development: process.env.JWS_DESKTOP_DEV === '1' })
+  }
+  return apiGateway
 }
 
 /* ---------- 开机自启：LaunchAgent（开发态运行也可靠） ---------- */
@@ -103,7 +115,8 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      webSecurity: false, // 跨域直连服务器 API（个人桌面工具）
+      nodeIntegration: false,
+      webSecurity: true,
     },
   })
   win.setAlwaysOnTop(true, 'floating')
@@ -233,8 +246,11 @@ ipcMain.handle('get-settings', () => {
   return { ...s, hotkeyOk: !!s.hotkey && globalShortcut.isRegistered(s.hotkey) }
 })
 ipcMain.handle('set-settings', (_e, patch) => {
-  const s = { ...loadSettings(), ...patch }
+  const candidate = { ...loadSettings(), ...patch }
+  if (!isAllowedServer(candidate.server, process.env.JWS_DESKTOP_DEV === '1')) throw new Error('服务器地址不被允许')
+  const s = candidate
   saveSettings(s)
+  gateway().setServer(s.server)
   const hotkeyOk = applyHotkey(s.hotkey)
   try { setAutoLaunch(s.openAtLogin) } catch {}
   if (!expanded && win) {  // 收起态下即时按新尺寸重排（右缘钉住）
@@ -244,6 +260,10 @@ ipcMain.handle('set-settings', (_e, patch) => {
   }
   return { ...s, hotkeyOk }
 })
+
+ipcMain.handle('api-login', (_e, username, password) => gateway().login(username, password))
+ipcMain.handle('api-request', (_e, operation, body) => gateway().request(operation, body))
+ipcMain.handle('api-stream', (_e, operation, body) => gateway().stream(operation, body))
 
 app.whenReady().then(() => {
   createWindow()
