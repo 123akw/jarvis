@@ -8,7 +8,7 @@ vi.mock('./api.js', () => ({
   updateUser: vi.fn(),
 }))
 
-import { changePassword, createUser, getUsers } from './api.js'
+import { changePassword, createUser, getUsers, updateUser } from './api.js'
 import AccountSettings from './AccountSettings.jsx'
 
 describe('account settings', () => {
@@ -51,7 +51,7 @@ describe('account settings', () => {
     await waitFor(() => expect(changePassword).toHaveBeenCalledWith('old-password', 'new-password'))
     expect(screen.getByLabelText('当前口令').value).toBe('')
     expect(screen.getByText('口令已更新，请重新登录。')).toBeTruthy()
-    expect(onReauth).toHaveBeenCalledOnce()
+    expect(onReauth).toHaveBeenCalledWith('password-changed')
   })
 
   it('hands a 401 from Owner management back to the app login boundary', async () => {
@@ -60,5 +60,25 @@ describe('account settings', () => {
     render(<AccountSettings session={{ authed: true, username: 'owner', role: 'Owner' }} onReauth={onReauth} />)
 
     await waitFor(() => expect(onReauth).toHaveBeenCalledOnce())
+  })
+
+  it('updates role and active state, and retains a failed reset password', async () => {
+    getUsers.mockResolvedValue([{ id: 'u-2', username: 'member-two', role: 'Member', active: 1 }])
+    updateUser
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: true })
+      .mockRejectedValueOnce(new Error('reset failed'))
+    render(<AccountSettings session={{ authed: true, username: 'owner', role: 'Owner' }} />)
+    fireEvent.click(screen.getByRole('button', { name: '用户管理' }))
+    const role = await screen.findByLabelText('member-two 角色')
+    fireEvent.change(role, { target: { value: 'Owner' } })
+    await waitFor(() => expect(updateUser).toHaveBeenCalledWith('u-2', { role: 'Owner' }))
+    fireEvent.click(screen.getByRole('button', { name: '停用' }))
+    await waitFor(() => expect(updateUser).toHaveBeenCalledWith('u-2', { active: false }))
+    const reset = screen.getByLabelText('重置 member-two 口令')
+    fireEvent.change(reset, { target: { value: 'keep-on-failure' } })
+    fireEvent.click(screen.getByRole('button', { name: '重置口令' }))
+    await screen.findByRole('alert')
+    expect(reset.value).toBe('keep-on-failure')
   })
 })

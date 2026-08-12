@@ -1,7 +1,7 @@
 let csrfToken = ''
 
 async function parse(response) {
-  if (response.status === 401) throw new Error('401')
+  if (response.status === 401) { csrfToken = ''; throw new Error('401') }
   const data = await response.json()
   if (response.ok === false) throw new Error(data.error || '请求失败')
   return data
@@ -18,6 +18,7 @@ export function csrfHeaders() {
 }
 
 export async function login(username, password) {
+  csrfToken = ''
   const r = await fetch('/api/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -28,8 +29,8 @@ export async function login(username, password) {
 }
 
 export async function logout() {
-  await parse(await fetch('/api/logout', { method: 'POST', headers: csrfHeaders() }))
-  csrfToken = ''
+  try { await parse(await fetch('/api/logout', { method: 'POST', headers: csrfHeaders() })) }
+  finally { csrfToken = '' }
 }
 
 export async function getDashboard() {
@@ -81,7 +82,7 @@ export async function* chatStream(message, location = null, threadId = 'web', si
     body: JSON.stringify({ message, thread_id: threadId, location }),
     signal,
   })
-  if (r.status === 401) throw new Error('401')
+  if (r.status === 401) { csrfToken = ''; throw new Error('401') }
   if (!r.ok) throw new Error('请求失败')
   const reader = r.body.getReader()
   const dec = new TextDecoder()

@@ -225,7 +225,7 @@ npm install
 npm start
 ```
 
-首次启动后可在设置页把服务器地址改为 HTTPS 私有部署地址；只在设置 `JWS_DESKTOP_DEV=1` 时允许本机 `http://127.0.0.1` / `[::1]` 开发地址。桌面端会要求输入用户名和口令，认证 Token 只由 Electron 主进程保存于系统加密存储，渲染界面无法读取。悬浮球置顶并跨工作区显示，点击后向左展开快捷聊天；默认全局唤醒键为 `⌥Space`，也可修改或停用。开机自启通过 `~/Library/LaunchAgents/com.jws.jarvis.desktop.plist` 实现。
+首次启动会自动展开登录面板，可在登录面板或设置页把服务器地址改为 HTTPS 私有部署地址；只在设置 `JWS_DESKTOP_DEV=1` 时允许本机 `http://127.0.0.1` / `[::1]` 开发地址。桌面端会要求输入用户名和口令，认证 Token 只由 Electron 主进程保存于系统加密存储，渲染界面无法读取。悬浮球置顶并跨工作区显示，点击后向左展开快捷聊天；默认全局唤醒键为 `⌥Space`，也可修改或停用。开机自启通过 `~/Library/LaunchAgents/com.jws.jarvis.desktop.plist` 实现。
 
 ## 环境变量
 
@@ -348,7 +348,7 @@ node node_modules/electron/install.js
 <details>
 <summary><strong>可以把默认 Web 服务直接暴露到公网吗？</strong></summary>
 
-不建议。当前 `jarvis-web` 默认只监听 `127.0.0.1`，仓库内登录口令是固定的开发配置，不足以承担公网安全边界。生产使用至少应改造账号与密钥管理、使用 HTTPS 反向代理、设置访问控制和限流、收紧网络入口、保护并备份 `JARVIS_DATA_DIR`，同时按组织要求补充日志脱敏、依赖更新与安全审计。
+不建议直接暴露。当前 `jarvis-web` 默认只监听 `127.0.0.1`，首次启动必须通过环境变量创建唯一 Owner，并使用 Argon2id、可撤销会话、CSRF 和登录限流；仓库不再提供固定账号或开发口令。公网部署仍应使用 HTTPS 反向代理、限制网络入口、配置强随机 `JARVIS_SESSION_SECRET` 与 Owner 口令、定期备份 `JARVIS_DATA_DIR`，并按组织要求补充日志审计、依赖更新和边界防护。
 
 </details>
 

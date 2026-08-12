@@ -39,4 +39,20 @@ describe('HUD personal WeChat entry', () => {
     expect(await screen.findByRole('dialog', { name: '接入个人微信' }))
       .toBeInTheDocument()
   })
+
+  it('keeps a long Member account entry available on a narrow screen and hides WeChat', () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
+    render(<Hud session={{ username: 'very-long-member-name-that-must-not-push-controls-away', role: 'Member' }} onLogout={() => {}} />)
+    expect(screen.getByRole('button', { name: '账户设置' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: '接入个人微信' })).toBeNull()
+  })
+
+  it('returns to login even if logout fails', async () => {
+    global.fetch.mockRejectedValueOnce(new Error('offline'))
+    const onLogout = vi.fn()
+    const user = userEvent.setup()
+    render(<Hud session={{ username: 'owner', role: 'Owner' }} onLogout={onLogout} />)
+    await user.click(screen.getByTitle('退出登录'))
+    await vi.waitFor(() => expect(onLogout).toHaveBeenCalledOnce())
+  })
 })

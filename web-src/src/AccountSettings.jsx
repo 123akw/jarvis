@@ -31,7 +31,7 @@ export default function AccountSettings({ session, onReauth, onClose }) {
       await changePassword(currentPassword, newPassword)
       setCurrentPassword(''); setNewPassword('')
       setPasswordMessage('口令已更新，请重新登录。')
-      onReauth?.()
+      onReauth?.('password-changed')
     } catch (e) { if (e.message === '401') expired(); else setError('无法更新口令。') }
   }
 
@@ -50,7 +50,8 @@ export default function AccountSettings({ session, onReauth, onClose }) {
     try {
       await updateUser(id, patch)
       await loadUsers()
-    } catch (e) { if (e.message === '401') expired(); else setError('无法更新用户。') }
+      return true
+    } catch (e) { if (e.message === '401') expired(); else setError('无法更新用户。'); return false }
   }
 
   return (
@@ -81,10 +82,10 @@ export default function AccountSettings({ session, onReauth, onClose }) {
 
 function UserRow({ user, onPatch }) {
   const [password, setPassword] = useState('')
-  return <div className="user-row"><span>{user.username}</span>
+  return <div className="user-row"><span className="user-name" title={user.username}>{user.username}</span>
     <select aria-label={`${user.username} 角色`} value={user.role} onChange={e => onPatch(user.id, { role: e.target.value })}><option>Member</option><option>Owner</option></select>
     <button type="button" onClick={() => onPatch(user.id, { active: !Boolean(user.active) })}>{user.active ? '停用' : '启用'}</button>
     <label className="sr-only">重置 {user.username} 口令</label><input aria-label={`重置 ${user.username} 口令`} type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="new-password" />
-    <button type="button" disabled={!password} onClick={async () => { await onPatch(user.id, { password }); setPassword('') }}>重置口令</button>
+    <button type="button" disabled={!password} onClick={async () => { if (await onPatch(user.id, { password })) setPassword('') }}>重置口令</button>
   </div>
 }

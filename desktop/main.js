@@ -3,11 +3,16 @@ const { execSync } = require('child_process')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
-const { createSessionGateway, isAllowedServer } = require('./session.js')
+const { pathToFileURL } = require('url')
+const { createSessionGateway } = require('./session.js')
+const { createApiHandlers } = require('./ipc-api.js')
+const { assertTrustedSender, hardenWindow, validateSettingsPatch } = require('./security.js')
 
 const PANEL = { w: 420, h: 640 }
 const ballWin = size => size + 8  // 球体 + 辉光留白
 const PLIST = path.join(os.homedir(), 'Library/LaunchAgents/com.jws.jarvis.desktop.plist')
+const INDEX_PATH = path.join(__dirname, 'index.html')
+const INDEX_URL = pathToFileURL(INDEX_PATH).href
 let win = null
 let expanded = false
 let apiGateway = null
@@ -121,7 +126,8 @@ function createWindow() {
   })
   win.setAlwaysOnTop(true, 'floating')
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-  win.loadFile('index.html')
+  hardenWindow(win, INDEX_URL)
+  win.loadFile(INDEX_PATH)
 }
 
 /* ---------- Claude Code 编程进度采集（读 ~/.claude/projects 会话记录） ---------- */
@@ -223,34 +229,56 @@ function collectCoding() {
 
 /* ---------- 悬浮球 JS 拖动（整球可拖，松手未移动视为点击） ---------- */
 let dragOffset = null
-ipcMain.on('ball-drag-start', (_e, { mx, my }) => {
+function trusted(event) { assertTrustedSender(event, win, INDEX_URL) }
+
+ipcMain.on('ball-drag-start', (event, point) => {
+  trusted(event)
+  if (!point || !Number.isFinite(point.mx) || !Number.isFinite(point.my)) return
+  const { mx, my } = point
   const [wx, wy] = win.getPosition()
   dragOffset = { ox: mx - wx, oy: my - wy }
 })
-ipcMain.on('ball-drag-move', (_e, { mx, my }) => {
+ipcMain.on('ball-drag-move', (event, point) => {
+  trusted(event)
+  if (!point || !Number.isFinite(point.mx) || !Number.isFinite(point.my)) return
+  const { mx, my } = point
   if (!dragOffset) return
   win.setPosition(Math.round(mx - dragOffset.ox), Math.round(my - dragOffset.oy))
 })
-ipcMain.on('ball-drag-end', () => { dragOffset = null })
+ipcMain.on('ball-drag-end', event => { trusted(event); dragOffset = null })
 
 /* ---------- IPC ---------- */
-ipcMain.handle('clipboard-text', () => clipboard.readText() || '')
-ipcMain.handle('coding-status', () => collectCoding())
-ipcMain.handle('toggle', () => toggleWindow())
-ipcMain.handle('collapse', () => {
+ipcMain.handle('clipboard-text', event => { trusted(event); return clipboard.readText() || '' })
+ipcMain.handle('coding-status', event => { trusted(event); return collectCoding() })
+ipcMain.handle('toggle', event => { trusted(event); return toggleWindow() })
+ipcMain.handle('collapse', event => {
+  trusted(event)
   if (expanded) toggleWindow()
   return expanded
 })
-ipcMain.handle('get-settings', () => {
+ipcMain.handle('show-login', event => {
+  trusted(event)
+  if (!expanded) toggleWindow()
+  win.show(); win.focus()
+  win.webContents.send('set-expanded', true)
+  return true
+})
+ipcMain.handle('get-settings', event => {
+  trusted(event)
   const s = loadSettings()
   return { ...s, hotkeyOk: !!s.hotkey && globalShortcut.isRegistered(s.hotkey) }
 })
-ipcMain.handle('set-settings', (_e, patch) => {
-  const candidate = { ...loadSettings(), ...patch }
-  if (!isAllowedServer(candidate.server, process.env.JWS_DESKTOP_DEV === '1')) throw new Error('服务器地址不被允许')
+ipcMain.handle('set-settings', (event, suppliedPatch) => {
+  trusted(event)
+  const previous = loadSettings()
+  const patch = validateSettingsPatch(suppliedPatch, process.env.JWS_DESKTOP_DEV === '1')
+  const candidate = { ...previous, ...patch }
   const s = candidate
-  saveSettings(s)
-  gateway().setServer(s.server)
+  if (s.server !== previous.server) gateway().setServer(s.server)
+  try { saveSettings(s) } catch (error) {
+    if (s.server !== previous.server) gateway().setServer(previous.server)
+    throw error
+  }
   const hotkeyOk = applyHotkey(s.hotkey)
   try { setAutoLaunch(s.openAtLogin) } catch {}
   if (!expanded && win) {  // 收起态下即时按新尺寸重排（右缘钉住）
@@ -261,9 +289,19 @@ ipcMain.handle('set-settings', (_e, patch) => {
   return { ...s, hotkeyOk }
 })
 
-ipcMain.handle('api-login', (_e, username, password) => gateway().login(username, password))
-ipcMain.handle('api-request', (_e, operation, body) => gateway().request(operation, body))
-ipcMain.handle('api-stream', (_e, operation, body) => gateway().stream(operation, body))
+const apiHandlers = createApiHandlers({
+  gateway: {
+    login: (...args) => gateway().login(...args),
+    request: (...args) => gateway().request(...args),
+    stream: (...args) => gateway().stream(...args),
+  },
+  getWindow: () => win,
+  indexUrl: INDEX_URL,
+})
+ipcMain.handle('api-login', apiHandlers.login)
+ipcMain.handle('api-request', apiHandlers.request)
+ipcMain.handle('api-stream-start', apiHandlers.start)
+ipcMain.handle('api-stream-cancel', apiHandlers.cancel)
 
 app.whenReady().then(() => {
   createWindow()

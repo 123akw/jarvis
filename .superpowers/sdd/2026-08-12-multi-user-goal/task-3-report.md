@@ -20,9 +20,18 @@ Status: complete for the Task 3 scope.
 ## Security and delivery notes
 
 - Web retains the full server session object, shows username/role, sends CSRF on every account write, and routes 401 back to the app login boundary. Only Owner sees WeChat and user-management controls; the server remains the enforcement boundary.
-- The Electron renderer no longer has a server URL, direct backend `fetch`, authenticated header, token, or hardcoded credentials. The main process owns a safeStorage-encrypted, `0600` session file and a fixed operation whitelist; preload removes the legacy `jws_token` before renderer interaction.
+- The Electron renderer may display/edit the allowlisted self-hosted server endpoint, but has no direct backend `fetch`, authenticated header, token, ciphertext, or hardcoded credentials. The main process owns a safeStorage-encrypted, `0600` session file and a fixed operation whitelist; preload removes the legacy `jws_token` before renderer interaction.
 - Sensitive scan found only the expected main-process token response parsing and preload removal of the legacy key; no renderer token/header/direct-fetch path and no `admin/admin` or `sk-` production value.
 
 ## Remaining concern
 
 - The generated Web bundle still exceeds Vite's 500 kB advisory threshold; this predates the feature and is not a security regression. No production deployment or external network request was made.
+
+## Review fix round 1
+
+- RED: desktop security/IPC/login-controller modules were absent; request bodies, sender frames, navigation, persistence ordering, origin binding and incremental SSE contracts failed **8 desktop tests**. Web logout CSRF cleanup, password-change notice persistence, failed reset retention and logout fail-closed behavior failed **5 tests**.
+- Desktop GREEN: every IPC handler now verifies the current local `index.html` main frame; navigation and new windows are denied; settings, credentials and every API operation have exact schemas, fixed `desktop` thread and bounded fields. Login atomically persists origin-bound safeStorage ciphertext before publishing the in-memory token; persistence/decrypt/server-switch failures fail closed.
+- Streaming GREEN: main parses SSE incrementally with per-event, total-byte and event-count limits and forwards only parsed events on one fixed IPC channel. Renderer paints tokens as they arrive, can cancel, and returns 401 to the login overlay. The first unauthenticated launch automatically expands while preserving allowlisted self-hosted server configuration.
+- Web GREEN: all account writes carry CSRF; any 401 or logout attempt clears CSRF. Password-change reason survives AccountSettings unmount into Login; all Owner actions, reset failure retention, narrow long usernames and Member WeChat hiding are covered.
+- Reviewer Important 1 pushback: the desktop server endpoint remains visible/editable because the Task 3 brief and self-hosted product flow require it, and an endpoint is not an authentication secret. Renderer still cannot perform backend `fetch`, construct auth headers, or access token/ciphertext; all network and authentication authority remains in validated main-process handlers.
+- Focused final verification: `node --test desktop/*.test.js` → **30 passed**; `npm --prefix web-src test -- --run` → **16 passed**; Web build and the specified Python account/auth/thread/tenant/WeChat/OpenAI suite passed. The existing FastAPI TestClient deprecation and Vite bundle-size advisories remain unchanged.

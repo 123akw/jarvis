@@ -93,3 +93,94 @@ test('safeStorage being unavailable fails closed without writing a plaintext tok
   await assert.rejects(() => instance.login('owner', 'test-password'), /encryption/i)
   assert.equal(fs.existsSync(path.join(directory, 'desktop-session.enc')), false)
 })
+
+test('request schemas reject extra fields, wrong desktop threads, and oversized messages', async () => {
+  const { instance } = gateway()
+  await assert.rejects(() => instance.request('session', { extra: true }), /body/i)
+  await assert.rejects(() => instance.request('history', { thread_id: 'other' }), /thread/i)
+  await assert.rejects(() => instance.request('chat', { thread_id: 'desktop', message: 'x'.repeat(12001) }), /message/i)
+  await assert.rejects(() => instance.request('chat', { thread_id: 'desktop', message: 'ok', extra: true }), /field/i)
+})
+
+test('login publishes no token when atomic persistence fails', async () => {
+  const real = fs
+  const failingFs = { ...real, renameSync: () => { throw new Error('rename failed') } }
+  const { instance, directory, calls } = gateway({ fs: failingFs })
+  await assert.rejects(() => instance.login('owner', 'test-password'), /rename failed/)
+  await instance.request('dashboard')
+  assert.equal(calls.at(-1).options.headers['X-JWS-Token'], undefined)
+  assert.equal(real.existsSync(path.join(directory, 'desktop-session.enc')), false)
+})
+
+test('encrypted sessions are bound to their server origin and decrypt failures fail closed', async () => {
+  const first = gateway()
+  await first.instance.login('owner', 'test-password')
+  const foreignCalls = []
+  const foreign = createSessionGateway({
+    fetchImpl: async (url, options) => { foreignCalls.push({ url, options }); return response(200) },
+    safeStorage: {
+      isEncryptionAvailable: () => true,
+      encryptString: value => Buffer.from(value).toString('base64'),
+      decryptString: value => Buffer.from(value.toString(), 'base64').toString(),
+    }, fs, path, dataDir: first.directory, server: 'https://other.test',
+  })
+  await foreign.request('dashboard')
+  assert.equal(foreignCalls[0].options.headers['X-JWS-Token'], undefined)
+  assert.equal(fs.existsSync(path.join(first.directory, 'desktop-session.enc')), false)
+
+  fs.writeFileSync(path.join(first.directory, 'desktop-session.enc'), 'broken', { mode: 0o600 })
+  const broken = createSessionGateway({
+    fetchImpl: async (_url, options) => response(200, { authenticated: Boolean(options.headers['X-JWS-Token']) }),
+    safeStorage: { isEncryptionAvailable: () => true, decryptString: () => { throw new Error('decrypt failed') } },
+    fs, path, dataDir: first.directory, server: 'https://other.test',
+  })
+  assert.deepEqual((await broken.request('dashboard')).data, { authenticated: false })
+  assert.equal(fs.existsSync(path.join(first.directory, 'desktop-session.enc')), false)
+})
+
+test('server switching clears credentials before publishing the new origin', async () => {
+  const real = fs
+  const failingFs = { ...real, unlinkSync: () => { throw new Error('clear failed') } }
+  const { instance } = gateway({ fs: failingFs })
+  await instance.login('owner', 'test-password')
+  await assert.rejects(async () => instance.setServer('https://new.test'), /clear failed/)
+  assert.equal(instance.server(), 'https://example.test')
+})
+
+test('SSE events are emitted incrementally without response.text buffering and obey event limits', async () => {
+  let release
+  const encoder = new TextEncoder()
+  const body = new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode('data: {"type":"token","text":"A"}\n\n'))
+      release = () => { controller.enqueue(encoder.encode('data: {"type":"token","text":"B"}\n\n')); controller.close() }
+    },
+  })
+  const { instance } = gateway({ fetchImpl: async () => ({ status: 200, ok: true, body,
+    text: async () => { throw new Error('must not buffer') } }) })
+  const events = []
+  let finished = false
+  const pending = instance.stream('chat', { thread_id: 'desktop', message: 'hello' }, { onEvent: event => events.push(event) })
+    .then(value => { finished = true; return value })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(events, [{ type: 'token', text: 'A' }])
+  assert.equal(finished, false)
+  release()
+  assert.deepEqual(await pending, { status: 200, ok: true })
+
+  const huge = new ReadableStream({ start(controller) { controller.enqueue(encoder.encode(`data: ${'x'.repeat(65537)}\n\n`)); controller.close() } })
+  const limited = gateway({ fetchImpl: async () => ({ status: 200, ok: true, body: huge }) }).instance
+  await assert.rejects(() => limited.stream('chat', { thread_id: 'desktop', message: 'hello' }, { onEvent: () => {} }), /limit/i)
+})
+
+test('streaming 401 clears persisted authentication and returns a stable re-login result', async () => {
+  const first = gateway()
+  await first.instance.login('owner', 'test-password')
+  const denied = createSessionGateway({ fetchImpl: async () => response(401, { error: 'expired' }), safeStorage: {
+    isEncryptionAvailable: () => true,
+    encryptString: value => Buffer.from(value).toString('base64'),
+    decryptString: value => Buffer.from(value.toString(), 'base64').toString(),
+  }, fs, path, dataDir: first.directory, server: 'https://example.test' })
+  assert.deepEqual(await denied.stream('chat', { thread_id: 'desktop', message: 'hello' }, { onEvent: () => {} }), { status: 401, ok: false })
+  assert.equal(fs.existsSync(path.join(first.directory, 'desktop-session.enc')), false)
+})

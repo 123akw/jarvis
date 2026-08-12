@@ -43,21 +43,46 @@ async function api(operation, body = {}) {
   const result = await window.jws.api.request(operation, body)
   return { status: result.status, ok: result.ok, json: async () => result.data }
 }
-const apiStream = (operation, body) => window.jws.api.stream(operation, body)
-function requireLogin() { document.body.classList.add('needs-login'); state.textContent = '请登录' }
+function requireLogin() {
+  document.body.classList.add('needs-login'); state.textContent = '请登录'
+  void window.jws.showLogin()
+}
+const loginController = window.JWSLoginController.createLoginController({
+  api: window.jws.api,
+  getSettings: window.jws.getSettings,
+  setSettings: window.jws.setSettings,
+  showLogin: window.jws.showLogin,
+  setLoginVisible: visible => document.body.classList.toggle('needs-login', visible),
+  clearPassword: () => { $('#desktop-password').value = '' },
+  onAuthenticated: async () => {
+    state.textContent = '在线'
+    await loadHistory()
+    void syncCoding()
+  },
+})
 async function submitDesktopLogin(event) {
   event.preventDefault()
   const username = $('#desktop-username').value.trim()
   const password = $('#desktop-password').value
   $('#desktop-login-error').textContent = ''
-  const result = await window.jws.api.login(username, password)
-  $('#desktop-password').value = ''
-  if (!result.ok) { $('#desktop-login-error').textContent = '身份未确认，请重试'; return }
-  document.body.classList.remove('needs-login')
-  state.textContent = '在线'
-  await loadHistory(); void syncCoding()
+  try {
+    const result = await loginController.login(username, password)
+    if (!result.ok) $('#desktop-login-error').textContent = '身份未确认，请重试'
+  } catch { $('#desktop-login-error').textContent = '无法安全保存登录态，请重试' }
 }
 $('#desktop-login-form').addEventListener('submit', event => { void submitDesktopLogin(event) })
+$('#desktop-server-save').addEventListener('click', async () => {
+  const status = $('#desktop-server-state')
+  status.textContent = ''
+  try {
+    await loginController.saveServer($('#desktop-server').value)
+    status.textContent = '服务器地址已保存，请登录'
+    status.className = 'desktop-login-state ok'
+  } catch (error) {
+    status.textContent = error.message || '服务器地址不被允许'
+    status.className = 'desktop-login-state bad'
+  }
+})
 
 const EMPTY_HTML = `<div class="empty">这里是桌面快捷通道。有什么吩咐？</div>
 <div class="qchips">
@@ -82,12 +107,13 @@ async function loadHistory() {
 }
 
 let busy = false
+let currentStream = null
 async function ask() {
   const text = box.value.trim()
   if (!text || busy) return
   box.value = ''; box.style.height = 'auto'
   clipbar.style.display = 'none'
-  busy = true; send.disabled = true
+  busy = true; send.textContent = '■'; send.title = '停止生成'
   document.body.classList.add('busy')
   state.textContent = '思考中…'
   const empty = log.querySelector('.empty'); if (empty) empty.remove()
@@ -96,34 +122,34 @@ async function ask() {
   let raw = ''
   let toolLine = null
   try {
-    const r = await apiStream('chat', { message: text, thread_id: THREAD })
-    if (r.status === 401) { requireLogin(); throw new Error('登录已失效，请重新登录') }
-    for (const ev of r.events) {
-        if (ev.type === 'token') {
-          raw += ev.text
-          el.innerHTML = md(raw) + '<span class="caret"></span>'
-          log.scrollTop = log.scrollHeight
-        } else if (ev.type === 'tool_start') {
-          if (!toolLine) {
-            toolLine = document.createElement('div')
-            toolLine.className = 'tool'
-            el.before(toolLine)
-          }
-          toolLine.textContent = `⚙ ${ev.name} …`
-        } else if (ev.type === 'tool_result') {
-          if (toolLine) toolLine.textContent = `⚙ ${ev.name} ✓`
-        } else if (ev.type === 'error') {
-          sys(ev.message)
+    currentStream = window.JWSChatStream.startChatStream(window.jws.api, { message: text, thread_id: THREAD }, { onUnauthorized: requireLogin, onEvent: ev => {
+      if (ev.type === 'token') {
+        raw += ev.text
+        el.innerHTML = md(raw) + '<span class="caret"></span>'
+        log.scrollTop = log.scrollHeight
+      } else if (ev.type === 'tool_start') {
+        if (!toolLine) {
+          toolLine = document.createElement('div')
+          toolLine.className = 'tool'
+          el.before(toolLine)
         }
-    }
+        toolLine.textContent = `⚙ ${ev.name} …`
+      } else if (ev.type === 'tool_result') {
+        if (toolLine) toolLine.textContent = `⚙ ${ev.name} ✓`
+      } else if (ev.type === 'error') sys(ev.message)
+    } })
+    const r = await currentStream.done
+    if (r.status === 401) { requireLogin(); throw new Error('登录已失效，请重新登录') }
+    if (!r.ok && !r.cancelled) throw new Error('链路中断')
     el.innerHTML = md(raw) || '<span style="color:var(--dim)">（无回复）</span>'
   } catch (e) {
     el.innerHTML = md(raw)
     sys(e.message)
   } finally {
-    busy = false; send.disabled = false
+    currentStream = null
+    busy = false; send.textContent = '↑'; send.title = '发送'
     document.body.classList.remove('busy')
-    state.textContent = '在线'
+    if (!document.body.classList.contains('needs-login')) state.textContent = '在线'
     box.focus()
   }
 }
@@ -189,7 +215,7 @@ clipbar.addEventListener('click', () => {
   ask()
 })
 
-send.addEventListener('click', ask)
+send.addEventListener('click', () => { if (busy && currentStream) void currentStream.cancel(); else void ask() })
 box.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask() }
 })
@@ -468,15 +494,12 @@ $('#s-save').addEventListener('click', async () => {
   }
 })
 
-/* 启动：仅主进程可恢复安全会话；失效时显示口令表单。 */
+/* 启动：仅主进程可恢复安全会话；失效时自动展开登录与自托管配置。 */
 ;(async () => {
   try {
-    const probe = await api('session')
-    if (probe.ok && (await probe.json()).authed) {
-      state.textContent = '在线'
-      await loadHistory()
-      syncCoding()  // 启动即同步一次编程进度
-    } else requireLogin()
+    const result = await loginController.init()
+    $('#desktop-server').value = result.server
+    if (!result.authenticated) state.textContent = '请登录'
   } catch (e) {
     requireLogin()
     sys('连不上服务器：' + e.message)

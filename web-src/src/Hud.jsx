@@ -40,8 +40,7 @@ export default function Hud({ session, onLogout }) {
   }, [])
 
   async function quit() {
-    await logout()
-    onLogout()
+    try { await logout() } catch { /* local state still fails closed */ } finally { onLogout() }
   }
 
   function selectThread(id) {
@@ -58,7 +57,7 @@ export default function Hud({ session, onLogout }) {
         <span className="wordmark">J.A.R.V.I.S.</span>
         <span className="tagline">私人管家 · v{dash?.version ?? '—'}</span>
         <span className="spacer" />
-        <button className="chip navbtn" onClick={() => setAccountOpen(true)} aria-label="账户设置">{session?.username || '账号'}{session?.role ? ` · ${session.role}` : ''}</button>
+        <button className="chip navbtn account-chip" onClick={() => setAccountOpen(true)} aria-label="账户设置"><span>{session?.username || '账号'}{session?.role ? ` · ${session.role}` : ''}</span></button>
         <span className="chip hide-sm">{dash?.model ?? '—'}</span>
         <span className="chip online hide-sm"><span className="dot" />{dash?.place || '在线'}</span>
         <span className="chip hide-sm">{clock}</span>

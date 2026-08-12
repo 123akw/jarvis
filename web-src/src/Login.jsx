@@ -62,7 +62,7 @@ function greeting() {
 
 const pick = arr => arr[Math.floor(Math.random() * arr.length)]
 
-export default function Login({ onAuthed }) {
+export default function Login({ onAuthed, notice = '' }) {
   const [u, setU] = useState('')
   const [p, setP] = useState('')
   const [fail, setFail] = useState(false)
@@ -144,6 +144,7 @@ export default function Login({ onAuthed }) {
 
       <form ref={cardRef} className="login-card" onSubmit={submit}>
         <div className="login-sub">身份验证 // IDENTITY CHECK</div>
+        {notice ? <div className="login-notice" role="status">{notice}</div> : null}
         <label className="field">
           <span>用户名</span>
           <input value={u} onChange={e => setU(e.target.value)}
