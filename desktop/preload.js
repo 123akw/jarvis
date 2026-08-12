@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('jws', {
   getSettings: () => ipcRenderer.invoke('get-settings'),
   setSettings: patch => ipcRenderer.invoke('set-settings', patch),
   showLogin: () => ipcRenderer.invoke('show-login'),
+  openProviderLink: url => ipcRenderer.invoke('open-provider-link', url),
   onForceExpand: eventApi.onForceExpand,
   onSetExpanded: eventApi.onSetExpanded,
   api: createPreloadApi(ipcRenderer, randomUUID),

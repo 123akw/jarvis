@@ -422,9 +422,16 @@ class TicketSearchArgs(BaseModel):
     date: str = Field(default="", max_length=30, description="可选日期或月份")
 
 
-def make_entertainment_tools(search_service: SearchService) -> tuple[BaseTool, ...]:
+def make_entertainment_tools(
+    search_service: SearchService,
+    *,
+    pandascore_token_getter: Callable[[], str] | None = None,
+) -> tuple[BaseTool, ...]:
     """Bind all entertainment tools to one caller-owned search service."""
-    entertainment = EntertainmentSearch(search_service=search_service)
+    entertainment = EntertainmentSearch(
+        search_service=search_service,
+        pandascore_token_getter=pandascore_token_getter,
+    )
 
     @tool("movie_ratings", args_schema=MovieRatingsArgs)
     def bound_movie_ratings(title: str, year: str = "") -> str:

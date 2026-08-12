@@ -123,7 +123,15 @@ def base_url() -> str:
 
 
 def api_key() -> str:
-    return os.environ["DEEPSEEK_API_KEY"]
+    generic = os.getenv("JARVIS_API_KEY", "").strip()
+    if generic:
+        return generic
+    provider = os.getenv("JARVIS_PROVIDER", "deepseek").strip().lower()
+    if provider == "openai" and os.getenv("OPENAI_API_KEY", "").strip():
+        return os.environ["OPENAI_API_KEY"].strip()
+    if provider == "deepseek" and os.getenv("DEEPSEEK_API_KEY", "").strip():
+        return os.environ["DEEPSEEK_API_KEY"].strip()
+    raise KeyError("JARVIS_API_KEY")
 
 
 def tavily_api_key() -> str:

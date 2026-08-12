@@ -15,6 +15,13 @@ const OPERATIONS = {
   wechatStatus: { method: 'GET', path: () => '/api/wechat/status', validate: emptyBody },
   wechatConnect: { method: 'POST', path: () => '/api/wechat/connect', validate: emptyBody },
   wechatDisconnect: { method: 'POST', path: () => '/api/wechat/disconnect', validate: emptyBody },
+  providerSettings: { method: 'GET', path: () => '/api/settings/providers', validate: emptyBody },
+  providerTest: { method: 'POST', path: () => '/api/settings/llm/test', validate: llmSettingsBody },
+  providerSave: { method: 'PUT', path: () => '/api/settings/llm', validate: llmSettingsBody },
+  providerRestore: { method: 'DELETE', path: () => '/api/settings/llm', validate: settingsDeleteBody, requestBody: true },
+  integrationTest: { method: 'POST', path: body => `/api/settings/integrations/${body.name}/test`, validate: integrationSettingsBody, requestBody: withoutName },
+  integrationSave: { method: 'PUT', path: body => `/api/settings/integrations/${body.name}`, validate: integrationSettingsBody, requestBody: withoutName },
+  integrationRestore: { method: 'DELETE', path: body => `/api/settings/integrations/${body.name}`, validate: integrationDeleteBody, requestBody: withoutName },
 }
 
 function isAllowedServer(value, development) {
@@ -81,9 +88,9 @@ function createSessionGateway({ fetchImpl, safeStorage, fs, path, dataDir, serve
   function requestInit(spec, body, signal) {
     const headers = token ? { 'X-JWS-Token': token } : {}
     const init = { method: spec.method, headers, ...(signal ? { signal } : {}) }
-    if (spec.method !== 'GET' && spec.method !== 'DELETE') {
+    if (spec.method !== 'GET' && (spec.method !== 'DELETE' || spec.requestBody)) {
       headers['Content-Type'] = 'application/json'
-      init.body = JSON.stringify(body)
+      init.body = JSON.stringify(typeof spec.requestBody === 'function' ? spec.requestBody(body) : body)
     }
     return init
   }
@@ -216,5 +223,47 @@ function codingItem(item) {
   if ('files' in item && (!Array.isArray(item.files) || item.files.length > 3 || item.files.some(file => typeof file !== 'string' || file.length > 128))) throw new Error('invalid coding files')
   return item
 }
+
+function requiredString(value, label, max = 2048) {
+  if (typeof value !== 'string' || !value || value.length > max) throw new Error(`invalid ${label}`)
+  return value
+}
+function optionalSecret(value, label) {
+  if (value !== null && (typeof value !== 'string' || value.length > 4096)) throw new Error(`invalid ${label}`)
+  return value
+}
+function generation(value) {
+  if (!Number.isInteger(value) || value < 0 || value > Number.MAX_SAFE_INTEGER) throw new Error('invalid generation')
+  return value
+}
+function llmSettingsBody(body) {
+  exact(body, ['provider', 'base_url', 'model', 'api_key', 'keep_existing_key', 'admin_password', 'expected_generation'])
+  if (!['openai', 'deepseek', 'bailian', 'siliconflow', 'custom'].includes(body.provider)) throw new Error('invalid provider')
+  if (typeof body.base_url !== 'string' || body.base_url.length > 2048) throw new Error('invalid base url')
+  requiredString(body.model, 'model', 200); optionalSecret(body.api_key, 'api key')
+  if (typeof body.keep_existing_key !== 'boolean') throw new Error('invalid keep flag')
+  requiredString(body.admin_password, 'password', 1024); generation(body.expected_generation)
+  return { ...body }
+}
+function settingsDeleteBody(body) {
+  exact(body, ['admin_password', 'expected_generation'])
+  requiredString(body.admin_password, 'password', 1024); generation(body.expected_generation)
+  return { ...body }
+}
+function integrationSettingsBody(body) {
+  exact(body, ['name', 'enabled', 'base_url', 'api_key', 'keep_existing_key', 'admin_password', 'expected_generation'])
+  if (!['searxng', 'tavily', 'pandascore'].includes(body.name)) throw new Error('invalid integration')
+  if (typeof body.enabled !== 'boolean' || typeof body.base_url !== 'string' || body.base_url.length > 2048) throw new Error('invalid integration body')
+  optionalSecret(body.api_key, 'api key')
+  if (typeof body.keep_existing_key !== 'boolean') throw new Error('invalid keep flag')
+  requiredString(body.admin_password, 'password', 1024); generation(body.expected_generation)
+  return { ...body }
+}
+function integrationDeleteBody(body) {
+  exact(body, ['name', 'admin_password', 'expected_generation'])
+  if (!['searxng', 'tavily', 'pandascore'].includes(body.name)) throw new Error('invalid integration')
+  return { name: body.name, ...settingsDeleteBody({ admin_password: body.admin_password, expected_generation: body.expected_generation }) }
+}
+function withoutName(body) { const { name: _name, ...rest } = body; return rest }
 
 module.exports = { createSessionGateway, isAllowedServer, readEvents, replaceSessionGateway }

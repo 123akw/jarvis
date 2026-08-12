@@ -1,4 +1,4 @@
-const { app, BrowserWindow, clipboard, globalShortcut, ipcMain, screen, safeStorage } = require('electron')
+const { app, BrowserWindow, clipboard, globalShortcut, ipcMain, screen, safeStorage, shell } = require('electron')
 const { execSync } = require('child_process')
 const fs = require('fs')
 const os = require('os')
@@ -7,6 +7,7 @@ const { pathToFileURL } = require('url')
 const { createSessionGateway, replaceSessionGateway } = require('./session.js')
 const { createApiHandlers } = require('./ipc-api.js')
 const { assertTrustedSender, hardenWindow, validateSettingsPatch } = require('./security.js')
+const { isAllowedProviderLink } = require('./provider-links.js')
 
 const PANEL = { w: 420, h: 640 }
 const ballWin = size => size + 8  // 球体 + 辉光留白
@@ -261,6 +262,12 @@ ipcMain.handle('show-login', event => {
   if (!expanded) toggleWindow()
   win.show(); win.focus()
   win.webContents.send('set-expanded', true)
+  return true
+})
+ipcMain.handle('open-provider-link', async (event, url) => {
+  trusted(event)
+  if (!isAllowedProviderLink(url)) throw new Error('provider link is not allowed')
+  await shell.openExternal(url)
   return true
 })
 ipcMain.handle('get-settings', event => {

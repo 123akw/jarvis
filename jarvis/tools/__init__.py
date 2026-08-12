@@ -74,13 +74,13 @@ def _bind_search_service(tool_item: BaseTool, service: SearchService) -> BaseToo
     return tool_item
 
 
-def build_tools(search_service: SearchService | None = None) -> list[BaseTool]:
+def build_tools(search_service: SearchService | None = None, *, pandascore_token_getter=None) -> list[BaseTool]:
     """Build exactly one registry whose five web tools share a search service."""
     service = build_search_service() if search_service is None else search_service
     search_tools = [
         _make_web_search_tool(service),
         make_web_extract_tool(service),
-        *make_entertainment_tools(service),
+        *make_entertainment_tools(service, pandascore_token_getter=pandascore_token_getter),
     ]
     return [*_LOCAL_TOOLS, *(_bind_search_service(item, service) for item in search_tools)]
 

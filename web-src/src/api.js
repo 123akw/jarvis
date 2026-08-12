@@ -3,7 +3,12 @@ let csrfToken = ''
 async function parse(response) {
   if (response.status === 401) { csrfToken = ''; throw new Error('401') }
   const data = await response.json()
-  if (response.ok === false) throw new Error(data.error || '请求失败')
+  if (response.ok === false) {
+    const error = new Error(data.error || '请求失败')
+    error.code = data.code || ''
+    error.status = response.status
+    throw error
+  }
   return data
 }
 
@@ -73,6 +78,14 @@ export async function updateUser(id, patch) {
     method: 'PATCH', headers: { 'Content-Type': 'application/json', ...csrfHeaders() }, body: JSON.stringify(patch),
   }))
 }
+
+export async function getProviderSettings() { return parse(await fetch('/api/settings/providers')) }
+export async function testLLMSettings(body) { return parse(await fetch('/api/settings/llm/test', { method: 'POST', headers: { 'Content-Type': 'application/json', ...csrfHeaders() }, body: JSON.stringify(body) })) }
+export async function saveLLMSettings(body) { return parse(await fetch('/api/settings/llm', { method: 'PUT', headers: { 'Content-Type': 'application/json', ...csrfHeaders() }, body: JSON.stringify(body) })) }
+export async function restoreLLMSettings(body) { return parse(await fetch('/api/settings/llm', { method: 'DELETE', headers: { 'Content-Type': 'application/json', ...csrfHeaders() }, body: JSON.stringify(body) })) }
+export async function testIntegration(name, body) { return parse(await fetch(`/api/settings/integrations/${encodeURIComponent(name)}/test`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...csrfHeaders() }, body: JSON.stringify(body) })) }
+export async function saveIntegration(name, body) { return parse(await fetch(`/api/settings/integrations/${encodeURIComponent(name)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...csrfHeaders() }, body: JSON.stringify(body) })) }
+export async function restoreIntegration(name, body) { return parse(await fetch(`/api/settings/integrations/${encodeURIComponent(name)}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json', ...csrfHeaders() }, body: JSON.stringify(body) })) }
 
 /** SSE 流式对话，逐事件产出 {type, ...}；location 为浏览器定位 {lat, lon}，可空 */
 export async function* chatStream(message, location = null, threadId = 'web', signal = null) {

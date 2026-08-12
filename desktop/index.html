@@ -173,10 +173,10 @@ body.show-settings #settings{display:flex}
 .s-row{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:14px}
 .s-row.s-col{flex-direction:column;align-items:stretch;gap:8px}
 .s-row>span{color:var(--text);letter-spacing:.06em}
-.s-row select,.s-row input[type=text]{background:rgba(13,28,44,.7);border:1px solid var(--line);
+.s-row select,.s-row input[type=text],.s-row input[type=password]{background:rgba(13,28,44,.7);border:1px solid var(--line);
   color:var(--text);font-size:13px;padding:9px 10px;outline:none;font-family:inherit;
   -webkit-user-select:text;user-select:text}
-.s-row select:focus,.s-row input[type=text]:focus{border-color:rgba(83,232,255,.55)}
+.s-row select:focus,.s-row input[type=text]:focus,.s-row input[type=password]:focus{border-color:rgba(83,232,255,.55)}
 .s-row input[type=checkbox]{width:18px;height:18px;accent-color:#53E8FF}
 .s-hint{font-family:var(--mono);font-size:11px;color:var(--dim);letter-spacing:.06em;min-height:14px}
 .s-hint.ok{color:#7CF5B2}
@@ -212,6 +212,7 @@ body.show-settings #settings{display:flex}
 #wx-qr{display:block;width:220px;height:220px;object-fit:contain;padding:10px;background:#fff;
   box-shadow:0 0 24px rgba(83,232,255,.16)}
 .wx-risk{font-family:var(--mono);font-size:10px;color:var(--dim);line-height:1.55}
+.api-setting{padding-top:16px;border-top:1px solid var(--line)}.api-grid{display:grid;gap:8px}.api-grid label{display:grid;gap:4px;color:var(--dim);font-family:var(--mono);font-size:10px}.api-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.api-actions button,.api-link{border:1px solid var(--line);background:rgba(83,232,255,.08);color:var(--arc);padding:8px;font-family:var(--mono);font-size:10px;cursor:pointer}.api-link{width:100%}.api-risk{font-family:var(--mono);font-size:10px;color:var(--gold);line-height:1.5}.api-check{display:flex!important;grid-template-columns:auto 1fr;align-items:center}.api-check input{width:15px;height:15px;accent-color:var(--arc)}
 </style>
 </head>
 <body class="needs-login">
@@ -293,6 +294,34 @@ body.show-settings #settings{display:flex}
         <div class="s-row s-col">
           <span>服务器地址</span>
           <input type="text" id="s-server" placeholder="https://jws.gkgeek-set.cn">
+        </div>
+        <div class="s-row s-col api-setting">
+          <span>模型 API</span>
+          <div class="api-grid">
+            <label>Provider<select id="api-provider"></select></label>
+            <label>Base URL<input type="text" id="api-base"></label>
+            <label>模型<input type="text" id="api-model" maxlength="200"></label>
+            <label>API Key<input type="password" id="api-key" autocomplete="new-password" placeholder="密钥不会回显或保存在桌面"></label>
+            <label class="api-check" id="api-keep-row"><input type="checkbox" id="api-keep">保留同一 Provider / Origin 的现有 Key</label>
+            <label>当前口令<input type="password" id="api-password" autocomplete="current-password"></label>
+            <button type="button" class="api-link" id="api-key-link">打开官方 API Key 申请页</button>
+            <div class="api-actions"><button type="button" id="api-test">测试</button><button type="button" id="api-save">保存并应用</button><button type="button" id="api-restore">恢复环境配置</button></div>
+            <div class="api-risk">测试会产生极少量模型费用；第三方中转可读取问题、上下文和输出，请使用低额度、可吊销的 Key。</div>
+            <div class="s-hint" id="api-state"></div>
+          </div>
+        </div>
+        <div class="s-row s-col api-setting" id="integration-setting" hidden>
+          <span>联网数据源 · Owner</span>
+          <div class="api-grid">
+            <label>数据源<select id="integration-name"><option value="searxng">SearXNG</option><option value="tavily">Tavily</option><option value="pandascore">PandaScore</option></select></label>
+            <label class="api-check"><input type="checkbox" id="integration-enabled">启用</label>
+            <label id="integration-base-row">Base URL<input type="text" id="integration-base"></label>
+            <label id="integration-key-row" hidden>API Key<input type="password" id="integration-key" autocomplete="new-password"></label>
+            <label class="api-check" id="integration-keep-row" hidden><input type="checkbox" id="integration-keep">保留现有 Key</label>
+            <label>Owner 当前口令<input type="password" id="integration-password" autocomplete="current-password"></label>
+            <div class="api-actions"><button type="button" id="integration-test">测试</button><button type="button" id="integration-save">保存</button><button type="button" id="integration-restore">恢复环境配置</button></div>
+            <div class="s-hint" id="integration-state"></div>
+          </div>
         </div>
         <div class="s-row s-col wx-setting">
           <span>个人微信</span>

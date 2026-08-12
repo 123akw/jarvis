@@ -36,13 +36,17 @@ charset-normalizer==3.4.9
     #   requests
     #   trafilatura
 cffi==2.1.1
-    # via argon2-cffi-bindings
+    # via
+    #   argon2-cffi-bindings
+    #   cryptography
 click==8.4.2
     # via
     #   ddgs
     #   uvicorn
 courlan==1.4.0
     # via trafilatura
+cryptography==45.0.7
+    # via jarvis (pyproject.toml)
 dateparser==1.4.2
     # via htmldate
 ddgs==9.14.4

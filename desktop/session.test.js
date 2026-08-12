@@ -102,6 +102,22 @@ test('request schemas reject extra fields, wrong desktop threads, and oversized 
   await assert.rejects(() => instance.request('chat', { thread_id: 'desktop', message: 'ok', extra: true }), /field/i)
 })
 
+test('provider operations are allowlisted, schema checked, and DELETE carries only the approved body', async () => {
+  const { instance, calls } = gateway()
+  const llm = { provider: 'openai', base_url: 'https://api.openai.com/v1', model: 'gpt-test', api_key: 'transient-key', keep_existing_key: false, admin_password: 'current-password', expected_generation: 0 }
+  await instance.request('providerTest', llm)
+  assert.equal(calls.at(-1).url, 'https://example.test/api/settings/llm/test')
+  assert.equal(JSON.parse(calls.at(-1).options.body).api_key, 'transient-key')
+  await assert.rejects(() => instance.request('providerSave', { ...llm, unexpected: true }), /field/i)
+  await assert.rejects(() => instance.request('integrationSave', { name: 'unknown', enabled: true, base_url: '', api_key: null, keep_existing_key: false, admin_password: 'p', expected_generation: 0 }), /integration/i)
+  await instance.request('providerRestore', { admin_password: 'current-password', expected_generation: 2 })
+  assert.equal(calls.at(-1).options.method, 'DELETE')
+  assert.deepEqual(JSON.parse(calls.at(-1).options.body), { admin_password: 'current-password', expected_generation: 2 })
+  await instance.request('integrationRestore', { name: 'tavily', admin_password: 'current-password', expected_generation: 4 })
+  assert.equal(calls.at(-1).url, 'https://example.test/api/settings/integrations/tavily')
+  assert.deepEqual(JSON.parse(calls.at(-1).options.body), { admin_password: 'current-password', expected_generation: 4 })
+})
+
 test('login publishes no token when atomic persistence fails', async () => {
   const real = fs
   const failingFs = { ...real, renameSync: () => { throw new Error('rename failed') } }

@@ -17,9 +17,14 @@ def build_agent(
     search_service: SearchService | None = None,
     model=None,
     checkpointer=None,
+    pandascore_token_getter=None,
 ):
     service = build_search_service() if search_service is None else search_service
-    tools = build_tools(service)
+    tools = (
+        build_tools(service)
+        if pandascore_token_getter is None
+        else build_tools(service, pandascore_token_getter=pandascore_token_getter)
+    )
     if model is None:
         config.load_env()
         model = ChatOpenAI(

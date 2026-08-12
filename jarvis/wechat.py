@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+from contextlib import nullcontext
 import json
 import logging
 import random
@@ -46,6 +47,7 @@ class WeChatBridge:
         self._agent_getter = agent_getter
         self._chunk_text = chunk_text
         self._owner_getter = owner_getter
+        self._runtime_getter = None
         self._data_dir_getter = data_dir_getter or config.data_dir
         self._client_factory = client_factory or (
             lambda: httpx.Client(trust_env=False)
@@ -63,12 +65,13 @@ class WeChatBridge:
         self._updates_stop = threading.Event()
         self._updates_thread = None
 
-    def configure(self, agent_getter, chunk_text, owner_getter=None) -> None:
+    def configure(self, agent_getter, chunk_text, owner_getter=None, runtime_getter=None) -> None:
         """由 Web 服务注入 Agent 与消息文本转换器。"""
         with self._lock:
             self._agent_getter = agent_getter
             self._chunk_text = chunk_text
             self._owner_getter = owner_getter
+            self._runtime_getter = runtime_getter
 
     def _token_path(self) -> Path:
         data_dir = self._data_dir_getter()
@@ -315,11 +318,15 @@ class WeChatBridge:
             store = TenantStore()
             store.migrate_legacy()
             thread = store.upsert_thread(alias, text)
-            heal_dangling_tool_calls(self._agent_getter(), thread.checkpoint_thread_id)
-            result = self._agent_getter().invoke(
-                {"messages": [{"role": "user", "content": text}]},
-                config={"configurable": {"thread_id": thread.checkpoint_thread_id}},
+            runtime = self._runtime_getter(owner.user_id) if self._runtime_getter else nullcontext(
+                type("LegacyBundle", (), {"agent": self._agent_getter()})()
             )
+            with runtime as bundle:
+                heal_dangling_tool_calls(bundle.agent, thread.checkpoint_thread_id)
+                result = bundle.agent.invoke(
+                    {"messages": [{"role": "user", "content": text}]},
+                    config={"configurable": {"thread_id": thread.checkpoint_thread_id}},
+                )
         return self._chunk_text(result["messages"][-1].content)
 
     @staticmethod
@@ -529,8 +536,8 @@ class WeChatBridge:
 _bridge = WeChatBridge()
 
 
-def init(agent_getter, chunk_text, owner_getter=None) -> None:
-    _bridge.configure(agent_getter, chunk_text, owner_getter)
+def init(agent_getter, chunk_text, owner_getter=None, runtime_getter=None) -> None:
+    _bridge.configure(agent_getter, chunk_text, owner_getter, runtime_getter)
 
 
 def status() -> dict:

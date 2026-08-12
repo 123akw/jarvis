@@ -46,6 +46,7 @@
 - **多入口，同一套能力**：网页端、macOS 桌面悬浮窗、终端 CLI 和个人微信都连接同一个 Agent 与 21 项工具。
 - **不仅回答，也能行动**：可增删备忘和日程、维护待办、查询天气与系统状态，并按需调用实时搜索工具。
 - **实时信息可追溯**：搜索结果保留查询时间、摘要和 HTTP(S) 来源；电影评分分平台呈现，票务只提供公开信息与深链接。
+- **多用户与个人模型配置**：每个账号拥有独立对话、记忆、日程、待办和模型 Provider；Owner 统一管理全局联网数据源。
 - **面向私有部署**：模型地址、模型名、数据目录和服务端口均可配置；记忆、备忘、日程、待办和微信 Token 留在你的运行环境中。
 
 > 搜索默认按 `SearXNG → DDGS → 可选 Tavily` 降级，正文提取默认按 `Trafilatura → 可选 Playwright` 降级。私有演示入口已启用本机 SearXNG，并在不可用时回退无需付费 key 的 DDGS；不保证 Tavily 或 PandaScore 已配置。自建 SearXNG、Tavily key 和 PandaScore token 都是可选增强，不是上线前置条件。
@@ -62,6 +63,7 @@
 | 天气定位 | 浏览器定位优先，公网 IP 兜底 | 使用服务端已有定位；也可直接说城市 | 使用服务端已有定位；也可直接说城市 | 使用服务端已有定位；也可直接说城市 |
 | 会话历史管理 | 新建、回放、删除 | 最近历史、清空快捷线程 | 由线程持久化 | 由联系人线程持久化 |
 | 个人微信扫码管理 | 顶栏“微信” | 设置 → 个人微信 | — | 自身即消息入口 |
+| Provider / API 设置 | 每个账号独立设置模型 | 设置中独立设置模型 | 使用当前 Owner 配置 | 使用唯一 Owner 配置 |
 
 四种入口共享服务端同一套 `SearchService` 后端与降级链。默认 DDGS 无需付费 key；希望优先控制搜索实例时可选自建 SearXNG，但它不是使用实时搜索的必要条件。
 
@@ -169,7 +171,7 @@ flowchart LR
 - Python 3.10 或更高版本。
 - Node.js 与 npm：仅桌面端需要。
 - macOS：当前 Electron 悬浮窗使用 LaunchAgent、全局快捷键和 macOS 窗口行为，桌面端按 macOS 设计；Web 与 CLI 后端本身是 Python 应用。
-- 一个 OpenAI 兼容模型的 API key；默认配置面向 DeepSeek。
+- 一个 OpenAI 兼容模型的 API key；默认配置面向 DeepSeek，也可使用 OpenAI、百炼、SiliconFlow 或自定义 HTTPS 中转。
 
 ### 1. 安装 Python 环境
 
@@ -181,7 +183,7 @@ python3 -m venv .venv
 cp .env.example .env
 ```
 
-然后至少填写 `DEEPSEEK_API_KEY`；请勿提交 `.env`。实时网页查询默认可使用 DDGS，无需付费搜索 key。若已启动仓库提供的本地 SearXNG，可按下文配置其 loopback 地址；Tavily 仅在你主动选择该可选增强时才需要 key。
+然后至少填写 `JARVIS_API_KEY` 或与 `JARVIS_PROVIDER` 对应的兼容密钥；请勿提交 `.env`。实时网页查询默认可使用 DDGS，无需付费搜索 key。若已启动仓库提供的本地 SearXNG，可按下文配置其 loopback 地址；Tavily 仅在你主动选择该可选增强时才需要 key。
 
 默认静态提取不需要浏览器。需要处理动态页面时，改用 browser extra 并单独安装 Chromium：
 
@@ -229,11 +231,13 @@ npm start
 
 ## 环境变量
 
-把 `.env.example` 复制为 `.env` 后不要直接启动。首先填入真实的 `DEEPSEEK_API_KEY`、唯一 Owner 的 `JARVIS_ADMIN_USERNAME`、强且唯一的 `JARVIS_ADMIN_PASSWORD`，并用密码学安全随机源生成至少 32 字节的 `JARVIS_SESSION_SECRET`（例如 `openssl rand -hex 32`）。留空、示例占位符或过短 secret 都会 fail closed，不会创建 Owner。
+把 `.env.example` 复制为 `.env` 后不要直接启动。首先填入真实的模型 API key、唯一 Owner 的 `JARVIS_ADMIN_USERNAME`、强且唯一的 `JARVIS_ADMIN_PASSWORD`，并用密码学安全随机源生成至少 32 字节的 `JARVIS_SESSION_SECRET`（例如 `openssl rand -hex 32`）。留空、示例占位符或过短 secret 都会 fail closed，不会创建 Owner。
 
 | 变量 | 必需 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `DEEPSEEK_API_KEY` | 是 | 无 | OpenAI 兼容模型 API key；未配置时无法构建 Agent |
+| `JARVIS_PROVIDER` | 否 | `deepseek` | 环境回退模型 Provider：`openai`、`deepseek`、`bailian`、`siliconflow` 或 `custom` |
+| `JARVIS_API_KEY` | 启动模型必需 | 无 | 当前环境回退 Provider 的通用 API key；不会返回前端 |
+| `DEEPSEEK_API_KEY` | 否 | 无 | DeepSeek 兼容旧配置；`JARVIS_API_KEY` 为空且 Provider 为 DeepSeek 时使用 |
 | `JARVIS_BASE_URL` | 否 | `https://api.deepseek.com` | OpenAI 兼容接口基址 |
 | `JARVIS_MODEL` | 否 | 代码回退为 `deepseek-chat` | 模型名；仓库 `.env.example` 当前示例为 `deepseek-v4-flash` |
 | `JARVIS_DATA_DIR` | 否 | `<项目根>/data` | SQLite 记忆、本地日程/待办/备忘、会话元数据和微信 Token 的目录 |
@@ -241,15 +245,36 @@ npm start
 | `JARVIS_ADMIN_USERNAME` | 首次启动必需 | 无 | 首次数据库初始化时创建的唯一 Owner 用户名 |
 | `JARVIS_ADMIN_PASSWORD` | 首次启动必需 | 无 | 首次数据库初始化时创建的 Owner 口令；只存 Argon2id 哈希 |
 | `JARVIS_SESSION_SECRET` | 是 | 无 | 至少 32 字节随机值，用于会话与 CSRF；缺失时网页登录会 fail closed |
+| `JARVIS_SETTINGS_WRITE_ENABLED` | 否 | `false` | 设为 `true` 才允许网页/桌面写入 Provider 设置 |
+| `JARVIS_SECRETS_KEY` | 设置写入必需 | 无 | URL-safe Base64 编码的随机 32 字节主密钥；仅在服务器保存，不得轮换或丢失 |
 | `JARVIS_SEARCH_BACKENDS` | 否 | `searxng,ddgs,tavily` | 搜索 provider 降级顺序；名称不能重复 |
 | `SEARXNG_BASE_URL` | 否 | 无 | 本地 Compose 可设为 `http://127.0.0.1:18888`；未配置或不健康时继续 DDGS |
 | `JARVIS_EXTRACT_BACKENDS` | 否 | `trafilatura,playwright` | 正文提取降级顺序；Playwright 未安装时明确跳过 |
 | `TAVILY_API_KEY` | 否 | 无 | 可选 Tavily 搜索密钥；未配置不影响 SearXNG/DDGS 免费链，仓库与演示入口均不保证已配置 |
 | `PANDASCORE_TOKEN` | 否 | 无 | 可选 PandaScore 结构化电竞数据 Token；缺失或失败时回退默认网页搜索链 |
 
+## 多用户 Provider / API 设置
+
+- 网页顶栏 **⚙ API** 与桌面端 **设置 → 模型 API** 都可以选择 OpenAI、DeepSeek、阿里云百炼、SiliconFlow 或自定义 OpenAI 兼容 HTTPS 地址。官方 Provider 只接受其官方 API 主机；自定义中转禁止 HTTP、URL 凭据、查询参数和片段。
+- 每个用户只管理自己的模型 Provider、Base URL、模型名和 Key；Owner 额外管理全局 SearXNG、Tavily 与 PandaScore。Member 无法读取或修改其他账号配置，也不能管理全局联网数据源。
+- API Key 永不回显到网页或桌面端。托管设置使用 AES-GCM 加密并按用户、Provider、Origin 与 generation 绑定；每次测试、保存或恢复都要求当前账号口令，修改采用 generation 冲突保护。
+- 测试连接会真实发送极少量非流式工具调用、流式文本和流式工具调用，可能产生少量模型费用。第三方中转可读取问题、上下文、工具调用和输出，建议只使用独立、低额度、可吊销的 Key。
+- “恢复环境配置”会切回 `.env` 中的回退 Provider。未同时配置写入开关和主密钥时，设置中心保持只读，原环境配置仍可正常使用。
+
+如需开启设置写入，先在服务器生成一次主密钥并只写入 `.env`：
+
+```bash
+python -c "import base64,secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
+# 把输出填入 JARVIS_SECRETS_KEY，并设置：
+JARVIS_SETTINGS_WRITE_ENABLED=true
+```
+
+主密钥不得提交、打印到日志或发送到前端；丢失后既有托管 Key 无法解密。正式变更前应连同 `JARVIS_DATA_DIR/provider-active.json`、`provider-generations/` 和 `provider-audit.jsonl` 一起备份。
+
 ## 多用户、备份与回滚
 
 - Owner 可在网页账户设置中修改自己的口令，并创建、停用、改角色或重置 Member/Owner 口令；没有公开注册入口。Member 不会看到用户管理入口，服务端仍会强制 Owner 权限。
+- 每个账号的 Agent 运行时、对话线程、检查点命名空间、备忘、待办、日程、定位和模型 Provider 都按用户隔离；CLI 与个人微信固定使用唯一 active Owner 的配置。
 - 升级前必须先停止所有 Web、Desktop、CLI 和微信桥进程，再完整复制 `JARVIS_DATA_DIR`。若不能停服，必须对 `jarvis.db` 和 `accounts.sqlite3` 分别使用 SQLite backup API/等价的一致性快照，不得在运行中直接 `cp` SQLite 文件。
 - `jarvis.db` 是 Agent 检查点；`accounts.sqlite3` 是账号/会话/租户元数据。升级前的 `threads.json`、`memos.json`、`todos.json`、`schedule.json`、`location.json`、`local_status.json` 是仅归属 Owner 的 legacy 输入：迁移不改写原文件，并为每个实际存在的文件创建同目录 `0600` 快照 `<原文件名>.tenant-v1.bak`。
 - `wechat_token` 只是唯一 active Owner 的微信桥登录态；它不在 SQLite 中，不参与 legacy 导入，升级/回滚时都不得删除、改名或覆盖。

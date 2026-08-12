@@ -6,6 +6,7 @@ import Panels from './Panels.jsx'
 import Threads from './Threads.jsx'
 import WeChatConnect from './WeChatConnect.jsx'
 import AccountSettings from './AccountSettings.jsx'
+import ProviderSettings from './ProviderSettings.jsx'
 
 function newThreadId() {
   return 't-' + (crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10))
@@ -24,6 +25,7 @@ export default function Hud({ session, onLogout }) {
   const [rightOpen, setRightOpen] = useState(() => !isNarrow())
   const [wxOpen, setWxOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
+  const [providerOpen, setProviderOpen] = useState(false)
 
   useEffect(() => { localStorage.setItem('jws_thread', thread) }, [thread])
 
@@ -58,6 +60,7 @@ export default function Hud({ session, onLogout }) {
         <span className="tagline">私人管家 · v{dash?.version ?? '—'}</span>
         <span className="spacer" />
         <button className="chip navbtn account-chip" onClick={() => setAccountOpen(true)} aria-label="账户设置"><span>{session?.username || '账号'}{session?.role ? ` · ${session.role}` : ''}</span></button>
+        <button className="chip navbtn" onClick={() => setProviderOpen(true)} aria-label="API 设置" title="模型与联网 API 设置">⚙ API</button>
         <span className="chip hide-sm">{dash?.model ?? '—'}</span>
         <span className="chip online hide-sm"><span className="dot" />{dash?.place || '在线'}</span>
         <span className="chip hide-sm">{clock}</span>
@@ -94,6 +97,7 @@ export default function Hud({ session, onLogout }) {
         <WeChatConnect onClose={() => setWxOpen(false)} onExpired={onLogout} />
       ) : null}
       {accountOpen ? <div className="wx-backdrop"><AccountSettings session={session} onClose={() => setAccountOpen(false)} onReauth={onLogout} /></div> : null}
+      {providerOpen ? <div className="wx-backdrop"><ProviderSettings session={session} onClose={() => setProviderOpen(false)} onExpired={onLogout} onApplied={() => setRefreshKey(key => key + 1)} /></div> : null}
     </div>
   )
 }

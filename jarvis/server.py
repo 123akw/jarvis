@@ -1,5 +1,5 @@
 """网页端后端：FastAPI。账户、服务端会话 + SSE 流式聊天 + 仪表盘接口。"""
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from collections import OrderedDict, deque
 import datetime
 import json
@@ -14,11 +14,16 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import AIMessageChunk, ToolMessage
-from pydantic import BaseModel
+from pydantic import BaseModel, SecretStr
 
 from jarvis import __version__, config, wechat
 from jarvis.accounts import AccountStore, Principal, csrf_token, session_secret_configured
 from jarvis.graph import build_agent, heal_dangling_tool_calls
+from jarvis.provider_runtime import AgentRuntimeManager, probe_integration
+from jarvis.provider_settings import (
+    ProviderSettingsError, ResolvedLLM, SecretStore, credential_scope,
+    normalize_base_url, normalize_searxng_url,
+)
 from jarvis.tenancy import TenantMigrationError, TenantStore, tenant_scope
 from jarvis.tools import TOOLS
 from jarvis.tools.location import get_location, locate_by_ip, set_location
@@ -35,11 +40,15 @@ async def lifespan(_app: FastAPI):
         yield
     finally:
         wechat.shutdown()
+        if _runtime_manager is not None:
+            _runtime_manager.close()
 
 
 app = FastAPI(title="J.A.R.V.I.S.", lifespan=lifespan)
 _WEB = Path(__file__).parent / "web"
 _agent = None
+_provider_store = SecretStore()
+_runtime_manager: AgentRuntimeManager | None = None
 _started = datetime.datetime.now()
 _chat_count = 0
 
@@ -111,12 +120,23 @@ class LoginAttemptLimiter:
 
 
 _login_limiter = LoginAttemptLimiter()
+_settings_limiter = LoginAttemptLimiter(attempts=10, spray_attempts=50, window_seconds=60)
 
 
 @app.exception_handler(RequestValidationError)
 async def invalid_request(_request: Request, _error: RequestValidationError):
     """Avoid FastAPI's default echo of invalid request fields, including passwords."""
     return JSONResponse({"error": "请求格式不正确"}, status_code=422, headers={"Cache-Control": "no-store"})
+
+
+@app.exception_handler(ProviderSettingsError)
+async def provider_settings_error(_request: Request, error: ProviderSettingsError):
+    """Return only stable, redacted Provider errors."""
+    return JSONResponse(
+        {"error": error.message, "code": error.code},
+        status_code=error.status,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 def _request_principal(request: Request) -> tuple[Principal | None, str]:
@@ -178,8 +198,34 @@ def _get_agent():
     return _agent
 
 
+@contextmanager
+def _bundle_for(user_id: str):
+    """Use leased per-user runtimes in production; keep test/legacy injection compatible."""
+    if _runtime_manager is None:
+        yield type("LegacyBundle", (), {"agent": _get_agent()})()
+        return
+    with _runtime_manager.acquire(user_id) as bundle:
+        yield bundle
+
+
+def _initialize_runtime() -> None:
+    global _provider_store, _runtime_manager
+    _provider_store = SecretStore()
+    _runtime_manager = AgentRuntimeManager(_provider_store)
+    wechat.init(
+        _get_agent, _chunk_text, _accounts.unique_active_owner,
+        runtime_getter=lambda user_id: _runtime_manager.acquire(user_id),
+    )
+
+
 def _sse(obj: dict) -> str:
     return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
+
+
+def _public_runtime_error(error: Exception) -> str:
+    if isinstance(error, ProviderSettingsError):
+        return error.message
+    return "模型或网络请求失败，请检查当前 API 配置后重试"
 
 
 # ---------- 登录 ----------
@@ -370,7 +416,8 @@ def history(request: Request, thread_id: str):
             thread = _tenant_store().get_thread(thread_id)
             if not thread:
                 return JSONResponse({"error": "未找到对话"}, status_code=404)
-            state = _get_agent().get_state({"configurable": {"thread_id": thread.checkpoint_thread_id}})
+            with _bundle_for(principal.user_id) as bundle:
+                state = bundle.agent.get_state({"configurable": {"thread_id": thread.checkpoint_thread_id}})
     except TenantMigrationError:
         return _sensitive_json({"error": "个人数据迁移失败"}, 503)
     out = []
@@ -397,7 +444,8 @@ def delete_thread(request: Request, thread_id: str):
     if not thread:
         return JSONResponse({"error": "未找到对话"}, status_code=404)
     try:
-        _get_agent().checkpointer.delete_thread(thread.checkpoint_thread_id)
+        with _bundle_for(principal.user_id) as bundle:
+            bundle.agent.checkpointer.delete_thread(thread.checkpoint_thread_id)
     except Exception:
         pass  # 记忆库里没有该线程也算删除成功
     return {"ok": True}
@@ -477,7 +525,7 @@ def dashboard(request: Request):
         "version": __version__,
         "tools": len(TOOLS),
         "place": (location or {}).get("place", ""),
-        "model": config.model_name(),
+        "model": _provider_store.status(principal.user_id, owner=principal.is_owner)["llm"]["model"],
         "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "uptime_min": int((datetime.datetime.now() - _started).total_seconds() // 60),
         "chats": _chat_count,
@@ -536,25 +584,26 @@ def chat(request: Request, body: ChatIn):
         seen_calls: set[str] = set()
         try:
             with tenant_scope(principal.user_id):
-                heal_dangling_tool_calls(_get_agent(), thread.checkpoint_thread_id)
-                stream = _get_agent().stream(
-                    {"messages": [{"role": "user", "content": body.message}]},
-                    config={"configurable": {"thread_id": thread.checkpoint_thread_id}}, stream_mode="messages")
-                for chunk, _meta in stream:
-                    if isinstance(chunk, ToolMessage):
-                        yield _sse({"type": "tool_result", "name": chunk.name})
-                    elif isinstance(chunk, AIMessageChunk):
-                        for tc in chunk.tool_call_chunks or []:
-                            name, cid = tc.get("name"), tc.get("id")
-                            if name and cid and cid not in seen_calls:
-                                seen_calls.add(cid)
-                                yield _sse({"type": "tool_start", "name": name})
-                        text = _chunk_text(chunk.content)
-                        if text:
-                            yield _sse({"type": "token", "text": text})
+                with _bundle_for(principal.user_id) as bundle:
+                    heal_dangling_tool_calls(bundle.agent, thread.checkpoint_thread_id)
+                    stream = bundle.agent.stream(
+                        {"messages": [{"role": "user", "content": body.message}]},
+                        config={"configurable": {"thread_id": thread.checkpoint_thread_id}}, stream_mode="messages")
+                    for chunk, _meta in stream:
+                        if isinstance(chunk, ToolMessage):
+                            yield _sse({"type": "tool_result", "name": chunk.name})
+                        elif isinstance(chunk, AIMessageChunk):
+                            for tc in chunk.tool_call_chunks or []:
+                                name, cid = tc.get("name"), tc.get("id")
+                                if name and cid and cid not in seen_calls:
+                                    seen_calls.add(cid)
+                                    yield _sse({"type": "tool_start", "name": name})
+                            text = _chunk_text(chunk.content)
+                            if text:
+                                yield _sse({"type": "token", "text": text})
             yield _sse({"type": "done"})
-        except Exception as e:  # 网络/模型异常兜底，前端提示而不是断流
-            yield _sse({"type": "error", "message": f"{type(e).__name__}: {e}"})
+        except Exception as e:  # 不把上游响应、URL 或凭据带回前端
+            yield _sse({"type": "error", "message": _public_runtime_error(e)})
 
     return StreamingResponse(
         gen(), media_type="text/event-stream",
@@ -612,8 +661,9 @@ def oai_chat(request: Request, body: OAIChatIn):
 
     if not body.stream:
         with tenant_scope(principal.user_id):
-            heal_dangling_tool_calls(_get_agent(), thread.checkpoint_thread_id)
-            result = _get_agent().invoke({"messages": [{"role": "user", "content": text}]}, config={"configurable": {"thread_id": thread.checkpoint_thread_id}})
+            with _bundle_for(principal.user_id) as bundle:
+                heal_dangling_tool_calls(bundle.agent, thread.checkpoint_thread_id)
+                result = bundle.agent.invoke({"messages": [{"role": "user", "content": text}]}, config={"configurable": {"thread_id": thread.checkpoint_thread_id}})
         reply = _chunk_text(result["messages"][-1].content)
         return {
             "id": rid, "object": "chat.completion", "created": created, "model": "jarvis",
@@ -632,20 +682,184 @@ def oai_chat(request: Request, body: OAIChatIn):
         yield chunk({"role": "assistant"})
         try:
             with tenant_scope(principal.user_id):
-                heal_dangling_tool_calls(_get_agent(), thread.checkpoint_thread_id)
-                stream = _get_agent().stream({"messages": [{"role": "user", "content": text}]}, config={"configurable": {"thread_id": thread.checkpoint_thread_id}}, stream_mode="messages")
-                for ck, _meta in stream:
-                    if isinstance(ck, AIMessageChunk):
-                        t = _chunk_text(ck.content)
-                        if t:
-                            yield chunk({"content": t})
+                with _bundle_for(principal.user_id) as bundle:
+                    heal_dangling_tool_calls(bundle.agent, thread.checkpoint_thread_id)
+                    stream = bundle.agent.stream({"messages": [{"role": "user", "content": text}]}, config={"configurable": {"thread_id": thread.checkpoint_thread_id}}, stream_mode="messages")
+                    for ck, _meta in stream:
+                        if isinstance(ck, AIMessageChunk):
+                            t = _chunk_text(ck.content)
+                            if t:
+                                yield chunk({"content": t})
         except Exception as e:
-            yield chunk({"content": f"（出错了：{type(e).__name__}）"})
+            yield chunk({"content": f"（{_public_runtime_error(e)}）"})
         yield chunk({}, finish="stop")
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache"})
+
+
+# ---------- Provider / API Key 设置 ----------
+
+class LLMSettingsIn(BaseModel):
+    provider: str
+    base_url: str = ""
+    model: str
+    api_key: SecretStr | None = None
+    keep_existing_key: bool = False
+    admin_password: SecretStr
+    expected_generation: int
+
+
+class SettingsDeleteIn(BaseModel):
+    admin_password: SecretStr
+    expected_generation: int
+
+
+class IntegrationSettingsIn(BaseModel):
+    enabled: bool
+    base_url: str = ""
+    api_key: SecretStr | None = None
+    keep_existing_key: bool = False
+    admin_password: SecretStr
+    expected_generation: int
+
+
+def _settings_manager() -> AgentRuntimeManager:
+    global _runtime_manager
+    if _runtime_manager is None:
+        _runtime_manager = AgentRuntimeManager(_provider_store)
+    return _runtime_manager
+
+
+def _settings_identity(request: Request, password: SecretStr, *, owner: bool = False) -> Principal | JSONResponse:
+    principal = _write_authorized(request)
+    if not principal:
+        return _csrf_deny() if _authed(request) else _deny()
+    if owner and not principal.is_owner:
+        return _sensitive_json({"error": "权限不足", "code": "AUTH_FAILED"}, 403)
+    source = _client_address(request)
+    if retry := _settings_limiter.check(source, principal.username):
+        return JSONResponse(
+            {"error": "尝试过多，请稍后再试", "code": "RATE_LIMITED"},
+            status_code=429,
+            headers={"Retry-After": str(retry), "Cache-Control": "no-store"},
+        )
+    verified = _accounts.authenticate_user(principal.username, password.get_secret_value())
+    if not verified or verified[0] != principal.user_id:
+        return _sensitive_json({"error": "身份验证失败", "code": "AUTH_FAILED"}, 401)
+    _settings_limiter.success(source, principal.username)
+    return principal
+
+
+def _llm_candidate(user_id: str, body: LLMSettingsIn) -> ResolvedLLM:
+    current = _provider_store.resolved_llm(user_id)
+    if current.generation != body.expected_generation:
+        from jarvis.provider_settings import ConfigConflict
+        raise ConfigConflict()
+    provider = body.provider.strip().lower()
+    base = normalize_base_url(provider, body.base_url)
+    model = body.model.strip()
+    if not model or len(model) > 200:
+        raise ProviderSettingsError("MODEL_NOT_FOUND", "模型名称无效")
+    key = body.api_key.get_secret_value() if body.api_key is not None else ""
+    if not key and body.keep_existing_key and credential_scope(provider, base) == credential_scope(current.provider, current.base_url):
+        key = current.api_key
+    if not key:
+        raise ProviderSettingsError("PROVIDER_AUTH", "请填写新的 API Key")
+    return ResolvedLLM(provider, base, model, key, body.expected_generation + 1, "managed")
+
+
+@app.get("/api/settings/providers")
+def provider_status(request: Request):
+    principal, _token = _request_principal(request)
+    if not principal:
+        return _deny()
+    return _sensitive_json(_provider_store.status(principal.user_id, owner=principal.is_owner))
+
+
+@app.post("/api/settings/llm/test")
+def provider_test(request: Request, body: LLMSettingsIn):
+    principal = _settings_identity(request, body.admin_password)
+    if isinstance(principal, JSONResponse): return principal
+    result = _settings_manager().test_llm(_llm_candidate(principal.user_id, body))
+    return _sensitive_json(result)
+
+
+@app.put("/api/settings/llm")
+def provider_save(request: Request, body: LLMSettingsIn):
+    principal = _settings_identity(request, body.admin_password)
+    if isinstance(principal, JSONResponse): return principal
+    candidate = _llm_candidate(principal.user_id, body)
+    committed, probe = _settings_manager().apply_llm(
+        principal.user_id,
+        {"provider": candidate.provider, "base_url": candidate.base_url, "model": candidate.model,
+         "api_key": candidate.api_key},
+        expected_generation=body.expected_generation,
+        keep_existing_key=body.keep_existing_key,
+    )
+    return _sensitive_json({"llm": {
+        "provider": committed.provider, "base_url": committed.base_url, "model": committed.model,
+        "key_configured": True, "source": committed.source, "generation": committed.generation,
+    }, "probe": probe})
+
+
+@app.delete("/api/settings/llm")
+def provider_restore(request: Request, body: SettingsDeleteIn):
+    principal = _settings_identity(request, body.admin_password)
+    if isinstance(principal, JSONResponse): return principal
+    restored = _settings_manager().restore_llm(principal.user_id, expected_generation=body.expected_generation)
+    return _sensitive_json({"llm": {
+        "provider": restored.provider, "base_url": restored.base_url, "model": restored.model,
+        "key_configured": bool(restored.api_key), "source": restored.source,
+        "generation": restored.generation,
+    }})
+
+
+def _integration_candidate(name: str, body: IntegrationSettingsIn) -> dict:
+    if name == "searxng":
+        return {"enabled": body.enabled, "base_url": normalize_searxng_url(body.base_url)}
+    if name not in {"tavily", "pandascore"}:
+        raise ProviderSettingsError("INVALID_URL", "未知联网 Provider")
+    current = _provider_store.integration_values()[name]
+    key = body.api_key.get_secret_value() if body.api_key is not None else ""
+    if not key and body.keep_existing_key: key = current.get("api_key", "")
+    if body.enabled and not key: raise ProviderSettingsError("PROVIDER_AUTH", "启用后必须填写 API Key")
+    return {"enabled": body.enabled, "api_key": key}
+
+
+@app.post("/api/settings/integrations/{name}/test")
+def integration_test(name: str, request: Request, body: IntegrationSettingsIn):
+    principal = _settings_identity(request, body.admin_password, owner=True)
+    if isinstance(principal, JSONResponse): return principal
+    candidate = _integration_candidate(name, body)
+    if not candidate["enabled"]:
+        return _sensitive_json({"ok": True, "disabled": True, "latency_ms": 0})
+    return _sensitive_json(probe_integration(name, candidate))
+
+
+@app.put("/api/settings/integrations/{name}")
+def integration_save(name: str, request: Request, body: IntegrationSettingsIn):
+    principal = _settings_identity(request, body.admin_password, owner=True)
+    if isinstance(principal, JSONResponse): return principal
+    candidate = _integration_candidate(name, body)
+    probe = {"ok": True, "disabled": True, "latency_ms": 0} if not candidate["enabled"] else probe_integration(name, candidate)
+    status = _provider_store.commit_integration(
+        name, {**candidate, "healthy": True if candidate["enabled"] else None},
+        expected_generation=body.expected_generation,
+        keep_existing_key=body.keep_existing_key,
+    )
+    _settings_manager().invalidate_search()
+    return _sensitive_json({"integration": status, "probe": probe})
+
+
+@app.delete("/api/settings/integrations/{name}")
+def integration_restore(name: str, request: Request, body: SettingsDeleteIn):
+    principal = _settings_identity(request, body.admin_password, owner=True)
+    if isinstance(principal, JSONResponse): return principal
+    status = _provider_store.delete_integration(name, expected_generation=body.expected_generation)
+    _settings_manager().invalidate_search()
+    return _sensitive_json({"integration": status})
 
 
 # ---------- 静态页 ----------
@@ -666,6 +880,7 @@ def run() -> None:
     import uvicorn
 
     config.load_env()
+    _initialize_runtime()
     port = int(os.getenv("JARVIS_PORT", "7789"))
     print(f"J.A.R.V.I.S. 网页端已上线：http://127.0.0.1:{port}")
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")

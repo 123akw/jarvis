@@ -451,6 +451,87 @@ wxController = window.JarvisWeChatUI.createController({
   reauthenticate: async () => { requireLogin(); return false },
 })
 
+/* ---------- 每用户模型 API / Owner 联网数据源 ---------- */
+let providerSettings = null
+function providerItem() { return providerSettings?.catalog?.find(item => item.id === $('#api-provider').value) }
+function sameProviderScope() {
+  try {
+    const current = new URL(providerSettings.llm.base_url), next = new URL($('#api-base').value)
+    return providerSettings.llm.provider === $('#api-provider').value && current.origin === next.origin
+  } catch { return false }
+}
+function clearProviderSecrets() { $('#api-key').value = ''; $('#api-password').value = '' }
+function clearIntegrationSecrets() { $('#integration-key').value = ''; $('#integration-password').value = '' }
+function renderProvider() {
+  const item = providerItem()
+  $('#api-base').readOnly = !item?.editable
+  $('#api-key-link').hidden = !item?.key_url
+  $('#api-keep-row').hidden = !(providerSettings.llm.key_configured && sameProviderScope())
+  if ($('#api-keep-row').hidden) $('#api-keep').checked = false
+}
+function renderIntegration() {
+  const name = $('#integration-name').value, current = providerSettings.integrations[name]
+  $('#integration-enabled').checked = Boolean(current?.enabled)
+  const searchUrl = name === 'searxng'
+  $('#integration-base-row').hidden = !searchUrl; $('#integration-key-row').hidden = searchUrl
+  $('#integration-keep-row').hidden = searchUrl || !current?.key_configured
+  $('#integration-base').value = current?.base_url || 'http://127.0.0.1:18888'
+  $('#integration-key').value = ''; $('#integration-keep').checked = false
+}
+async function loadProviderSettings() {
+  const response = await api('providerSettings'), data = await response.json()
+  if (!response.ok) throw new Error(data.error || '无法读取 API 设置')
+  providerSettings = data
+  const select = $('#api-provider')
+  select.innerHTML = data.catalog.map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('')
+  select.value = data.llm.provider; $('#api-base').value = data.llm.base_url; $('#api-model').value = data.llm.model
+  clearProviderSecrets(); $('#api-keep').checked = false; renderProvider()
+  const owner = Object.keys(data.integrations || {}).length > 0
+  $('#integration-setting').hidden = !owner
+  if (owner) { renderIntegration(); clearIntegrationSecrets() }
+}
+function llmSettingsBody() {
+  return { provider: $('#api-provider').value, base_url: $('#api-base').value.trim(), model: $('#api-model').value.trim(), api_key: $('#api-key').value || null, keep_existing_key: Boolean($('#api-keep').checked && sameProviderScope()), admin_password: $('#api-password').value, expected_generation: providerSettings.llm.generation }
+}
+async function providerAction(operation) {
+  const state = $('#api-state'); state.textContent = '处理中…'; state.className = 's-hint wait'
+  try {
+    const body = operation === 'providerRestore' ? { admin_password: $('#api-password').value, expected_generation: providerSettings.llm.generation } : llmSettingsBody()
+    const response = await api(operation, body), data = await response.json()
+    if (!response.ok) throw new Error(data.error || '操作失败')
+    state.textContent = operation === 'providerTest' ? `测试通过 · ${data.latency_ms || 0} ms` : '已保存并应用'
+    state.className = 's-hint ok'
+    if (operation !== 'providerTest') await loadProviderSettings()
+  } catch (error) { if (!isAuthenticationRequired(error)) { state.textContent = error.message; state.className = 's-hint bad' } }
+  finally { clearProviderSecrets() }
+}
+function integrationBody() {
+  const name = $('#integration-name').value, current = providerSettings.integrations[name]
+  return { name, enabled: $('#integration-enabled').checked, base_url: name === 'searxng' ? $('#integration-base').value.trim() : '', api_key: $('#integration-key').value || null, keep_existing_key: $('#integration-keep').checked, admin_password: $('#integration-password').value, expected_generation: current.generation }
+}
+async function integrationAction(operation) {
+  const state = $('#integration-state'); state.textContent = '处理中…'; state.className = 's-hint wait'
+  try {
+    const full = integrationBody()
+    const body = operation === 'integrationRestore' ? { name: full.name, admin_password: full.admin_password, expected_generation: full.expected_generation } : full
+    const response = await api(operation, body), data = await response.json()
+    if (!response.ok) throw new Error(data.error || '操作失败')
+    state.textContent = operation === 'integrationTest' ? '测试通过' : '已更新联网数据源'; state.className = 's-hint ok'
+    if (operation !== 'integrationTest') await loadProviderSettings()
+  } catch (error) { if (!isAuthenticationRequired(error)) { state.textContent = error.message; state.className = 's-hint bad' } }
+  finally { clearIntegrationSecrets() }
+}
+$('#api-provider').addEventListener('change', () => { const item = providerItem(); $('#api-base').value = item?.base_url || ''; $('#api-key').value = ''; $('#api-keep').checked = false; renderProvider() })
+$('#api-base').addEventListener('input', () => { $('#api-key').value = ''; $('#api-keep').checked = false; renderProvider() })
+$('#api-key-link').addEventListener('click', () => { const url = providerItem()?.key_url; if (url) void window.jws.openProviderLink(url) })
+$('#api-test').addEventListener('click', () => void providerAction('providerTest'))
+$('#api-save').addEventListener('click', () => void providerAction('providerSave'))
+$('#api-restore').addEventListener('click', () => void providerAction('providerRestore'))
+$('#integration-name').addEventListener('change', renderIntegration)
+$('#integration-test').addEventListener('click', () => void integrationAction('integrationTest'))
+$('#integration-save').addEventListener('click', () => void integrationAction('integrationSave'))
+$('#integration-restore').addEventListener('click', () => void integrationAction('integrationRestore'))
+
 async function openSettings() {
   const s = await window.jws.getSettings()
   $('#s-autolaunch').checked = !!s.openAtLogin
@@ -470,6 +551,7 @@ async function openSettings() {
   $('#s-msg').textContent = ''
   document.body.classList.add('show-settings')
   void wxController.start()
+  try { await loadProviderSettings() } catch (error) { if (!isAuthenticationRequired(error)) { $('#api-state').textContent = error.message; $('#api-state').className = 's-hint bad' } }
 }
 
 $('#setbtn').addEventListener('click', openSettings)
