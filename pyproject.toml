@@ -32,7 +32,9 @@ jarvis-web = "jarvis.server:run"
 include = ["jarvis*"]
 
 [tool.setuptools.package-data]
-jarvis = ["web/*"]
+# web/* 只匹配顶层文件，漏掉 web/assets/ 会让非 editable 安装缺前端资源（2026-08-12 黑屏事故）。
+# 生产部署必须用 pip install -e .，否则 git pull 后服务跑的仍是 site-packages 旧快照。
+jarvis = ["web/*", "web/assets/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
