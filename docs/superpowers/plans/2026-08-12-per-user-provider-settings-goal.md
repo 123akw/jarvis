@@ -23,17 +23,17 @@
 `node --test desktop/*.test.js`
 缺文件、失败或 skip/todo 非 0 即停并写 `BLOCKED.md`；通过后写 ≤10 行测试数/目标/顺序/风险。
 
-## 任务 1：密钥与 API
+## Task 1：密钥与 API
 
 实现冻结规格的目录、SecretStore、TEST/PUT/DELETE、SecretStr、scope、generation CAS/回滚/审计。个人状态只能继承或保存 provider/base_url/model/密钥；AAD 绑定 user+provider+origin+generation，API 不读回。换 provider/origin 必须新 Key；Owner/Member 权限分开。有托管配置但缺主密钥则 fail closed。
 新增 `tests/test_provider_settings_api.py`：两用户权限、409、坏密文、崩溃恢复、Key 不序列化；反向验证跨用户查询红→绿。
 
-## 任务 2：安全传输与运行时
+## Task 2：安全传输与运行时
 
 自定义仅公开 HTTPS，禁凭据/query/fragment/redirect；全部 DNS fail closed，固定批准 IP并保留 Host/SNI，禁环境代理。Probe 验证非流式、流式文本/工具。按 `{user,generation}` 缓存带 lease 的 bundle；二次 CAS 后切换，旧流结束再关；失败保留旧 runtime。搜索顺序不变。
 新增 runtime/安全测试；全 stub，覆盖不同模型、失败不切换、SSRF/DNS rebinding/Key 跨 origin、断流、重启、脱敏。故意让 probe 失败，证明 generation 不变。
 
-## 任务 3：UI 与交付
+## Task 3：UI 与交付
 
 两端提供 Provider、URL、模型、Key、官方链接、测试/保存/恢复；Key 始终空，换 origin 禁保留。Owner 有系统/搜索页。桌面网络只走 main，renderer/IPC 不见凭据。补风险/回滚文档。
 验收：

@@ -23,17 +23,17 @@
 `node --test desktop/*.test.js`
 数字不符则证据置顶写 `BLOCKED.md`，只做无关项；相符后写 ≤10 行开工回执：目标/顺序/最大风险。
 
-## 任务 1：账号与会话
+## Task 1：账号与会话
 
 建版本化 SQLite `users/sessions/audit`：UUID、唯一用户名、角色、Argon2id、随机 Token 只存摘要、吊销/过期/节流、安全 Cookie、CSRF。首次只从 `JARVIS_ADMIN_*` 建 Owner，缺值 fail closed。提供用户管理/改密并吊销会话。Web/Desktop/OpenAI 都映射服务端 `Principal`；错误登录响应等价，日志无凭据。
 新增 `tests/test_accounts.py`；先贴预期 RED，再最小 GREEN。
 
-## 任务 2：迁移与隔离
+## Task 2：迁移与隔离
 
 建带 owner 约束的 thread/memo/todo/schedule/location 表。旧文件备份后幂等迁给 Owner；失败回滚，微信文件不动。所有入口从 Principal 得 owner；client thread 仅别名，checkpoint 加 owner 命名空间；越权 404。微信固定 Owner。
 新增 `tests/test_tenant_isolation.py`：两用户同名 thread、历史/删除、四工具、bearer、并发、迁移中断/重跑。反向验证：临时去掉一处 owner 条件，测试红；恢复绿，贴红→绿输出。
 
-## 任务 3：UI 与交付
+## Task 3：UI 与交付
 
 网页显示账号、本人改密；Owner 有用户管理页。桌面 Token 只在 Electron main+safeStorage，renderer/localStorage/DOM/IPC 不可见；重登后与网页同租户。补迁移、备份、回滚、角色文档。
 验收：
