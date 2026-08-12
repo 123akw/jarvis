@@ -29,3 +29,10 @@ The pre-existing `BLOCKED.md` concerns optional external search credentials and 
 - `upsert_thread` now serializes its select/update-or-insert under `BEGIN IMMEDIATE`; a 32-way same-alias test returns one checkpoint with no integrity errors, while another owner gets a distinct namespace.
 - Legacy migration first checks the completion marker, then only reads files when incomplete. An empty directory returns false without marker/Owner requirement; a later legacy file remains migratable. Completed migration ignores subsequently malformed originals.
 - GREEN after the review fixes: `pytest tests/test_{accounts,auth,threads,tenant_isolation,wechat,wechat_api,openai_api}.py tests/test_{new_tools,location,local_status}.py -q` => **102 passed** (one existing TestClient deprecation warning); `git diff --check` passed.
+
+## Review round 2 fix
+
+- TDD RED: a backup hook created a second Owner after the preliminary lookup. The old implementation completed migration despite ambiguous ownership; the precise test failed because no `TenantMigrationError` was raised.
+- The `BEGIN IMMEDIATE` import transaction now rechecks both the completion marker and the sole active Owner. It aborts and rolls back if the transaction Owner is absent, ambiguous, or differs from the pre-backup candidate; backups may remain, but no tenant rows or completion marker are written.
+- GREEN: the migration race/rollback target tests passed (**3 passed**), and the Task 2 focused suite passed **103 tests** (one existing TestClient deprecation warning). `git diff --check` passed.
+- The review's WeChat route/boot TOCTOU observation remains a documented follow-up; it would require a broader account/bridge synchronization contract and is intentionally not changed in this narrow round.

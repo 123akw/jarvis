@@ -294,6 +294,11 @@ class TenantStore:
             try:
                 if c.execute("SELECT 1 FROM tenant_legacy_migrations WHERE name='legacy-json-v1'").fetchone():
                     c.commit(); return False
+                # The pre-backup lookup is only an optimization.  Ownership can change
+                # while backups are written, so the import transaction is authoritative.
+                transaction_owner = self._unique_owner(c)
+                if transaction_owner is None or transaction_owner != owner:
+                    raise TenantMigrationError("legacy migration requires exactly one unchanged active Owner")
                 self._import_legacy(c, owner, files)
                 c.execute("INSERT INTO tenant_legacy_migrations(name,owner_id,applied_at) VALUES('legacy-json-v1',?,?)", (owner, _now()))
                 c.commit(); return True

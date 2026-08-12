@@ -182,6 +182,26 @@ def test_completed_marker_precedes_legacy_file_read(tmp_path):
     assert store.migrate_legacy() is False
 
 
+def test_migration_rechecks_unique_owner_inside_import_transaction(tmp_path, monkeypatch):
+    owner, _member = _users(tmp_path)
+    accounts = AccountStore(tmp_path / "accounts.sqlite3")
+    (tmp_path / "memos.json").write_text(json.dumps([{"id": 1, "content": "race"}]), encoding="utf-8")
+    store = TenantStore(tmp_path / "accounts.sqlite3", legacy_dir=tmp_path)
+    original_backup = store._backup
+
+    def backup_then_add_owner(path, content):
+        original_backup(path, content)
+        assert accounts.create_user("owner-race", "pw", "Owner")
+
+    monkeypatch.setattr(store, "_backup", backup_then_add_owner)
+    with pytest.raises(TenantMigrationError):
+        store.migrate_legacy()
+    with store._connect() as connection:
+        assert not connection.execute("SELECT 1 FROM tenant_legacy_migrations WHERE name='legacy-json-v1'").fetchone()
+        assert connection.execute("SELECT COUNT(*) FROM tenant_memos").fetchone()[0] == 0
+    assert (tmp_path / "memos.json.tenant-v1.bak").exists()
+
+
 def test_schema_creation_failure_rolls_back(tmp_path, monkeypatch):
     accounts = AccountStore(tmp_path / "accounts.sqlite3")
     accounts._ensure_bootstrap()
