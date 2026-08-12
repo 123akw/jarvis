@@ -113,6 +113,40 @@ def test_v1_to_v2_migration_rolls_back_copy_failure_and_retries_without_losing_s
     assert migrated.execute("SELECT 1 FROM sqlite_master WHERE name = 'sessions_v1'").fetchone() is None
 
 
+def test_v1_to_v2_migration_recovers_legacy_rename_only_half_state_without_losing_sessions(tmp_path):
+    """A legacy crash after renaming sessions leaves only sessions_v1 and must remain recoverable."""
+    path = tmp_path / "accounts.sqlite3"
+    db = sqlite3.connect(path)
+    db.executescript(
+        """
+        CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+        INSERT INTO schema_migrations VALUES (1, '2026-01-01T00:00:00+00:00');
+        CREATE TABLE users (
+          id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, role TEXT NOT NULL,
+          password_hash TEXT NOT NULL, active INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+        );
+        CREATE TABLE sessions_v1 (
+          id TEXT PRIMARY KEY, user_id TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE,
+          transport TEXT NOT NULL CHECK (transport IN ('web', 'desktop')),
+          created_at TEXT NOT NULL, expires_at TEXT NOT NULL, revoked_at TEXT
+        );
+        INSERT INTO users VALUES ('user-1', 'owner', 'Owner', 'hash', 1, 't', 't');
+        INSERT INTO sessions_v1 VALUES ('session-1', 'user-1', 'digest-1', 'desktop', 't', 'future', NULL);
+        """
+    )
+    db.close()
+
+    connection = AccountStore(path)._connect()
+    connection.close()
+    migrated = sqlite3.connect(path)
+
+    assert migrated.execute("SELECT id, token_hash, transport FROM sessions").fetchall() == [
+        ("session-1", "digest-1", "desktop")
+    ]
+    assert migrated.execute("SELECT 1 FROM schema_migrations WHERE version = 2").fetchone()
+    assert migrated.execute("SELECT 1 FROM sqlite_master WHERE name = 'sessions_v1'").fetchone() is None
+
+
 def test_desktop_dual_session_issuance_rolls_back_when_openai_insert_fails(monkeypatch, isolated_data_dir):
     """Desktop login must leave no active session if its paired OpenAI session cannot be inserted."""
     _bootstrap(monkeypatch)

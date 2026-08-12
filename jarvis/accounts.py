@@ -151,7 +151,11 @@ class AccountStore:
             if has_backup:
                 # Recover old autocommit-era partial migration before retrying atomically.
                 connection.execute("DROP INDEX IF EXISTS sessions_active_token")
-                connection.execute("DROP TABLE sessions")
+                has_current = connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sessions'"
+                ).fetchone()
+                if has_current:
+                    connection.execute("DROP TABLE sessions")
                 connection.execute("ALTER TABLE sessions_v1 RENAME TO sessions")
             sql = connection.execute(
                 "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sessions'"
