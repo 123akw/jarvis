@@ -254,6 +254,9 @@ class WeChatBridge:
             return "贾维斯尚未就绪。"
         contact = from_id.split("@", 1)[0]
         thread_id = "wx-" + contact[-12:]
+        from jarvis.graph import heal_dangling_tool_calls
+
+        heal_dangling_tool_calls(self._agent_getter(), thread_id)
         result = self._agent_getter().invoke(
             {"messages": [{"role": "user", "content": text}]},
             config={"configurable": {"thread_id": thread_id}},

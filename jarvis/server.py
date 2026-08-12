@@ -17,7 +17,7 @@ from langchain_core.messages import AIMessageChunk, ToolMessage
 from pydantic import BaseModel
 
 from jarvis import __version__, config, wechat
-from jarvis.graph import build_agent
+from jarvis.graph import build_agent, heal_dangling_tool_calls
 from jarvis.tools import TOOLS
 from jarvis.tools.location import get_location, locate_by_ip, set_location
 from jarvis.tools.memo import all_memos
@@ -286,6 +286,7 @@ def chat(request: Request, body: ChatIn):
         _chat_count += 1
         seen_calls: set[str] = set()
         try:
+            heal_dangling_tool_calls(_get_agent(), body.thread_id)
             for chunk, _meta in _get_agent().stream(
                 {"messages": [{"role": "user", "content": body.message}]},
                 config={"configurable": {"thread_id": body.thread_id}},
@@ -355,6 +356,7 @@ def oai_chat(request: Request, body: OAIChatIn):
     created = int(time.time())
 
     if not body.stream:
+        heal_dangling_tool_calls(_get_agent(), tid)
         result = _get_agent().invoke(
             {"messages": [{"role": "user", "content": text}]},
             config={"configurable": {"thread_id": tid}},
@@ -376,6 +378,7 @@ def oai_chat(request: Request, body: OAIChatIn):
             }, ensure_ascii=False) + "\n\n"
         yield chunk({"role": "assistant"})
         try:
+            heal_dangling_tool_calls(_get_agent(), tid)
             for ck, _meta in _get_agent().stream(
                 {"messages": [{"role": "user", "content": text}]},
                 config={"configurable": {"thread_id": tid}},
