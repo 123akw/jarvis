@@ -17,7 +17,7 @@
 
 **[快速开始](#快速开始)**
 
-这是项目维护者的私有部署或演示入口，不是公共 SaaS，也不承诺持续在线；桌面端可在设置中改为你自己的服务器地址。截至 **2026-08-12**，该私有演示部署的 `jarvis-web` 与 SearXNG 均已通过健康状态和 HTTP 可达性验证；SearXNG 仅监听服务器 loopback `127.0.0.1:18888`，不可从公网直接访问，搜索失败时可回退 DDGS。这里的状态说明不代表维护者已经替访问者执行过实时娱乐搜索或验证过任何具体结果。
+这是项目维护者的私有部署或演示入口，不是公共 SaaS，也不承诺持续在线；桌面端可在设置中改为你自己的服务器地址。截至 **2026-08-13**，多用户隔离、Owner 用户管理、每用户 Provider / API 设置、`jarvis-web` 与 SearXNG 已部署并通过最小线上验收；SearXNG 仅监听服务器 loopback `127.0.0.1:18888`，不可从公网直接访问，搜索失败时可回退 DDGS。这里的状态说明不代表维护者已经替访问者执行过实时娱乐搜索或验证过任何具体结果。
 
 > **非商用项目：仅供学习、研究与个人非商业用途。禁止未经授权的商业部署、商业集成、付费分发或收费服务。**
 
@@ -26,6 +26,19 @@
 </div>
 
 ![JWS-Agent 网页端任务台与对话界面](docs/assets/readme/web-dashboard.png)
+
+<table>
+  <tr>
+    <td align="center"><strong>每个账号独立的 Provider / API 设置</strong></td>
+    <td align="center"><strong>Owner 用户管理与角色控制</strong></td>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/readme/web-provider-settings.png" alt="JWS-Agent 网页端 Provider 与 API 设置中心" width="100%"></td>
+    <td><img src="docs/assets/readme/web-account-settings.png" alt="JWS-Agent 网页端 Owner 用户管理界面" width="100%"></td>
+  </tr>
+</table>
+
+以上网页截图来自私有演示部署的真实界面；账户名、定位和其他个人信息已替换为演示内容，API Key、口令、二维码与真实对话均未进入图片。
 
 <table>
   <tr>
@@ -158,7 +171,7 @@ flowchart LR
 ### 实时搜索与正文提取的来源边界
 
 - `SearchService` 默认依次尝试本地 SearXNG、DDGS 和显式配置的可选 Tavily。仓库提供的 SearXNG Compose 只监听 `127.0.0.1:18888`；生产审计发现 8888 已被 BT-Panel 占用，因此改用确认空闲的 18888。未启动或未配置时会自动继续 DDGS。
-- 截至 2026-08-12，私有演示部署的 `jarvis-web` 与 SearXNG 已通过健康状态和 HTTP 可达性验证；这只确认服务链路健康，不代表已经替用户运行 `search_smoke.py --live` 或执行上述娱乐搜索示例。
+- 截至 2026-08-13，私有演示部署的 `jarvis-web`、多用户与 Provider 设置接口、SearXNG 已通过最小线上验收和 HTTP 可达性验证；这只确认服务链路健康，不代表已经替用户运行 `search_smoke.py --live` 或执行上述娱乐搜索示例。
 - 静态正文优先由 Trafilatura 有界提取；只有安装 browser extra 和 Chromium 后，动态页面才可回退 Playwright。提取器限制响应体与输出长度，并拒绝 loopback、私网和其他不安全目标。
 - 每次搜索输出记录查询时间、provider、标题、摘要与有效 HTTP(S) 来源。网页文本被标记为外部资料而不是 Agent 指令，但公开网页仍可能过时或有误；重要信息应打开原始链接复核。
 - `TAVILY_API_KEY` 与 `PANDASCORE_TOKEN` 都可选。PandaScore 配置后可优先提供结构化电竞数据，缺失或失败时回退默认网页搜索链。
@@ -258,6 +271,7 @@ npm start
 - 网页顶栏 **⚙ API** 与桌面端 **设置 → 模型 API** 都可以选择 OpenAI、DeepSeek、阿里云百炼、SiliconFlow 或自定义 OpenAI 兼容 HTTPS 地址。官方 Provider 只接受其官方 API 主机；自定义中转禁止 HTTP、URL 凭据、查询参数和片段。
 - 每个用户只管理自己的模型 Provider、Base URL、模型名和 Key；Owner 额外管理全局 SearXNG、Tavily 与 PandaScore。Member 无法读取或修改其他账号配置，也不能管理全局联网数据源。
 - API Key 永不回显到网页或桌面端。托管设置使用 AES-GCM 加密并按用户、Provider、Origin 与 generation 绑定；每次测试、保存或恢复都要求当前账号口令，修改采用 generation 冲突保护。
+- Provider 设置保存后只影响当前账号的新 Agent 会话；已经打开的网页、桌面窗口或旧登录会话应退出并重新登录，再新建对话验证模型切换。
 - 测试连接会真实发送极少量非流式工具调用、流式文本和流式工具调用，可能产生少量模型费用。第三方中转可读取问题、上下文、工具调用和输出，建议只使用独立、低额度、可吊销的 Key。
 - “恢复环境配置”会切回 `.env` 中的回退 Provider。未同时配置写入开关和主密钥时，设置中心保持只读，原环境配置仍可正常使用。
 
@@ -274,6 +288,7 @@ JARVIS_SETTINGS_WRITE_ENABLED=true
 ## 多用户、备份与回滚
 
 - Owner 可在网页账户设置中修改自己的口令，并创建、停用、改角色或重置 Member/Owner 口令；没有公开注册入口。Member 不会看到用户管理入口，服务端仍会强制 Owner 权限。
+- 从旧版单账号部署升级时，已有网页登录会话会被撤销；请使用迁移后的唯一 Owner 重新登录，并立即把迁移或运维阶段使用的临时兼容口令改成独立强口令。不要在 README、截图、工单或聊天中记录真实账号与口令。
 - 每个账号的 Agent 运行时、对话线程、检查点命名空间、备忘、待办、日程、定位和模型 Provider 都按用户隔离；CLI 与个人微信固定使用唯一 active Owner 的配置。
 - 升级前必须先停止所有 Web、Desktop、CLI 和微信桥进程，再完整复制 `JARVIS_DATA_DIR`。若不能停服，必须对 `jarvis.db` 和 `accounts.sqlite3` 分别使用 SQLite backup API/等价的一致性快照，不得在运行中直接 `cp` SQLite 文件。
 - `jarvis.db` 是 Agent 检查点；`accounts.sqlite3` 是账号/会话/租户元数据。升级前的 `threads.json`、`memos.json`、`todos.json`、`schedule.json`、`location.json`、`local_status.json` 是仅归属 Owner 的 legacy 输入：迁移不改写原文件，并为每个实际存在的文件创建同目录 `0600` 快照 `<原文件名>.tenant-v1.bak`。
