@@ -1,11 +1,8 @@
 """日程类工具：带时间的安排，增、查、删，落盘 data/schedule.json。"""
 import datetime
-import json
-
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
-
-from jarvis.config import data_dir
+from jarvis.tenancy import TenantStore
 
 _FMT = "%Y-%m-%d %H:%M"
 
@@ -21,22 +18,9 @@ class ScheduleDelArgs(BaseModel):
     schedule_id: int = Field(ge=1, description="要删除的日程编号（schedule_list 返回的行首数字）")
 
 
-def _load() -> list[dict]:
-    p = data_dir() / "schedule.json"
-    if not p.exists():
-        return []
-    return json.loads(p.read_text(encoding="utf-8"))
-
-
-def _save(items: list[dict]) -> None:
-    (data_dir() / "schedule.json").write_text(
-        json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-
-
 def all_schedule() -> list[dict]:
     """给网页仪表盘用的原始数据出口，按时间排序。"""
-    return sorted(_load(), key=lambda x: x["when"])
+    return TenantStore().list_schedule()
 
 
 def _tag(when: str) -> str:
@@ -59,10 +43,7 @@ def schedule_add(title: str, when: str) -> str:
         datetime.datetime.strptime(when, _FMT)
     except ValueError:
         return f"时间「{when}」不合法，需要 YYYY-MM-DD HH:MM 格式，例如 2026-08-12 09:00。"
-    items = _load()
-    sid = max((x["id"] for x in items), default=0) + 1
-    items.append({"id": sid, "title": title, "when": when})
-    _save(items)
+    sid = TenantStore().add_schedule(title, when)["id"]
     return f"日程已安排（编号 {sid}）：{when} {title}"
 
 
@@ -79,9 +60,6 @@ def schedule_list() -> str:
 @tool(args_schema=ScheduleDelArgs)
 def schedule_del(schedule_id: int) -> str:
     """按编号删除一条日程。编号不确定时先调 schedule_list 查看。"""
-    items = _load()
-    kept = [x for x in items if x["id"] != schedule_id]
-    if len(kept) == len(items):
+    if not TenantStore().delete_schedule(schedule_id):
         return f"没找到编号 {schedule_id} 的日程。"
-    _save(kept)
     return f"已删除编号 {schedule_id} 的日程。"

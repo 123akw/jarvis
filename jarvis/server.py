@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from jarvis import __version__, config, wechat
 from jarvis.accounts import AccountStore, Principal, csrf_token
 from jarvis.graph import build_agent, heal_dangling_tool_calls
+from jarvis.tenancy import TenantMigrationError, TenantStore, tenant_scope
 from jarvis.tools import TOOLS
 from jarvis.tools.location import get_location, locate_by_ip, set_location
 from jarvis.tools.memo import all_memos
@@ -301,47 +302,43 @@ def change_password(request: Request, body: PasswordChangeIn):
 
 # ---------- 会话管理 ----------
 
-def _threads_path() -> Path:
-    return config.data_dir() / "threads.json"
+def _tenant_store() -> TenantStore:
+    """Migrate only after account bootstrap; malformed legacy state fails closed."""
+    store = TenantStore()
+    store.migrate_legacy()
+    return store
 
 
-def _load_threads() -> list[dict]:
-    p = _threads_path()
-    if not p.exists():
-        return []
-    return json.loads(p.read_text(encoding="utf-8"))
-
-
-def _save_threads(threads: list[dict]) -> None:
-    _threads_path().write_text(
-        json.dumps(threads, ensure_ascii=False, indent=1), encoding="utf-8")
-
-
-def _upsert_thread(tid: str, first_message: str) -> None:
-    threads = _load_threads()
-    stamp = datetime.datetime.now().isoformat(timespec="microseconds")
-    for t in threads:
-        if t["id"] == tid:
-            t["updated"] = stamp
-            break
-    else:
-        title = first_message.strip().replace("\n", " ")[:24] or "新对话"
-        threads.append({"id": tid, "title": title, "updated": stamp})
-    _save_threads(threads)
+def _upsert_thread(owner_id: str, alias: str, first_message: str):
+    with tenant_scope(owner_id):
+        return _tenant_store().upsert_thread(alias, first_message)
 
 
 @app.get("/api/threads")
 def threads(request: Request):
-    if not _authed(request):
+    principal, _token = _request_principal(request)
+    if not principal:
         return _deny()
-    return sorted(_load_threads(), key=lambda t: t["updated"], reverse=True)
+    try:
+        with tenant_scope(principal.user_id):
+            return _tenant_store().list_threads()
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
 
 
 @app.get("/api/history")
 def history(request: Request, thread_id: str):
-    if not _authed(request):
+    principal, _token = _request_principal(request)
+    if not principal:
         return _deny()
-    state = _get_agent().get_state({"configurable": {"thread_id": thread_id}})
+    try:
+        with tenant_scope(principal.user_id):
+            thread = _tenant_store().get_thread(thread_id)
+            if not thread:
+                return JSONResponse({"error": "未找到对话"}, status_code=404)
+            state = _get_agent().get_state({"configurable": {"thread_id": thread.checkpoint_thread_id}})
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
     out = []
     for m in (state.values or {}).get("messages", []):
         if m.type == "human":
@@ -355,11 +352,18 @@ def history(request: Request, thread_id: str):
 
 @app.delete("/api/thread")
 def delete_thread(request: Request, thread_id: str):
-    if not _write_authorized(request):
+    principal = _write_authorized(request)
+    if not principal:
         return _csrf_deny() if _authed(request) else _deny()
-    _save_threads([t for t in _load_threads() if t["id"] != thread_id])
     try:
-        _get_agent().checkpointer.delete_thread(thread_id)
+        with tenant_scope(principal.user_id):
+            thread = _tenant_store().delete_thread(thread_id)
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+    if not thread:
+        return JSONResponse({"error": "未找到对话"}, status_code=404)
+    try:
+        _get_agent().checkpointer.delete_thread(thread.checkpoint_thread_id)
     except Exception:
         pass  # 记忆库里没有该线程也算删除成功
     return {"ok": True}
@@ -396,13 +400,11 @@ class LocalStatusIn(BaseModel):
 
 @app.post("/api/local-status")
 def local_status(request: Request, body: LocalStatusIn):
-    if not _write_authorized(request):
+    principal = _write_authorized(request)
+    if not principal:
         return _csrf_deny() if _authed(request) else _deny()
-    (config.data_dir() / "local_status.json").write_text(
-        json.dumps({
-            "updated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "coding": body.coding[:10],
-        }, ensure_ascii=False, indent=1), encoding="utf-8")
+    with tenant_scope(principal.user_id):
+        _tenant_store().set_local_status(body.coding)
     return {"ok": True}
 
 
@@ -410,20 +412,29 @@ def local_status(request: Request, body: LocalStatusIn):
 
 @app.get("/api/dashboard")
 def dashboard(request: Request):
-    if not _authed(request):
+    principal, _token = _request_principal(request)
+    if not principal:
         return _deny()
-    todos = all_todos()
-    pending = [t for t in todos if not t["done"]]
+    try:
+        with tenant_scope(principal.user_id):
+            _tenant_store()
+            todos = all_todos()
+            pending = [t for t in todos if not t["done"]]
+            location = get_location()
+            memos = all_memos()
+            schedule = all_schedule()
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
     return {
         "version": __version__,
         "tools": len(TOOLS),
-        "place": (get_location() or {}).get("place", ""),
+        "place": (location or {}).get("place", ""),
         "model": config.model_name(),
         "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "uptime_min": int((datetime.datetime.now() - _started).total_seconds() // 60),
         "chats": _chat_count,
-        "memos": all_memos(),
-        "schedule": all_schedule(),
+        "memos": memos,
+        "schedule": schedule,
         "todos": pending,
         "todos_done": len(todos) - len(pending),
     }
@@ -457,36 +468,42 @@ def _chunk_text(content) -> str:
 
 @app.post("/api/chat")
 def chat(request: Request, body: ChatIn):
-    if not _write_authorized(request):
+    principal = _write_authorized(request)
+    if not principal:
         return _csrf_deny() if _authed(request) else _deny()
     try:
-        _update_location(request, body)
-    except Exception:
-        pass  # 定位失败不拦对话
-    _upsert_thread(body.thread_id, body.message)
+        with tenant_scope(principal.user_id):
+            _tenant_store()
+            try:
+                _update_location(request, body)
+            except Exception:
+                pass  # 定位失败不拦对话
+            thread = _tenant_store().upsert_thread(body.thread_id, body.message)
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
 
     def gen():
         global _chat_count
         _chat_count += 1
         seen_calls: set[str] = set()
         try:
-            heal_dangling_tool_calls(_get_agent(), body.thread_id)
-            for chunk, _meta in _get_agent().stream(
-                {"messages": [{"role": "user", "content": body.message}]},
-                config={"configurable": {"thread_id": body.thread_id}},
-                stream_mode="messages",
-            ):
-                if isinstance(chunk, ToolMessage):
-                    yield _sse({"type": "tool_result", "name": chunk.name})
-                elif isinstance(chunk, AIMessageChunk):
-                    for tc in chunk.tool_call_chunks or []:
-                        name, cid = tc.get("name"), tc.get("id")
-                        if name and cid and cid not in seen_calls:
-                            seen_calls.add(cid)
-                            yield _sse({"type": "tool_start", "name": name})
-                    text = _chunk_text(chunk.content)
-                    if text:
-                        yield _sse({"type": "token", "text": text})
+            with tenant_scope(principal.user_id):
+                heal_dangling_tool_calls(_get_agent(), thread.checkpoint_thread_id)
+                stream = _get_agent().stream(
+                    {"messages": [{"role": "user", "content": body.message}]},
+                    config={"configurable": {"thread_id": thread.checkpoint_thread_id}}, stream_mode="messages")
+                for chunk, _meta in stream:
+                    if isinstance(chunk, ToolMessage):
+                        yield _sse({"type": "tool_result", "name": chunk.name})
+                    elif isinstance(chunk, AIMessageChunk):
+                        for tc in chunk.tool_call_chunks or []:
+                            name, cid = tc.get("name"), tc.get("id")
+                            if name and cid and cid not in seen_calls:
+                                seen_calls.add(cid)
+                                yield _sse({"type": "tool_start", "name": name})
+                        text = _chunk_text(chunk.content)
+                        if text:
+                            yield _sse({"type": "token", "text": text})
             yield _sse({"type": "done"})
         except Exception as e:  # 网络/模型异常兜底，前端提示而不是断流
             yield _sse({"type": "error", "message": f"{type(e).__name__}: {e}"})
@@ -510,9 +527,9 @@ class OAIChatIn(BaseModel):
     stream: bool = False
 
 
-def _bearer_ok(request: Request) -> bool:
+def _bearer_principal(request: Request) -> Principal | None:
     auth = request.headers.get("authorization", "")
-    return auth.startswith("Bearer ") and _accounts.principal_for_token(auth[7:], "openai") is not None
+    return _accounts.principal_for_token(auth[7:], "openai") if auth.startswith("Bearer ") else None
 
 
 def _oai_user_text(messages: list[OAIMessage]) -> str:
@@ -528,23 +545,27 @@ def _oai_user_text(messages: list[OAIMessage]) -> str:
 
 @app.post("/v1/chat/completions")
 def oai_chat(request: Request, body: OAIChatIn):
-    if not _bearer_ok(request):
+    principal = _bearer_principal(request)
+    if not principal:
         return JSONResponse({"error": {"message": "unauthorized"}}, status_code=401)
     text = _oai_user_text(body.messages)
     if not text.strip():
         return JSONResponse({"error": {"message": "empty user message"}}, status_code=400)
     # 多轮记忆在贾维斯侧（按线程），外部只需传最后一句
-    tid = request.headers.get("x-thread-id", "wechat")
-    _upsert_thread(tid, text)
+    alias = request.headers.get("x-thread-id", "openai")
+    try:
+        with tenant_scope(principal.user_id):
+            _tenant_store()
+            thread = _tenant_store().upsert_thread(alias, text)
+    except TenantMigrationError:
+        return JSONResponse({"error": {"message": "tenant migration failed"}}, status_code=503)
     rid = f"chatcmpl-{uuid.uuid4().hex[:24]}"
     created = int(time.time())
 
     if not body.stream:
-        heal_dangling_tool_calls(_get_agent(), tid)
-        result = _get_agent().invoke(
-            {"messages": [{"role": "user", "content": text}]},
-            config={"configurable": {"thread_id": tid}},
-        )
+        with tenant_scope(principal.user_id):
+            heal_dangling_tool_calls(_get_agent(), thread.checkpoint_thread_id)
+            result = _get_agent().invoke({"messages": [{"role": "user", "content": text}]}, config={"configurable": {"thread_id": thread.checkpoint_thread_id}})
         reply = _chunk_text(result["messages"][-1].content)
         return {
             "id": rid, "object": "chat.completion", "created": created, "model": "jarvis",
@@ -562,16 +583,14 @@ def oai_chat(request: Request, body: OAIChatIn):
             }, ensure_ascii=False) + "\n\n"
         yield chunk({"role": "assistant"})
         try:
-            heal_dangling_tool_calls(_get_agent(), tid)
-            for ck, _meta in _get_agent().stream(
-                {"messages": [{"role": "user", "content": text}]},
-                config={"configurable": {"thread_id": tid}},
-                stream_mode="messages",
-            ):
-                if isinstance(ck, AIMessageChunk):
-                    t = _chunk_text(ck.content)
-                    if t:
-                        yield chunk({"content": t})
+            with tenant_scope(principal.user_id):
+                heal_dangling_tool_calls(_get_agent(), thread.checkpoint_thread_id)
+                stream = _get_agent().stream({"messages": [{"role": "user", "content": text}]}, config={"configurable": {"thread_id": thread.checkpoint_thread_id}}, stream_mode="messages")
+                for ck, _meta in stream:
+                    if isinstance(ck, AIMessageChunk):
+                        t = _chunk_text(ck.content)
+                        if t:
+                            yield chunk({"content": t})
         except Exception as e:
             yield chunk({"content": f"（出错了：{type(e).__name__}）"})
         yield chunk({}, finish="stop")
@@ -592,7 +611,7 @@ if (_WEB / "assets").is_dir():
     app.mount("/assets", StaticFiles(directory=_WEB / "assets"), name="assets")
 
 
-wechat.init(_get_agent, _chunk_text)
+wechat.init(_get_agent, _chunk_text, _accounts.unique_active_owner)
 
 
 def run() -> None:

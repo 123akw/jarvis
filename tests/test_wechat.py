@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import httpx
 
 from jarvis import wechat
+from jarvis.accounts import AccountStore
 
 
 class FakeResponse:
@@ -90,6 +91,7 @@ def make_bridge(tmp_path, client, reply="收到"):
         client_factory=lambda: client,
         thread_factory=DeferredThread,
         sleeper=lambda _seconds: None,
+        owner_getter=lambda: (AccountStore()._ensure_bootstrap() or AccountStore().unique_active_owner()),
     )
     return bridge, agent_calls
 
@@ -159,7 +161,8 @@ def test_private_text_uses_contact_thread_and_sends_chunked_reply(tmp_path):
     })
 
     assert next_buf == "next"
-    assert agent_calls == [{"text": "你好", "thread_id": "wx-123456789012"}]
+    assert len(agent_calls) == 1 and agent_calls[0]["text"] == "你好"
+    assert agent_calls[0]["thread_id"].startswith("tenant:")
     assert [len(item) for item in sent] == [1500, 1500, 100]
 
 

@@ -348,6 +348,18 @@ class AccountStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def unique_active_owner(self) -> Principal | None:
+        """Return the only active Owner for fixed-owner transports, else fail closed."""
+        self._ensure_bootstrap()
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT id, username, role FROM users WHERE role='Owner' AND active=1"
+            ).fetchall()
+        if len(rows) != 1:
+            return None
+        row = rows[0]
+        return Principal(row["id"], row["username"], row["role"], "fixed-owner", "fixed")
+
     def create_user(self, username: str, password: str, role: str) -> dict | None:
         username = _clean_username(username)
         if not username or not password or role not in _ROLES:

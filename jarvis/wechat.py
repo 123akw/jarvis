@@ -37,6 +37,7 @@ class WeChatBridge:
         self,
         agent_getter=None,
         chunk_text=None,
+        owner_getter=None,
         data_dir_getter: Callable[[], Path] | None = None,
         client_factory=None,
         thread_factory=None,
@@ -44,6 +45,7 @@ class WeChatBridge:
     ):
         self._agent_getter = agent_getter
         self._chunk_text = chunk_text
+        self._owner_getter = owner_getter
         self._data_dir_getter = data_dir_getter or config.data_dir
         self._client_factory = client_factory or (
             lambda: httpx.Client(trust_env=False)
@@ -61,11 +63,12 @@ class WeChatBridge:
         self._updates_stop = threading.Event()
         self._updates_thread = None
 
-    def configure(self, agent_getter, chunk_text) -> None:
+    def configure(self, agent_getter, chunk_text, owner_getter=None) -> None:
         """由 Web 服务注入 Agent 与消息文本转换器。"""
         with self._lock:
             self._agent_getter = agent_getter
             self._chunk_text = chunk_text
+            self._owner_getter = owner_getter
 
     def _token_path(self) -> Path:
         data_dir = self._data_dir_getter()
@@ -298,17 +301,25 @@ class WeChatBridge:
         worker.start()
 
     def _reply(self, text: str, from_id: str) -> str:
-        if not self._agent_getter or not self._chunk_text:
+        if not self._agent_getter or not self._chunk_text or not self._owner_getter:
             return "贾维斯尚未就绪。"
+        owner = self._owner_getter()
+        if owner is None:
+            return "贾维斯账号未就绪。"
         contact = from_id.split("@", 1)[0]
-        thread_id = "wx-" + contact[-12:]
+        alias = "wx-" + contact[-12:]
         from jarvis.graph import heal_dangling_tool_calls
+        from jarvis.tenancy import TenantStore, tenant_scope
 
-        heal_dangling_tool_calls(self._agent_getter(), thread_id)
-        result = self._agent_getter().invoke(
-            {"messages": [{"role": "user", "content": text}]},
-            config={"configurable": {"thread_id": thread_id}},
-        )
+        with tenant_scope(owner.user_id):
+            store = TenantStore()
+            store.migrate_legacy()
+            thread = store.upsert_thread(alias, text)
+            heal_dangling_tool_calls(self._agent_getter(), thread.checkpoint_thread_id)
+            result = self._agent_getter().invoke(
+                {"messages": [{"role": "user", "content": text}]},
+                config={"configurable": {"thread_id": thread.checkpoint_thread_id}},
+            )
         return self._chunk_text(result["messages"][-1].content)
 
     @staticmethod
@@ -510,8 +521,8 @@ class WeChatBridge:
 _bridge = WeChatBridge()
 
 
-def init(agent_getter, chunk_text) -> None:
-    _bridge.configure(agent_getter, chunk_text)
+def init(agent_getter, chunk_text, owner_getter=None) -> None:
+    _bridge.configure(agent_getter, chunk_text, owner_getter)
 
 
 def status() -> dict:

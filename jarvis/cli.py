@@ -1,14 +1,23 @@
 """终端入口：交互式对话，或 --once 单发一句。"""
 import argparse
 
+from jarvis.accounts import AccountStore
 from jarvis.graph import build_agent
+from jarvis.tenancy import TenantStore, tenant_scope
 
 
 def chat(agent, text: str, thread_id: str) -> str:
-    result = agent.invoke(
-        {"messages": [{"role": "user", "content": text}]},
-        config={"configurable": {"thread_id": thread_id}},
-    )
+    owner = AccountStore().unique_active_owner()
+    if owner is None:
+        raise RuntimeError("CLI requires exactly one active Owner")
+    with tenant_scope(owner.user_id):
+        store = TenantStore()
+        store.migrate_legacy()
+        thread = store.upsert_thread(thread_id, text)
+        result = agent.invoke(
+            {"messages": [{"role": "user", "content": text}]},
+            config={"configurable": {"thread_id": thread.checkpoint_thread_id}},
+        )
     return str(result["messages"][-1].content)
 
 

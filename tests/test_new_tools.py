@@ -1,10 +1,20 @@
 """新技能（日程/待办/天气/计算器）单元测试：全部确定性判定，不碰网络与大模型。"""
 import datetime
+import pytest
 
 import importlib
 
 from jarvis.tools import calc, schedule_add, schedule_del, schedule_list
 from jarvis.tools import todo_add, todo_done, todo_list, weather
+from jarvis.accounts import AccountStore
+from jarvis.tenancy import tenant_scope
+
+
+@pytest.fixture(autouse=True)
+def tenant():
+    accounts = AccountStore(); accounts._ensure_bootstrap()
+    with tenant_scope(accounts.list_users()[0]["id"]):
+        yield
 
 # 包 __init__ 里工具对象 weather 遮住了同名子模块，取模块本体要走 importlib
 weather_mod = importlib.import_module("jarvis.tools.weather")

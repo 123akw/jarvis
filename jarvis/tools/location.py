@@ -1,10 +1,9 @@
 """定位：网页端上报浏览器坐标（优先）或服务端按 IP 兜底，落盘 data/location.json。"""
 import datetime
-import json
 
 from langchain_core.tools import tool
 
-from jarvis.config import data_dir
+from jarvis.tenancy import TenantStore
 from jarvis.tools.weather import _get_json
 
 _REVERSE = "https://api.bigdatacloud.net/data/reverse-geocode-client"
@@ -12,15 +11,8 @@ _IPAPI = "http://ip-api.com/json/{ip}"          # 海外可达
 _MEITUAN = "https://apimobile.meituan.com/locate/v2/ip/loc"  # 大陆可达
 
 
-def _path():
-    return data_dir() / "location.json"
-
-
 def get_location() -> dict | None:
-    p = _path()
-    if not p.exists():
-        return None
-    return json.loads(p.read_text(encoding="utf-8"))
+    return TenantStore().get_location()
 
 
 def _reverse_geocode(lat: float, lon: float) -> str:
@@ -41,10 +33,8 @@ def set_location(lat: float, lon: float, source: str) -> None:
     old = get_location()
     moved = not old or abs(old["lat"] - lat) > 0.01 or abs(old["lon"] - lon) > 0.01
     place = _reverse_geocode(lat, lon) if moved else old.get("place", "")
-    _path().write_text(json.dumps({
-        "lat": lat, "lon": lon, "place": place, "source": source,
-        "updated": datetime.datetime.now().isoformat(timespec="seconds"),
-    }, ensure_ascii=False), encoding="utf-8")
+    TenantStore().set_location(lat, lon, source, place,
+                               updated_at=datetime.datetime.now().isoformat(timespec="seconds"))
 
 
 def locate_by_ip(ip: str) -> dict | None:
@@ -73,10 +63,9 @@ def locate_by_ip(ip: str) -> dict | None:
 def coding_status() -> str:
     """查询领导在 Claude Code 里的编程进度（由桌面端定时同步）。
     领导问「我在做什么任务」「编程进度怎么样」「刚才在写什么代码」时用。"""
-    p = data_dir() / "local_status.json"
-    if not p.exists():
+    d = TenantStore().get_local_status()
+    if not d:
         return "桌面端还没同步过编程状态。请领导确认桌面悬浮窗在运行。"
-    d = json.loads(p.read_text(encoding="utf-8"))
     coding = d.get("coding", [])
     if not coding:
         return f"最近 48 小时没有 Claude Code 编程活动（同步于 {d.get('updated','?')}）。"

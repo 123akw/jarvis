@@ -1,7 +1,17 @@
 """桌面端状态同步与 coding_status 工具：确定性判定。"""
 import jarvis.server as server_mod
+import pytest
 from fastapi.testclient import TestClient
 from jarvis.tools import coding_status
+from jarvis.accounts import AccountStore
+from jarvis.tenancy import tenant_scope
+
+
+@pytest.fixture(autouse=True)
+def tenant():
+    accounts = AccountStore(); accounts._ensure_bootstrap()
+    with tenant_scope(accounts.list_users()[0]["id"]):
+        yield
 
 
 def _authed_client():

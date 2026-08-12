@@ -1,7 +1,17 @@
 """定位与按位置查天气：全部确定性判定，网络层打桩。"""
 import importlib
+import pytest
 
 from jarvis.tools import my_location, weather_here
+from jarvis.accounts import AccountStore
+from jarvis.tenancy import tenant_scope
+
+
+@pytest.fixture(autouse=True)
+def tenant():
+    accounts = AccountStore(); accounts._ensure_bootstrap()
+    with tenant_scope(accounts.list_users()[0]["id"]):
+        yield
 
 location_mod = importlib.import_module("jarvis.tools.location")
 weather_mod = importlib.import_module("jarvis.tools.weather")
