@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { csrfHeaders } from './api.js'
 
 async function j(path, opts) {
   const r = await fetch(path, opts)
@@ -23,14 +24,14 @@ export default function WeChatConnect({ onClose, onExpired }) {
 
   async function connect() {
     setS({ state: 'loading' })
-    try { setS(await j('/api/wechat/connect', { method: 'POST' })) }
+    try { setS(await j('/api/wechat/connect', { method: 'POST', headers: csrfHeaders() })) }
     catch (e) {
       if (e.message === '401') onExpired?.()
       else setS({ state: 'error', error: '连不上微信桥，请稍后重试' })
     }
   }
   async function disconnect() {
-    try { setS(await j('/api/wechat/disconnect', { method: 'POST' })) }
+    try { setS(await j('/api/wechat/disconnect', { method: 'POST', headers: csrfHeaders() })) }
     catch (e) {
       if (e.message === '401') onExpired?.()
       else setS({ state: 'error', error: '断开失败，请稍后重试' })

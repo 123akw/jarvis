@@ -4,11 +4,11 @@ from fastapi.testclient import TestClient
 import jarvis.server as server
 
 
-def _token() -> str:
-    response = TestClient(server.app).post(
-        "/api/login", json={"username": "admin", "password": "admin"}
-    )
-    return response.json()["token"]
+def _authed_client() -> tuple[TestClient, dict[str, str]]:
+    client = TestClient(server.app)
+    client.post("/api/login", json={"username": "admin", "password": "admin"})
+    csrf = client.get("/api/session").json()["csrf_token"]
+    return client, {"X-JWS-CSRF": csrf}
 
 
 def test_wechat_endpoints_require_login():
@@ -29,8 +29,7 @@ def test_authenticated_wechat_endpoints_return_bridge_state(monkeypatch):
         lambda: {"state": "waiting", "qr_uri": "data:image/svg+xml,qr"},
     )
     monkeypatch.setattr(server.wechat, "disconnect", lambda: {"state": "idle"})
-    client = TestClient(server.app)
-    headers = {"X-JWS-Token": _token()}
+    client, headers = _authed_client()
 
     assert client.get("/api/wechat/status", headers=headers).json() == {
         "state": "idle"

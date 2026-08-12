@@ -16,6 +16,10 @@ anyio==4.14.2
     #   langsmith
     #   openai
     #   starlette
+argon2-cffi==25.1.0
+    # via pwdlib
+argon2-cffi-bindings==25.1.0
+    # via argon2-cffi
 babel==2.18.0
     # via courlan
 brotli==1.2.0
@@ -31,6 +35,8 @@ charset-normalizer==3.4.9
     #   htmldate
     #   requests
     #   trafilatura
+cffi==2.1.1
+    # via argon2-cffi-bindings
 click==8.4.2
     # via
     #   ddgs
@@ -145,6 +151,10 @@ pydantic==2.13.4
     #   openai
 pydantic-core==2.46.4
     # via pydantic
+pwdlib==0.3.1
+    # via jarvis (pyproject.toml)
+pycparser==3.0
+    # via cffi
 python-dateutil==2.9.0.post0
     # via
     #   dateparser

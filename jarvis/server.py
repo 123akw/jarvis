@@ -1,22 +1,21 @@
-"""网页端后端：FastAPI。自研登录（cookie 会话）+ SSE 流式聊天 + 仪表盘接口。"""
+"""网页端后端：FastAPI。账户、服务端会话 + SSE 流式聊天 + 仪表盘接口。"""
 from contextlib import asynccontextmanager
 import datetime
-import hashlib
-import hmac
 import json
 import os
-import secrets
 import time
 import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import AIMessageChunk, ToolMessage
 from pydantic import BaseModel
 
 from jarvis import __version__, config, wechat
+from jarvis.accounts import AccountStore, Principal, csrf_token
 from jarvis.graph import build_agent, heal_dangling_tool_calls
 from jarvis.tools import TOOLS
 from jarvis.tools.location import get_location, locate_by_ip, set_location
@@ -41,33 +40,52 @@ _agent = None
 _started = datetime.datetime.now()
 _chat_count = 0
 
-_USER = "admin"
-_PASSWORD = "admin"  # 领导点名的口令；公网弱口令风险已当面提示
 _COOKIE = "jws_session"
-_SESSION_DAYS = 30
+_accounts = AccountStore()
 
 
-def _secret() -> bytes:
-    """会话签名密钥，落盘持久化，重启不掉登录态。"""
-    p = config.data_dir() / "session_secret"
-    if not p.exists():
-        p.write_text(secrets.token_hex(32), encoding="utf-8")
-        p.chmod(0o600)
-    return p.read_text(encoding="utf-8").strip().encode()
+@app.exception_handler(RequestValidationError)
+async def invalid_request(_request: Request, _error: RequestValidationError):
+    """Avoid FastAPI's default echo of invalid request fields, including passwords."""
+    return JSONResponse({"error": "请求格式不正确"}, status_code=422)
 
 
-def _session_token() -> str:
-    return hmac.new(_secret(), b"jws-session-v1", hashlib.sha256).hexdigest()
+def _request_principal(request: Request) -> tuple[Principal | None, str]:
+    """Resolve a cookie or bearer to its server-side Principal."""
+    cookie = request.cookies.get(_COOKIE, "")
+    if cookie:
+        return _accounts.principal_for_token(cookie, "web"), cookie
+    desktop_token = request.headers.get("x-jws-token", "")
+    if desktop_token:
+        return _accounts.principal_for_token(desktop_token, "desktop"), desktop_token
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Bearer "):
+        token = auth[7:]
+        return _accounts.principal_for_token(token, "desktop"), token
+    return None, ""
 
 
 def _authed(request: Request) -> bool:
-    # 同域网页走 cookie；桌面悬浮窗（file:// 跨站，cookie 被 SameSite 拦）走请求头令牌
-    got = request.cookies.get(_COOKIE, "") or request.headers.get("x-jws-token", "")
-    return bool(got) and hmac.compare_digest(got, _session_token())
+    return _request_principal(request)[0] is not None
+
+
+def _write_authorized(request: Request) -> Principal | None:
+    principal, token = _request_principal(request)
+    if not principal:
+        return None
+    if principal.transport == "web" and not _accounts.csrf_valid(
+        principal, token, request.headers.get("x-jws-csrf", "")
+    ):
+        return None
+    return principal
 
 
 def _deny() -> JSONResponse:
     return JSONResponse({"error": "未登录"}, status_code=401)
+
+
+def _csrf_deny() -> JSONResponse:
+    return JSONResponse({"error": "CSRF 校验失败"}, status_code=403)
 
 
 def _get_agent():
@@ -90,21 +108,38 @@ class LoginIn(BaseModel):
 
 @app.post("/api/login")
 def login(body: LoginIn):
-    ok = hmac.compare_digest(body.username, _USER) and hmac.compare_digest(body.password, _PASSWORD)
-    if not ok:
-        time.sleep(0.8)  # 失败节流，拖慢暴力猜解
-        return JSONResponse({"error": "账号或口令不对"}, status_code=401)
-    token = _session_token()
-    resp = JSONResponse({"ok": True, "token": token})
+    if not os.getenv("JARVIS_SESSION_SECRET") or len(os.getenv("JARVIS_SESSION_SECRET", "").encode("utf-8")) < 32:
+        return JSONResponse({"error": "服务未配置"}, status_code=503, headers={"Cache-Control": "no-store"})
+    authenticated = _accounts.authenticate(body.username, body.password, "web")
+    if not authenticated:
+        return JSONResponse({"error": "账号或口令不对"}, status_code=401, headers={"Cache-Control": "no-store"})
+    _principal, token, _csrf = authenticated
+    resp = JSONResponse({"ok": True}, headers={"Cache-Control": "no-store"})
     resp.set_cookie(
-        _COOKIE, token, max_age=_SESSION_DAYS * 86400,
-        httponly=True, samesite="lax", path="/",
+        _COOKIE, token, max_age=30 * 86400, httponly=True, samesite="strict", path="/",
+        secure=not (os.getenv("JARVIS_ENV", "").lower() in {"development", "dev", "test"}
+                    and os.getenv("JARVIS_ALLOW_INSECURE_COOKIE") == "1"),
     )
     return resp
 
 
+@app.post("/api/desktop/login")
+def desktop_login(body: LoginIn):
+    authenticated = _accounts.authenticate(body.username, body.password, "desktop")
+    if not authenticated:
+        return JSONResponse({"error": "账号或口令不对"}, status_code=401, headers={"Cache-Control": "no-store"})
+    _principal, token, _csrf = authenticated
+    return JSONResponse({"access_token": token, "token_type": "bearer"}, headers={"Cache-Control": "no-store"})
+
+
 @app.post("/api/logout")
-def logout():
+def logout(request: Request):
+    principal, _token = _request_principal(request)
+    if not principal:
+        return _deny()
+    if principal.transport == "web" and not _write_authorized(request):
+        return _csrf_deny()
+    _accounts.revoke_session(principal.session_id)
     resp = JSONResponse({"ok": True})
     resp.delete_cookie(_COOKIE, path="/")
     return resp
@@ -112,7 +147,91 @@ def logout():
 
 @app.get("/api/session")
 def session(request: Request):
-    return {"authed": _authed(request)}
+    principal, token = _request_principal(request)
+    if not principal:
+        return JSONResponse({"authed": False}, headers={"Cache-Control": "no-store"})
+    response = {
+        "authed": True,
+        "username": principal.username,
+        "role": principal.role,
+        "expires_at": _accounts.expiry_for(principal),
+    }
+    if principal.transport == "web":
+        response["csrf_token"] = csrf_token(token, principal.session_id)
+    return JSONResponse(response, headers={"Cache-Control": "no-store"})
+
+
+class UserCreateIn(BaseModel):
+    username: str
+    password: str
+    role: str = "Member"
+
+
+class UserPatchIn(BaseModel):
+    username: str | None = None
+    password: str | None = None
+    role: str | None = None
+    active: bool | None = None
+
+
+class PasswordChangeIn(BaseModel):
+    current_password: str
+    new_password: str
+
+
+def _owner_for_write(request: Request) -> Principal | JSONResponse:
+    principal, _token = _request_principal(request)
+    if not principal:
+        return _deny()
+    if not _write_authorized(request):
+        return _csrf_deny()
+    if not principal.is_owner:
+        return JSONResponse({"error": "权限不足"}, status_code=403)
+    return principal
+
+
+@app.get("/api/admin/users")
+def users(request: Request):
+    principal, _token = _request_principal(request)
+    if not principal:
+        return _deny()
+    if not principal.is_owner:
+        return JSONResponse({"error": "权限不足"}, status_code=403)
+    return _accounts.list_users()
+
+
+@app.post("/api/admin/users", status_code=201)
+def create_user(request: Request, body: UserCreateIn):
+    allowed = _owner_for_write(request)
+    if isinstance(allowed, JSONResponse):
+        return allowed
+    created = _accounts.create_user(body.username, body.password, body.role)
+    if not created:
+        return JSONResponse({"error": "无法创建用户"}, status_code=400)
+    return created
+
+
+@app.patch("/api/admin/users/{user_id}")
+def update_user(user_id: str, request: Request, body: UserPatchIn):
+    allowed = _owner_for_write(request)
+    if isinstance(allowed, JSONResponse):
+        return allowed
+    updated = _accounts.update_user(user_id, **body.model_dump(exclude_unset=True))
+    if not updated:
+        return JSONResponse({"error": "无法更新用户"}, status_code=400)
+    return updated
+
+
+@app.post("/api/account/password")
+def change_password(request: Request, body: PasswordChangeIn):
+    principal = _write_authorized(request)
+    if not principal:
+        return _csrf_deny() if _authed(request) else _deny()
+    if not _accounts.change_password(principal, body.current_password, body.new_password):
+        return JSONResponse({"error": "当前口令不对或新口令无效"}, status_code=400)
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(_COOKIE, path="/")
+    return resp
 
 
 # ---------- 会话管理 ----------
@@ -171,8 +290,8 @@ def history(request: Request, thread_id: str):
 
 @app.delete("/api/thread")
 def delete_thread(request: Request, thread_id: str):
-    if not _authed(request):
-        return _deny()
+    if not _write_authorized(request):
+        return _csrf_deny() if _authed(request) else _deny()
     _save_threads([t for t in _load_threads() if t["id"] != thread_id])
     try:
         _get_agent().checkpointer.delete_thread(thread_id)
@@ -192,15 +311,15 @@ def wechat_status(request: Request):
 
 @app.post("/api/wechat/connect")
 def wechat_connect(request: Request):
-    if not _authed(request):
-        return _deny()
+    if not _write_authorized(request):
+        return _csrf_deny() if _authed(request) else _deny()
     return wechat.connect()
 
 
 @app.post("/api/wechat/disconnect")
 def wechat_disconnect(request: Request):
-    if not _authed(request):
-        return _deny()
+    if not _write_authorized(request):
+        return _csrf_deny() if _authed(request) else _deny()
     return wechat.disconnect()
 
 
@@ -212,8 +331,8 @@ class LocalStatusIn(BaseModel):
 
 @app.post("/api/local-status")
 def local_status(request: Request, body: LocalStatusIn):
-    if not _authed(request):
-        return _deny()
+    if not _write_authorized(request):
+        return _csrf_deny() if _authed(request) else _deny()
     (config.data_dir() / "local_status.json").write_text(
         json.dumps({
             "updated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -273,8 +392,8 @@ def _chunk_text(content) -> str:
 
 @app.post("/api/chat")
 def chat(request: Request, body: ChatIn):
-    if not _authed(request):
-        return _deny()
+    if not _write_authorized(request):
+        return _csrf_deny() if _authed(request) else _deny()
     try:
         _update_location(request, body)
     except Exception:
@@ -328,7 +447,7 @@ class OAIChatIn(BaseModel):
 
 def _bearer_ok(request: Request) -> bool:
     auth = request.headers.get("authorization", "")
-    return auth.startswith("Bearer ") and hmac.compare_digest(auth[7:], _session_token())
+    return auth.startswith("Bearer ") and _accounts.principal_for_token(auth[7:], "desktop") is not None
 
 
 def _oai_user_text(messages: list[OAIMessage]) -> str:
@@ -344,7 +463,7 @@ def _oai_user_text(messages: list[OAIMessage]) -> str:
 
 @app.post("/v1/chat/completions")
 def oai_chat(request: Request, body: OAIChatIn):
-    if not (_authed(request) or _bearer_ok(request)):
+    if not _bearer_ok(request):
         return JSONResponse({"error": {"message": "unauthorized"}}, status_code=401)
     text = _oai_user_text(body.messages)
     if not text.strip():

@@ -36,7 +36,7 @@ describe('WeChatConnect', () => {
     const qr = await screen.findByRole('img', { name: '微信登录二维码' })
     expect(qr).toHaveAttribute('src', 'data:image/svg+xml,qr')
     expect(global.fetch).toHaveBeenNthCalledWith(
-      2, '/api/wechat/connect', { method: 'POST' })
+      2, '/api/wechat/connect', { method: 'POST', headers: {} })
   })
 
   it('reports expired authentication and clears polling on unmount', async () => {
@@ -94,6 +94,6 @@ describe('WeChatConnect', () => {
     expect(await screen.findByRole('button', { name: '生成二维码，开始接入' }))
       .toBeInTheDocument()
     expect(global.fetch).toHaveBeenNthCalledWith(
-      2, '/api/wechat/disconnect', { method: 'POST' })
+      2, '/api/wechat/disconnect', { method: 'POST', headers: {} })
   })
 })

@@ -7,6 +7,19 @@ def _client():
     return TestClient(server_mod.app)
 
 
+def _login(client):
+    response = client.post("/api/login", json={"username": "admin", "password": "admin"})
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    return client.get("/api/session").json()["csrf_token"]
+
+
+def _desktop_token(client):
+    response = client.post("/api/desktop/login", json={"username": "admin", "password": "admin"})
+    assert response.status_code == 200
+    return response.json()["access_token"]
+
+
 def test_dashboard_requires_login():
     assert _client().get("/api/dashboard").status_code == 401
 
@@ -24,18 +37,17 @@ def test_login_wrong_password_rejected(monkeypatch):
 
 def test_login_ok_sets_cookie_and_grants_access():
     c = _client()
-    resp = c.post("/api/login", json={"username": "admin", "password": "admin"})
-    assert resp.status_code == 200
-    assert server_mod._COOKIE in resp.cookies
+    _login(c)
+    assert server_mod._COOKIE in c.cookies
     assert c.get("/api/dashboard").status_code == 200
-    assert c.get("/api/session").json() == {"authed": True}
+    assert c.get("/api/session").json()["authed"] is True
 
 
 def test_logout_revokes_session():
     c = _client()
-    c.post("/api/login", json={"username": "admin", "password": "admin"})
+    csrf = _login(c)
     assert c.get("/api/dashboard").status_code == 200
-    c.post("/api/logout")
+    c.post("/api/logout", headers={"X-JWS-CSRF": csrf})
     assert c.get("/api/dashboard").status_code == 401
 
 
@@ -47,20 +59,20 @@ def test_forged_cookie_rejected():
 
 def test_header_token_grants_access():
     c = _client()
-    token = c.post("/api/login", json={"username": "admin", "password": "admin"}).json()["token"]
-    c2 = _client()  # 无 cookie，仅带请求头令牌（桌面悬浮窗场景）
+    token = _desktop_token(c)
+    c2 = _client()  # 无 cookie，仅带 bearer（桌面悬浮窗场景）
     assert c2.get("/api/dashboard", headers={"X-JWS-Token": token}).status_code == 200
 
 
 def test_forged_header_token_rejected():
     c = _client()
-    assert c.get("/api/dashboard", headers={"X-JWS-Token": "f" * 64}).status_code == 401
+    assert c.get("/api/dashboard", headers={"Authorization": f"Bearer {'f' * 64}"}).status_code == 401
 
 
 def test_session_survives_restart_same_secret():
     c1 = _client()
-    resp = c1.post("/api/login", json={"username": "admin", "password": "admin"})
-    token = resp.cookies[server_mod._COOKIE]
-    c2 = _client()  # 模拟服务重启后的新进程：密钥落盘，老 cookie 仍有效
+    _login(c1)
+    token = c1.cookies[server_mod._COOKIE]
+    c2 = _client()  # 模拟服务重启后的新进程：SQLite 会话仍有效
     c2.cookies.set(server_mod._COOKIE, token)
     assert c2.get("/api/dashboard").status_code == 200

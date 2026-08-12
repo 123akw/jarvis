@@ -1,5 +1,13 @@
+let csrfToken = ''
+
 export async function getSession() {
-  return (await fetch('/api/session')).json()
+  const session = await (await fetch('/api/session')).json()
+  csrfToken = session.csrf_token || ''
+  return session
+}
+
+export function csrfHeaders() {
+  return csrfToken ? { 'X-JWS-CSRF': csrfToken } : {}
 }
 
 export async function login(username, password) {
@@ -8,11 +16,14 @@ export async function login(username, password) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password }),
   })
-  return r.ok
+  if (!r.ok) return false
+  await getSession()
+  return true
 }
 
 export async function logout() {
-  await fetch('/api/logout', { method: 'POST' })
+  await fetch('/api/logout', { method: 'POST', headers: csrfHeaders() })
+  csrfToken = ''
 }
 
 export async function getDashboard() {
@@ -34,14 +45,16 @@ export async function getHistory(threadId) {
 }
 
 export async function deleteThread(threadId) {
-  await fetch(`/api/thread?thread_id=${encodeURIComponent(threadId)}`, { method: 'DELETE' })
+  await fetch(`/api/thread?thread_id=${encodeURIComponent(threadId)}`, {
+    method: 'DELETE', headers: csrfHeaders(),
+  })
 }
 
 /** SSE 流式对话，逐事件产出 {type, ...}；location 为浏览器定位 {lat, lon}，可空 */
 export async function* chatStream(message, location = null, threadId = 'web', signal = null) {
   const r = await fetch('/api/chat', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify({ message, thread_id: threadId, location }),
     signal,
   })

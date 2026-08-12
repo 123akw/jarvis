@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 def _authed_client():
     c = TestClient(server_mod.app)
     c.post("/api/login", json={"username": "admin", "password": "admin"})
+    c.headers["X-JWS-CSRF"] = c.get("/api/session").json()["csrf_token"]
     return c
 
 
