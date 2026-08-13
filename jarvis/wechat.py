@@ -18,6 +18,7 @@ import httpx
 import segno
 
 from jarvis import config
+from jarvis import wechat_voice
 
 ILINK = "https://ilinkai.weixin.qq.com/ilink/bot"
 ILINK_CHANNEL_VERSION = "2.4.6"
@@ -28,6 +29,8 @@ REPLY_CHUNK_SIZE = 1500
 # 回复计算工作池上限：一个人的慢回复（联网搜索可达 60s+）不能拖住其他人，
 # 也不能无限开线程；≤20 人规模下 4 个并发回复足够。
 REPLY_WORKERS = 4
+# 语音识别链路（下载/解码/识别）任何一环失败时给用户的固定提示（任务书指定文案）。
+VOICE_NOT_UNDERSTOOD = "这段语音我没听清，麻烦再说一次或打字"
 # 必须低于 iLink 心跳帧间隔（实测约 18 秒）：心跳字节会不断重置 read 超时，
 # 僵死会话（连接活、心跳在发、但响应永不完成也不派消息）在更长的超时下
 # 永远不会被翻新，表现为「状态已连接却收不到任何消息」（2026-08-12 线上）。
@@ -157,7 +160,9 @@ class WeChatBridge:
         client_factory=None,
         thread_factory=None,
         sleeper=None,
+        voice_pipeline=None,
     ):
+        self._voice = voice_pipeline or wechat_voice.VoicePipeline()
         self._agent_getter = agent_getter
         self._chunk_text = chunk_text
         self._owner_getter = owner_getter
@@ -480,6 +485,52 @@ class WeChatBridge:
             "如果反复失败，请让管理员在网页端检查模型与联网配置。）"
         )
 
+    def _send_items(
+        self, client, token: str, from_id: str, context_token: str, item_list: list
+    ) -> None:
+        """发送一条 sendmessage；协议或网络失败原样抛出，由调用方定降级策略。"""
+        response = client.post(
+            f"{ILINK}/sendmessage",
+            headers=self._headers(token),
+            timeout=20,
+            json={
+                "msg": {
+                    "from_user_id": "",
+                    "to_user_id": from_id,
+                    "client_id": f"jws-agent:{uuid.uuid4().hex}",
+                    "message_type": 2,
+                    "message_state": 2,
+                    "context_token": context_token,
+                    "item_list": item_list,
+                },
+                "base_info": self._base_info(),
+            },
+        )
+        response.raise_for_status()
+        sent_payload = response.json()
+        if (
+            isinstance(sent_payload, dict)
+            and sent_payload.get("ret") not in (None, 0)
+        ):
+            raise ValueError("send rejected")
+
+    def _send_text_chunks(
+        self, client, token: str, from_id: str, context_token: str, text: str
+    ) -> None:
+        """分段发送文字回复；单段失败只告警不中断后续段。"""
+        for chunk in self._split_reply(text):
+            try:
+                self._send_items(
+                    client, token, from_id, context_token,
+                    [{"type": 1, "text_item": {"text": chunk}}],
+                )
+            except (httpx.HTTPError, TypeError, ValueError) as exc:
+                log.warning(
+                    "iLink sendmessage failed for %s: %s",
+                    from_id[:16],
+                    type(exc).__name__,
+                )
+
     def _deliver_reply(
         self, client, token: str, from_id: str, context_token: str, text: str
     ) -> None:
@@ -490,40 +541,64 @@ class WeChatBridge:
             log.warning("JARVIS WeChat reply failed: %s", type(exc).__name__)
             answer = self._humanize_reply_failure(exc)
 
-        for chunk in self._split_reply(answer):
-            try:
-                response = client.post(
-                    f"{ILINK}/sendmessage",
-                    headers=self._headers(token),
-                    timeout=20,
-                    json={
-                        "msg": {
-                            "from_user_id": "",
-                            "to_user_id": from_id,
-                            "client_id": f"jws-agent:{uuid.uuid4().hex}",
-                            "message_type": 2,
-                            "message_state": 2,
-                            "context_token": context_token,
-                            "item_list": [
-                                {"type": 1, "text_item": {"text": chunk}}
-                            ],
-                        },
-                        "base_info": self._base_info(),
-                    },
-                )
-                response.raise_for_status()
-                sent_payload = response.json()
-                if (
-                    isinstance(sent_payload, dict)
-                    and sent_payload.get("ret") not in (None, 0)
-                ):
-                    raise ValueError("send rejected")
-            except (httpx.HTTPError, TypeError, ValueError) as exc:
-                log.warning(
-                    "iLink sendmessage failed for %s: %s",
-                    from_id[:16],
-                    type(exc).__name__,
-                )
+        self._send_text_chunks(client, token, from_id, context_token, answer)
+
+    def _deliver_voice_reply(
+        self, client, token: str, from_id: str, context_token: str, voice_item: dict
+    ) -> None:
+        """收到语音：下载→解码→识别→回复（语音+文字各一条）。
+
+        识别链路任何一环失败只回固定「没听清」提示——领导定的底线是绝不沉默。
+        """
+        try:
+            heard = self._voice.transcribe(voice_item)
+        except wechat_voice.VoiceError as exc:
+            log.warning("WeChat voice transcribe failed: %s", type(exc).__name__)
+            self._send_text_chunks(
+                client, token, from_id, context_token, VOICE_NOT_UNDERSTOOD
+            )
+            return
+        except Exception as exc:
+            log.warning("WeChat voice transcribe crashed: %s", type(exc).__name__)
+            self._send_text_chunks(
+                client, token, from_id, context_token, VOICE_NOT_UNDERSTOOD
+            )
+            return
+
+        try:
+            answer = self._reply(heard, from_id)
+        except Exception as exc:
+            log.warning("JARVIS WeChat reply failed: %s", type(exc).__name__)
+            answer = self._humanize_reply_failure(exc)
+
+        self._send_voice_then_text(
+            client, token, from_id, context_token, heard, answer
+        )
+
+    def _send_voice_then_text(
+        self, client, token: str, from_id: str, context_token: str,
+        heard: str, answer: str,
+    ) -> None:
+        """语音+文字各一条；发语音任一环失败→只发文字（领导定的降级策略）。"""
+        try:
+            items = self._voice.voice_reply_items(answer)
+            self._send_items(client, token, from_id, context_token, items)
+        except wechat_voice.VoiceError as exc:
+            log.warning(
+                "WeChat voice reply degraded to text (synthesis/encode): %s",
+                type(exc).__name__,
+            )
+        except (httpx.HTTPError, TypeError, ValueError) as exc:
+            log.warning(
+                "WeChat voice reply degraded to text (send): %s", type(exc).__name__
+            )
+        except Exception as exc:
+            log.warning(
+                "WeChat voice reply degraded to text (unexpected): %s",
+                type(exc).__name__,
+            )
+        text = f"（语音识别）你说的是：「{heard}」\n\n{answer}"
+        self._send_text_chunks(client, token, from_id, context_token, text)
 
     def _handle_updates_response(
         self, client, token: str, payload: dict
@@ -550,17 +625,32 @@ class WeChatBridge:
             if not isinstance(message, dict):
                 continue
             _probe_non_text(message)
-            if message.get("message_type") != 1:
-                continue
             from_id = message.get("from_user_id", "")
             if not isinstance(from_id, str) or not from_id:
                 continue
             if "@im.chatroom" in from_id or "group" in from_id.lower():
                 continue
+            context_token = message.get("context_token", "")
+            voice_item = wechat_voice.find_voice_item(message)
+            if voice_item is not None:
+                if dispatcher is None:
+                    self._deliver_voice_reply(
+                        client, token, from_id, context_token, voice_item
+                    )
+                    continue
+                accepted = dispatcher.submit(
+                    from_id,
+                    lambda c=client, t=token, f=from_id, ctx=context_token,
+                    v=voice_item: self._deliver_voice_reply(c, t, f, ctx, v),
+                )
+                if not accepted:
+                    log.info("WeChat voice reply skipped: dispatcher stopped")
+                continue
+            if message.get("message_type") != 1:
+                continue
             text = self._text_of(message).strip()
             if not text:
                 continue
-            context_token = message.get("context_token", "")
             if dispatcher is None:
                 self._deliver_reply(client, token, from_id, context_token, text)
                 continue
