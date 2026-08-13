@@ -384,3 +384,35 @@ def test_reply_uses_complete_ilink_send_contract(tmp_path):
     }
     assert payload["msg"]["from_user_id"] == ""
     assert payload["msg"]["client_id"].startswith("jws-agent:")
+
+
+def test_non_text_messages_are_probed_with_shape_only(tmp_path, caplog):
+    """语音等未知类型消息必须留下脱敏结构日志（协议探针），且不得泄漏内容。"""
+    import json as _json
+    import logging as _logging
+
+    client = FakeClient()
+    bridge, agent_calls = make_bridge(tmp_path, client)
+    payload = {
+        "get_updates_buf": "",
+        "msgs": [{
+            "message_type": 5,
+            "from_user_id": "wxid_secret123@ilink",
+            "item_list": [{
+                "type": 34,
+                "voice_item": {"voice_url": "https://cdn.example/secret-voice", "duration": 2300},
+            }],
+        }],
+    }
+    with caplog.at_level(_logging.INFO, logger="jarvis.wechat"):
+        bridge._handle_updates_response(client, "tok", payload)
+
+    probes = [r.message for r in caplog.records if "non-text probe" in r.message]
+    assert len(probes) == 1
+    shape = _json.loads(probes[0].split("probe: ", 1)[1])
+    assert shape["message_type"] == 5
+    assert shape["item_list"][0]["type"] == 34
+    assert "voice_item" in shape["item_list"][0]
+    assert "secret-voice" not in probes[0]
+    assert "wxid_secret123" not in probes[0]
+    assert agent_calls == []

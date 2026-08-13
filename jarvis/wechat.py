@@ -36,6 +36,43 @@ UPDATES_READ_TIMEOUT_SECONDS = 15
 log = logging.getLogger(__name__)
 
 
+def _probe_shape(value, depth: int = 0):
+    """脱敏描述报文结构：保留 key 名、类型与小整数值，长字符串只记长度。
+
+    微信语音等非文本消息的协议结构未知，只能靠真实报文反推；
+    内容本身（语音数据、文本、URL）绝不能进日志。
+    """
+    if depth >= 5:
+        return "…"
+    if isinstance(value, dict):
+        return {str(k): _probe_shape(v, depth + 1) for k, v in list(value.items())[:24]}
+    if isinstance(value, list):
+        return [_probe_shape(v, depth + 1) for v in value[:6]]
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, int):
+        return value if -1_000_000 < value < 1_000_000 else f"int({len(str(value))}位)"
+    if isinstance(value, str):
+        return f"str(len={len(value)})"
+    return type(value).__name__
+
+
+def _probe_non_text(message: dict) -> None:
+    """对非纯文本消息记录脱敏结构日志，为语音消息协议探明供数据。"""
+    try:
+        items = message.get("item_list", [])
+        non_text = not isinstance(items, list) or any(
+            isinstance(it, dict) and it.get("type") != 1 for it in items
+        )
+        if message.get("message_type") != 1 or non_text:
+            log.info(
+                "WeChat non-text probe: %s",
+                json.dumps(_probe_shape(message), ensure_ascii=False),
+            )
+    except Exception:
+        pass
+
+
 class _ReplyDispatcher:
     """按发信人串行、总并发受限的回复执行器。
 
@@ -510,7 +547,10 @@ class WeChatBridge:
             dispatcher = self._dispatcher
 
         for message in messages:
-            if not isinstance(message, dict) or message.get("message_type") != 1:
+            if not isinstance(message, dict):
+                continue
+            _probe_non_text(message)
+            if message.get("message_type") != 1:
                 continue
             from_id = message.get("from_user_id", "")
             if not isinstance(from_id, str) or not from_id:
