@@ -15,17 +15,24 @@ from jarvis.voice.tts import TTSError
 
 
 class _FakeAgent:
-    """把固定文案按块吐出来的假 agent；stream_mode=messages 形状。"""
+    """把固定文案按块吐出来的假 agent；stream_mode=messages 形状。
+    记录每次 stream 的输入与 update_state 调用，供提示词注入/摘除断言。"""
 
     def __init__(self, pieces=("你好，", "领导。", "马上办。"), delay=0.0):
         self.pieces = pieces
         self.delay = delay
+        self.stream_inputs = []
+        self.state_updates = []
 
-    def stream(self, _state, config=None, stream_mode=None):
+    def stream(self, state, config=None, stream_mode=None):
+        self.stream_inputs.append(state)
         for piece in self.pieces:
             if self.delay:
                 time.sleep(self.delay)
             yield AIMessageChunk(content=piece), {}
+
+    def update_state(self, config, values):
+        self.state_updates.append(values)
 
 
 class _FakeTTS:
@@ -316,6 +323,71 @@ def test_asr_midstream_disconnect_downgrades_once(monkeypatch):
         ws.send_json({"type": "ping"})
         assert ws.receive_json() == {"type": "pong"}
     assert _FakeASR.instances[-1].closed, "降级后必须关掉识别连接"
+
+
+def test_voice_turn_injects_style_prompt_then_scrubs_it(monkeypatch):
+    """语音回合：注入一次性口语化 system 指令，回合结束从 checkpoint 摘除。"""
+    agent = _FakeAgent()
+    monkeypatch.setattr(server_mod, "_get_agent", lambda: agent)
+    monkeypatch.setattr(gateway_mod, "create_tts_session", _FakeTTS)
+    client = _client()
+    csrf, token = _login(client)
+    with _connect(client, token) as ws:
+        ws.send_json({"type": "init", "csrf": csrf})
+        assert ws.receive_json() == {"type": "ready"}
+        ws.send_json({"type": "user_text", "text": "现在几点了"})
+        _collect_turn(ws)
+    messages = agent.stream_inputs[-1]["messages"]
+    style, user = messages[0], messages[-1]
+    assert style.type == "system" and style.content == gateway_mod.VOICE_STYLE_PROMPT
+    assert style.id.startswith("voice-style-")
+    assert user["content"] == "现在几点了"
+    removed = [m for upd in agent.state_updates for m in upd.get("messages", [])]
+    assert [m.id for m in removed] == [style.id], "回合结束必须把风格指令从 checkpoint 摘掉"
+
+
+def test_text_chat_unaffected_by_voice_style_prompt(monkeypatch):
+    """文字模式 /api/chat：输入里绝不能出现语音风格指令。"""
+    agent = _FakeAgent()
+    monkeypatch.setattr(server_mod, "_get_agent", lambda: agent)
+    client = _client()
+    csrf, _token = _login(client)
+    with client.stream("POST", "/api/chat", headers={"X-JWS-CSRF": csrf},
+                       json={"message": "现在几点了", "thread_id": "web"}) as response:
+        assert response.status_code == 200
+        body = "".join(response.iter_text())
+    assert '"done"' in body, "文字聊天要真实走完流式"
+    messages = agent.stream_inputs[-1]["messages"]
+    assert len(messages) == 1 and messages[0]["role"] == "user"
+    assert gateway_mod.VOICE_STYLE_PROMPT not in str(messages)
+    assert agent.state_updates == [], "文字模式不该有任何语音模式的状态修补"
+
+
+def test_style_scrub_removes_system_message_from_real_checkpoint():
+    """真 langgraph 检查点（非打桩）：注入的 system 指令被 _scrub_style 真正摘除。"""
+    from langchain_core.messages import AIMessage, SystemMessage
+    from langgraph.checkpoint.memory import InMemorySaver
+    from langgraph.graph import START, MessagesState, StateGraph
+
+    graph = StateGraph(MessagesState)
+    graph.add_node("responder", lambda state: {"messages": [AIMessage(content="好的。")]})
+    graph.add_edge(START, "responder")
+    agent = graph.compile(checkpointer=InMemorySaver())
+
+    config = {"configurable": {"thread_id": "t-scrub"}}
+    style_id = "voice-style-test"
+    for _ in agent.stream(
+            {"messages": [SystemMessage(content=gateway_mod.VOICE_STYLE_PROMPT, id=style_id),
+                          {"role": "user", "content": "在吗"}]},
+            config=config, stream_mode="messages"):
+        pass
+    types_before = [m.type for m in agent.get_state(config).values["messages"]]
+    assert "system" in types_before, "前置条件：注入的确落进了检查点"
+
+    gateway_mod._Turn._scrub_style(agent, config, style_id)
+
+    remaining = agent.get_state(config).values["messages"]
+    assert [m.type for m in remaining] == ["human", "ai"], "文字回放与后续上下文零残留"
 
 
 def test_interrupt_discards_unfinalized_partial(monkeypatch):

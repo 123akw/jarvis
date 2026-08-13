@@ -22,15 +22,16 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+import uuid
 
-from langchain_core.messages import AIMessageChunk, ToolMessage
+from langchain_core.messages import AIMessageChunk, RemoveMessage, SystemMessage, ToolMessage
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from jarvis.graph import heal_dangling_tool_calls
 from jarvis.tenancy import TenantMigrationError, tenant_scope
 from jarvis.voice import asr as asr_mod
 from jarvis.voice import tts as tts_mod
-from jarvis.voice.segment import SentenceSegmenter, speakable
+from jarvis.voice.segment import FirstFastSegmenter, speakable
 
 CLOSE_UNAUTHORIZED = 4401
 CLOSE_BAD_REQUEST = 4400
@@ -38,6 +39,14 @@ _INIT_TIMEOUT = 15.0
 _TTS_DRAIN_TIMEOUT = 120.0
 _ASR_BUFFER_CAP = 320_000  # 连接建立前最多攒 ~10s@16kHz PCM16，超了丢最旧的
 ASR_FALLBACK_MESSAGE = "服务端语音识别暂不可用，已切换浏览器识别"
+
+# 语音回合注入的一次性应答规则（拍板：≤3 句、先结论、口语化、不念 URL/代码/表格）。
+# 只在语音网关注入，回合结束即从 checkpoint 摘除——文字聊天 /api/chat 完全不受影响。
+VOICE_STYLE_PROMPT = (
+    "【语音通话模式·仅本回合有效】你正在和用户语音通话，回答会被合成语音读出来："
+    "最多三句话，第一句先给结论；用自然口语，不要书面腔、不要客套铺垫；"
+    "禁止念 URL、代码、表格和 Markdown 符号（如 **、#、`），需要提及时用一句话概括；"
+    "数字、时间用中文口语说法。")
 
 # 测试可整体替换为假会话工厂；生产即 MiniMax WSS 客户端
 create_tts_session = tts_mod.TTSSession
@@ -166,7 +175,7 @@ class _Turn:
         self.interrupted = False
 
     async def run(self) -> None:
-        seg = SentenceSegmenter()
+        seg = FirstFastSegmenter()
         seen_calls: set[str] = set()
         try:
             await self.call.send_json({"type": "turn_start"})
@@ -205,22 +214,39 @@ class _Turn:
     # ---- agent 流（在线程里跑同步生成器，stop 事件负责打断） ----
 
     def _agent_thread(self, checkpoint_id: str) -> None:
+        style_id = f"voice-style-{uuid.uuid4().hex}"
         try:
             with tenant_scope(self.call.user_id):
                 with self.call.bundle_for(self.call.user_id) as bundle:
                     heal_dangling_tool_calls(bundle.agent, checkpoint_id)
-                    stream = bundle.agent.stream(
-                        {"messages": [{"role": "user", "content": self.text}]},
-                        config={"configurable": {"thread_id": checkpoint_id}},
-                        stream_mode="messages")
-                    for chunk, _meta in stream:
-                        if self.stop.is_set():
-                            break
-                        self._emit("chunk", chunk)
+                    config = {"configurable": {"thread_id": checkpoint_id}}
+                    try:
+                        stream = bundle.agent.stream(
+                            {"messages": [
+                                SystemMessage(content=VOICE_STYLE_PROMPT, id=style_id),
+                                {"role": "user", "content": self.text},
+                            ]},
+                            config=config, stream_mode="messages")
+                        for chunk, _meta in stream:
+                            if self.stop.is_set():
+                                break
+                            self._emit("chunk", chunk)
+                    finally:
+                        self._scrub_style(bundle.agent, config, style_id)
         except Exception as exc:  # 不把上游细节带回前端，run() 里统一转公开文案
             self._emit("error", exc)
             return
         self._emit("done", None)
+
+    @staticmethod
+    def _scrub_style(agent, config: dict, style_id: str) -> None:
+        """语音风格指令只服务本回合：回合一结束（含被打断）就从 checkpoint 摘掉，
+        后续文字聊天的上下文里零残留。摘除失败无害——指令措辞已限定「仅本回合」，
+        且 /api/history 只回放 human/ai 消息，不会出现在网页回放里。"""
+        try:
+            agent.update_state(config, {"messages": [RemoveMessage(id=style_id)]})
+        except Exception:
+            pass
 
     def _emit(self, kind: str, payload) -> None:
         try:

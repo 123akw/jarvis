@@ -91,6 +91,16 @@
   - /private/tmp/claude-501/-Users-chenwenjie-JWS-Agent/cdd0a890-bca4-421a-95c8-848fa9e7165a/scratchpad/shots/voice_after_barge_in.png
 - 界限说明：jarvis/web 构建产物不在本任务白名单，未重新构建/提交；上线前管理者需 `cd web-src && npm run build`（产物目录 jarvis/web）再部署。
 
+## 任务 3 ✅ 语音回答口语化 + 全链路延迟（2026-08-13）
+- gateway 语音回合注入一次性 system 指令（VOICE_STYLE_PROMPT：≤3 句/先结论/口语化/不念 URL 代码表格 Markdown/数字时间中文口语），带专属 id，回合结束（含被打断）用 RemoveMessage 从 checkpoint 摘除——字幕仍显示 agent 完整文字（token 事件不动），语音只读 speakable() 口语版。
+- speakable() 实现增强（签名不变）：裸 URL →「（链接略）」、Markdown 表格行不出声；segment.py 新增 FirstFastSegmenter（只加类不改旧签名）：首句 24 字内软标点提前开口，解决「整段只有末尾句号导致 TTS 等全程」——全链路实测 3477ms → 2552/2593ms。
+- 单测：注入+摘除（FakeAgent 记录 stream 输入与 update_state）、真 langgraph InMemorySaver 检查点上验证摘除后仅剩 human/ai、文字模式 /api/chat 输入零注入零状态修补、FirstFastSegmenter 两条、speakable 两条。反向验证：临时摘掉注入 → test_voice_turn_injects_style_prompt_then_scrubs_it 红；还原 → 14 passed 绿。
+- voice_smoke --live 增强：TTS 直连测首包后，再拉起真实本地服务走完整通话回合（真 DeepSeek + 真 MiniMax），打印「说完→首音频」毫秒数，阈值 3500ms。
+- 验收实测：TTS 首包 286ms；全链路「说完→首音频」2593ms ≤3500ms，EXIT=0；回答样例「给您一句：蜜蜂采蜜时，翅膀每秒要扇动两百多次……」（1 句、口语、先结论）。Playwright E2E 复跑（含新链路）浏览器侧 2317ms，PASS。
+- 最终全量：pytest 426 passed 0 failed 0 skipped（基线 408+18）；vitest 31 passed 0 failed 0 skipped（基线 24+7）。
+- 硬指标 2 佐证：`git diff main -- jarvis/voice/tts.py jarvis/wechat.py jarvis/server.py README.md docs/` 输出为空；segment.py diff 仅新增 FirstFastSegmenter，无既有签名改动。
+- 新增依赖：运行时 0；本地验收工具 playwright（.venv 内 pip 装，不进 pyproject/requirements——仅判卷用，生产不跑浏览器）。
+
 # 语音通话（voice-call 分支，2026-08-13 开工）
 
 ## 任务 0 ✅（2026-08-13 实测）

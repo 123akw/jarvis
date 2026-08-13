@@ -14,6 +14,8 @@
 ## 语音升级（voice-upgrade 分支，2026-08-13）
 - ~~待 key：`.env` 无 DASHSCOPE_API_KEY~~ → **已解除**：管理者当日注入 key 到 .env，`asr_smoke.py --live` 真连百炼识别回环 100% 重合、坏 key 红→绿闭环（见 PROGRESS 任务 1）。默认网关 `wss://dashscope.aliyuncs.com/api-ws/v1/inference` 实测可用，无需切 workspace 子域。
 - 生产上线提醒（管理者动作，非本执行者地界）：`/opt/jarvis/.env` 也需注入 `DASHSCOPE_API_KEY`，否则线上自动走 asr_fallback→浏览器识别降级通道（通话不中断，但识别质量回到旧水平）。
+- 上线提醒 2（界限所致）：jarvis/web 构建产物不在本任务白名单、未重建未提交；合并后上线前需 `cd web-src && npm ci && npm run build`（产物写入 jarvis/web）再部署，否则线上跑的还是旧版通话 UI（旧 UI 对新网关兼容：无二进制上行，走 user_text 老路）。
+- 交付时点阻断项：**无**。
 
 ## 线 B · 并发加固与遗留修复
 # BLOCKED
