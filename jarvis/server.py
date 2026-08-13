@@ -30,6 +30,7 @@ from jarvis.provider_settings import (
 from jarvis.tenancy import TenantMigrationError, TenantStore, tenant_scope
 from jarvis.tools import TOOLS
 from jarvis.tools.location import get_location, locate_by_ip, set_location
+from jarvis.voice.gateway import register_voice
 from jarvis.tools.memo import all_memos
 from jarvis.tools.schedule import all_schedule
 from jarvis.tools.todo import all_todos
@@ -930,6 +931,26 @@ def run() -> None:
     port = int(os.getenv("JARVIS_PORT", "7789"))
     print(f"J.A.R.V.I.S. 网页端已上线：http://127.0.0.1:{port}")
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+
+
+# ---- 语音 ----
+
+def _count_voice_chat() -> None:
+    """语音回合与文字聊天共用同一个仪表盘计数。"""
+    global _chat_count
+    _chat_count += 1
+
+
+register_voice(
+    app,
+    cookie_name=_COOKIE,
+    accounts=_accounts,
+    bundle_for=_bundle_for,
+    tenant_store=_tenant_store,
+    chunk_text=_chunk_text,
+    public_error=_public_runtime_error,
+    count_chat=_count_voice_chat,
+)
 
 
 if __name__ == "__main__":

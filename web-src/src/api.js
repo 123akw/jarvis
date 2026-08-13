@@ -87,6 +87,16 @@ export async function testIntegration(name, body) { return parse(await fetch(`/a
 export async function saveIntegration(name, body) { return parse(await fetch(`/api/settings/integrations/${encodeURIComponent(name)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...csrfHeaders() }, body: JSON.stringify(body) })) }
 export async function restoreIntegration(name, body) { return parse(await fetch(`/api/settings/integrations/${encodeURIComponent(name)}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json', ...csrfHeaders() }, body: JSON.stringify(body) })) }
 
+/** 语音通话 WebSocket 地址；连接后第一条 init 消息带 currentCsrf() */
+export function voiceSocketUrl() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${proto}//${location.host}/api/voice/call`
+}
+
+export function currentCsrf() {
+  return csrfToken
+}
+
 /** SSE 流式对话，逐事件产出 {type, ...}；location 为浏览器定位 {lat, lon}，可空 */
 export async function* chatStream(message, location = null, threadId = 'web', signal = null) {
   const r = await fetch('/api/chat', {

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { chatStream, getHistory } from './api.js'
+import VoiceCall from './VoiceCall.jsx'
 
 const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
@@ -29,11 +30,13 @@ export default function Chat({ threadId, location, onBusy, onTurnDone, onExpired
   const [msgs, setMsgs] = useState([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
+  const [calling, setCalling] = useState(false)
+  const [histSeq, setHistSeq] = useState(0) // 通话挂断后 +1，回放通话期间的对话
   const logRef = useRef()
   const boxRef = useRef()
   const abortRef = useRef(null)
 
-  useEffect(() => {  // 切换会话：从服务端记忆库回放历史
+  useEffect(() => {  // 切换会话/挂断通话：从服务端记忆库回放历史
     setMsgs([])
     let alive = true
     getHistory(threadId).then(h => {
@@ -44,7 +47,7 @@ export default function Chat({ threadId, location, onBusy, onTurnDone, onExpired
       })))
     }).catch(e => { if (e.message === '401') onExpired?.() })
     return () => { alive = false }
-  }, [threadId])
+  }, [threadId, histSeq])
 
   useEffect(() => { logRef.current.scrollTop = logRef.current.scrollHeight }, [msgs])
   useEffect(() => { onBusy?.(busy); if (!busy) boxRef.current?.focus() }, [busy])
@@ -160,11 +163,17 @@ export default function Chat({ threadId, location, onBusy, onTurnDone, onExpired
             onChange={e => { setInput(e.target.value); autoGrow() }}
             onKeyDown={onKey}
             placeholder="吩咐一句…（Enter 发送，Shift+Enter 换行）" autoFocus />
+          <button className="callbtn" onClick={() => setCalling(true)} disabled={busy}
+            title="语音通话" aria-label="语音通话">📞</button>
           {busy
             ? <button className="stopbtn" onClick={() => abortRef.current?.abort()} title="停止生成">◼</button>
             : <button className="sendbtn" onClick={() => send(input)} disabled={!input.trim()} title="发送">↑</button>}
         </div>
       </div>
+      {calling && (
+        <VoiceCall threadId={threadId} onExpired={onExpired}
+          onClose={() => { setCalling(false); setHistSeq(s => s + 1) }} />
+      )}
     </section>
   )
 }
