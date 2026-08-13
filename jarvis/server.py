@@ -4,9 +4,11 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager, contextmanager
 from collections import OrderedDict, deque
 import datetime
+import hashlib
 import json
 import logging
 import os
+import secrets
 import time
 import threading
 import uuid
@@ -955,3 +957,73 @@ register_voice(
 
 if __name__ == "__main__":
     run()
+
+
+# ---- 桌面接管 ----
+# 一次性接管票据：网页会话领票（60 秒时效、绑定用户、内存存储重启即失效），
+# 桌面端凭票换令牌（复用 issue_desktop_and_openai，不经过密码）。
+# 票据仅存 sha256 哈希，明文不落库不落日志。
+
+_HANDOFF_TTL_SECONDS = 60
+_handoff_lock = threading.Lock()
+_handoff_tickets: dict[str, tuple[str, float]] = {}  # sha256(票) -> (user_id, 过期时刻)
+_handoff_now = time.time  # 测试可注入的时钟
+
+
+def _handoff_digest(ticket: str) -> str:
+    return hashlib.sha256(ticket.encode("utf-8")).hexdigest()
+
+
+def _handoff_prune_locked() -> None:
+    """持锁调用：清掉已过期票据，保证内存表有界。"""
+    deadline = _handoff_now()
+    for digest in [d for d, (_uid, expires) in _handoff_tickets.items() if expires <= deadline]:
+        del _handoff_tickets[digest]
+
+
+def _handoff_deny() -> JSONResponse:
+    """过期 / 重复 / 未知票据统一响应，不区分原因。"""
+    return _sensitive_json({"error": "票据无效"}, 401)
+
+
+class HandoffExchangeIn(BaseModel):
+    ticket: str
+
+
+@app.post("/api/desktop/handoff")
+def desktop_handoff(request: Request):
+    """网页会话领取一次性接管票据（需登录 + CSRF）。"""
+    principal = _write_authorized(request)
+    if not principal or principal.transport != "web":
+        return _csrf_deny() if _authed(request) else _deny()
+    ticket = secrets.token_urlsafe(32)
+    with _handoff_lock:
+        _handoff_prune_locked()
+        _handoff_tickets[_handoff_digest(ticket)] = (principal.user_id, _handoff_now() + _HANDOFF_TTL_SECONDS)
+    return _sensitive_json({"ticket": ticket, "expires_in": _HANDOFF_TTL_SECONDS})
+
+
+@app.post("/api/desktop/handoff/exchange")
+def desktop_handoff_exchange(body: HandoffExchangeIn):
+    """桌面端凭票换令牌：只接受票据，不接受密码；响应与 /api/desktop/login 同构。"""
+    if not body.ticket or len(body.ticket) > 512:
+        return _handoff_deny()
+    digest = _handoff_digest(body.ticket)
+    with _handoff_lock:
+        _handoff_prune_locked()
+        entry = _handoff_tickets.get(digest)
+        _handoff_tickets.pop(digest, None)  # 换票即删：票据一次性
+    if entry is None or entry[1] <= _handoff_now():
+        return _handoff_deny()
+    issued = _accounts.issue_desktop_and_openai(entry[0])
+    if not issued:
+        return _handoff_deny()
+    (_desktop_principal, token), (_openai_principal, openai_token) = issued
+    return _sensitive_json(
+        {
+            "access_token": token,
+            "token_type": "x-jws-token",
+            "openai_token": openai_token,
+            "openai_token_type": "bearer",
+        }
+    )
