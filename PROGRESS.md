@@ -152,3 +152,25 @@
 - 走查（全新 venv 全流程亲手跑）：安装 `pip install -e ".[dev]"`、`cp .env.example .env`、browser extra + Chromium、`jarvis-web` 起服 → Owner 首登引导 → POST /api/admin/users 邀请 Member → Member 登录 → Member dashboard 租户隔离为空数据 → 微信状态接口 Owner 200 idle / Member 403 → CLI `--once "现在几点了"` 真实模型应答。全流程无断点。
 - README 修订 3 处与实际不符/缺口：快速开始补首启必填的 Owner 三项（否则 fail closed 无法登录）；网页端一节补首位 Owner 来源与「账户设置→用户管理」邀请 Member 入口；验收一节补 concurrency_smoke.py。
 - 半托管待领导亲验：desktop `npm start`（GUI 悬浮窗，无人值守无法验收；`npm install` 已跑通）。
+
+## 线 C · README 焕新（readme-refresh 分支，2026-08-13）
+
+### 任务 0：核对与开工（2026-08-13）
+- 核对：生产首页 `curl -s -o /dev/null -w "%{http_code}" https://jws.gkgeek-set.cn` → 200；规格文件 docs/superpowers/plans/2026-08-13-readme-live-screenshots.md 存在（前 20 行已贴对话）；docs/assets/readme/ 现有 6 张图（3 桌面 + 3 旧网页图）。
+- 理解：规格文件是截图与约束的法；README 已含多用户内容但缺语音，三张网页图需按生产实况重截 1600×1000；登录用仓库源码可见内置账号（docs/superpowers/plans/2026-08-11-wechat-bridge-closed-loop.md:293）；截图后登出不留会话。
+- 顺序：任务 1 截图（含反向验证）→ 任务 2 README 产品介绍 + 语音怎么用 + 快速开始实跑 → 验收（尺寸/死链/diff 范围）→ 提交。
+- 风险与处置：生产选择器与预期不符（先 snapshot 探明再截）；截图带敏感信息（逐张人工过检）；规格 Task 4 Step 3 要求 push origin/main 与任务书「不许 git push」冲突——以任务书为准，只落本地 readme-refresh 分支。
+- 工具让步：规格写 Playwright CLI wrapper，改用等价 Python Playwright 脚本（同为 Playwright、同尺寸同约束）。
+
+### 任务 1：三张生产截图（2026-08-13）
+- 反向验证：先故意以 1600×900 截 dashboard → 校验脚本输出 `FAIL docs/assets/readme/web-dashboard.png 1600x900`、exit 1（红）；删除后按 1600×1000 重截三张 → 三行 PASS、exit 0（绿）。输出均已贴对话。
+- 三张全为 2026-08-13 生产实况新截（旧网页图先删除再重拍，未拿旧图充数）；`file` 确认均为 PNG 1600×1000。
+- 敏感信息人工过图结论：dashboard 用「＋新对话」空状态并收起真实线程侧栏（新对话不落服务端记录，已验证侧栏列表不变）；顶栏定位文本仅在浏览器端替换为演示值「上海市浦东新区」（服务器数据未动，README 图注已如实说明）；API 设置模态 API Key/口令输入框为空（仅占位符）；账户设置模态仅内置演示账号 admin、口令框全空。三图均无 key/口令/二维码/真实对话/真实定位。
+- 生产只读纪律：未点微信二维码、未发消息、未保存设置、未创建/修改用户；每次会话结束点「⏻ 退出登录」，脚本内置禁词+空密文断言双保险。
+
+### 任务 2：README 焕新（2026-08-13）
+- 新增「产品介绍」：电梯陈述 + 7 项功能总览（网页对话/语音通话/微信桥/多用户与租户隔离/每用户 API 设置/桌面端/免费搜索链），非空白字符 335 ≤ 400。
+- 语音：上线状态句、入口对比表新增「语音通话」行、快速开始§2 增「语音通话怎么用」（📞→授权麦克风→说话；拒授权自动降级打字通话，措辞对照 web-src/src/VoiceCall.jsx 实现）；微信语音一律写「开发中」。
+- 图注与 alt 按规格对齐；两图特性表保持在 web-dashboard.png 之后。
+- 快速开始亲手跑过（输出已贴对话）：venv 创建 ✓；依赖装入（按任务书用 requirements.lock + `-e . --no-deps` 等价替代 `-e ".[dev]"`，记录在案）✓；`cp .env.example .env` ✓；`jarvis-web`（临时端口 7893、一次性 dummy 配置）首页 200、未登录 API 401，验后停服 ✓；`jarvis --help` ✓；`jarvis --once "现在几点了"` 用 dummy key 走到模型调用点返回 401（规格禁真实付费调用，链路已证通）✓；`cd desktop && npm install`（70 packages）✓；`npm start` 初次报 Electron 缺二进制，正是 README FAQ 场景，`npm rebuild electron` + install.js 在本沙盒仍不落盘，从主仓同版本 38.8.6 复制 dist 后 Electron 正常启动，随即关闭 ✓。临时 .env 验后删除。
+- 验收：README 引用的 6 张图逐一 ls 存在；产品介绍 7 项全覆盖；`陈文杰、钟俊琅`/`禁止任何形式的商业使用`/`API Key 永不回显` 均保留；`git diff --check` 无输出；内容提交范围仅 README.md 与 docs/assets/readme/**（PROGRESS/BLOCKED 另行单独提交）。
