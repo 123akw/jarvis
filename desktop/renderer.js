@@ -232,6 +232,101 @@ box.addEventListener('input', () => {
 })
 window.jws.onForceExpand(() => document.body.classList.add('expanded'))
 
+/* ---------- 语音通话（📞）：核心逻辑在 voice-call.js，这里只做 DOM 接线 ---------- */
+const voiceEl = $('#voice')
+const VOICE_PHASE_LABEL = {
+  connecting: '接通中…',
+  listening: '请讲，我在听',
+  thinking: '思考中…',
+  speaking: '回答中…（开口即可打断）',
+  closed: '通话已断开',
+}
+let activeCall = null
+
+function renderVoicePhase(p) {
+  voiceEl.className = p
+  $('#v-phase').textContent = VOICE_PHASE_LABEL[p] || p
+  $('#v-interrupt').style.display = p === 'speaking' ? '' : 'none'
+  renderVoiceHint()
+}
+function renderVoiceHint() {
+  const s = activeCall && activeCall.state()
+  $('#v-hint').textContent = (s && s.micState === 'granted' && s.phase === 'listening')
+    ? (s.inputMode === 'stream' ? '实时识别中，直接说话即可' : '说话停顿后自动发送')
+    : ''
+}
+function renderVoiceDegraded() {
+  const s = activeCall && activeCall.state()
+  const degraded = s && (s.micState === 'denied' || s.micState === 'unsupported')
+  $('#v-typebar').style.display = degraded ? '' : 'none'
+  if (degraded) $('#v-input').focus()
+  renderVoiceHint()
+}
+
+async function startVoiceCall() {
+  if (activeCall) { document.body.classList.add('show-voice'); return }
+  document.body.classList.add('show-voice', 'on-call')
+  $('#v-final').textContent = ''
+  $('#v-interim').textContent = ''
+  $('#v-reply').textContent = ''
+  $('#v-tools').innerHTML = ''
+  $('#v-notice').style.display = 'none'
+  $('#v-typebar').style.display = 'none'
+  renderVoicePhase('connecting')
+  try { await window.jws.voiceMicAccess() } catch { /* 授权结果由 getUserMedia 再判 */ }
+  const s = await window.jws.getSettings()
+  const url = String(s.server || '').replace(/^http/, 'ws') + '/api/voice/call'
+  activeCall = window.JWSVoiceCall.createVoiceCall({
+    url,
+    createWebSocket: u => new WebSocket(u),
+    player: window.JWSVoiceAudio.createPcmPlayer(),
+    pcmSupported: window.JWSVoiceAudio.pcmStreamSupported(),
+    startMicStream: window.JWSVoiceAudio.startMicStream,
+    isMicError: window.JWSVoiceAudio.isMicError,
+    speechCtor: () => window.SpeechRecognition || window.webkitSpeechRecognition || null,
+    on: {
+      phase: renderVoicePhase,
+      micState: renderVoiceDegraded,
+      inputMode: renderVoiceHint,
+      interim: t => { $('#v-interim').textContent = t; if (t) $('#v-final').textContent = '' },
+      heard: t => { $('#v-final').textContent = t ? `「${t}」` : ''; $('#v-interim').textContent = '' },
+      reply: r => { const el = $('#v-reply'); el.textContent = r; el.scrollTop = el.scrollHeight },
+      tools: ts => {
+        $('#v-tools').innerHTML = ts.map(t => `<span>⚙ ${esc(t.name)}${t.done ? ' ✓' : '…'}</span>`).join('')
+      },
+      notice: n => {
+        const el = $('#v-notice')
+        el.textContent = n ? '⚠ ' + n : ''
+        el.style.display = n ? '' : 'none'
+      },
+      expired: () => { endVoiceCall(); requireLogin() },
+    },
+  })
+  activeCall.start()
+}
+
+function endVoiceCall() {
+  if (activeCall) { activeCall.hangup(); activeCall = null }
+  document.body.classList.remove('show-voice', 'on-call')
+}
+
+function sendVoiceTyped() {
+  const text = $('#v-input').value
+  if (!text.trim() || !activeCall) return
+  $('#v-input').value = ''
+  activeCall.sendTyped(text)
+}
+
+$('#callbtn').addEventListener('click', () => { void startVoiceCall() })
+$('#v-hangup').addEventListener('click', endVoiceCall)
+$('#v-interrupt').addEventListener('click', () => { if (activeCall) activeCall.bargeIn() })
+$('#v-min').addEventListener('click', async () => {  // 收起为悬浮球，通话继续（球上有红点）
+  await window.jws.collapse()
+  document.body.classList.remove('expanded')
+})
+$('#v-send').addEventListener('click', sendVoiceTyped)
+$('#v-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendVoiceTyped() })
+
 /* ---------- 悬浮球外观 ---------- */
 function applyBallLook(size, style) {
   document.documentElement.style.setProperty('--ball', `${size}px`)

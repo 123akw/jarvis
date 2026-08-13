@@ -60,3 +60,12 @@
 无阻断项。**无**。
 
 备注（非阻断）：规格 Task 4 Step 3 要求 push origin/main，与本线任务书「不许 git push」冲突，按任务书只落本地分支；视觉效果待领导亲验。
+
+## 桌面语音通话（desktop-voice 分支，2026-08-13）
+
+无阻断项。**无**。
+
+备注（非阻断）：
+- 修了一个既有阻断 bug（在我的 desktop/** 地界内）：Electron 38 默认沙箱化 preload 加载失败（require('crypto')/相对模块不可用），主仓库未改分支同样复现，即交付前桌面 app 实际起不来。已按最小修改加 `sandbox:false`（contextIsolation/nodeIntegration 不变），详见 PROGRESS 任务 2。
+- 自动化验收测试环境限制（如实声明）：机器无法「真人开口」，扬声器自放自收会被 macOS/Chromium 回声消除压制（实测 RMS 0.022<0.04）。故用 Chromium 假麦克风设备灌真人声 WAV 完成全自动验收；除麦克风硬件外全链路生产真连（统计与时间轴见 PROGRESS）。真人麦克风路径留领导亲验清单第 1 条，预期无碍（真人声不在回声消除的参考信号里）。
+- 验收在生产 admin 账号下创建了线程 desktop-voice（desktop 前缀，不污染网页记录），含数轮测试对话，可在需要时自行清理。

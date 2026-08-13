@@ -270,3 +270,37 @@
 4. 桌面核心 voice-call.js 为 UMD 纯逻辑状态机（可注入 fake WebSocket/播放器/麦克风/识别器，node --test 直跑）；voice-audio.js 改写自 web-src/src/VoiceAudio.js + VoiceCall.jsx 播放段（文件头注明来源）。
 5. 输入链路对齐网页三层降级：推流+服务端百炼（首选）→ asr_fallback/推流组件缺→Electron 内建 SpeechRecognition → 识别/麦克风没有→打字通话（语音答复）；本地 RMS VAD（0.04×2 帧）开口打断=停播+interrupt；断线自动重连 1 次，再断提示放弃。
 6. 线程 desktop-voice（desktop 前缀，不污染网页记录）；麦克风权限：主进程 setPermissionRequestHandler 放行本窗口 media + macOS askForMediaAccess。
+
+## 任务 1 ✅ 语音会话核心（2026-08-13，提交 6b9f09e）
+- 新增 desktop/voice-call.js：UMD 纯逻辑状态机（行为对齐 web-src/src/VoiceCall.jsx，文件头注明来源）——init 首帧/字幕增量与定稿/本地 RMS VAD（0.04×2 帧）开口打断（interrupt 上行+停播+丢弃未定稿灰字）/asr_fallback→内建 SpeechRecognition→打字通话三层降级/tts_error 降级纯文字/断线自动重连一次再断放弃提示/unauthorized 触发过期回调不重连。依赖全注入，node --test 直跑。
+- 新增 desktop/voice-audio.js：AudioWorklet 采集→16kHz 重采样→PCM16 每 100ms 一帧+帧级 RMS（改写自 web-src/src/VoiceAudio.js）；createPcmPlayer TTS PCM 排队播放（改写自 VoiceCall.jsx playChunk/stopPlayback），createContext 可注入。
+- session.js 新增主进程专用 authToken()/voiceCallUrl()（webRequest 握手头注入用，令牌不进渲染进程），配 2 条单测。
+- 验收：`node --test` → **52 pass, 0 fail, 0 skipped**（基线 36 + 新增 16 ≥8：鉴权失败不重连、字幕增量/定稿、打断丢弃未定稿、VAD 防误触、TTS 失败降级文字、降级链两级、麦克风被拒人话提示、asr_fallback 停帧切识别、断线重连一次后放弃、打字上行、audio_start 采样率+放空回听、挂断清场）。
+- 反向验证（红→绿）：临时注释 bargeIn 里 `setInterim('')` 丢弃逻辑 → `打断丢弃未定稿字幕必须丢弃：'还没定稿的半句话' !== ''` 1 fail（红）；还原 → 52 pass（绿）。输出已贴对话。
+
+## 任务 2 ✅ 面板 UI + 主进程接线 + 真机生产验收（2026-08-13）
+- index.html：📞 按钮入 #phead；#voice 通话面板（听=青色脉冲/想=金色跳点/说=红色+均衡器条 + 字幕区灰字→金色定稿 + 工具 chips + 回答滚动 + 人话提示条 + 降级打字条 + ✋打断/📵挂断/—收起）；悬浮球新增 #calldot——通话中收起态红点呼吸指示。
+- main.js：setupVoiceSession——setPermissionRequestHandler 只放行本窗口纯音频 media；webRequest.onBeforeSendHeaders 仅对 gateway().voiceCallUrl() 精确 URL 注入 X-JWS-Token；voice-mic-access IPC（macOS askForMediaAccess 首次弹系统授权，实测本机已 granted）。
+- **修复既有阻断 bug**：Electron 38 默认沙箱化 preload 里 require('crypto')/相对模块直接失败（「Unable to load preload script…module not found: crypto」），**主仓库未改分支同样复现**（输出已贴对话）——app 实际起不来（登录/对话全挂）。按最小修改加 `sandbox:false`（contextIsolation/nodeIntegration 姿势不变）。
+- 真机生产验收（npx electron . 真启动 + CDP 驱动真 UI，服务器 https://jws.gkgeek-set.cn）：
+  - 测试环境说明（如实）：扬声器放 `say` 让麦克风拾音被 macOS/Chromium 回声消除压制（实测帧最大 RMS 0.022 < VAD 阈值 0.04，识别听不见）——这是「机器自放自收」特有现象，真人说话不受影响。故自动化改用 Chromium 假麦克风设备灌**真人声 WAV**（MiniMax 合成两句话+精确静音时间轴，`--use-fake-device-for-media-stream --use-file-for-fake-audio-capture --disable-features=AudioServiceOutOfProcess,AudioServiceSandbox`）；除麦克风硬件被替代外，getUserMedia→AudioWorklet→wss→百炼 ASR→agent→MiniMax TTS→AudioContext 播放全为生产真链路，未 mock 任何连接。
+  - 通话时间轴（完整输出已贴对话）：0.4s ready→listening；说「你好贾维斯，给我讲一个简短的小故事」→ 2.5s 起灰字逐词（你好→你好贾维斯→…给我讲一个简短的小）→ 6.0s 定稿→thinking → 9.7s speaking（真 TTS 播放）→ **12.6s 音轨开口「等一下，先别说了」→ 13.5s 打断生效**（interrupt 上行、停播、回到 listening）→ 新回合定稿「等一下先别说了。」→ 贾维斯口语化回答「好的，我不说了。您随时吩咐。」并语音播出。
+  - 链路统计：上行 552 帧音频（最大振幅 0.976）+ init + **interrupt×2**；下行 ready×1 / asr_partial×21 / asr_final×4 / turn_start×4 / audio_start×4 / token×147 / turn_end×4 + **TTS 音频 2,197,354 字节**。
+  - 拒麦降级（模拟系统拒麦：getUserMedia 抛 NotAllowedError，其余全真）：人话提示「没拿到麦克风权限。语音识别已停用，可以在下面打字通话…」+ 打字条出现；打字「现在几点了，一句话告诉我」→ 3.3s 语音答复播放（音频 117,586 字节）+ 字幕「现在是下午三点三十八分。」；挂断后普通文字聊天实测回复「一切正常」——文字对话零影响。
+  - 收起态指示：通话中点「—」收起为悬浮球 → #calldot computed display=block，截图红点可见；再展开回到通话面板，挂断后红点消失。
+  - 截图（scratchpad/drive/shots/）：1-listening / 2-interim（灰字）/ 3-speaking（定稿+回答+打断按钮）/ 4-after-barge / 6-mic-denied / 7-typed-voice-reply / 9-ball-oncall（球+红点）。
+- 「建议」层临场决定记录：任务书「拒绝麦克风时给人话提示」由核心状态机+真机模拟拒麦双重验证；真人拒授权路径逻辑相同（getUserMedia 同名错误），留领导亲验清单第 2 条。
+
+## 任务 3 ✅ 领导亲验清单（写给领导，桌面端）
+1. `cd desktop && npm start` → 点悬浮球展开 → 📞 → macOS 首次弹「访问麦克风」→ 允许 → 状态变「请讲，我在听」→ 直接说话（如「明天有什么安排」）→ 灰字实时爬 → 定稿金字 → 贾维斯口语化语音回答（红色说话态+均衡条）。
+2. 回答播放中直接开口说新问题 → 半秒内停播进入你的新问题（开口打断）；也可点「✋ 打断」。
+3. 拒绝授权路径：系统设置→隐私与安全性→麦克风→关掉 Electron（或首次弹窗点「不允许」）→ 再 📞 → 应见金色人话提示 + 底部打字条：打字照样语音答复；关掉面板后普通打字聊天完全不受影响。
+4. 通话中点「—」收起 → 悬浮球右上角红点呼吸=通话仍在；点球展开回到通话面板。
+5. 断网（关 Wi-Fi）→ 面板提示「正在自动重连…」，仍断则「通话连接已断开…请挂断后重新拨打」；恢复网络后重新 📞 即可。
+6. 桌面通话记录在独立线程 desktop-voice，不会混进网页对话列表。
+
+## 完成条件对账（desktop-voice）
+- 硬指标 1 ✅：真连生产最小验证音频 226,256 字节 >0（任务 0，输出已贴）+ `node --test` 52 pass ≥44、0 fail 0 skip（输出已贴）。
+- 硬指标 2 ✅：`git diff main --stat` 仅 desktop/**（11 个文件）+ PROGRESS.md；`grep -rn "sk-1deb\|sk-api" desktop/` 空（exit 1）。
+- 反向验证 ✅：打断丢弃未定稿——注释丢弃逻辑 1 fail 红 → 还原 52 pass 绿（输出已贴对话）。
+- 服务端零改动 ✅：jarvis/**、web-src/**、tests/**、scripts/** 一行未动（git diff 佐证）；桌面令牌鉴权按 gateway.py 现状直接可用，无需服务端改动。

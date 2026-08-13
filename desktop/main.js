@@ -1,4 +1,4 @@
-const { app, BrowserWindow, clipboard, globalShortcut, ipcMain, screen, safeStorage, shell } = require('electron')
+const { app, BrowserWindow, clipboard, globalShortcut, ipcMain, screen, safeStorage, shell, systemPreferences } = require('electron')
 const { execSync } = require('child_process')
 const fs = require('fs')
 const os = require('os')
@@ -104,6 +104,30 @@ function toggleWindow() {
   return expanded
 }
 
+/* ---------- 语音通话：麦克风权限 + WS 握手令牌注入 ----------
+ * 渲染进程用原生 WebSocket 连 wss://…/api/voice/call；桌面令牌只存在于主进程，
+ * 在这里对该精确 URL 的握手请求注入 X-JWS-Token 头（jarvis/voice/gateway.py 的
+ * desktop 鉴权路径）。渲染进程永远拿不到令牌。 */
+function setupVoiceSession(ses) {
+  ses.setPermissionRequestHandler((wc, permission, callback, details) => {
+    const audioOnly = !details || !Array.isArray(details.mediaTypes)
+      || details.mediaTypes.every(t => t === 'audio')
+    callback(permission === 'media' && win && wc === win.webContents && audioOnly)
+  })
+  ses.setPermissionCheckHandler((_wc, permission) => permission === 'media' || permission === 'microphone')
+  ses.webRequest.onBeforeSendHeaders({ urls: ['wss://*/*', 'ws://*/*'] }, (details, callback) => {
+    const requestHeaders = { ...details.requestHeaders }
+    try {
+      const g = gateway()
+      if (details.url === g.voiceCallUrl()) {
+        const token = g.authToken()
+        if (token) requestHeaders['X-JWS-Token'] = token
+      }
+    } catch { /* 网关未就绪则不注入，服务端会按未登录拒绝 */ }
+    callback({ requestHeaders })
+  })
+}
+
 function createWindow() {
   const { workArea } = screen.getPrimaryDisplay()
   const bw = ballWin(loadSettings().ballSize)
@@ -123,11 +147,16 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
+      // Electron 38 默认沙箱化 preload 只有 polyfill require（不认 crypto/相对模块），
+      // 现有多文件 CommonJS preload 直接加载失败（实测主仓库同样复现）。
+      // 关沙箱恢复 preload 的 Node require；contextIsolation/nodeIntegration 姿势不变。
+      sandbox: false,
     },
   })
   win.setAlwaysOnTop(true, 'floating')
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   hardenWindow(win, INDEX_URL)
+  setupVoiceSession(win.webContents.session)
   win.loadFile(INDEX_PATH)
 }
 
@@ -263,6 +292,16 @@ ipcMain.handle('show-login', event => {
   win.show(); win.focus()
   win.webContents.send('set-expanded', true)
   return true
+})
+ipcMain.handle('voice-mic-access', async event => {
+  trusted(event)
+  if (process.platform !== 'darwin') return true
+  if (systemPreferences.getMediaAccessStatus('microphone') === 'granted') return true
+  try {
+    return await systemPreferences.askForMediaAccess('microphone') // macOS 首次弹系统授权
+  } catch {
+    return false
+  }
 })
 ipcMain.handle('open-provider-link', async (event, url) => {
   trusted(event)
