@@ -7,6 +7,7 @@ import Threads from './Threads.jsx'
 import WeChatConnect from './WeChatConnect.jsx'
 import AccountSettings from './AccountSettings.jsx'
 import ProviderSettings from './ProviderSettings.jsx'
+import DesktopHandoff from './DesktopHandoff.jsx'
 
 function newThreadId() {
   return 't-' + (crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10))
@@ -61,6 +62,7 @@ export default function Hud({ session, onLogout }) {
         <span className="spacer" />
         <button className="chip navbtn account-chip" onClick={() => setAccountOpen(true)} aria-label="账户设置"><span>{session?.username || '账号'}{session?.role ? ` · ${session.role}` : ''}</span></button>
         <button className="chip navbtn" onClick={() => setProviderOpen(true)} aria-label="API 设置" title="模型与联网 API 设置">⚙ API</button>
+        <DesktopHandoff />
         <span className="chip hide-sm">{dash?.model ?? '—'}</span>
         <span className="chip online hide-sm"><span className="dot" />{dash?.place || '在线'}</span>
         <span className="chip hide-sm">{clock}</span>
