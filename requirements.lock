@@ -246,3 +246,6 @@ xxhash==3.8.1
     #   langsmith
 zstandard==0.25.0
     # via langsmith
+
+pilk==0.2.4
+    # via jarvis (wechat voice silk codec)
