@@ -683,6 +683,14 @@ $('#s-save').addEventListener('click', async () => {
   }
 })
 
+/* 网页端接管：主进程换票成功后重新探活进入已登录状态；唤起端口被占用时给人话提示。 */
+if (window.jws.onHandoffAuthenticated) {
+  window.jws.onHandoffAuthenticated(() => { void loginController.init().catch(() => {}) })
+}
+if (window.jws.onWakeNotice) {
+  window.jws.onWakeNotice(text => sys(text))
+}
+
 /* 启动：仅主进程可恢复安全会话；失效时自动展开登录与自托管配置。 */
 ;(async () => {
   try {

@@ -8,6 +8,7 @@ const { createSessionGateway, replaceSessionGateway } = require('./session.js')
 const { createApiHandlers } = require('./ipc-api.js')
 const { assertTrustedSender, hardenWindow, validateSettingsPatch } = require('./security.js')
 const { isAllowedProviderLink } = require('./provider-links.js')
+const { createWakeServer, parseHandoffUrl } = require('./wake-server.js')
 
 const PANEL = { w: 420, h: 640 }
 const ballWin = size => size + 8  // 球体 + 辉光留白
@@ -350,10 +351,65 @@ ipcMain.handle('api-request', apiHandlers.request)
 ipcMain.handle('api-stream-start', apiHandlers.start)
 ipcMain.handle('api-stream-cancel', apiHandlers.cancel)
 
+/* ---------- 网页↔桌面接管：本机唤起监听 + jws:// 协议 ----------
+ * 监听只绑 127.0.0.1:17789；票据只在主进程转手（gateway().exchange），
+ * 不进渲染进程、不落盘、不写日志。端口被占用则降级为面板提示，不崩。 */
+let wakeServer = null
+
+function summonForHandoff() {
+  if (!win) return
+  win.show()
+  if (!expanded) toggleWindow()
+  win.webContents.send('set-expanded', true)
+  win.focus()
+}
+
+async function handleHandoffTicket(ticket) {
+  if (!ticket || typeof ticket !== 'string') return { ok: false }
+  let g
+  try { g = gateway() } catch { return { ok: false } }
+  if (g.authToken()) return { ok: true, already: true }  // 已登录不再换票
+  const result = await g.exchange(ticket)
+  if (result.ok && win) win.webContents.send('handoff-authenticated')
+  return result
+}
+
+function startWakeServer() {
+  let serverOrigin = ''
+  try { serverOrigin = new URL(loadSettings().server).origin } catch {}
+  wakeServer = createWakeServer({
+    serverOrigin,
+    isLoggedIn: () => { try { return Boolean(gateway().authToken()) } catch { return false } },
+    onWake: summonForHandoff,
+    exchangeTicket: ticket => handleHandoffTicket(ticket),
+    onUnavailable: () => {
+      if (win) win.webContents.send('wake-server-notice',
+        '本机唤起端口 17789 被占用，网页端「桌面悬浮窗」暂时联系不上我；关掉占用该端口的程序后重启本应用即可恢复。')
+    },
+  })
+  void wakeServer.start()
+}
+
+/* jws:// 自定义协议 best-effort：打包后才可靠，dev 尽力而为。 */
+function handleProtocolUrl(url) {
+  const parsed = parseHandoffUrl(url)
+  if (!parsed) return
+  summonForHandoff()
+  void handleHandoffTicket(parsed.ticket).catch(() => {})
+}
+try { app.setAsDefaultProtocolClient('jws') } catch {}
+try { app.requestSingleInstanceLock() } catch {}
+app.on('open-url', (event, url) => { event.preventDefault(); handleProtocolUrl(url) })
+app.on('second-instance', (_event, argv) => {
+  const link = (argv || []).find(item => typeof item === 'string' && item.startsWith('jws://'))
+  if (link) handleProtocolUrl(link)
+})
+
 app.whenReady().then(() => {
   createWindow()
   const s = loadSettings()
   applyHotkey(s.hotkey)
+  startWakeServer()
   // 自检截图模式：JWS_SHOT=/path/out.png [JWS_SHOT_VIEW=settings] npm start
   if (process.env.JWS_SHOT) {
     win.webContents.once('did-finish-load', () => {

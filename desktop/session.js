@@ -131,6 +131,21 @@ function createSessionGateway({ fetchImpl, safeStorage, fs, path, dataDir, serve
     token = issued.access_token
     return { ok: true }
   }
+  /* 桌面接管：凭一次性票据换桌面令牌（服务端 /api/desktop/handoff/exchange）。
+     与 login 同一条落盘链，但全程没有密码；票据用后即焚，不留在任何字段里。 */
+  async function exchange(ticket) {
+    if (typeof ticket !== 'string' || !ticket || ticket.length > 512) return { ok: false }
+    encryptionReady()
+    const response = await fetchImpl(serverUrl + '/api/desktop/handoff/exchange', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ticket }),
+    })
+    if (!response.ok) return { ok: false, status: response.status }
+    const issued = await response.json()
+    if (!issued.access_token || typeof issued.access_token !== 'string' || issued.access_token.length > 8192) return { ok: false }
+    try { persist(issued.access_token) } catch (error) { discard(); throw error }
+    token = issued.access_token
+    return { ok: true }
+  }
   function setServer(next) {
     if (!isAllowedServer(next, development)) throw new Error('server URL is not allowed')
     const normalized = next.replace(/\/$/, '')
@@ -142,7 +157,7 @@ function createSessionGateway({ fetchImpl, safeStorage, fs, path, dataDir, serve
      令牌不经过渲染进程；voiceCallUrl 是唯一允许注入的精确地址。 */
   function authToken() { load(); return token }
   function voiceCallUrl() { return serverUrl.replace(/^http/, 'ws') + '/api/voice/call' }
-  return { login, request, stream, clear, load, setServer, server: () => serverUrl, authToken, voiceCallUrl }
+  return { login, exchange, request, stream, clear, load, setServer, server: () => serverUrl, authToken, voiceCallUrl }
 }
 
 function replaceSessionGateway({ currentGateway, previousSettings, nextSettings, createGateway, persistSettings }) {

@@ -22,5 +22,7 @@ contextBridge.exposeInMainWorld('jws', {
   openProviderLink: url => ipcRenderer.invoke('open-provider-link', url),
   onForceExpand: eventApi.onForceExpand,
   onSetExpanded: eventApi.onSetExpanded,
+  onHandoffAuthenticated: eventApi.onHandoffAuthenticated,
+  onWakeNotice: eventApi.onWakeNotice,
   api: createPreloadApi(ipcRenderer, randomUUID),
 })

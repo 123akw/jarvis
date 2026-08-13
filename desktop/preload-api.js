@@ -14,6 +14,15 @@ function createEventApi(ipcRenderer) {
         if (typeof value === 'boolean') callback(value)
       })
     },
+    onHandoffAuthenticated(callback) {
+      // 网页端接管换票成功：主进程已持有令牌，渲染层只收到「重新探活」信号
+      return subscribe('handoff-authenticated', () => callback())
+    },
+    onWakeNotice(callback) {
+      return subscribe('wake-server-notice', (_event, text) => {
+        if (typeof text === 'string' && text) callback(text.slice(0, 500))
+      })
+    },
   }
 }
 
