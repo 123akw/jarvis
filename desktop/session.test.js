@@ -252,3 +252,17 @@ test('streaming 401 clears persisted authentication and returns a stable re-logi
   assert.deepEqual(await denied.stream('chat', { thread_id: 'desktop', message: 'hello' }, { onEvent: () => {} }), { status: 401, ok: false })
   assert.equal(fs.existsSync(path.join(first.directory, 'desktop-session.enc')), false)
 })
+
+test('voiceCallUrl maps the HTTPS origin to the wss voice endpoint', () => {
+  const { instance } = gateway()
+  assert.equal(instance.voiceCallUrl(), 'wss://example.test/api/voice/call')
+})
+
+test('authToken stays empty before login and loads the persisted token for handshake injection', async () => {
+  const { instance } = gateway()
+  assert.equal(instance.authToken(), '')
+  await instance.login('owner', 'test-password')
+  assert.equal(instance.authToken(), 'desktop-test-token')
+  instance.clear()
+  assert.equal(instance.authToken(), '')
+})

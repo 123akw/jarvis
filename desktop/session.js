@@ -138,7 +138,11 @@ function createSessionGateway({ fetchImpl, safeStorage, fs, path, dataDir, serve
     clear()
     serverUrl = normalized
   }
-  return { login, request, stream, clear, load, setServer, server: () => serverUrl }
+  /* 语音通话 WebSocket：仅主进程使用。authToken 给 webRequest 握手头注入，
+     令牌不经过渲染进程；voiceCallUrl 是唯一允许注入的精确地址。 */
+  function authToken() { load(); return token }
+  function voiceCallUrl() { return serverUrl.replace(/^http/, 'ws') + '/api/voice/call' }
+  return { login, request, stream, clear, load, setServer, server: () => serverUrl, authToken, voiceCallUrl }
 }
 
 function replaceSessionGateway({ currentGateway, previousSettings, nextSettings, createGateway, persistSettings }) {
