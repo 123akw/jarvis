@@ -1,8 +1,11 @@
 """网页端后端：FastAPI。账户、服务端会话 + SSE 流式聊天 + 仪表盘接口。"""
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager, contextmanager
 from collections import OrderedDict, deque
 import datetime
 import json
+import logging
 import os
 import time
 import threading
@@ -42,6 +45,48 @@ async def lifespan(_app: FastAPI):
         wechat.shutdown()
         if _runtime_manager is not None:
             _runtime_manager.close()
+
+
+log = logging.getLogger(__name__)
+
+# Agent 长任务专用线程池：与 AnyIO 默认线程池（承载 /api/dashboard 等轻量
+# sync 路由）隔离，聊天再慢也不抢轻请求的票；且整段流式在同一线程内运行，
+# tenant_scope 等 contextvars 不会因跨线程恢复而断裂。
+# 大小可用启动环境变量 JARVIS_AGENT_WORKERS 调整（默认 8，≤20 人够用）。
+_agent_pool = ThreadPoolExecutor(
+    max_workers=max(1, int(os.getenv("JARVIS_AGENT_WORKERS", "8") or "8")),
+    thread_name_prefix="jarvis-agent",
+)
+
+
+def _stream_from_agent_thread(sync_gen_factory):
+    """把同步 SSE 生成器整段交给专用线程执行，事件经 asyncio 队列回传前端。"""
+
+    async def event_stream():
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+        finished = object()
+
+        def pump():
+            try:
+                for item in sync_gen_factory():
+                    loop.call_soon_threadsafe(queue.put_nowait, item)
+            except Exception as exc:  # 生成器自身已兜底，这里只防线程静默死亡
+                log.exception("agent stream pump crashed: %s", type(exc).__name__)
+            finally:
+                try:
+                    loop.call_soon_threadsafe(queue.put_nowait, finished)
+                except RuntimeError:
+                    pass  # 事件循环已关闭（连接断开/停机），无人再消费
+
+        _agent_pool.submit(pump)
+        while True:
+            item = await queue.get()
+            if item is finished:
+                return
+            yield item
+
+    return event_stream()
 
 
 app = FastAPI(title="J.A.R.V.I.S.", lifespan=lifespan)
@@ -603,10 +648,11 @@ def chat(request: Request, body: ChatIn):
                                 yield _sse({"type": "token", "text": text})
             yield _sse({"type": "done"})
         except Exception as e:  # 不把上游响应、URL 或凭据带回前端
+            log.exception("chat stream failed: %s", type(e).__name__)
             yield _sse({"type": "error", "message": _public_runtime_error(e)})
 
     return StreamingResponse(
-        gen(), media_type="text/event-stream",
+        _stream_from_agent_thread(gen), media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
@@ -695,7 +741,7 @@ def oai_chat(request: Request, body: OAIChatIn):
         yield chunk({}, finish="stop")
         yield "data: [DONE]\n\n"
 
-    return StreamingResponse(gen(), media_type="text/event-stream",
+    return StreamingResponse(_stream_from_agent_thread(gen), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache"})
 
 
