@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import base64
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 import json
 import logging
@@ -23,12 +25,87 @@ ILINK_APP_ID = "bot"
 ILINK_APP_CLIENT_VERSION = str((2 << 16) | (4 << 8) | 6)
 QR_EXPIRES_SECONDS = 180
 REPLY_CHUNK_SIZE = 1500
+# 回复计算工作池上限：一个人的慢回复（联网搜索可达 60s+）不能拖住其他人，
+# 也不能无限开线程；≤20 人规模下 4 个并发回复足够。
+REPLY_WORKERS = 4
 # 必须低于 iLink 心跳帧间隔（实测约 18 秒）：心跳字节会不断重置 read 超时，
 # 僵死会话（连接活、心跳在发、但响应永不完成也不派消息）在更长的超时下
 # 永远不会被翻新，表现为「状态已连接却收不到任何消息」（2026-08-12 线上）。
 UPDATES_READ_TIMEOUT_SECONDS = 15
 
 log = logging.getLogger(__name__)
+
+
+class _ReplyDispatcher:
+    """按发信人串行、总并发受限的回复执行器。
+
+    长轮询线程只负责收发与入队；回复计算（Agent 全链路）在这里的工作池中
+    进行。同一发信人的消息严格按到达顺序串行，不同发信人最多 REPLY_WORKERS
+    路并行，互不等待。
+    """
+
+    def __init__(self, max_workers: int = REPLY_WORKERS) -> None:
+        self._executor = ThreadPoolExecutor(
+            max_workers=max(1, int(max_workers)),
+            thread_name_prefix="jarvis-wechat-reply",
+        )
+        self._lock = threading.Lock()
+        self._done = threading.Condition(self._lock)
+        self._queues: dict[str, deque] = {}
+        self._pending = 0
+        self._stopped = False
+
+    def submit(self, sender: str, job) -> bool:
+        """入队一条消息的回复任务；已停止时拒绝（返回 False）。"""
+        with self._lock:
+            if self._stopped:
+                return False
+            queue = self._queues.get(sender)
+            if queue is None:
+                queue = deque()
+                self._queues[sender] = queue
+                queue.append(job)
+                self._pending += 1
+                self._executor.submit(self._run_sender, sender)
+            else:
+                queue.append(job)
+                self._pending += 1
+            return True
+
+    def _run_sender(self, sender: str) -> None:
+        """独占地消费一个发信人的队列：天然保证同人串行、顺序不乱。"""
+        while True:
+            with self._lock:
+                queue = self._queues.get(sender)
+                if not queue or self._stopped:
+                    self._queues.pop(sender, None)
+                    return
+                job = queue.popleft()
+            try:
+                job()
+            except Exception as exc:  # 单条消息失败不能影响后续消息
+                log.warning("WeChat reply job crashed: %s", type(exc).__name__)
+            finally:
+                with self._lock:
+                    self._pending -= 1
+                    self._done.notify_all()
+
+    def drain(self, timeout: float | None = None) -> bool:
+        """等待所有已入队任务完成；测试与优雅停机使用。"""
+        deadline = None if timeout is None else time.monotonic() + timeout
+        with self._done:
+            while self._pending > 0:
+                remaining = None if deadline is None else deadline - time.monotonic()
+                if remaining is not None and remaining <= 0:
+                    return False
+                self._done.wait(remaining)
+            return True
+
+    def stop(self) -> None:
+        """停止接收新任务并丢弃未开始的任务；进行中的任务自然结束。"""
+        with self._lock:
+            self._stopped = True
+        self._executor.shutdown(wait=False, cancel_futures=True)
 
 
 class WeChatBridge:
@@ -64,6 +141,7 @@ class WeChatBridge:
         self._generation = 0
         self._updates_stop = threading.Event()
         self._updates_thread = None
+        self._dispatcher = None
 
     def configure(self, agent_getter, chunk_text, owner_getter=None, runtime_getter=None) -> None:
         """由 Web 服务注入 Agent 与消息文本转换器。"""
@@ -294,6 +372,8 @@ class WeChatBridge:
         self._updates_stop.set()
         stop = threading.Event()
         self._updates_stop = stop
+        self._stop_dispatcher_locked()
+        self._dispatcher = _ReplyDispatcher()
         worker = self._thread_factory(
             target=self._updates_loop,
             args=(generation, token, stop),
@@ -302,6 +382,11 @@ class WeChatBridge:
         )
         self._updates_thread = worker
         worker.start()
+
+    def _stop_dispatcher_locked(self) -> None:
+        dispatcher, self._dispatcher = self._dispatcher, None
+        if dispatcher is not None:
+            dispatcher.stop()
 
     def _reply(self, text: str, from_id: str) -> str:
         if not self._agent_getter or not self._chunk_text or not self._owner_getter:
@@ -346,10 +431,60 @@ class WeChatBridge:
             return ["（贾维斯没有生成文本回复。）"]
         return [text[index:index + limit] for index in range(0, len(text), limit)]
 
+    def _deliver_reply(
+        self, client, token: str, from_id: str, context_token: str, text: str
+    ) -> None:
+        """计算并发送对一条私聊消息的回复；整段在回复工作池线程中运行。"""
+        try:
+            answer = self._reply(text, from_id)
+        except Exception as exc:
+            log.warning("JARVIS WeChat reply failed: %s", type(exc).__name__)
+            answer = f"（贾维斯暂时无法应答：{type(exc).__name__}）"
+
+        for chunk in self._split_reply(answer):
+            try:
+                response = client.post(
+                    f"{ILINK}/sendmessage",
+                    headers=self._headers(token),
+                    timeout=20,
+                    json={
+                        "msg": {
+                            "from_user_id": "",
+                            "to_user_id": from_id,
+                            "client_id": f"jws-agent:{uuid.uuid4().hex}",
+                            "message_type": 2,
+                            "message_state": 2,
+                            "context_token": context_token,
+                            "item_list": [
+                                {"type": 1, "text_item": {"text": chunk}}
+                            ],
+                        },
+                        "base_info": self._base_info(),
+                    },
+                )
+                response.raise_for_status()
+                sent_payload = response.json()
+                if (
+                    isinstance(sent_payload, dict)
+                    and sent_payload.get("ret") not in (None, 0)
+                ):
+                    raise ValueError("send rejected")
+            except (httpx.HTTPError, TypeError, ValueError) as exc:
+                log.warning(
+                    "iLink sendmessage failed for %s: %s",
+                    from_id[:16],
+                    type(exc).__name__,
+                )
+
     def _handle_updates_response(
         self, client, token: str, payload: dict
     ) -> str:
-        """处理一次 getupdates 数据并返回下一轮 buffer。"""
+        """处理一次 getupdates 数据并返回下一轮 buffer。
+
+        有活动轮询会话时，私聊消息入队即返回：回复由 _ReplyDispatcher 工作池
+        计算发送（同一发信人串行，不同发信人并行），长轮询线程只收发不算。
+        没有会话（如直接调用协议探针）时退化为内联同步处理。
+        """
         if not isinstance(payload, dict):
             raise ValueError("invalid updates response")
         next_buf = payload.get("get_updates_buf", "")
@@ -359,6 +494,8 @@ class WeChatBridge:
         messages = payload.get("msgs", [])
         if not isinstance(messages, list):
             raise ValueError("invalid messages")
+        with self._lock:
+            dispatcher = self._dispatcher
 
         for message in messages:
             if not isinstance(message, dict) or message.get("message_type") != 1:
@@ -371,47 +508,18 @@ class WeChatBridge:
             text = self._text_of(message).strip()
             if not text:
                 continue
-            try:
-                answer = self._reply(text, from_id)
-            except Exception as exc:
-                log.warning("JARVIS WeChat reply failed: %s", type(exc).__name__)
-                answer = f"（贾维斯暂时无法应答：{type(exc).__name__}）"
-
             context_token = message.get("context_token", "")
-            for chunk in self._split_reply(answer):
-                try:
-                    response = client.post(
-                        f"{ILINK}/sendmessage",
-                        headers=self._headers(token),
-                        timeout=20,
-                        json={
-                            "msg": {
-                                "from_user_id": "",
-                                "to_user_id": from_id,
-                                "client_id": f"jws-agent:{uuid.uuid4().hex}",
-                                "message_type": 2,
-                                "message_state": 2,
-                                "context_token": context_token,
-                                "item_list": [
-                                    {"type": 1, "text_item": {"text": chunk}}
-                                ],
-                            },
-                            "base_info": self._base_info(),
-                        },
-                    )
-                    response.raise_for_status()
-                    sent_payload = response.json()
-                    if (
-                        isinstance(sent_payload, dict)
-                        and sent_payload.get("ret") not in (None, 0)
-                    ):
-                        raise ValueError("send rejected")
-                except (httpx.HTTPError, TypeError, ValueError) as exc:
-                    log.warning(
-                        "iLink sendmessage failed for %s: %s",
-                        from_id[:16],
-                        type(exc).__name__,
-                    )
+            if dispatcher is None:
+                self._deliver_reply(client, token, from_id, context_token, text)
+                continue
+            accepted = dispatcher.submit(
+                from_id,
+                lambda c=client, t=token, f=from_id, ctx=context_token, x=text: (
+                    self._deliver_reply(c, t, f, ctx, x)
+                ),
+            )
+            if not accepted:
+                log.info("WeChat reply skipped: dispatcher stopped")
         return next_buf
 
     def _updates_loop(
@@ -472,6 +580,7 @@ class WeChatBridge:
                 return
             self._updates_stop.set()
             self._updates_thread = None
+            self._stop_dispatcher_locked()
             self._token_path().unlink(missing_ok=True)
             self._clear_sync_buf()
             self._state.update(
@@ -487,6 +596,7 @@ class WeChatBridge:
             self._generation += 1
             self._updates_stop.set()
             self._updates_thread = None
+            self._stop_dispatcher_locked()
             self._token_path().unlink(missing_ok=True)
             self._clear_sync_buf()
             self._state.update(
@@ -528,6 +638,7 @@ class WeChatBridge:
             self._generation += 1
             self._updates_stop.set()
             self._updates_thread = None
+            self._stop_dispatcher_locked()
             self._state.update(
                 state="idle", qr_uri="", error="", since=""
             )
