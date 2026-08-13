@@ -214,6 +214,21 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
     }
   }
 
+  /** 进入通话态先申请麦克风：被拒立即人话降级，拿到了再开识别。 */
+  function startVoiceInput() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      startRecognition() // 无法探测的老浏览器交给识别自身报错
+      return
+    }
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+      stream.getTracks().forEach(t => t.stop()) // 只探权限，采音交给语音识别
+      if (aliveRef.current) startRecognition()
+    }).catch(() => {
+      if (!aliveRef.current) return
+      degrade('没拿到麦克风权限。语音识别已停用，可以在下面打字通话（贾维斯照样语音回答）；关掉本面板后文字聊天完全不受影响。')
+    })
+  }
+
   useEffect(() => {
     aliveRef.current = true
     let ws
@@ -234,7 +249,7 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
     }
     ws.onclose = () => { if (aliveRef.current) setPhase('closed') }
     ws.onerror = () => { if (aliveRef.current) setNotice('通话链路出错') }
-    startRecognition()
+    startVoiceInput()
     return () => {
       aliveRef.current = false
       try { recRef.current?.stop() } catch { /* 已停 */ }

@@ -97,6 +97,23 @@ describe('VoiceCall', () => {
     expect(screen.getByLabelText('打字通话输入')).toBeInTheDocument()
   })
 
+  it('进入通话先申请麦克风：getUserMedia 被拒即降级，不再启动识别', async () => {
+    window.webkitSpeechRecognition = MockRecognition
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia: vi.fn().mockRejectedValue(new Error('NotAllowedError')) },
+    })
+    try {
+      render(<VoiceCall onClose={() => {}} />)
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('没拿到麦克风权限')
+      expect(screen.getByLabelText('打字通话输入')).toBeInTheDocument()
+      expect(MockRecognition.instances).toHaveLength(0)
+    } finally {
+      delete navigator.mediaDevices
+    }
+  })
+
   it('识别到完整一句话就上行，并展示录音中/思考中/播放中状态流转', async () => {
     window.webkitSpeechRecognition = MockRecognition
     render(<VoiceCall onClose={() => {}} />)
