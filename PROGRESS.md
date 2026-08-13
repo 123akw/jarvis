@@ -304,3 +304,15 @@
 - 硬指标 2 ✅：`git diff main --stat` 仅 desktop/**（11 个文件）+ PROGRESS.md；`grep -rn "sk-1deb\|sk-api" desktop/` 空（exit 1）。
 - 反向验证 ✅：打断丢弃未定稿——注释丢弃逻辑 1 fail 红 → 还原 52 pass 绿（输出已贴对话）。
 - 服务端零改动 ✅：jarvis/**、web-src/**、tests/**、scripts/** 一行未动（git diff 佐证）；桌面令牌鉴权按 gateway.py 现状直接可用，无需服务端改动。
+
+# 网页↔桌面一体化接管（web-desktop-handoff 分支，2026-08-13）
+
+## 任务 0 ✅ 基线核对 + 接管流程图
+- 三基线亲测全对上：pytest `447 passed`（0 fail 0 skip）；web-src vitest `31 passed (8 files)`；desktop `node --test` `52 pass 0 fail 0 skip`。
+- 现状核对：server.py:304 `/api/desktop/login` → `accounts.issue_desktop_and_openai`（换票端点照抄此链）；CSRF 模式=`_write_authorized`+`_csrf_deny`；desktop/session.js 令牌 safeStorage 加密落盘、main.js webRequest 主进程注入。全部与任务书一致。
+- 接管流程（谁发票 / 谁换票 / 票怎么失效）：
+  1. 网页（已登录 web 会话 + X-JWS-CSRF）→ POST /api/desktop/handoff → 服务端 `secrets.token_urlsafe(32)` 生成票，内存表记 `(sha256(票), user_id, now+60s)`，明文票只回给网页。
+  2. 网页 → POST http://127.0.0.1:17789/wake {ticket}（Chrome PNA 预检 + Origin 白名单：生产域名与 http://localhost:*）→ 桌面主进程亮出悬浮窗/面板置顶。
+  3. 桌面主进程（未登录时）→ POST 服务端 /api/desktop/handoff/exchange {ticket}（无会话、不收密码）→ 服务端查 hash 命中且未过期 → **换票即删（一次性）** → `issue_desktop_and_openai(user_id)` → 返回与 /api/desktop/login 同构令牌。
+  4. 桌面主进程 safeStorage 加密落盘（复用 session.js 既有 persist），令牌不进渲染进程；面板转已登录。
+  5. 失效三路：换到即删（二次换票 401）；60 秒过期（时间可注入测试）；服务重启内存清空全失效。过期/重复/未知票响应一律 401 不区分原因；票据/令牌不写日志。
