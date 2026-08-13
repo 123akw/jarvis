@@ -54,6 +54,23 @@
 - 领导后续明确授权：缺 Key 状态下先合并并推送 Git `main`；这不等于生产部署，真实 4/4 与服务器上线仍等待 Key。
 - Git 主分支合并 ✅：`codex/entertainment-search` 已 fast-forward 到 `main` 并推送 `origin/main`；合并后 109 passed、工具数 20，本地功能分支已删除，远端功能分支保留用于追溯。
 
+# 语音升级（voice-upgrade 分支，2026-08-13 开工）——服务端 ASR + 推流字幕 + 口语化
+
+## 任务 0 ✅（2026-08-13 实测）
+- 基线复核：`.venv/bin/python -m pytest tests/ -q` → 408 passed, 0 failed, 0 skipped；`cd web-src && npx vitest run` → 24 passed。与任务书一致。
+- `.env` 核验：**无 DASHSCOPE_API_KEY**（仅 DEEPSEEK/JARVIS_BASE_URL/JARVIS_MODEL/MINIMAX 四项）→ 按任务书走「无 key」路线：asr.py 架构 + fake 注入单测、前端推流、字幕 UI、口语化全部照做；asr_smoke --live 与反向 key 验证标注「待 key」，已记 BLOCKED.md。
+- 百炼协议已按官方文档核实（help.aliyun.com/zh/model-studio/paraformer-client-events + paraformer-server-events）：run-task/finish-task 指令、task-started/result-generated（sentence.text + sentence_end + heartbeat）/task-finished/task-failed 事件、二进制音频帧直接上行。
+
+### 选定方案（≤10 行）
+1. jarvis/voice/asr.py：直连百炼 WebSocket（无 dashscope SDK，零新依赖），paraformer-realtime-v2，PCM16/16kHz 单声道。
+2. gateway：二进制帧→ASR 转发；增量下行 asr_partial（字幕灰字）、定稿下行 asr_final 并开回合；ASR 连不上→一次 asr_fallback，前端切浏览器识别。
+3. ASR 会话工厂仿 create_tts_session 可整体替换，fake 路径单测覆盖断连降级/增量字幕/打断丢弃未定稿。
+4. 前端：AudioWorklet 采集+重采样 16kHz PCM16 每 100ms 一帧上行；本地 RMS VAD 播放中检测人声≈200ms 触发打断（停播+interrupt）。
+5. 字幕：识别中灰字（asr_partial）→定稿实字（asr_final），回答 token 滚动；不支持推流/收到 asr_fallback→退回 SpeechRecognition 旧路。
+6. 口语化：gateway 在语音回合注入一次性 system 指令（≤3 句/先结论/口语化/不念 URL 代码表格），回合结束用 RemoveMessage 从 checkpoint 摘除，文字模式零残留。
+7. voice_smoke 增强：--live 自起本地服务走真 agent+真 TTS，打印「说完→首音频」全链路毫秒数，阈值 3500ms。
+8. ASR WSS 地址可配（DASHSCOPE_ASR_WSS_URL，默认 dashscope.aliyuncs.com/api-ws/v1/inference）；新文档出现 workspace 子域网关，待 key 实测后如需切换记 PROGRESS。
+
 # 语音通话（voice-call 分支，2026-08-13 开工）
 
 ## 任务 0 ✅（2026-08-13 实测）
