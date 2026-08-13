@@ -12,8 +12,8 @@
 - 无阻断项：任务 0/1/2 全部验收通过，硬指标达成。**无**。
 
 ## 语音升级（voice-upgrade 分支，2026-08-13）
-- **待 key：**本机 `.env` 无 `DASHSCOPE_API_KEY`（2026-08-13 核验，.env 仅含 DEEPSEEK_API_KEY/JARVIS_BASE_URL/JARVIS_MODEL/MINIMAX_API_KEY 四项）。受影响验收：1) `scripts/asr_smoke.py --live` 真连百炼识别 wav；2) key 改错红→绿反向验证；3) 生产端服务端识别生效（key 到位前线上自动走 asr_fallback→浏览器识别降级通道，通话不中断）。key 注入 `.env` 后执行：`.venv/bin/python scripts/asr_smoke.py --live` 应打印识别中文文字并退出 0。
-- 待 key 附带核对项：新版文档给出 `wss://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/api-ws/v1/inference` 网关，本实现默认 `wss://dashscope.aliyuncs.com/api-ws/v1/inference`（长期公开网关）；若实测 401/404 用 `DASHSCOPE_ASR_WSS_URL` 环境变量切换，无需改代码。
+- ~~待 key：`.env` 无 DASHSCOPE_API_KEY~~ → **已解除**：管理者当日注入 key 到 .env，`asr_smoke.py --live` 真连百炼识别回环 100% 重合、坏 key 红→绿闭环（见 PROGRESS 任务 1）。默认网关 `wss://dashscope.aliyuncs.com/api-ws/v1/inference` 实测可用，无需切 workspace 子域。
+- 生产上线提醒（管理者动作，非本执行者地界）：`/opt/jarvis/.env` 也需注入 `DASHSCOPE_API_KEY`，否则线上自动走 asr_fallback→浏览器识别降级通道（通话不中断，但识别质量回到旧水平）。
 
 ## 线 B · 并发加固与遗留修复
 # BLOCKED

@@ -71,6 +71,16 @@
 7. voice_smoke 增强：--live 自起本地服务走真 agent+真 TTS，打印「说完→首音频」全链路毫秒数，阈值 3500ms。
 8. ASR WSS 地址可配（DASHSCOPE_ASR_WSS_URL，默认 dashscope.aliyuncs.com/api-ws/v1/inference）；新文档出现 workspace 子域网关，待 key 实测后如需切换记 PROGRESS。
 
+## 任务 1 ✅ 服务端流式识别（2026-08-13）
+- 新增 jarvis/voice/asr.py：百炼 paraformer-realtime-v2 WebSocket 直连（run-task/finish-task/result-generated/task-failed 全协议，零新依赖，websockets 已在锁文件）；key 只从环境变量读，异常不带上游细节。
+- gateway.py 新增 _AsrPipeline：二进制帧→百炼；建连期先攒帧（上限 ~10s）接上后按序补发；asr_partial 增量字幕 / asr_final 定稿自动开回合 / 任何一环坏掉一次 asr_fallback 降级浏览器识别（音频此后静默丢弃，user_text 通道不受影响）；interrupt 丢弃未定稿文字并下发空 asr_partial 清字幕。
+- 中途 key 到位（管理者注入 .env）：「待 key」项全部当场补齐——
+  - `asr_smoke.py --live`（TTS 合成回环防假绿）：识别会话建立 230ms，首个识别结果 225ms，**识别文字「明天上午九点提醒我参加项目周会。」与原句重合率 100%**，EXIT=0。
+  - 反向验证：`DASHSCOPE_API_KEY=sk-invalid-smoke-key` → 「FAIL：语音识别连接失败」EXIT=1（红）；还原 → 100% 重合 EXIT=0（绿）。
+  - 默认网关 wss://dashscope.aliyuncs.com/api-ws/v1/inference 实测可用；模型维持 paraformer-realtime-v2（识别 100% 中文无误，无需换模型）。
+- 验收：pytest tests/test_voice* → 26 passed（新增 ASR 协议 6 条 + 网关 6 条：增量字幕、定稿开回合、建连攒帧、连接失败降级、中途断连降级、打断丢弃未定稿）；全量 419 passed, 0 failed, 0 skipped（基线 408 + 11）。
+- 协议变更：旧「二进制帧→asr_unavailable 错误」按任务书移除，对应测试改写为 test_binary_uplink_falls_back_without_asr_key（同一意图：无服务端识别时明确降级，不是删测试）。
+
 # 语音通话（voice-call 分支，2026-08-13 开工）
 
 ## 任务 0 ✅（2026-08-13 实测）

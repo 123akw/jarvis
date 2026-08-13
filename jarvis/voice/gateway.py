@@ -1,18 +1,21 @@
 """语音通话网关：/api/voice/call WebSocket 路由。
 
-上行（JSON 文本帧）：
-- {"type": "init", "csrf": "...", "thread_id": "voice"}  连接后第一条；web 会话必须带 CSRF
-- {"type": "user_text", "text": "..."}  一次说话的转写文本；在途回合立即被打断
-- {"type": "interrupt"}  只打断，不开新回合
-- {"type": "ping"}  心跳
+上行：
+- JSON {"type": "init", "csrf": "...", "thread_id": "voice"}  连接后第一条；web 会话必须带 CSRF
+- 二进制帧：麦克风 PCM 音频（16-bit 小端、单声道、16kHz），转发百炼流式识别
+- JSON {"type": "user_text", "text": "..."}  浏览器识别降级通道的转写文本；在途回合立即被打断
+- JSON {"type": "interrupt"}  打断在途回合，并丢弃未定稿的识别文字
+- JSON {"type": "ping"}  心跳
 
 下行：
-- JSON 文本帧：ready / turn_start / token / tool_start / tool_result /
-  audio_start / tts_error / turn_end / error / pong
-- 二进制帧：PCM 音频块（16-bit 小端、单声道，采样率见 audio_start）
+- JSON 文本帧：ready / asr_partial（识别中增量，字幕灰字）/ asr_final（断句定稿）/
+  asr_fallback（服务端识别不可用，前端切浏览器识别）/ turn_start / token /
+  tool_start / tool_result / audio_start / tts_error / turn_end / error / pong
+- 二进制帧：TTS PCM 音频块（16-bit 小端、单声道，采样率见 audio_start）
 
-音频上行：国内站没有服务端 ASR（任务 0 实测），收到二进制帧回 asr_unavailable，
-转写由浏览器 Web Speech API 完成后走 user_text。
+识别链路：二进制帧经 _AsrPipeline 转发百炼（jarvis/voice/asr.py），增量结果实时下发
+字幕，断句定稿自动开回合；百炼连不上/无 key → 一次 asr_fallback，前端退回
+浏览器 Web Speech API，转写走 user_text，通话不中断。
 """
 from __future__ import annotations
 
@@ -25,6 +28,7 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from jarvis.graph import heal_dangling_tool_calls
 from jarvis.tenancy import TenantMigrationError, tenant_scope
+from jarvis.voice import asr as asr_mod
 from jarvis.voice import tts as tts_mod
 from jarvis.voice.segment import SentenceSegmenter, speakable
 
@@ -32,9 +36,118 @@ CLOSE_UNAUTHORIZED = 4401
 CLOSE_BAD_REQUEST = 4400
 _INIT_TIMEOUT = 15.0
 _TTS_DRAIN_TIMEOUT = 120.0
+_ASR_BUFFER_CAP = 320_000  # 连接建立前最多攒 ~10s@16kHz PCM16，超了丢最旧的
+ASR_FALLBACK_MESSAGE = "服务端语音识别暂不可用，已切换浏览器识别"
 
 # 测试可整体替换为假会话工厂；生产即 MiniMax WSS 客户端
 create_tts_session = tts_mod.TTSSession
+# 测试可整体替换为假会话工厂；生产即百炼 paraformer WSS 客户端
+create_asr_session = asr_mod.ASRSession
+
+
+class _AsrPipeline:
+    """服务端流式识别管道：二进制帧→百炼，增量下字幕，定稿开回合，坏了降级。"""
+
+    def __init__(self, call: "_CallSession") -> None:
+        self.call = call
+        self.session = None
+        self.failed = False
+        self._connecting: asyncio.Task | None = None
+        self._reader: asyncio.Task | None = None
+        self._buffer: list[bytes] = []   # 识别连接建立前先攒帧，接上后一次性补发
+        self._buffered = 0
+        self._pending_partial = ""       # 已下发字幕但尚未定稿的识别文字
+
+    async def feed(self, chunk: bytes) -> None:
+        """收一帧麦克风音频。第一帧触发建连；降级后静默丢弃。"""
+        if self.failed or not chunk:
+            return
+        if self.session is None:
+            self._buffer.append(chunk)
+            self._buffered += len(chunk)
+            while self._buffered > _ASR_BUFFER_CAP and len(self._buffer) > 1:
+                self._buffered -= len(self._buffer.pop(0))
+            if self._connecting is None:
+                self._connecting = asyncio.create_task(self._connect())
+            return
+        try:
+            await self.session.send_audio(chunk)
+        except asr_mod.ASRError:
+            await self._fallback()
+
+    async def discard_pending(self) -> None:
+        """打断时丢弃未定稿的识别文字：不进回合，并清掉前端灰字字幕。"""
+        if self._pending_partial:
+            self._pending_partial = ""
+            await self.call.send_json({"type": "asr_partial", "text": ""}, best_effort=True)
+
+    async def close(self) -> None:
+        for task in (self._connecting, self._reader):
+            if task is not None and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except BaseException:
+                    pass
+        if self.session is not None:
+            try:
+                await self.session.close()
+            except Exception:
+                pass
+            self.session = None
+
+    async def _connect(self) -> None:
+        try:
+            session = create_asr_session()
+            await session.connect()
+        except asr_mod.ASRError:
+            await self._fallback()
+            return
+        self.session = session
+        try:
+            for chunk in self._buffer:
+                await session.send_audio(chunk)
+        except asr_mod.ASRError:
+            await self._fallback()
+            return
+        finally:
+            self._buffer.clear()
+            self._buffered = 0
+        self._reader = asyncio.create_task(self._read_results(session))
+
+    async def _read_results(self, session) -> None:
+        try:
+            async for result in session.results():
+                if result.is_final:
+                    self._pending_partial = ""
+                    text = result.text.strip()
+                    if text:
+                        await self.call.send_json(
+                            {"type": "asr_final", "text": text}, best_effort=True)
+                        await self.call.start_turn(text)
+                elif result.text:
+                    self._pending_partial = result.text
+                    await self.call.send_json(
+                        {"type": "asr_partial", "text": result.text}, best_effort=True)
+        except asr_mod.ASRError:
+            await self._fallback()
+
+    async def _fallback(self) -> None:
+        """识别链路任何一环坏掉：一次性告知前端切浏览器识别，此后丢帧。"""
+        if self.failed:
+            return
+        self.failed = True
+        self._buffer.clear()
+        self._buffered = 0
+        self._pending_partial = ""
+        await self.call.send_json(
+            {"type": "asr_fallback", "message": ASR_FALLBACK_MESSAGE}, best_effort=True)
+        if self.session is not None:
+            try:
+                await self.session.close()
+            except Exception:
+                pass
+            self.session = None
 
 
 class _Turn:
@@ -222,6 +335,7 @@ class _CallSession:
         self.count_chat = count_chat
         self._send_lock = asyncio.Lock()
         self._turn_task: asyncio.Task | None = None
+        self.asr = _AsrPipeline(self)
 
     def upsert_thread(self, first_message: str) -> str:
         with tenant_scope(self.user_id):
@@ -309,10 +423,7 @@ def register_voice(app, *, cookie_name: str, accounts, bundle_for, tenant_store,
                 if message["type"] == "websocket.disconnect":
                     break
                 if message.get("bytes") is not None:
-                    await session.send_json({
-                        "type": "error", "code": "asr_unavailable",
-                        "message": "服务端不支持音频转写，请使用浏览器语音识别或文字",
-                    }, best_effort=True)
+                    await session.asr.feed(message["bytes"])
                     continue
                 raw = message.get("text")
                 if not raw:
@@ -328,9 +439,11 @@ def register_voice(app, *, cookie_name: str, accounts, bundle_for, tenant_store,
                         await session.start_turn(utterance)
                 elif mtype == "interrupt":
                     await session.interrupt()
+                    await session.asr.discard_pending()
                 elif mtype == "ping":
                     await session.send_json({"type": "pong"}, best_effort=True)
         except WebSocketDisconnect:
             pass
         finally:
             await session.interrupt()
+            await session.asr.close()

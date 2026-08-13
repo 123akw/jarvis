@@ -10,6 +10,7 @@ from starlette.websockets import WebSocketDisconnect
 
 import jarvis.server as server_mod
 import jarvis.voice.gateway as gateway_mod
+from jarvis.voice.asr import ASRError, ASRResult
 from jarvis.voice.tts import TTSError
 
 
@@ -64,6 +65,49 @@ class _FakeTTS:
 class _BrokenTTS(_FakeTTS):
     async def connect(self):
         raise TTSError("语音合成连接失败")
+
+
+class _FakeASR:
+    """假识别会话：把上行音频帧当脚本解释（P:增量 / F:定稿 / E:断连），
+    结果从 results() 流出——时序完全由测试通过 WebSocket 帧驱动，无跨线程竞态。"""
+
+    instances = []
+    connect_delay = 0.0
+
+    def __init__(self):
+        self.received = []
+        self.closed = False
+        self._q = asyncio.Queue()
+        _FakeASR.instances.append(self)
+
+    async def connect(self):
+        if type(self).connect_delay:
+            await asyncio.sleep(type(self).connect_delay)
+
+    async def send_audio(self, chunk):
+        self.received.append(chunk)
+        text = chunk.decode("utf-8", errors="ignore")
+        if text.startswith("P:"):
+            self._q.put_nowait(ASRResult(text=text[2:], is_final=False))
+        elif text.startswith("F:"):
+            self._q.put_nowait(ASRResult(text=text[2:], is_final=True))
+        elif text.startswith("E:"):
+            self._q.put_nowait(ASRError("语音识别连接中断"))
+
+    async def results(self):
+        while True:
+            item = await self._q.get()
+            if isinstance(item, ASRError):
+                raise item
+            yield item
+
+    async def close(self):
+        self.closed = True
+
+
+class _BrokenASR(_FakeASR):
+    async def connect(self):
+        raise ASRError("语音识别连接失败")
 
 
 def _client():
@@ -178,7 +222,9 @@ def test_new_utterance_interrupts_inflight_turn(monkeypatch):
         assert any(e.get("text") == "好的。" for e in events2 if e["type"] == "token")
 
 
-def test_binary_uplink_reports_asr_unavailable(monkeypatch):
+def test_binary_uplink_falls_back_without_asr_key(monkeypatch):
+    """无 DASHSCOPE_API_KEY（真实默认路径，不打桩）：二进制上行 → 一次 asr_fallback。"""
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
     monkeypatch.setattr(server_mod, "_get_agent", lambda: _FakeAgent())
     client = _client()
     csrf, token = _login(client)
@@ -187,4 +233,104 @@ def test_binary_uplink_reports_asr_unavailable(monkeypatch):
         assert ws.receive_json() == {"type": "ready"}
         ws.send_bytes(b"\x00\x01fake-pcm")
         notice = ws.receive_json()
-        assert notice["code"] == "asr_unavailable"
+        assert notice["type"] == "asr_fallback"
+        assert notice["message"], "降级必须带人话提示"
+        # 降级后继续送音频不报错、不重复提示；user_text 通道照常可用
+        ws.send_bytes(b"\x00\x01more-pcm")
+        ws.send_json({"type": "ping"})
+        assert ws.receive_json() == {"type": "pong"}
+
+
+def _start_call(monkeypatch, asr_factory):
+    monkeypatch.setattr(server_mod, "_get_agent", lambda: _FakeAgent())
+    monkeypatch.setattr(gateway_mod, "create_tts_session", _FakeTTS)
+    monkeypatch.setattr(gateway_mod, "create_asr_session", asr_factory)
+    _FakeTTS.instances.clear()
+    _FakeASR.instances.clear()
+    client = _client()
+    csrf, token = _login(client)
+    return client, csrf, token
+
+
+def test_asr_partials_stream_as_subtitles_and_final_starts_turn(monkeypatch):
+    client, csrf, token = _start_call(monkeypatch, _FakeASR)
+    with _connect(client, token) as ws:
+        ws.send_json({"type": "init", "csrf": csrf})
+        assert ws.receive_json() == {"type": "ready"}
+        ws.send_bytes("P:今天".encode())
+        assert ws.receive_json() == {"type": "asr_partial", "text": "今天"}
+        ws.send_bytes("P:今天天气".encode())
+        assert ws.receive_json() == {"type": "asr_partial", "text": "今天天气"}
+        ws.send_bytes("F:今天天气怎么样？".encode())
+        assert ws.receive_json() == {"type": "asr_final", "text": "今天天气怎么样？"}
+        events, audio = _collect_turn(ws)
+    kinds = [e["type"] for e in events]
+    assert kinds[0] == "turn_start", "识别定稿必须自动开回合"
+    assert "".join(e.get("text", "") for e in events if e["type"] == "token") == "你好，领导。马上办。"
+    assert events[-1] == {"type": "turn_end", "interrupted": False}
+    assert len(audio) > 0
+
+
+def test_asr_buffers_audio_while_connecting(monkeypatch):
+    _FakeASR.connect_delay = 0.2
+    try:
+        client, csrf, token = _start_call(monkeypatch, _FakeASR)
+        with _connect(client, token) as ws:
+            ws.send_json({"type": "init", "csrf": csrf})
+            assert ws.receive_json() == {"type": "ready"}
+            ws.send_bytes(b"\x00\x01head")       # 建连期间先攒着
+            ws.send_bytes("P:第一句".encode())
+            assert ws.receive_json() == {"type": "asr_partial", "text": "第一句"}
+    finally:
+        _FakeASR.connect_delay = 0.0
+    session = _FakeASR.instances[-1]
+    assert session.received[0] == b"\x00\x01head", "建连前的音频帧必须按序补发，不能丢"
+
+
+def test_asr_connect_failure_downgrades_and_user_text_still_works(monkeypatch):
+    client, csrf, token = _start_call(monkeypatch, _BrokenASR)
+    with _connect(client, token) as ws:
+        ws.send_json({"type": "init", "csrf": csrf})
+        assert ws.receive_json() == {"type": "ready"}
+        ws.send_bytes(b"\x00\x01pcm")
+        notice = ws.receive_json()
+        assert notice["type"] == "asr_fallback"
+        ws.send_json({"type": "user_text", "text": "在吗"})  # 降级通道照常对话
+        events, audio = _collect_turn(ws)
+    assert events[0]["type"] == "turn_start"
+    assert events[-1] == {"type": "turn_end", "interrupted": False}
+    assert len(audio) > 0
+
+
+def test_asr_midstream_disconnect_downgrades_once(monkeypatch):
+    client, csrf, token = _start_call(monkeypatch, _FakeASR)
+    with _connect(client, token) as ws:
+        ws.send_json({"type": "init", "csrf": csrf})
+        assert ws.receive_json() == {"type": "ready"}
+        ws.send_bytes("P:喂喂".encode())
+        assert ws.receive_json() == {"type": "asr_partial", "text": "喂喂"}
+        ws.send_bytes(b"E:")  # 识别流中途断掉
+        notice = ws.receive_json()
+        assert notice["type"] == "asr_fallback"
+        ws.send_bytes(b"\x00\x01after")  # 降级后音频静默丢弃，连接不崩
+        ws.send_json({"type": "ping"})
+        assert ws.receive_json() == {"type": "pong"}
+    assert _FakeASR.instances[-1].closed, "降级后必须关掉识别连接"
+
+
+def test_interrupt_discards_unfinalized_partial(monkeypatch):
+    client, csrf, token = _start_call(monkeypatch, _FakeASR)
+    with _connect(client, token) as ws:
+        ws.send_json({"type": "init", "csrf": csrf})
+        assert ws.receive_json() == {"type": "ready"}
+        ws.send_bytes("P:帮我查一下那个".encode())
+        assert ws.receive_json() == {"type": "asr_partial", "text": "帮我查一下那个"}
+        ws.send_json({"type": "interrupt"})
+        assert ws.receive_json() == {"type": "asr_partial", "text": ""}, \
+            "打断必须丢弃未定稿文字并清空字幕灰字"
+        # 未定稿文字不得变成回合；之后新的定稿照常开回合
+        ws.send_bytes("F:换个话题".encode())
+        assert ws.receive_json() == {"type": "asr_final", "text": "换个话题"}
+        events, _audio = _collect_turn(ws)
+    starts = [e for e in events if e["type"] == "turn_start"]
+    assert len(starts) == 1, "打断丢弃的 partial 不该开过回合"
