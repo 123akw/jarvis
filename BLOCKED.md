@@ -69,3 +69,13 @@
 - 修了一个既有阻断 bug（在我的 desktop/** 地界内）：Electron 38 默认沙箱化 preload 加载失败（require('crypto')/相对模块不可用），主仓库未改分支同样复现，即交付前桌面 app 实际起不来。已按最小修改加 `sandbox:false`（contextIsolation/nodeIntegration 不变），详见 PROGRESS 任务 2。
 - 自动化验收测试环境限制（如实声明）：机器无法「真人开口」，扬声器自放自收会被 macOS/Chromium 回声消除压制（实测 RMS 0.022<0.04）。故用 Chromium 假麦克风设备灌真人声 WAV 完成全自动验收；除麦克风硬件外全链路生产真连（统计与时间轴见 PROGRESS）。真人麦克风路径留领导亲验清单第 1 条，预期无碍（真人声不在回声消除的参考信号里）。
 - 验收在生产 admin 账号下创建了线程 desktop-voice（desktop 前缀，不污染网页记录），含数轮测试对话，可在需要时自行清理。
+
+## 网页↔桌面一体化接管（web-desktop-handoff 分支，2026-08-13）
+
+无阻断项。**无**。
+
+备注（非阻断，供领导决策二期）：
+- 打包安装器（dmg/exe）按任务书不在本活范围：网页指引「没在跑」时指向 README 源码启动方式（cd desktop && npm install && npm start）。jws:// 协议注册在 dev（未打包）下 macOS 是 best-effort——`setAsDefaultProtocolClient` 对未打包应用不保证注册成功，代码与测试已就位，打包后即可靠；二期出安装器时此路径零改动直接受益。
+- Chrome 私网访问预检（PNA）按拍板实现（预检回 `Access-Control-Allow-Private-Network: true`），Playwright Chromium 实测通过；Chrome 后续版本若把 PNA 升级为强制「本机访问需用户授权」（Chrome 官方路线图上有），届时浏览器会弹一次授权框，代码无需改动，但体验会多一次点击——留意即可。
+- e2e 验证用 vite dev server 跑新前端（构建产物写死 ../jarvis/web，在白名单外故未重建未提交）；合并上线前需 `cd web-src && npm ci && npm run build` 再部署，否则线上跑的还是没有「悬浮窗」入口的旧版页面（旧页面对新服务端端点无感知、零影响）。
+- 生产 Origin 白名单取自桌面端设置里的 server 地址（默认 https://jws.gkgeek-set.cn）；若领导换生产域名，桌面端设置改 server 后白名单自动跟随，无需改代码。

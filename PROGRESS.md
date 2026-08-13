@@ -316,3 +316,29 @@
   3. 桌面主进程（未登录时）→ POST 服务端 /api/desktop/handoff/exchange {ticket}（无会话、不收密码）→ 服务端查 hash 命中且未过期 → **换票即删（一次性）** → `issue_desktop_and_openai(user_id)` → 返回与 /api/desktop/login 同构令牌。
   4. 桌面主进程 safeStorage 加密落盘（复用 session.js 既有 persist），令牌不进渲染进程；面板转已登录。
   5. 失效三路：换到即删（二次换票 401）；60 秒过期（时间可注入测试）；服务重启内存清空全失效。过期/重复/未知票响应一律 401 不区分原因；票据/令牌不写日志。
+
+## 任务 1 ✅ 服务端票据端点（提交 09ca72d）
+- jarvis/server.py 仅顶部加 `hashlib`/`secrets` 两个 import + 文件末尾「# ---- 桌面接管 ----」区块（git diff 72 行纯新增，0 删改）；已有函数一行未动。
+- POST /api/desktop/handoff（web 会话+CSRF，`_write_authorized` 照抄相邻端点，且只认 transport=web——桌面令牌不能领票防令牌自繁殖）→ {ticket, expires_in:60}；POST /api/desktop/handoff/exchange（无会话，只收 ticket，请求体带密码直接 422）→ 与 /api/desktop/login 同构响应。内存表 `{sha256(ticket): (user_id, expires_at)}`，带锁、惰性清过期。
+- tests/test_desktop_handoff.py 8 条（超任务书 ≥6）：领票需登录 / CSRF 缺失 403 / 桌面令牌领票被拒 / 换票得可用令牌（X-JWS-Token 实调 /api/dashboard 200 + /api/session 显示 admin）/ 二次换票 401 / 过期 401（_handoff_now 可注入）/ 未知与重复响应同构+密码路径 422 / 票据令牌不落日志（caplog DEBUG 全量断言）。
+- pytest 全量：**455 passed, 0 failed, 0 skipped**（基线 447+8，≥453 达标）。
+- 反向验证 ✅：注释 `_handoff_tickets.pop(digest, None)  # 换票即删` 一行 → `2 failed（test_exchange_is_single_use 等）, 6 passed`；还原 → `8 passed`。输出已贴对话。
+
+## 任务 2 ✅ 桌面本机唤起监听 + jws:// 协议（提交 4c8fb24）
+- 新建 desktop/wake-server.js（纯 Node 无 Electron 依赖，node --test 直测）：只绑 127.0.0.1:17789；GET /ping→{app:"jws-desktop",loggedIn}；POST /wake {ticket?}→onWake 亮窗+未登录带票走 exchange；OPTIONS 预检回 `Access-Control-Allow-Private-Network: true`+严格 CORS；Origin 白名单=生产域名（设置里 server 的 origin）+`http://localhost:*`，不合法一律 403 无 CORS 头；无 Origin 也 403（安全>成功率）。EADDRINUSE→start 返回 {ok:false,reason:'port-in-use'}+onUnavailable 面板提示，不崩。
+- desktop/session.js 新增 `exchange(ticket)`：与 login 同一条 safeStorage 加密落盘链、只发 {ticket} 不发密码；main.js 接线（gateway().exchange 只在主进程，令牌不进渲染进程）；jws:// 协议 setAsDefaultProtocolClient + open-url/second-instance best-effort，`parseHandoffUrl` 严格解析（host 必须 handoff、票据字符集/长度校验）。preload/renderer 只新增两个无令牌事件：handoff-authenticated（触发既有 loginController.init 重探活）与 wake-server-notice（端口占用人话提示）。
+- desktop `node --test`：**63 pass, 0 fail, 0 skip**（基线 52+11 条新增，≥60 达标）：ping 结构与 CORS 头 / localhost:* 放行 / 6 种坏 Origin 403 / PNA 预检 / 真 session.js 网关换票入会话（落盘密文无明文+后续请求带 X-JWS-Token）/ 坏票与抛错不崩 / 无票只唤起不换票 / 端口占用降级 / 超限与坏 JSON 防御 / jws:// 解析。
+- 反向验证 ✅：注释 `isAllowedWakeOrigin` 校验块 → `1 fail（origins…403）10 pass`；还原 → 63 pass。输出已贴对话。
+
+## 任务 3 ✅ 网页入口 + 本地 e2e（提交 5af939c）
+- web-src/src/desktopWake.js（纯逻辑：pingDesktop 800ms AbortSignal 超时、summonDesktop 四态 awakened/not-running/ticket-failed/wake-failed，not-running 时把票塞进 jws://handoff?ticket=）；DesktopHandoff.jsx（HUD 顶栏「⬒ 悬浮窗」入口：成功→「已在桌面亮出悬浮窗」，没在跑→隐藏 iframe 尝试 jws:// 后弹指引卡（启动命令/设置里勾开机自启/README 链接），领票失败与唤起失败各有单独人话提示）；api.js 加 desktopHandoffTicket()（带 CSRF）。Chat.jsx / Voice* 零改动。
+- vitest：**37 passed (9 files)**（基线 31+6 条新增，≥34 达标）：三态 + wake-failed + 超时探活 + 冒充应用拒认。
+- 本地 e2e（Playwright，全真链路：真 jarvis 服务 127.0.0.1:7789 + 真 wake-server.js/session.js 监听 17789 + vite dev localhost:5599 代理）：登录 admin → 点「悬浮窗」→ 页面反馈「已在桌面亮出悬浮窗」；网页侧流量 ping 200→POST /api/desktop/handoff 200→POST /wake 200；桌面侧日志：收票(长度43 明文不打印)→换令牌 {"ok":true}→X-JWS-Token 调 /api/dashboard HTTP 200 OK→/api/session authed=true username=admin→**同票二次换票 {"ok":false,"status":401}**。第二次点击（已登录态）：只唤起不换票，同样反馈成功。完整输出贴对话。
+- 截图：scratchpad/e2e/shots/{1-login,2-hud,3-after-click}.png（3-after-click 顶栏可见「悬浮窗」按钮+「已在桌面亮出悬浮窗」反馈条）。
+- 「建议」层临场决定：e2e 前端用 vite dev（scratchpad 内独立零 import 配置 + esbuild automatic JSX）而非 npm run build——因构建产物写死 ../jarvis/web 会污染白名单外文件；e2e 语义不变。requestSingleInstanceLock 采取「尽力拿锁但拿不到不退出」，不改变现有多实例行为（第二实例 17789 占用自动走降级提示）。
+
+## 完成条件对账（web-desktop-handoff）
+- 硬指标 1 ✅：e2e 全链路日志+截图（上）；pytest 455 ≥453、desktop 63 ≥60、vitest 37 ≥34，全部 0 fail 0 skip。
+- 硬指标 2 ✅：`git diff main...HEAD` 中 jarvis/ 下仅 server.py（72 行纯追加：顶部 2 import+末尾区块）；accounts.py/tenancy.py/voice/wechat/Chat.jsx/Voice* 零改动；新增代码 grep "sk-1deb\|sk-api" 为 0。
+- 两处反向验证红→绿 ✅（任务 1「换票即删」、任务 2「Origin 校验」，输出均贴对话）。
+- 不新增运行时依赖 ✅（服务端 hashlib/secrets 标准库；桌面 node:http；网页零新依赖）。
