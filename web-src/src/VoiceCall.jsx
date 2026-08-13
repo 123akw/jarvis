@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { currentCsrf, voiceSocketUrl } from './api.js'
+import { isMicError, pcmStreamSupported, startMicStream } from './VoiceAudio.js'
 import './VoiceCall.css'
 
 const PHASE_LABEL = {
@@ -10,31 +11,48 @@ const PHASE_LABEL = {
   closed: '通话已断开',
 }
 
+const VAD_RMS_THRESHOLD = 0.04 // 帧级 RMS 高于此视作人声（回声消除后的余量）
+const VAD_VOICE_FRAMES = 2     // 连续 2 帧（约 200ms）确认开口 → 打断，远小于 500ms 预算
+
 const speechCtor = () => window.SpeechRecognition || window.webkitSpeechRecognition
 
 /**
- * 语音通话面板：浏览器语音识别 → WebSocket 上行文字 → 边收文字边收 PCM 音频播放。
- * 识别不可用（无 API / 麦克风被拒）时降级为「打字通话」：打字上行，语音+文字下行。
+ * 语音通话面板：三层输入链路，自动逐级降级。
+ * 1) 推流模式：AudioWorklet 采集 PCM16/16kHz 二进制上行 → 服务端百炼流式识别
+ *    （asr_partial 灰字字幕 / asr_final 定稿开回合），本地 VAD 开口即打断；
+ * 2) 浏览器识别模式：服务端识别不可用（asr_fallback）或推流组件缺失时，退回
+ *    window.SpeechRecognition，final 文本走 user_text 上行；
+ * 3) 打字通话：识别 API/麦克风都没有时，打字上行、语音+文字下行。
  */
 export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
   const [phase, setPhase] = useState('connecting')
   const [micState, setMicState] = useState('pending') // pending|granted|denied|unsupported
+  const [inputMode, setInputMode] = useState('none')  // none|stream|speech|typing
   const [notice, setNotice] = useState('')
-  const [heard, setHeard] = useState('')
+  const [heard, setHeard] = useState('')       // 定稿实字
+  const [interim, setInterim] = useState('')   // 识别中灰字
   const [reply, setReply] = useState('')
   const [tools, setTools] = useState([])
   const [typed, setTyped] = useState('')
 
   const wsRef = useRef(null)
   const recRef = useRef(null)
+  const streamRef = useRef(null)   // 推流句柄 {stop}
   const aliveRef = useRef(true)
   const phaseRef = useRef('connecting')
   const micRef = useRef('pending')
   const turnDoneRef = useRef(true)
+  const serverAsrRef = useRef(true) // 收到 asr_fallback 置 false，二进制停发
+  const vadRef = useRef(0)
+  const replyRef = useRef(null)
   const audioRef = useRef({ ctx: null, nextTime: 0, sources: new Set(), sampleRate: 24000 })
 
   phaseRef.current = phase
   micRef.current = micState
+
+  useEffect(() => {  // 回答字幕跟随滚动
+    if (replyRef.current) replyRef.current.scrollTop = replyRef.current.scrollHeight
+  }, [reply])
 
   function setPhaseSafe(p) {
     if (aliveRef.current) setPhase(p)
@@ -93,14 +111,18 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj))
   }
 
+  function wsSendBinary(buf) {
+    const ws = wsRef.current
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(buf)
+  }
+
   function sendUtterance(text) {
     text = text.trim()
     if (!text) return
     stopPlayback()
     turnDoneRef.current = false
     setHeard(text)
-    setReply('')
-    setTools([])
+    setInterim('')
     setPhaseSafe('thinking')
     wsSend({ type: 'user_text', text })
   }
@@ -110,6 +132,20 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
       wsSend({ type: 'interrupt' })
       stopPlayback()
       setPhaseSafe('listening')
+    }
+  }
+
+  /** 本地音量 VAD：播放中连续两帧检测到人声（约 200ms）→ 立即停播 + 通知取消 TTS。 */
+  function onMicLevel(rms) {
+    const playing = phaseRef.current === 'speaking' || audioRef.current.sources.size > 0
+    if (!playing || rms < VAD_RMS_THRESHOLD) {
+      vadRef.current = 0
+      return
+    }
+    vadRef.current += 1
+    if (vadRef.current >= VAD_VOICE_FRAMES) {
+      vadRef.current = 0
+      bargeIn()
     }
   }
 
@@ -125,8 +161,24 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
   function handleEvent(ev) {
     if (ev.type === 'ready') {
       setPhaseSafe('listening')
+    } else if (ev.type === 'asr_partial') {
+      setInterim(ev.text || '')
+      if ((ev.text || '').trim()) bargeIn() // 服务端听到人声：本地 VAD 之外的兜底打断
+    } else if (ev.type === 'asr_final') {
+      setInterim('')
+      const text = (ev.text || '').trim()
+      if (text) {
+        stopPlayback()
+        turnDoneRef.current = false
+        setHeard(text)
+        setPhaseSafe('thinking')
+      }
+    } else if (ev.type === 'asr_fallback') {
+      degradeToSpeech(ev.message || '服务端语音识别暂不可用，已切换浏览器识别')
     } else if (ev.type === 'turn_start') {
       turnDoneRef.current = false
+      setReply('')
+      setTools([])
       setPhaseSafe('thinking')
     } else if (ev.type === 'token') {
       setReply(r => r + ev.text)
@@ -153,17 +205,30 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
     }
   }
 
-  // ---- 语音识别：连续 + interim，说话停顿自动出 final；出错走降级 ----
+  // ---- 输入链路与逐级降级 ----
 
   function degrade(message) {
     setMicState(prev => (prev === 'unsupported' ? prev : 'denied'))
+    setInputMode('typing')
     setNotice(message)
   }
 
+  /** 服务端识别不可用：停推流，退回浏览器识别（再不行退打字）。 */
+  function degradeToSpeech(message) {
+    serverAsrRef.current = false
+    streamRef.current?.stop()
+    streamRef.current = null
+    setInterim('')
+    setNotice(message)
+    startRecognition()
+  }
+
   function startRecognition() {
+    if (recRef.current) return // 已在浏览器识别模式
     const Ctor = speechCtor()
     if (!Ctor) {
       setMicState('unsupported')
+      setInputMode('typing')
       setNotice('这个浏览器不支持语音识别，已降级为打字通话：输入文字，贾维斯用语音回答；文字聊天不受影响。')
       return
     }
@@ -172,25 +237,27 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
       rec = new Ctor()
     } catch {
       setMicState('unsupported')
+      setInputMode('typing')
       setNotice('这个浏览器不支持语音识别，已降级为打字通话：输入文字，贾维斯用语音回答；文字聊天不受影响。')
       return
     }
     recRef.current = rec
+    setInputMode('speech')
     rec.lang = 'zh-CN'
     rec.continuous = true
     rec.interimResults = true
     rec.onstart = () => { if (aliveRef.current) setMicState('granted') }
     rec.onresult = e => {
       if (!aliveRef.current) return
-      let interim = ''
+      let interimText = ''
       let final = ''
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const r = e.results[i]
         if (r.isFinal) final += r[0].transcript
-        else interim += r[0].transcript
+        else interimText += r[0].transcript
       }
-      if (interim.trim() || final.trim()) bargeIn()
-      if (interim.trim()) setHeard(interim.trim())
+      if (interimText.trim() || final.trim()) bargeIn()
+      if (interimText.trim()) setInterim(interimText.trim())
       if (final.trim()) sendUtterance(final)
     }
     rec.onerror = e => {
@@ -214,8 +281,31 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
     }
   }
 
-  /** 进入通话态先申请麦克风：被拒立即人话降级，拿到了再开识别。 */
-  function startVoiceInput() {
+  /** 推流模式：麦克风 → PCM16/16kHz 帧上行；失败按原因逐级退。 */
+  async function startStreaming() {
+    try {
+      const handle = await startMicStream({
+        onFrame: buf => {
+          if (aliveRef.current && serverAsrRef.current) wsSendBinary(buf)
+        },
+        onLevel: rms => { if (aliveRef.current) onMicLevel(rms) },
+      })
+      if (!aliveRef.current || !serverAsrRef.current) { handle.stop(); return }
+      streamRef.current = handle
+      setMicState('granted')
+      setInputMode('stream')
+    } catch (err) {
+      if (!aliveRef.current) return
+      if (isMicError(err)) {
+        degrade('没拿到麦克风权限。语音识别已停用，可以在下面打字通话（贾维斯照样语音回答）；关掉本面板后文字聊天完全不受影响。')
+      } else {
+        startRecognition() // 推流组件不可用（非麦克风问题）→ 浏览器识别兜底
+      }
+    }
+  }
+
+  /** 老识别路径进入前先探麦克风权限：被拒立即人话降级，拿到了再开识别。 */
+  function probeThenRecognize() {
     if (!navigator.mediaDevices?.getUserMedia) {
       startRecognition() // 无法探测的老浏览器交给识别自身报错
       return
@@ -227,6 +317,11 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
       if (!aliveRef.current) return
       degrade('没拿到麦克风权限。语音识别已停用，可以在下面打字通话（贾维斯照样语音回答）；关掉本面板后文字聊天完全不受影响。')
     })
+  }
+
+  function startVoiceInput() {
+    if (pcmStreamSupported()) startStreaming()
+    else probeThenRecognize()
   }
 
   useEffect(() => {
@@ -252,6 +347,8 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
     startVoiceInput()
     return () => {
       aliveRef.current = false
+      try { streamRef.current?.stop() } catch { /* 已停 */ }
+      streamRef.current = null
       try { recRef.current?.stop() } catch { /* 已停 */ }
       recRef.current = null
       stopPlayback()
@@ -268,11 +365,20 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
         <div className="voice-status">
           <span className={`voice-orb ${phase}`} data-testid="voice-orb" />
           <span className="voice-phase">{PHASE_LABEL[phase] || phase}</span>
+          {phase === 'thinking' && <span className="voice-dots" aria-hidden="true"><i /><i /><i /></span>}
+          {phase === 'speaking' && <span className="voice-eq" aria-hidden="true"><i /><i /><i /><i /></span>}
         </div>
         {micState === 'granted' && phase === 'listening' && (
-          <div className="voice-hint">说话停顿后自动发送</div>
+          <div className="voice-hint">
+            {inputMode === 'stream' ? '实时识别中，直接说话即可' : '说话停顿后自动发送'}
+          </div>
         )}
-        {heard && <div className="voice-heard">「{heard}」</div>}
+        {(heard || interim) && (
+          <div className="voice-heard">
+            {heard && !interim && <span className="vh-final">「{heard}」</span>}
+            {interim && <span className="vh-interim" data-testid="voice-interim">{interim}</span>}
+          </div>
+        )}
         {tools.length > 0 && (
           <div className="voice-tools">
             {tools.map((t, i) => (
@@ -280,7 +386,7 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
             ))}
           </div>
         )}
-        {reply && <div className="voice-reply">{reply}</div>}
+        {reply && <div className="voice-reply" ref={replyRef}>{reply}</div>}
         {notice && <div className="voice-notice" role="alert">⚠ {notice}</div>}
         {degraded && (
           <div className="voice-typebar">

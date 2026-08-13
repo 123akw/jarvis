@@ -81,6 +81,16 @@
 - 验收：pytest tests/test_voice* → 26 passed（新增 ASR 协议 6 条 + 网关 6 条：增量字幕、定稿开回合、建连攒帧、连接失败降级、中途断连降级、打断丢弃未定稿）；全量 419 passed, 0 failed, 0 skipped（基线 408 + 11）。
 - 协议变更：旧「二进制帧→asr_unavailable 错误」按任务书移除，对应测试改写为 test_binary_uplink_falls_back_without_asr_key（同一意图：无服务端识别时明确降级，不是删测试）。
 
+## 任务 2 ✅ 前端推流 + 字幕 + 打断（2026-08-13）
+- 新增 web-src/src/VoiceAudio.js：AudioWorklet 采集 → 线性插值重采样 16kHz → PCM16 每 100ms 一帧（与后端格式对齐），帧级 RMS 随帧回调供 VAD；worklet 源码内联 Blob 装载，零新 npm 依赖。
+- VoiceCall.jsx 三层输入链路逐级降级：推流+服务端识别（首选）→ asr_fallback/推流组件缺失退浏览器 SpeechRecognition → 识别 API/麦克风没有退打字通话。字幕：asr_partial 灰字增量 → asr_final 实字定稿，回答 token 滚动跟随；打断=本地 RMS VAD 连续 2 帧（约 200ms，预算 500ms 内）→ 停播+interrupt，另有 asr_partial 兜底打断与手动按钮；状态动效：听（脉冲）/想（跳点）/说（均衡器条）。
+- 验收：npx vitest run → 31 passed 0 failed 0 skipped（基线 24 + 新增 7 ≥4：帧上行、字幕增量、VAD 打断、VAD 防误触、asr_fallback 降级、麦克风被拒降级、状态机）。
+- Playwright 无头（.venv 装 playwright+chromium，本地验收工具不进依赖文件；须 channel="chromium" 新 headless——旧 headless shell 的 getUserMedia 直接 NotSupportedError，实测踩坑）：真后端（临时数据目录引导 Owner）+ vite dev 代理（零 import 配置放 scratchpad，不碰 vite.config.js）。链路「登录→通话→（无 key 后端）推流→asr_fallback→浏览器识别→模拟识别事件→灰字字幕→定稿→真 DeepSeek→真 MiniMax TTS 播放→模拟开口→打断 TTS 停」全绿 EXIT=0，浏览器侧「说完→开始播放」2811ms。截图：
+  - /private/tmp/claude-501/-Users-chenwenjie-JWS-Agent/cdd0a890-bca4-421a-95c8-848fa9e7165a/scratchpad/shots/voice_subtitle_interim.png
+  - /private/tmp/claude-501/-Users-chenwenjie-JWS-Agent/cdd0a890-bca4-421a-95c8-848fa9e7165a/scratchpad/shots/voice_reply_speaking.png
+  - /private/tmp/claude-501/-Users-chenwenjie-JWS-Agent/cdd0a890-bca4-421a-95c8-848fa9e7165a/scratchpad/shots/voice_after_barge_in.png
+- 界限说明：jarvis/web 构建产物不在本任务白名单，未重新构建/提交；上线前管理者需 `cd web-src && npm run build`（产物目录 jarvis/web）再部署。
+
 # 语音通话（voice-call 分支，2026-08-13 开工）
 
 ## 任务 0 ✅（2026-08-13 实测）

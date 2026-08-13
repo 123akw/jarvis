@@ -20,7 +20,26 @@
 @keyframes voice-pulse{0%,100%{box-shadow:0 0 0 0 rgba(83,232,255,.4)}50%{box-shadow:0 0 0 9px rgba(83,232,255,0)}}
 .voice-phase{font-family:var(--mono);font-size:13px;letter-spacing:.14em;color:var(--text)}
 .voice-hint{font-size:12.5px;color:var(--dim)}
-.voice-heard{font-size:14px;color:var(--dim);font-style:italic}
+.voice-heard{font-size:14px;min-height:1.4em}
+.vh-final{color:var(--text)}
+.vh-interim{color:var(--dim);font-style:italic;opacity:.75}
+
+/* 思考中：三个跳动的点 */
+.voice-dots{display:inline-flex;gap:4px;margin-left:2px}
+.voice-dots i{width:5px;height:5px;border-radius:50%;background:var(--gold);
+  animation:voice-dot 1s infinite ease-in-out}
+.voice-dots i:nth-child(2){animation-delay:.16s}
+.voice-dots i:nth-child(3){animation-delay:.32s}
+@keyframes voice-dot{0%,80%,100%{opacity:.25;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}
+
+/* 回答中：小型均衡器条 */
+.voice-eq{display:inline-flex;gap:3px;align-items:flex-end;height:14px;margin-left:2px}
+.voice-eq i{width:3px;background:#7CFF9B;border-radius:1px;animation:voice-eq .8s infinite ease-in-out}
+.voice-eq i:nth-child(1){animation-delay:0s}
+.voice-eq i:nth-child(2){animation-delay:.2s}
+.voice-eq i:nth-child(3){animation-delay:.1s}
+.voice-eq i:nth-child(4){animation-delay:.3s}
+@keyframes voice-eq{0%,100%{height:4px}50%{height:14px}}
 .voice-reply{font-size:15px;line-height:1.55;color:var(--text);max-height:180px;overflow-y:auto;
   border-left:2px solid var(--line);padding-left:10px}
 .voice-tools{display:flex;flex-wrap:wrap;gap:6px}
