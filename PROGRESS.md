@@ -146,6 +146,16 @@
 - 反向验证：--chats 12 → P95 劣化 70ms→202ms（约 3 倍），且 3 路聊天 ReadTimeout、1 路 129.7s，脚本 EXIT=1 测得出问题。瓶颈是单用户共享 bundle 的 httpx max_connections=10 + agent 池 8 工位；真实多用户各持独立 bundle，≤20 人正常使用不受此约束。
 - 已知取舍：客户端断开后 pump 线程会把当轮 agent 流跑完才释放（与旧行为一致量级，≤20 人可接受）。
 
+## 线 C · 微信语音（wechat-voice 分支，2026-08-13 开工）
+
+### 任务 0 ✅（2026-08-13 实测）
+- 基线复核：`.venv/bin/python -m pytest tests/ -q` → **408 passed, 0 failed, 0 skipped**（18.59s），与任务书一致。
+- 探针日志实测：`ssh root@1.12.67.169 "journalctl -u jarvis-web | grep 'non-text probe'"` → **空输出**，领导还没发语音；「等语音样本」已记 BLOCKED.md，先按自适应结构实现（key 名可配置），样本到位后一处改齐。
+- `.env` 核验（只看 key 名）：有 DEEPSEEK/MINIMAX 等 4 项，**无 DASHSCOPE_API_KEY** → 识别侧写到「音频字节就绪」为止，真实百炼调用留接口，单测用注入 fake ASR；已记 BLOCKED.md。
+- 理解：收侧=解析语音 item→下载→silk 解码→ASR→现有回复链路（文首标注识别内容）；发侧=speakable→MiniMax TTS(pcm/24k)→silk 编码→sendmessage 语音 item→再发文字；任一发语音环节失败→只发文字+log.warning。顺序：任务 1 收侧 → 任务 2 发侧 → 任务 3 亲验清单。
+- 最大风险：iLink 语音收发报文结构均未见实样，收发两侧都按可配置结构实现（env 可改 key 名/类型号），真机报文到位后小步修正。
+- 新依赖 pilk（silk v3 编解码，仅此一个）：本机实测 encode(tencent=True) 出 `\x02#!SILK_V3` 头、decode 带/不带 0x02 前缀均可、get_duration 返回 ms。仅装入 .venv；requirements.lock/pyproject 不在我的白名单，入锁由管理者合并时定夺（已记 BLOCKED.md 备注）。
+
 ## 任务 4：报错人话化 + 开箱走查（commit 见 docs）
 - jarvis/wechat.py `_humanize_reply_failure`：超时类 → 「联网检索或模型响应超时了，稍后再把这条消息发我一次」；其他 → 人话 + 「让管理员在网页端检查模型与联网配置」。异常类名只进日志。新增 tests/test_wechat_errors.py 2 用例防回归。
 - /api/chat 流式异常兜底补 `log.exception`（此前异常被吞、无法排障），用户文案维持既有人话。
