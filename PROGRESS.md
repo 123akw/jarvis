@@ -256,3 +256,17 @@
 - 图注与 alt 按规格对齐；两图特性表保持在 web-dashboard.png 之后。
 - 快速开始亲手跑过（输出已贴对话）：venv 创建 ✓；依赖装入（按任务书用 requirements.lock + `-e . --no-deps` 等价替代 `-e ".[dev]"`，记录在案）✓；`cp .env.example .env` ✓；`jarvis-web`（临时端口 7893、一次性 dummy 配置）首页 200、未登录 API 401，验后停服 ✓；`jarvis --help` ✓；`jarvis --once "现在几点了"` 用 dummy key 走到模型调用点返回 401（规格禁真实付费调用，链路已证通）✓；`cd desktop && npm install`（70 packages）✓；`npm start` 初次报 Electron 缺二进制，正是 README FAQ 场景，`npm rebuild electron` + install.js 在本沙盒仍不落盘，从主仓同版本 38.8.6 复制 dist 后 Electron 正常启动，随即关闭 ✓。临时 .env 验后删除。
 - 验收：README 引用的 6 张图逐一 ls 存在；产品介绍 7 项全覆盖；`陈文杰、钟俊琅`/`禁止任何形式的商业使用`/`API Key 永不回显` 均保留；`git diff --check` 无输出；内容提交范围仅 README.md 与 docs/assets/readme/**（PROGRESS/BLOCKED 另行单独提交）。
+
+# 桌面语音通话（desktop-voice 分支，2026-08-13 开工）
+
+## 任务 0 ✅（2026-08-13 实测）
+- 基线复核：`cd desktop && node --test` → **36 pass, 0 fail, 0 skipped**，与任务书一致。Electron 缺二进制按 README FAQ 从主仓库同版本 38.8.6 复制 dist 后 `npx electron --version` → v38.8.6。
+- 生产最小验证（desktop/tools/voice-check.js，26 行）：admin/admin → /api/desktop/login 换令牌 → wss 连 /api/voice/call（X-JWS-Token 头）→ init → user_text「用一句话报一下现在的时间」→ ready/turn_start/audio_start(pcm,24000,1)/tool now/11 个 token/turn_end 全链路，**音频字节 226256 > 0**，输出已贴对话。
+
+### 协议要点与选定方案（≤10 行）
+1. 鉴权：desktop 走 WS 握手头 `X-JWS-Token`（gateway.py:406-413），init 首帧仍必发 `{"type":"init","thread_id":"desktop-voice"}`，csrf 字段 desktop 不校验；未登录下行 error{code:unauthorized} 后 4401 关闭。
+2. 上行：二进制=PCM16LE/16kHz/单声道帧（网页 100ms/1600 样本一帧）；JSON=user_text/interrupt/ping。下行：ready/asr_partial/asr_final/asr_fallback/turn_start/token/tool_start/tool_result/audio_start{format,sample_rate,channels}/tts_error/turn_end{interrupted}/error/pong + 二进制 TTS PCM（采样率见 audio_start，实测 24000）。
+3. 令牌传递（实测定案）：渲染进程原生 `new WebSocket(wss://…/api/voice/call)`，主进程 `session.webRequest.onBeforeSendHeaders` 只对该精确 URL 注入 X-JWS-Token（Electron 38 实测可注入 WS 握手头，探针输出已验证）——令牌全程不进渲染进程，与现有 preload 零令牌纪律一致。
+4. 桌面核心 voice-call.js 为 UMD 纯逻辑状态机（可注入 fake WebSocket/播放器/麦克风/识别器，node --test 直跑）；voice-audio.js 改写自 web-src/src/VoiceAudio.js + VoiceCall.jsx 播放段（文件头注明来源）。
+5. 输入链路对齐网页三层降级：推流+服务端百炼（首选）→ asr_fallback/推流组件缺→Electron 内建 SpeechRecognition → 识别/麦克风没有→打字通话（语音答复）；本地 RMS VAD（0.04×2 帧）开口打断=停播+interrupt；断线自动重连 1 次，再断提示放弃。
+6. 线程 desktop-voice（desktop 前缀，不污染网页记录）；麦克风权限：主进程 setPermissionRequestHandler 放行本窗口 media + macOS askForMediaAccess。
