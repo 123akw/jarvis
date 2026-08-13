@@ -11,19 +11,31 @@
 [![macOS](https://img.shields.io/badge/macOS-Desktop-000000?logo=apple&logoColor=white)](https://www.apple.com/macos/)
 ![Non-Commercial](https://img.shields.io/badge/License-Non--Commercial-E5484D)
 
-把聊天、持久记忆、日程待办和可追溯的实时搜索放进同一个 Agent：既能在网页和终端里使用，也能常驻为 macOS 悬浮球，还可以桥接个人微信。
+把聊天、语音通话、持久记忆、日程待办和可追溯的实时搜索放进同一个 Agent：既能在网页和终端里使用，也能常驻为 macOS 悬浮球，还可以桥接个人微信。
 
 **私有部署 / 演示入口：[`https://jws.gkgeek-set.cn`](https://jws.gkgeek-set.cn)**
 
 **[快速开始](#快速开始)**
 
-这是项目维护者的私有部署或演示入口，不是公共 SaaS，也不承诺持续在线；桌面端可在设置中改为你自己的服务器地址。截至 **2026-08-13**，多用户隔离、Owner 用户管理、每用户 Provider / API 设置、`jarvis-web` 与 SearXNG 已部署并通过最小线上验收；SearXNG 仅监听服务器 loopback `127.0.0.1:18888`，不可从公网直接访问，搜索失败时可回退 DDGS。这里的状态说明不代表维护者已经替访问者执行过实时娱乐搜索或验证过任何具体结果。
+这是项目维护者的私有部署或演示入口，不是公共 SaaS，也不承诺持续在线；桌面端可在设置中改为你自己的服务器地址。截至 **2026-08-13**，多用户隔离、Owner 用户管理、每用户 Provider / API 设置、网页语音通话（📞）、`jarvis-web` 与 SearXNG 已部署并通过最小线上验收；微信语音消息支持仍在开发中。SearXNG 仅监听服务器 loopback `127.0.0.1:18888`，不可从公网直接访问，搜索失败时可回退 DDGS。这里的状态说明不代表维护者已经替访问者执行过实时娱乐搜索或验证过任何具体结果。
 
 > **非商用项目：仅供学习、研究与个人非商业用途。禁止未经授权的商业部署、商业集成、付费分发或收费服务。**
 
 > 本声明只描述 JWS-Agent 自身的使用范围。可选部署中的第三方 SearXNG 采用独立的 AGPL-3.0；二者不能互相替代。详见 [`deploy/searxng/README.md`](deploy/searxng/README.md)。
 
 </div>
+
+## 产品介绍
+
+贾维斯（JWS-Agent）是一个可私有部署的中文 AI 管家：记得住你说过的话，管得了日程待办，查得到带来源的实时信息；网页、桌面、终端、微信，随时叫得到。
+
+- **网页对话**：流式聊天，配今日日程 / 待办 / 备忘任务台。
+- **语音通话**：网页端点 📞 直接开口说话，贾维斯用语音回答。
+- **微信桥**：扫码接入个人微信即可对话；语音消息开发中。
+- **多用户与租户隔离**：Owner 邀请制开号，各账号对话、记忆、日程完全隔离。
+- **每用户 API 设置**：各自选择模型 Provider 与 Key，密钥加密存储、永不回显。
+- **桌面端**：macOS 常驻悬浮球，⌥Space 一键唤出快捷聊天。
+- **免费搜索链**：SearXNG → DDGS 免费降级，结果带时间与来源；Tavily 可选。
 
 ![JWS-Agent 网页端任务台与对话界面](docs/assets/readme/web-dashboard.png)
 
@@ -33,12 +45,12 @@
     <td align="center"><strong>Owner 用户管理与角色控制</strong></td>
   </tr>
   <tr>
-    <td><img src="docs/assets/readme/web-provider-settings.png" alt="JWS-Agent 网页端 Provider 与 API 设置中心" width="100%"></td>
-    <td><img src="docs/assets/readme/web-account-settings.png" alt="JWS-Agent 网页端 Owner 用户管理界面" width="100%"></td>
+    <td><img src="docs/assets/readme/web-provider-settings.png" alt="JWS-Agent 每用户 Provider 与 API 设置" width="100%"></td>
+    <td><img src="docs/assets/readme/web-account-settings.png" alt="JWS-Agent Owner 用户管理" width="100%"></td>
   </tr>
 </table>
 
-以上网页截图来自私有演示部署的真实界面；账户名、定位和其他个人信息已替换为演示内容，API Key、口令、二维码与真实对话均未进入图片。
+以上网页截图为 2026-08-13 私有演示部署的真实界面：主界面采用新对话空状态并收起历史列表，定位等个人信息已替换为演示内容，API Key、口令、二维码与真实对话均未进入图片。
 
 <table>
   <tr>
@@ -70,6 +82,7 @@
 | --- | --- | --- | --- | --- |
 | 中文自然语言对话与 21 项工具 | ✅ | ✅ | ✅ | ✅（文本消息） |
 | 流式展示 | ✅ SSE 逐字输出并展示工具调用 | ✅ SSE 逐字输出并展示工具调用 | — 单次完整返回 | — 消息式回复 |
+| 语音通话 | ✅ 📞 实时语音问答，可降级打字通话 | — | — | 🚧 语音消息开发中 |
 | 记忆线程 | 每个会话独立 `thread_id` | 固定 `desktop` 线程 | 默认 `main`，可用 `--thread` 指定 | 每个联系人独立 `wx-<联系人>` 线程 |
 | 日程、待办、备忘 | 对话操作 + 任务台展示 | 对话操作 + 日程 / 待办任务台展示 | 对话操作 | 对话操作 |
 | 实时搜索 | ✅ 免费默认可用 | ✅ 免费默认可用 | ✅ 免费默认可用 | ✅ 免费默认可用 |
@@ -215,6 +228,8 @@ cp .env.example .env
 ```
 
 默认监听 `http://127.0.0.1:7789`。首位 Owner 在首次启动时由 `.env` 中的 `JARVIS_ADMIN_USERNAME`/`JARVIS_ADMIN_PASSWORD` 自动创建；用它登录后，在顶栏「账户设置」的「用户管理」里可邀请 Member（没有公开注册入口），Member 用被分配的用户名口令登录即可，各自的数据完全隔离。登录后可创建和删除会话、查看历史、停止生成、复制回复，并在任务台查看日程、待办和备忘；后端每轮对话后继续使用同一条线程记忆。
+
+**语音通话怎么用**：点输入框旁的 **📞** 进入通话，浏览器会申请麦克风授权；同意后直接开口说话，说话停顿自动断句，贾维斯边生成边用语音回答并同步文字字幕。拒绝授权或浏览器不支持语音识别时，自动降级为「打字通话」——输入文字，贾维斯照样用语音回答；关闭通话面板后，文字聊天完全不受影响。微信语音消息支持仍在开发中。
 
 ### 私有部署的运行时 secret
 
