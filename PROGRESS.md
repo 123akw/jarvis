@@ -155,6 +155,31 @@
 - 理解：收侧=解析语音 item→下载→silk 解码→ASR→现有回复链路（文首标注识别内容）；发侧=speakable→MiniMax TTS(pcm/24k)→silk 编码→sendmessage 语音 item→再发文字；任一发语音环节失败→只发文字+log.warning。顺序：任务 1 收侧 → 任务 2 发侧 → 任务 3 亲验清单。
 - 最大风险：iLink 语音收发报文结构均未见实样，收发两侧都按可配置结构实现（env 可改 key 名/类型号），真机报文到位后小步修正。
 - 新依赖 pilk（silk v3 编解码，仅此一个）：本机实测 encode(tencent=True) 出 `\x02#!SILK_V3` 头、decode 带/不带 0x02 前缀均可、get_duration 返回 ms。仅装入 .venv；requirements.lock/pyproject 不在我的白名单，入锁由管理者合并时定夺（已记 BLOCKED.md 备注）。
+- 【当日追更】管理者中途送达 DASHSCOPE_API_KEY（已追加进本 worktree .env）：识别侧限制解除，百炼真实调用已实现并实测通过（见任务 1），BLOCKED.md 对应条目改为已解除。
+
+### 任务 1 ✅ 收语音→听懂→文字回复（2026-08-13）
+- 新建 jarvis/wechat_voice.py：find_voice_item（自适应解析：配置 key 精确匹配 → 「key 名含 voice 且值为 dict」兜底；type==1 文本 item 永不误判）→ download_voice（内嵌 base64 优先，其次 URL 下载，key 名均可配）→ decode_to_wav（wav 透传 / silk v3 经 pilk 解成 16k wav）→ DashScopeASR。
+- 百炼端点实测（真实 key）：`POST dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation` + 模型 `qwen3-asr-flash` + base64 data URI 上行 → HTTP 200；候选 `qwen-audio-asr` 已下线（400 Model not exist），故默认模型定 qwen3-asr-flash（JARVIS_DASHSCOPE_ASR_MODEL/URL 可覆盖）。
+- 收侧全链路实测：MiniMax TTS 合成「明天上午九点提醒我参加项目评审会。」→ encode_silk（8975 字节）→ VoicePipeline.transcribe（真 pilk 解码 + 真百炼）→ 识别文字与原文逐字一致。
+- 回复形态：识别文字走现有 _reply 链路（同租户/同记忆线程），文首标注「（语音识别）你说的是：「…」」；识别链路任一环失败回固定文案「这段语音我没听清，麻烦再说一次或打字」，绝不沉默。
+- 新依赖理由（每个一行）：pilk——微信语音 silk v3 编解码，纯 C 扩展无传递依赖，收发两侧共用。
+- 验收：tests/test_wechat_voice.py 21 条（fake 下载/解码/ASR 注入，无网络），覆盖成功、识别失败、解码失败、下载失败四路 + 结构自适应/可配置/真 pilk 往返/百炼客户端解析。全量 429 passed（408 基线 + 21 新增）0 failed 0 skipped。
+- 反向验证（红→绿）：`git stash push jarvis/wechat.py`（回退到无语音处理的基线）→ 失败路 2 条测试红（TypeError: 无 voice_pipeline 参数）→ `git stash pop` → 2 passed 绿。
+
+### 任务 2 ✅ 语音回复（2026-08-13）
+- 发侧：synthesize_pcm（speakable 净化 → MiniMax 流式 TTS wss → 24k PCM，工作池线程内独立事件循环）→ encode_silk（pilk tencent 变体，`\x02#!SILK_V3` 头）→ build_voice_items（item type/key 名全可配，默认 type=34 + voice_item{voice_data,format,duration}，实样到位改默认值一处）→ 走既有 sendmessage 合同（client_id/base_info）。
+- 降级：合成/编码/发送任一环失败 → log.warning 一行分类（synthesis/encode | send | unexpected）→ 只发文字，文字必达。
+- 验收：单测覆盖语音+文字双发、合成失败降级、语音发送网络失败降级、语音 send 合同；smoke `scripts/wechat_voice_smoke.py` 实跑：TTS 1100ms、wav 291502 字节（afinfo 验证 WAVE/24kHz/6.07s 可播放）、silk 16105 字节、时长 6072ms、PASS 退出 0。
+- 反向验证（红→绿）：`MINIMAX_API_KEY=invalid-smoke-key` 跑 smoke → 「TTS 合成：失败（语音合成连接失败）」FAIL 退出 1；还原 → PASS 退出 0（wav 305990 字节 / silk 16835 字节 / 6373ms）。
+- 体验取舍：语音回复文本截断 280 字（JARVIS_WECHAT_VOICE_MAX_REPLY_CHARS 可调）——微信单条语音约 60s 上限，超长答案语音念开头、全文在文字条里。
+
+### 任务 3 ✅ 真机联调材料（半托，待管理者部署后领导执行）
+领导亲验清单：
+1. 对微信里的贾维斯说一段正常语音（如「明天上午九点提醒我开会」）→ 应收到两条回复：一条语音（可点播）+ 一条文字（文首带「（语音识别）你说的是：「…」」）。
+2. 发一段含糊/环境噪音的语音 → 应收到文字「这段语音我没听清，麻烦再说一次或打字」。
+3. 若只收到文字没有语音 → 属预期降级（发语音失败自动只发文字），请管理者查 `journalctl -u jarvis-web | grep "degraded to text"` 看分类。
+4. 若语音一直没被识别 → 请管理者取 `journalctl -u jarvis-web | grep "non-text probe"` 的脱敏结构发回，按实样改 JARVIS_WECHAT_VOICE_* 配置或 wechat_voice.py 顶部默认值（一处改齐）。
+部署提醒（管理者）：生产 venv 需安装 pilk；生产 .env 需注入 DASHSCOPE_API_KEY；语音收发报文结构未经真机验证，首次联调按第 4 条闭环。
 
 ## 任务 4：报错人话化 + 开箱走查（commit 见 docs）
 - jarvis/wechat.py `_humanize_reply_failure`：超时类 → 「联网检索或模型响应超时了，稍后再把这条消息发我一次」；其他 → 人话 + 「让管理员在网页端检查模型与联网配置」。异常类名只进日志。新增 tests/test_wechat_errors.py 2 用例防回归。

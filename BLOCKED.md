@@ -13,7 +13,7 @@
 
 ## 线 C · 微信语音（wechat-voice 分支，2026-08-13）
 - **等语音样本**：生产 `journalctl -u jarvis-web | grep 'non-text probe'` 至今为空（领导未发语音），iLink 语音报文实结构未知。收/发两侧均按「item type 未知 + voice_item 含下载凭证」的可配置结构实现（JARVIS_WECHAT_VOICE_* 环境变量可改 key 名与类型号）；样本到位后按实测一处改齐。
-- **缺 DASHSCOPE_API_KEY**：本机 .env 无此 key。识别链路已写到「音频字节就绪」（下载+silk 解码+16k wav 落地），百炼真实调用留 `DashScopeASR` 接口位（无 key 时报「语音识别未配置」并对用户降级为「没听清」提示）；key 注入后补真实端点实测即可。
+- ~~缺 DASHSCOPE_API_KEY~~ **已解除（2026-08-13 当日）**：管理者送达 key 并追加进 worktree .env。百炼真实调用已实现（qwen3-asr-flash + multimodal-generation 端点，实测 HTTP 200、识别文字逐字正确）；无 key 环境仍安全降级「没听清」。生产 .env 需同步注入该 key（管理者部署项）。
 - 备注（非阻断）：新依赖 pilk 仅装在本地 .venv；requirements.lock / pyproject.toml 不在本线白名单，生产部署前需管理者把 `pilk` 加入依赖并在服务器 venv 安装，否则收侧解码/发侧编码会走「没听清」/纯文字降级（不会崩）。
 
 ## 线 B · 并发加固与遗留修复
