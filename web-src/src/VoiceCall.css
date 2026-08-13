@@ -1,0 +1,48 @@
+/* 语音通话面板 + Chat 里的通话按钮（其余全局样式在 styles.css，不动它） */
+
+.callbtn{width:36px;height:36px;flex:none;border:1px solid var(--line);font-size:16px;
+  background:var(--arc-soft);color:var(--arc);border-radius:8px}
+.callbtn:hover{box-shadow:0 0 18px rgba(83,232,255,.45)}
+.callbtn:disabled{opacity:.3;box-shadow:none}
+
+.voice-overlay{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;
+  background:rgba(3,10,18,.78);backdrop-filter:blur(6px)}
+.voice-panel{width:min(430px,92vw);padding:28px 26px 22px;border:1px solid var(--line);
+  background:var(--panel);border-radius:14px;display:flex;flex-direction:column;gap:14px;
+  box-shadow:0 0 46px rgba(83,232,255,.12)}
+.voice-status{display:flex;align-items:center;gap:12px}
+.voice-orb{width:14px;height:14px;border-radius:50%;flex:none;background:var(--dim)}
+.voice-orb.connecting{background:var(--gold);animation:voice-pulse 1.2s infinite}
+.voice-orb.listening{background:var(--arc);animation:voice-pulse 1.6s infinite}
+.voice-orb.thinking{background:var(--gold);animation:voice-pulse .8s infinite}
+.voice-orb.speaking{background:#7CFF9B;animation:voice-pulse .6s infinite}
+.voice-orb.closed{background:var(--alert)}
+@keyframes voice-pulse{0%,100%{box-shadow:0 0 0 0 rgba(83,232,255,.4)}50%{box-shadow:0 0 0 9px rgba(83,232,255,0)}}
+.voice-phase{font-family:var(--mono);font-size:13px;letter-spacing:.14em;color:var(--text)}
+.voice-hint{font-size:12.5px;color:var(--dim)}
+.voice-heard{font-size:14px;color:var(--dim);font-style:italic}
+.voice-reply{font-size:15px;line-height:1.55;color:var(--text);max-height:180px;overflow-y:auto;
+  border-left:2px solid var(--line);padding-left:10px}
+.voice-tools{display:flex;flex-wrap:wrap;gap:6px}
+.voice-tool{font-family:var(--mono);font-size:11px;padding:2px 8px;border:1px solid var(--line);
+  border-radius:10px;color:var(--gold)}
+.voice-tool.done{color:var(--arc)}
+.voice-notice{font-size:13px;line-height:1.5;color:var(--gold);background:var(--gold-soft);
+  border:1px solid rgba(240,180,90,.35);border-radius:8px;padding:8px 10px}
+.voice-typebar{display:flex;gap:8px}
+.voice-typebar input{flex:1;background:rgba(3,10,18,.6);border:1px solid var(--line);border-radius:8px;
+  padding:9px 12px;color:var(--text);outline:none;font-size:14px}
+.voice-typebar input:focus{border-color:rgba(83,232,255,.55)}
+.voice-typebar button{border:none;border-radius:8px;padding:0 16px;background:var(--arc-soft);
+  color:var(--arc);font-size:14px}
+.voice-typebar button:disabled{opacity:.3}
+.voice-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:2px}
+.voice-btn{border:1px solid var(--line);background:transparent;color:var(--text);
+  border-radius:8px;padding:8px 18px;font-size:14px;letter-spacing:.08em}
+.voice-btn:hover{border-color:rgba(83,232,255,.55)}
+.voice-btn.hangup{background:rgba(255,92,92,.14);border-color:rgba(255,92,92,.4);color:#FF9B9B}
+.voice-btn.hangup:hover{box-shadow:0 0 16px rgba(255,92,92,.35)}
+
+@media (max-width:520px){
+  .voice-panel{width:94vw;padding:20px 16px 16px}
+}
