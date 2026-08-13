@@ -196,7 +196,7 @@ python3 -m venv .venv
 cp .env.example .env
 ```
 
-然后至少填写 `JARVIS_API_KEY` 或与 `JARVIS_PROVIDER` 对应的兼容密钥；请勿提交 `.env`。实时网页查询默认可使用 DDGS，无需付费搜索 key。若已启动仓库提供的本地 SearXNG，可按下文配置其 loopback 地址；Tavily 仅在你主动选择该可选增强时才需要 key。
+然后至少填写 `JARVIS_API_KEY` 或与 `JARVIS_PROVIDER` 对应的兼容密钥；同时必须填好 `JARVIS_ADMIN_USERNAME`、`JARVIS_ADMIN_PASSWORD` 与 `JARVIS_SESSION_SECRET`（可用 `openssl rand -hex 32` 生成）——这三项留空时首次启动不会创建 Owner，网页端会 fail closed 无法登录。请勿提交 `.env`。实时网页查询默认可使用 DDGS，无需付费搜索 key。若已启动仓库提供的本地 SearXNG，可按下文配置其 loopback 地址；Tavily 仅在你主动选择该可选增强时才需要 key。
 
 默认静态提取不需要浏览器。需要处理动态页面时，改用 browser extra 并单独安装 Chromium：
 
@@ -214,7 +214,7 @@ cp .env.example .env
 .venv/bin/jarvis-web
 ```
 
-默认监听 `http://127.0.0.1:7789`。登录后可创建和删除会话、查看历史、停止生成、复制回复，并在任务台查看日程、待办和备忘；后端每轮对话后继续使用同一条线程记忆。
+默认监听 `http://127.0.0.1:7789`。首位 Owner 在首次启动时由 `.env` 中的 `JARVIS_ADMIN_USERNAME`/`JARVIS_ADMIN_PASSWORD` 自动创建；用它登录后，在顶栏「账户设置」的「用户管理」里可邀请 Member（没有公开注册入口），Member 用被分配的用户名口令登录即可，各自的数据完全隔离。登录后可创建和删除会话、查看历史、停止生成、复制回复，并在任务台查看日程、待办和备忘；后端每轮对话后继续使用同一条线程记忆。
 
 ### 私有部署的运行时 secret
 
@@ -319,6 +319,8 @@ JARVIS_SETTINGS_WRITE_ENABLED=true
 .venv/bin/python scripts/search_smoke.py
 # 可选：显式进行真实模型/provider 验收
 .venv/bin/python scripts/search_smoke.py --live
+# 可选：多用户并发验收（自起本地服务并调用真实模型，产生少量模型费用）
+.venv/bin/python scripts/concurrency_smoke.py
 ```
 
 验收含义：
@@ -327,6 +329,7 @@ JARVIS_SETTINGS_WRITE_ENABLED=true
 2. `check_smoke.py`：真实模型回答“现在几点了”，且必须产生实际工具调用。
 3. `check_memory.py`：两个独立 CLI 进程先后对话，验证第二次能读取第一次写入的 SQLite 历史。
 4. `search_smoke.py`：默认由离线 stub 覆盖 SearXNG/DDGS 风格的免费链结果，JSON 应为 4/4，并包含查询时间与可追溯来源；`--live` 才进行真实模型/provider 验收，Tavily 与 PandaScore 仍为可选项。
+5. `concurrency_smoke.py`：自动起一个隔离数据目录的本地服务并引导 Owner，3 路真实聊天并发时 20 次 `/api/dashboard` 的 P95 必须小于 2 秒，且聊天全部真实完成才退出 0。
 
 ## 项目结构
 

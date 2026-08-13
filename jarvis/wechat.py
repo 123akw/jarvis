@@ -431,6 +431,18 @@ class WeChatBridge:
             return ["（贾维斯没有生成文本回复。）"]
         return [text[index:index + limit] for index in range(0, len(text), limit)]
 
+    @staticmethod
+    def _humanize_reply_failure(exc: Exception) -> str:
+        """把技术异常翻译成人话 + 下一步建议；异常类名只进日志，不发给用户。"""
+        if isinstance(exc, (httpx.TimeoutException, TimeoutError)) or (
+            "timeout" in type(exc).__name__.lower()
+        ):
+            return "（联网检索或模型响应超时了，稍后再把这条消息发我一次。）"
+        return (
+            "（我这边刚才没处理成功，请稍后再试一次；"
+            "如果反复失败，请让管理员在网页端检查模型与联网配置。）"
+        )
+
     def _deliver_reply(
         self, client, token: str, from_id: str, context_token: str, text: str
     ) -> None:
@@ -439,7 +451,7 @@ class WeChatBridge:
             answer = self._reply(text, from_id)
         except Exception as exc:
             log.warning("JARVIS WeChat reply failed: %s", type(exc).__name__)
-            answer = f"（贾维斯暂时无法应答：{type(exc).__name__}）"
+            answer = self._humanize_reply_failure(exc)
 
         for chunk in self._split_reply(answer):
             try:
