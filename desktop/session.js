@@ -10,6 +10,10 @@ const OPERATIONS = {
   dashboard: { method: 'GET', path: () => '/api/dashboard', validate: emptyBody },
   remindersPending: { method: 'GET', path: () => '/api/reminders/pending', validate: emptyBody },
   todoPatch: { method: 'PATCH', path: body => `/api/todos/${body.id}`, validate: todoPatchBody, requestBody: body => ({ done: body.done }) },
+  voiceSettingsGet: { method: 'GET', path: () => '/api/voice/settings', validate: emptyBody },
+  voiceSettingsPut: { method: 'PUT', path: () => '/api/voice/settings', validate: voiceSettingsBody },
+  radioGet: { method: 'GET', path: () => '/api/radio', validate: emptyBody },
+  radioPut: { method: 'PUT', path: () => '/api/radio', validate: radioBody },
   history: { method: 'GET', path: () => '/api/history?thread_id=desktop', validate: desktopThread },
   deleteThread: { method: 'DELETE', path: () => '/api/thread?thread_id=desktop', validate: desktopThread },
   chat: { method: 'POST', path: () => '/api/chat', validate: chatBody },
@@ -227,6 +231,17 @@ function todoPatchBody(body) {
   if (!Number.isInteger(body.id) || body.id < 1) throw new Error('invalid todo id')
   if (typeof body.done !== 'boolean') throw new Error('invalid todo done')
   return { id: body.id, done: body.done }
+}
+function voiceSettingsBody(body) {
+  exact(body, ['voice', 'speed'])
+  if (typeof body.voice !== 'string' || !body.voice || body.voice.length > 64) throw new Error('invalid voice')
+  if (typeof body.speed !== 'number' || !(body.speed >= 0.5 && body.speed <= 2)) throw new Error('invalid speed')
+  return { voice: body.voice, speed: body.speed }
+}
+function radioBody(body) {
+  exact(body, ['time'])
+  if (typeof body.time !== 'string' || (body.time !== '' && !/^\d{2}:\d{2}$/.test(body.time))) throw new Error('invalid radio time')
+  return { time: body.time }
 }
 function chatBody(body) {
   exact(body, ['thread_id', 'message'])

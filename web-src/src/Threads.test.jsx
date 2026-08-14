@@ -5,9 +5,10 @@ vi.mock('./api.js', () => ({
   getThreads: vi.fn(),
   deleteThread: vi.fn(),
   renameThread: vi.fn(),
+  getHistory: vi.fn(),
 }))
 
-import { deleteThread, getThreads, renameThread } from './api.js'
+import { deleteThread, getHistory, getThreads, renameThread } from './api.js'
 import Threads from './Threads.jsx'
 
 const LIST = [
@@ -40,6 +41,22 @@ describe('会话管理', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
     await waitFor(() => expect(renameThread).toHaveBeenCalledWith('a', '天气专线'))
     expect(await screen.findByText('天气专线')).toBeTruthy()
+  })
+
+  it('导出会话：点 ⤓ 拉取历史并触发 Markdown 下载', async () => {
+    getHistory.mockResolvedValue([
+      { role: 'user', content: '明天天气' },
+      { role: 'assistant', content: '晴。' },
+    ])
+    const objectUrls = []
+    global.URL.createObjectURL = vi.fn(blob => { objectUrls.push(blob); return 'blob:x' })
+    global.URL.revokeObjectURL = vi.fn()
+    render(<Threads current="a" onSelect={() => {}} onNew={() => {}} refreshKey={0} />)
+    await screen.findByText('深圳天气')
+    fireEvent.click(screen.getAllByTitle('导出为 Markdown')[0])
+    await waitFor(() => expect(getHistory).toHaveBeenCalledWith('a'))
+    expect(objectUrls.length).toBe(1)
+    expect(await objectUrls[0].text()).toContain('# 深圳天气')
   })
 
   it('删除需要二次确认：第一击不删，第二击才调 DELETE', async () => {

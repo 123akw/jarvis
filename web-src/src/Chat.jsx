@@ -1,7 +1,25 @@
 import { memo, useEffect, useRef, useState } from 'react'
 import { chatStream, getHistory, uploadDocument } from './api.js'
 import { handleCodeCopyClick, renderMarkdown } from './markdown.js'
+import { toolLabel } from './toolInfo.js'
 import VoiceCall from './VoiceCall.jsx'
+
+/** 工具调用 chip：中文名 + 成败 + 耗时，点击展开结果摘要 */
+function ToolChip({ chip }) {
+  const [open, setOpen] = useState(false)
+  const status = !chip.done ? '…' : chip.ok === false ? '✗' : '✓'
+  return (
+    <span className={`tchip${chip.done ? (chip.ok === false ? ' fail' : ' done') : ''}`}>
+      <button className="tchip-btn" disabled={!chip.detail}
+        onClick={() => setOpen(v => !v)}
+        title={chip.detail ? (open ? '收起结果' : '查看结果') : undefined}>
+        {toolLabel(chip.name)} <span className="st">{status}</span>
+        {chip.done && chip.ms != null && <span className="tms">{chip.ms}ms</span>}
+      </button>
+      {open && chip.detail && <span className="tdetail">{chip.detail}</span>}
+    </span>
+  )
+}
 
 /** 回答正文单独成组件并 memo：流式时只重渲染正在生成的那条，不拖累整个历史 */
 const JarvisBody = memo(function JarvisBody({ raw, streaming }) {
@@ -75,12 +93,15 @@ export default function Chat({ threadId, location, onBusy, onTurnDone, onExpired
         if (ev.type === 'token') {
           patchLast(m => ({ ...m, raw: m.raw + ev.text }))
         } else if (ev.type === 'tool_start') {
-          patchLast(m => ({ ...m, chips: [...m.chips, { name: ev.name, done: false }] }))
+          patchLast(m => ({ ...m, chips: [...m.chips, { id: ev.id, name: ev.name, done: false }] }))
         } else if (ev.type === 'tool_result') {
           patchLast(m => {
             const chips = [...m.chips]
-            const i = chips.findIndex(c => c.name === ev.name && !c.done)
-            if (i >= 0) chips[i] = { ...chips[i], done: true }
+            // 按调用 id 精确配对；旧服务端无 id 时退回「同名未完成」
+            const i = ev.id
+              ? chips.findIndex(c => c.id === ev.id)
+              : chips.findIndex(c => c.name === ev.name && !c.done)
+            if (i >= 0) chips[i] = { ...chips[i], done: true, ok: ev.ok, ms: ev.ms, detail: ev.detail }
             return { ...m, chips }
           })
         } else if (ev.type === 'error') {
@@ -171,11 +192,7 @@ export default function Chat({ threadId, location, onBusy, onTurnDone, onExpired
               <div className="jtag">{m.streaming && <span className="jdot" />}J.A.R.V.I.S.</div>
               {m.chips.length > 0 && (
                 <div className="chips">
-                  {m.chips.map((c, i) => (
-                    <span key={i} className={`tchip${c.done ? ' done' : ''}`}>
-                      ⚙ {c.name} <span className="st">{c.done ? '✓' : '…'}</span>
-                    </span>
-                  ))}
+                  {m.chips.map((c, i) => <ToolChip key={c.id || i} chip={c} />)}
                 </div>
               )}
               <JarvisBody raw={m.raw} streaming={m.streaming} />

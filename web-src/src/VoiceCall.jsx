@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { currentCsrf, voiceSocketUrl } from './api.js'
+import { toolLabel } from './toolInfo.js'
 import { isMicError, pcmStreamSupported, startMicStream } from './VoiceAudio.js'
 import './VoiceCall.css'
 
@@ -382,7 +383,7 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
         {tools.length > 0 && (
           <div className="voice-tools">
             {tools.map((t, i) => (
-              <span key={i} className={`voice-tool${t.done ? ' done' : ''}`}>⚙ {t.name}{t.done ? ' ✓' : '…'}</span>
+              <span key={i} className={`voice-tool${t.done ? ' done' : ''}`}>{toolLabel(t.name)}{t.done ? ' ✓' : '…'}</span>
             ))}
           </div>
         )}

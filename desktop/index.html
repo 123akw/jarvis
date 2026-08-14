@@ -406,6 +406,21 @@ body.show-settings #settings{display:flex}
           <input type="text" id="s-server" placeholder="https://jws.gkgeek-set.cn">
         </div>
         <div class="s-row s-col api-setting">
+          <span>语音与晨报</span>
+          <div class="api-grid">
+            <label>通话音色<select id="s-voice"></select></label>
+            <label class="s-slider" style="display:flex">
+              <span>语速</span>
+              <input type="range" id="s-speed" min="0.5" max="2" step="0.05" value="1">
+              <em id="s-speed-v">1.00×</em>
+            </label>
+            <label>晨报电台（留空关闭）<input type="time" id="s-radio"></label>
+            <div class="api-risk">音色与语速影响你的语音通话答复（与网页端共用）。晨报电台每天定时把「天气+日程+待办」做成语音条+文字发到微信——需先在微信里对贾维斯说「提醒发给我」。</div>
+            <div class="api-actions" style="grid-template-columns:1fr"><button type="button" id="s-voice-save">保存语音设置</button></div>
+            <div class="s-hint" id="s-voice-state"></div>
+          </div>
+        </div>
+        <div class="s-row s-col api-setting">
           <span>模型 API</span>
           <div class="api-grid">
             <label>Provider<select id="api-provider"></select></label>

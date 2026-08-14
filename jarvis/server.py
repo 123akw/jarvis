@@ -1049,6 +1049,7 @@ def chat(request: Request, body: ChatIn):
         global _chat_count
         _chat_count += 1
         seen_calls: set[str] = set()
+        call_started: dict[str, float] = {}
         try:
             with tenant_scope(principal.user_id):
                 with _bundle_for(principal.user_id) as bundle:
@@ -1058,13 +1059,21 @@ def chat(request: Request, body: ChatIn):
                         config={"configurable": {"thread_id": thread.checkpoint_thread_id}}, stream_mode="messages")
                     for chunk, _meta in stream:
                         if isinstance(chunk, ToolMessage):
-                            yield _sse({"type": "tool_result", "name": chunk.name})
+                            cid = getattr(chunk, "tool_call_id", "") or ""
+                            started = call_started.pop(cid, None)
+                            yield _sse({
+                                "type": "tool_result", "name": chunk.name, "id": cid,
+                                "ok": getattr(chunk, "status", "success") != "error",
+                                "ms": int((time.monotonic() - started) * 1000) if started is not None else None,
+                                "detail": _chunk_text(chunk.content)[:400],
+                            })
                         elif isinstance(chunk, AIMessageChunk):
                             for tc in chunk.tool_call_chunks or []:
                                 name, cid = tc.get("name"), tc.get("id")
                                 if name and cid and cid not in seen_calls:
                                     seen_calls.add(cid)
-                                    yield _sse({"type": "tool_start", "name": name})
+                                    call_started[cid] = time.monotonic()
+                                    yield _sse({"type": "tool_start", "name": name, "id": cid})
                             text = _chunk_text(chunk.content)
                             if text:
                                 yield _sse({"type": "token", "text": text})

@@ -276,10 +276,19 @@ main.hide-right .right{display:none}
 @keyframes blink{50%{opacity:0}}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
 .tchip{font-family:var(--mono);font-size:11.5px;color:var(--arc);border:1px solid var(--line);
-  padding:2px 8px;background:rgba(83,232,255,.07);letter-spacing:.06em}
+  background:rgba(83,232,255,.07);letter-spacing:.06em;display:inline-flex;
+  flex-direction:column;max-width:100%}
 .tchip.done{color:#7CF5B2;border-color:rgba(124,245,178,.4)}
+.tchip.fail{color:var(--alert);border-color:rgba(255,92,92,.4)}
 .tchip .st{opacity:.85}
-.tchip:not(.done) .st{animation:blink 1s steps(1) infinite}
+.tchip:not(.done):not(.fail) .st{animation:blink 1s steps(1) infinite}
+.tchip-btn{border:none;background:none;color:inherit;font:inherit;letter-spacing:inherit;
+  padding:2px 8px;cursor:pointer;white-space:nowrap}
+.tchip-btn:disabled{cursor:default}
+.tms{margin-left:6px;color:var(--dim);font-size:10.5px}
+.tdetail{display:block;max-width:520px;max-height:180px;overflow:auto;
+  padding:6px 9px;border-top:1px dashed var(--line);color:var(--text);
+  font-size:11px;line-height:1.6;white-space:pre-wrap;text-align:left;cursor:auto}
 
 /* 空态与快捷指令 */
 .chat-empty{padding:15vh 0 0;text-align:center}
@@ -459,3 +468,46 @@ main.hide-right .right{display:none}
   .row-user,.row-jarvis{animation:none}
   .dot,.caret,.tchip .st{animation:none}
 }
+
+/* ================= 亮色主题（body.light，仅 HUD 内切换；登录页保持暗色） ================= */
+body.light{
+  --void:#EEF4F7;--panel:rgba(255,255,255,.78);--arc:#0B7A99;--arc-soft:rgba(11,122,153,.10);
+  --line:rgba(11,122,153,.30);--gold:#8A5E1A;--gold-soft:rgba(154,107,31,.12);
+  --alert:#C4423C;--text:#1B2B33;--dim:#5A6E77;
+  background-image:
+    radial-gradient(900px 500px at 18% -10%,rgba(11,122,153,.07),transparent 60%),
+    radial-gradient(700px 480px at 100% 110%,rgba(154,107,31,.05),transparent 55%),
+    repeating-linear-gradient(0deg,rgba(11,122,153,.04) 0 1px,transparent 1px 44px),
+    repeating-linear-gradient(90deg,rgba(11,122,153,.04) 0 1px,transparent 1px 44px);
+}
+body.light .sweep,body.light .grain{display:none}
+body.light header{background:linear-gradient(180deg,rgba(255,255,255,.9),rgba(255,255,255,.55))}
+body.light .wordmark{text-shadow:none}
+body.light .ce-title{color:#12333F}
+body.light .jbody b,body.light .jbody strong,body.light .jbody h1,body.light .jbody h2,
+body.light .jbody h3,body.light .jbody h4{color:#0B1B22}
+body.light .ubox{background:rgba(154,107,31,.10)}
+body.light .jbody code{background:rgba(11,122,153,.10)}
+body.light .codeblock,body.light .jbody pre{background:#F4F8FA}
+body.light .codebar{background:rgba(11,122,153,.06)}
+body.light .jbody pre code{color:#22333B}
+body.light .jbody .hljs{color:#22333B}
+body.light .jbody .hljs-number,body.light .jbody .hljs-symbol,body.light .jbody .hljs-meta{color:#A34A12}
+body.light .jbody .hljs-title,body.light .jbody .hljs-name,body.light .jbody .hljs-attribute{color:#1D6E43}
+body.light .jbody .hljs-built_in,body.light .jbody .hljs-type,body.light .jbody .hljs-variable{color:#6C3FB8}
+body.light .jbody tr:nth-child(even) td{background:rgba(11,122,153,.05)}
+body.light .inputbar2,body.light .abtn,body.light .tsearch,body.light .paddrow input,
+body.light .trename{background:rgba(255,255,255,.85)}
+body.light .left,body.light .right{background:rgba(246,250,252,.98)}
+body.light .reminder-toast{background:linear-gradient(160deg,#FFF6E3,#FBEECB);color:#4A3413}
+body.light .rt-body{color:#4A3413}
+body.light .wx-card,body.light .account-card,body.light .provider-card{background:#FBFDFE}
+body.light .persona-box select,body.light .persona-box input,body.light .provider-pane input,
+body.light .provider-pane select,body.light .account-form input,body.light .account-form select,
+body.light .user-row input,body.light .user-row select,body.light .field input{
+  background:#F1F6F8;color:var(--text)}
+body.light .memory-hint b{color:#8A5E1A}
+body.light .online{color:#1D6E43;border-color:rgba(29,110,67,.4);background:rgba(29,110,67,.08)}
+body.light .dot{background:#1D6E43;box-shadow:0 0 6px rgba(29,110,67,.6)}
+body.light .tchip.done{color:#1D6E43;border-color:rgba(29,110,67,.4)}
+body.light .persona-state{color:#1D6E43}

@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('jws', {
   voiceMicAccess: () => ipcRenderer.invoke('voice-mic-access'),
   openProviderLink: url => ipcRenderer.invoke('open-provider-link', url),
   openExternalLink: url => ipcRenderer.invoke('open-external-link', url),
+  onTrayCommand: cb => ipcRenderer.on('tray-command', (_e, cmd) => cb(cmd)),
   onForceExpand: eventApi.onForceExpand,
   onSetExpanded: eventApi.onSetExpanded,
   onHandoffAuthenticated: eventApi.onHandoffAuthenticated,

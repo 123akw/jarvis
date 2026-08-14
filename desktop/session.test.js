@@ -266,3 +266,21 @@ test('authToken stays empty before login and loads the persisted token for hands
   instance.clear()
   assert.equal(instance.authToken(), '')
 })
+
+test('voice/radio operations validate bodies and hit the right endpoints', async () => {
+  const { instance, calls } = gateway()
+  await instance.login('admin', 'pw')
+
+  await instance.request('voiceSettingsGet')
+  assert.ok(calls.at(-1).url.endsWith('/api/voice/settings'))
+  await instance.request('voiceSettingsPut', { voice: 'female-yujie', speed: 1.2 })
+  assert.equal(calls.at(-1).options.method, 'PUT')
+  assert.deepEqual(JSON.parse(calls.at(-1).options.body), { voice: 'female-yujie', speed: 1.2 })
+  await instance.request('radioPut', { time: '08:30' })
+  assert.ok(calls.at(-1).url.endsWith('/api/radio'))
+  await instance.request('radioPut', { time: '' })   // 留空=关闭
+
+  await assert.rejects(() => instance.request('voiceSettingsPut', { voice: '', speed: 1 }), /voice/i)
+  await assert.rejects(() => instance.request('voiceSettingsPut', { voice: 'x', speed: 9 }), /speed/i)
+  await assert.rejects(() => instance.request('radioPut', { time: '8点半' }), /radio/i)
+})

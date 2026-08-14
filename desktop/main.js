@@ -1,4 +1,4 @@
-const { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Notification, screen, safeStorage, shell, systemPreferences } = require('electron')
+const { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, nativeImage, Notification, screen, safeStorage, shell, systemPreferences, Tray } = require('electron')
 const { execSync } = require('child_process')
 const fs = require('fs')
 const os = require('os')
@@ -46,8 +46,13 @@ function gateway() {
   return apiGateway
 }
 
-/* ---------- 开机自启：LaunchAgent（开发态运行也可靠） ---------- */
+/* ---------- 开机自启：macOS 走 LaunchAgent（开发态运行也可靠），Windows 走系统登录项 ---------- */
 function setAutoLaunch(on) {
+  if (process.platform === 'win32') {
+    app.setLoginItemSettings({ openAtLogin: on, args: [path.resolve(__dirname)] })
+    return
+  }
+  if (process.platform !== 'darwin') return  // Linux 暂不支持
   if (on) {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -413,6 +418,33 @@ app.on('second-instance', (_event, argv) => {
   if (link) handleProtocolUrl(link)
 })
 
+/* ---------- 系统托盘：悬浮球之外的常驻入口（含唯一的显式退出） ---------- */
+// 32x32 模板图（黑+alpha，圆环+核心），macOS 菜单栏自动适配深浅色
+const TRAY_ICON_DATAURL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAdUlEQVR42u1XQQ7AMAjq/z/t7kt6gOKgiyTeDNJYLV1rcDHqFZaiu7AVbhGCEMtFsGQSEYpT0BzKPlJcVgEd4wRxIsloHiSA2QvHYusDAXWaxG6//whobYH9EkaNoW0RzVsQ8RxHGJIISxZhSiNseczHZCDHAzhw4x0XbRj0AAAAAElFTkSuQmCC'
+let tray = null
+
+function ensureExpanded() {
+  if (!win) return
+  if (!expanded) toggleWindow()
+  win.show()
+  win.focus()
+  win.webContents.send('set-expanded', true)
+}
+
+function createTray() {
+  const icon = nativeImage.createFromDataURL(TRAY_ICON_DATAURL)
+  if (process.platform === 'darwin') icon.setTemplateImage(true)
+  tray = new Tray(icon)
+  tray.setToolTip('J.A.R.V.I.S. 贾维斯')
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: '打开对话', click: () => ensureExpanded() },
+    { label: '语音通话', click: () => { ensureExpanded(); win.webContents.send('tray-command', 'voice') } },
+    { label: '设置', click: () => { ensureExpanded(); win.webContents.send('tray-command', 'settings') } },
+    { type: 'separator' },
+    { label: '退出贾维斯', click: () => app.quit() },
+  ]))
+}
+
 /* 日程主动提醒：登录态下每分钟领取一次到点日程，弹系统通知（服务端按通道只发一次） */
 function startReminderPolling() {
   setInterval(async () => {
@@ -435,6 +467,7 @@ function startReminderPolling() {
 
 app.whenReady().then(() => {
   createWindow()
+  createTray()
   const s = loadSettings()
   applyHotkey(s.hotkey)
   startWakeServer()
@@ -472,10 +505,26 @@ app.whenReady().then(() => {
           `), 800)
         }
         setTimeout(async () => {
+          if (process.env.JWS_SHOT_PROBE) {  // 自检探针：打印语音设置请求的真实返回
+            try {
+              const probe = await win.webContents.executeJavaScript(`(async () => {
+                const out = { state: document.querySelector('#s-voice-state')?.textContent || '',
+                              options: document.querySelectorAll('#s-voice option').length }
+                try { out.resp = await window.jws.api.request('voiceSettingsGet', {}) }
+                catch (e) { out.error = String(e && e.message || e) }
+                return JSON.stringify(out)
+              })()`)
+              console.log('JWS_SHOT_PROBE', probe)
+            } catch (e) { console.log('JWS_SHOT_PROBE failed', String(e)) }
+          }
+          if (process.env.JWS_SHOT_SCROLL === 'bottom') {
+            await win.webContents.executeJavaScript(
+              "document.querySelectorAll('.s-body').forEach(el => { el.scrollTop = el.scrollHeight })")
+          }
           const img = await win.webContents.capturePage()
           fs.writeFileSync(process.env.JWS_SHOT, img.toPNG())
           app.quit()
-        }, 3500)
+        }, parseInt(process.env.JWS_SHOT_WAIT || '3500', 10))  // 设置页要等真实网络往返时可调
       }, 1200)
     })
   }

@@ -372,3 +372,25 @@
 - jarvis/web 产物已随本轮重建提交（bundle 1.46MB，hljs 约 +240KB；code splitting 仍是后续项）。
 - 微信「主动推送/晨报」的 sendmessage 无回复上下文（context_token 复用最近一条），**真机联调前按最坏情况预期需微调**——失败只 log.warning 降级，不影响原有收发。
 - README 已同步：工具数 24、产品介绍补主动提醒/记忆人设/上传/微信总线；.env.example 补语音 key 与 JARVIS_WECHAT_GROUP_NAME / JARVIS_REMINDERS_ENABLED。
+
+# 体验优化第二轮 + README 焕新（2026-08-14 晚）
+
+## 生产热修（当日发现当日修）
+- **存量库缺表事故**：第一轮的 tenant_prefs/tenant_profile/tenant_reminders_sent 建表挂在 schema v1 列表里，被版本门挡住只对全新库生效——生产升级后语音设置/记忆/人设 500、提醒扫描每 30s 报 OperationalError。已改为独立 **v2 迁移**（幂等），加存量库升级回归测试，热修已部署验证（提醒扫描周期零错误、桌面端真连生产拉到 8 音色）。教训入档：**加表必须开新 schema 版本，测试必须覆盖存量库升级路径**。
+
+## 优化项（全部上线）
+1. **工具调用透明化**：SSE tool_start/tool_result 带调用 id/成败/耗时/结果摘要（tests/test_chat_stream_events.py 锁契约）；网页 chips 中文名+图标+耗时，点开看结果，失败红色 ✗；按 id 精确配对修掉同名工具错配；桌面工具行与语音面板同步中文名。
+2. **桌面「语音与晨报」设置块**：音色/语速/晨报时间直接在悬浮窗设置页改（session.js 新增 4 个白名单 op + 校验，node --test 17 条含新用例）；响应 ok 检查防 401 体渲染成 NaN。
+3. **系统托盘**：程序化生成模板图标（macOS 自适配深浅），菜单=打开对话/语音通话/设置/退出；Windows 开机自启走 app.setLoginItemSettings（macOS 维持 LaunchAgent）。
+4. **会话导出**：线程列表 ⤓ 一键导出该会话为 Markdown 文件。
+5. **bundle 拆分**：three 系懒加载（React.lazy）+ manualChunks——主包 **1456KB → 246KB**，three 968KB 按需取、markdown 237KB 独立缓存；删除死代码 Reactor3D.jsx。
+6. **亮色主题**：body.light 全套覆写（任务台/表格/代码高亮/弹条/各模态），顶栏 ☀/☾ 一键切换存 localStorage；登录页保持暗色电影感。
+7. **JWS_SHOT 自检增强**：JWS_SHOT_WAIT/JWS_SHOT_SCROLL/JWS_SHOT_PROBE（探针曾直接定位生产 500）。
+
+## README 焕新（内容 + 截图 8 张新拍）
+- 隔离演示环境（临时数据目录+虚构演示数据+真 DeepSeek 一轮对话）Playwright 实拍 1600×1000：web-dashboard（Markdown 表格+可勾选任务台）、web-reminder（提醒弹条）、web-light-theme、web-memory（记忆与人设）、web-voice-settings、web-provider-settings（三页签）；桌面 JWS_SHOT 实拍 desktop-settings（含语音与晨报区块）。新增 4 张、更新 3 张，图注如实标注演示数据；无 key/口令/二维码/真实对话。
+- 文案：状态行更新至 2026-08-14；产品介绍补工具透明/双主题/托盘/导出/右键直呼；「语音通话怎么用」补音色设置入口。
+- 截图脚本坑位记录：本机 all_proxy 会弄崩 httpx（trust_env=False）；会话 cookie 带 Secure 标记，httpx 在 http 下不回传（浏览器/curl 的 localhost 例外会传），种数据需手动带 Cookie 头。
+
+## 未做与原因（下轮候选）
+- dmg/exe 打包安装器：需签名/公证链路，建议单独立项；划词取词：需辅助功能权限模拟 ⌘C，半成品风险高；生图/图片理解：等 Provider 侧配置多模态模型。

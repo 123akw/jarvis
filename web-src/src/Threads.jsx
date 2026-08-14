@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { deleteThread, getThreads, renameThread } from './api.js'
+import { deleteThread, getHistory, getThreads, renameThread } from './api.js'
 
 function groupLabel(iso) {
   const d = new Date(iso.replace(' ', 'T'))
@@ -46,6 +46,24 @@ export default function Threads({ current, onSelect, onNew, refreshKey, onExpire
     }
     setThreads(ts => ts.filter(t => t.id !== id))
     if (id === current) onNew()
+  }
+
+  async function exportThread(e, t) {
+    e.stopPropagation()
+    try {
+      const history = await getHistory(t.id)
+      const doc = [`# ${t.title}`].concat(history.map(m =>
+        m.role === 'user' ? `**我：**\n\n${m.content}` : `**贾维斯：**\n\n${m.content}`,
+      )).join('\n\n---\n\n') + '\n'
+      const blob = new Blob([doc], { type: 'text/markdown;charset=utf-8' })
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = `${t.title}.md`
+      a.click()
+      URL.revokeObjectURL(a.href)
+    } catch (err) {
+      if (err.message === '401') onExpired?.()
+    }
   }
 
   function startEdit(e, t) {
@@ -106,6 +124,7 @@ export default function Threads({ current, onSelect, onNew, refreshKey, onExpire
                 ) : (
                   <span className="ttitle">{t.title}</span>
                 )}
+                <button className="tdel trn" onClick={e => exportThread(e, t)} title="导出为 Markdown">⤓</button>
                 <button className="tdel trn" onClick={e => startEdit(e, t)} title="重命名">✎</button>
                 <button className={`tdel${pendingDel === t.id ? ' confirm' : ''}`}
                   onClick={e => askRemove(e, t.id)}

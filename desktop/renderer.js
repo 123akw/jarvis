@@ -89,6 +89,19 @@ $('#desktop-server-save').addEventListener('click', async () => {
   }
 })
 
+/* 工具 → 中文友好名与图标（与 web-src/src/toolInfo.js 同步的副本） */
+const TOOL_INFO = {
+  now: ['🕐', '当前时间'], calc: ['🧮', '计算'], weather: ['⛅', '城市天气'],
+  weather_here: ['📍', '本地天气'], my_location: ['📍', '我的位置'], coding_status: ['⌨️', '编程进度'],
+  memo_add: ['📝', '记备忘'], memo_list: ['📝', '查备忘'], memo_del: ['📝', '删备忘'],
+  profile_remember: ['◉', '记住画像'], profile_list: ['◉', '查画像'], profile_forget: ['◉', '忘记画像'],
+  schedule_add: ['📅', '加日程'], schedule_list: ['📅', '查日程'], schedule_del: ['📅', '删日程'],
+  todo_add: ['☑️', '加待办'], todo_list: ['☑️', '查待办'], todo_done: ['☑️', '完成待办'],
+  sys_query: ['🖥', '系统查询'], web_search: ['🔎', '联网搜索'], web_extract: ['📄', '读取网页'],
+  movie_ratings: ['🎬', '电影评分'], esports_scores: ['🏆', '电竞比分'], ticket_search: ['🎫', '票务查询'],
+}
+const toolLabel = name => TOOL_INFO[name] ? `${TOOL_INFO[name][0]} ${TOOL_INFO[name][1]}` : `⚙ ${name}`
+
 const EMPTY_HTML = `<div class="empty">这里是桌面快捷通道。有什么吩咐？</div>
 <div class="qchips">
   <button data-q="给我今日晨报">☀ 今日晨报</button>
@@ -140,9 +153,12 @@ async function ask() {
           toolLine.className = 'tool'
           el.before(toolLine)
         }
-        toolLine.textContent = `⚙ ${ev.name} …`
+        toolLine.textContent = `${toolLabel(ev.name)} …`
       } else if (ev.type === 'tool_result') {
-        if (toolLine) toolLine.textContent = `⚙ ${ev.name} ✓`
+        if (toolLine) {
+          const mark = ev.ok === false ? '✗' : '✓'
+          toolLine.textContent = `${toolLabel(ev.name)} ${mark}${ev.ms != null ? ` · ${ev.ms}ms` : ''}`
+        }
       } else if (ev.type === 'error') sys(ev.message)
     } })
     const r = await currentStream.done
@@ -267,6 +283,12 @@ box.addEventListener('input', () => {
   box.style.height = Math.min(box.scrollHeight, 96) + 'px'
 })
 window.jws.onForceExpand(() => document.body.classList.add('expanded'))
+if (window.jws.onTrayCommand) {  // 托盘菜单：语音通话 / 设置
+  window.jws.onTrayCommand(cmd => {
+    if (cmd === 'voice') void startVoiceCall()
+    if (cmd === 'settings') void openSettings()
+  })
+}
 
 /* ---------- 语音通话（📞）：核心逻辑在 voice-call.js，这里只做 DOM 接线 ---------- */
 const voiceEl = $('#voice')
@@ -328,7 +350,7 @@ async function startVoiceCall() {
       heard: t => { $('#v-final').textContent = t ? `「${t}」` : ''; $('#v-interim').textContent = '' },
       reply: r => { const el = $('#v-reply'); el.textContent = r; el.scrollTop = el.scrollHeight },
       tools: ts => {
-        $('#v-tools').innerHTML = ts.map(t => `<span>⚙ ${esc(t.name)}${t.done ? ' ✓' : '…'}</span>`).join('')
+        $('#v-tools').innerHTML = ts.map(t => `<span>${esc(toolLabel(t.name))}${t.done ? ' ✓' : '…'}</span>`).join('')
       },
       notice: n => {
         const el = $('#v-notice')
@@ -675,6 +697,43 @@ $('#integration-test').addEventListener('click', () => void integrationAction('i
 $('#integration-save').addEventListener('click', () => void integrationAction('integrationSave'))
 $('#integration-restore').addEventListener('click', () => void integrationAction('integrationRestore'))
 
+/* ---------- 语音与晨报设置（服务端每用户偏好，与网页端共用） ---------- */
+async function loadVoiceSettings() {
+  const state = $('#s-voice-state')
+  try {
+    const voiceResp = await api('voiceSettingsGet')
+    const v = await voiceResp.json()
+    if (!voiceResp.ok) throw new Error(v.error || '读取语音设置失败')
+    $('#s-voice').innerHTML = (v.catalog || [])
+      .map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('')
+    $('#s-voice').value = v.voice
+    $('#s-speed').value = v.speed
+    $('#s-speed-v').textContent = `${Number(v.speed).toFixed(2)}×`
+    const radioResp = await api('radioGet')
+    const r = await radioResp.json()
+    if (!radioResp.ok) throw new Error(r.error || '读取晨报设置失败')
+    $('#s-radio').value = r.time || ''
+    state.textContent = ''; state.className = 's-hint'
+  } catch (error) {
+    if (!isAuthenticationRequired(error)) { state.textContent = error.message || '读取语音设置失败'; state.className = 's-hint bad' }
+  }
+}
+$('#s-speed').addEventListener('input', () => {
+  $('#s-speed-v').textContent = `${Number($('#s-speed').value).toFixed(2)}×`
+})
+$('#s-voice-save').addEventListener('click', async () => {
+  const state = $('#s-voice-state')
+  state.textContent = '保存中…'; state.className = 's-hint wait'
+  try {
+    const put = await api('voiceSettingsPut', { voice: $('#s-voice').value, speed: Number($('#s-speed').value) })
+    const radio = await api('radioPut', { time: $('#s-radio').value || '' })
+    if (!put.ok || !radio.ok) throw new Error('保存失败')
+    state.textContent = '已保存；下一通语音通话生效'; state.className = 's-hint ok'
+  } catch (error) {
+    if (!isAuthenticationRequired(error)) { state.textContent = error.message || '保存失败'; state.className = 's-hint bad' }
+  }
+})
+
 async function openSettings() {
   const s = await window.jws.getSettings()
   $('#s-autolaunch').checked = !!s.openAtLogin
@@ -693,6 +752,7 @@ async function openSettings() {
   $('#s-server').value = s.server || ''
   $('#s-msg').textContent = ''
   document.body.classList.add('show-settings')
+  void loadVoiceSettings()
   void wxController.start()
   try { await loadProviderSettings() } catch (error) { if (!isAuthenticationRequired(error)) { $('#api-state').textContent = error.message; $('#api-state').className = 's-hint bad' } }
 }

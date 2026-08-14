@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { logout } from './api.js'
 import Chat from './Chat.jsx'
-import { MossMini } from './Moss.jsx'
+
+// three.js 相关组件懒加载：主 bundle 不再背着 3D 引擎
+const MossMini = lazy(() => import('./Moss.jsx').then(m => ({ default: m.MossMini })))
 import Panels from './Panels.jsx'
 import Threads from './Threads.jsx'
 import WeChatConnect from './WeChatConnect.jsx'
@@ -10,6 +12,7 @@ import ProviderSettings from './ProviderSettings.jsx'
 import DesktopHandoff from './DesktopHandoff.jsx'
 import MemoryPanel from './MemoryPanel.jsx'
 import Reminders from './Reminders.jsx'
+import { applyTheme, currentTheme, toggleTheme } from './theme.js'
 
 function newThreadId() {
   return 't-' + (crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10))
@@ -30,6 +33,12 @@ export default function Hud({ session, onLogout }) {
   const [accountOpen, setAccountOpen] = useState(false)
   const [providerOpen, setProviderOpen] = useState(false)
   const [memoryOpen, setMemoryOpen] = useState(false)
+  const [theme, setTheme] = useState(currentTheme)
+
+  useEffect(() => {
+    applyTheme(theme)
+    return () => applyTheme('dark')   // 退出 HUD（登出）回到暗色登录页
+  }, [theme])
 
   useEffect(() => { localStorage.setItem('jws_thread', thread) }, [thread])
 
@@ -72,6 +81,8 @@ export default function Hud({ session, onLogout }) {
         <span className="chip hide-sm">{clock}</span>
         {session?.role === 'Owner' ? <button className="chip navbtn wxnav" aria-label="接入个人微信"
           onClick={() => setWxOpen(true)} title="接入个人微信">微信</button> : null}
+        <button className="chip navbtn" onClick={() => setTheme(toggleTheme())}
+          title={theme === 'light' ? '切换到暗色' : '切换到亮色'} aria-label="切换主题">{theme === 'light' ? '☾' : '☀'}</button>
         <button className={`chip navbtn${rightOpen ? ' on' : ''}`}
           onClick={() => setRightOpen(v => !v)} title="日程 / 待办 / 备忘">▦</button>
         <button className="chip logout" onClick={quit} title="退出登录">⏻</button>
@@ -83,7 +94,7 @@ export default function Hud({ session, onLogout }) {
             onSelect={selectThread} onNew={() => selectThread(newThreadId())}
             onExpired={onLogout} />
           <div className="sidefoot">
-            <div className="minireactor"><MossMini busy={busy} /></div>
+            <div className="minireactor"><Suspense fallback={null}><MossMini busy={busy} /></Suspense></div>
             <div className="sf-lines">
               <div>{busy ? 'MOSS · 扫描中' : 'MOSS · 待命'}</div>
               <div>{geo ? '浏览器定位' : dash?.place ? 'IP 定位' : '未定位'}</div>

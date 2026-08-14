@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { login } from './api.js'
-import Moss from './Moss.jsx'
+
+// three.js 场景懒加载：登录表单先出，3D 机头随后淡入
+const Moss = lazy(() => import('./Moss.jsx'))
 
 const LINES_BOOT = 'MOSS 在线。请验证身份。'
 const LINES_OK = '验证通过。欢迎回来，领导。'
@@ -125,8 +127,10 @@ export default function Login({ onAuthed, notice = '' }) {
 
   return (
     <div className={`login${spinup ? ' login-out' : ''}`}>
-      <Moss busy={busy} fail={fail} spinup={spinup}
-        onPick={() => say(pick(LINES_PICK), { voice: true })} />
+      <Suspense fallback={<div className="mossbg" />}>
+        <Moss busy={busy} fail={fail} spinup={spinup}
+          onPick={() => say(pick(LINES_PICK), { voice: true })} />
+      </Suspense>
       <div className="grain" />
 
       {bubble && (
