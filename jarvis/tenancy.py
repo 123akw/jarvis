@@ -91,29 +91,44 @@ class TenantStore:
             "CREATE TABLE IF NOT EXISTS tenant_memos (owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, id INTEGER NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(owner_id, id))",
             "CREATE TABLE IF NOT EXISTS tenant_todos (owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, id INTEGER NOT NULL, content TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0 CHECK(done IN (0,1)), created_at TEXT NOT NULL, PRIMARY KEY(owner_id, id))",
             "CREATE TABLE IF NOT EXISTS tenant_schedule (owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, id INTEGER NOT NULL, title TEXT NOT NULL, when_at TEXT NOT NULL, PRIMARY KEY(owner_id, id))",
-            "CREATE TABLE IF NOT EXISTS tenant_reminders_sent (owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, schedule_id INTEGER NOT NULL, when_at TEXT NOT NULL, channel TEXT NOT NULL, sent_at TEXT NOT NULL, PRIMARY KEY(owner_id, schedule_id, when_at, channel))",
-            "CREATE TABLE IF NOT EXISTS tenant_profile (owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, id INTEGER NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(owner_id, id))",
-            "CREATE TABLE IF NOT EXISTS tenant_prefs (owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, key TEXT NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(owner_id, key))",
             "CREATE TABLE IF NOT EXISTS tenant_location (owner_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, lat REAL NOT NULL, lon REAL NOT NULL, place TEXT NOT NULL, source TEXT NOT NULL, updated_at TEXT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS tenant_local_status (owner_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, payload TEXT NOT NULL, updated_at TEXT NOT NULL)",
         )
+
+    @staticmethod
+    def _schema_v2_statements() -> tuple[str, ...]:
+        """v2（2026-08-14 体验升级）：提醒记账、长期画像、通用偏好。
+
+        新表必须走独立版本号：v1 的建表列表被版本门挡住，只在全新库上执行，
+        往 v1 列表里加表对存量库（生产）完全无效——线上已实际踩过这一坑。
+        """
+        return (
+            "CREATE TABLE IF NOT EXISTS tenant_reminders_sent (owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, schedule_id INTEGER NOT NULL, when_at TEXT NOT NULL, channel TEXT NOT NULL, sent_at TEXT NOT NULL, PRIMARY KEY(owner_id, schedule_id, when_at, channel))",
+            "CREATE TABLE IF NOT EXISTS tenant_profile (owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, id INTEGER NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(owner_id, id))",
+            "CREATE TABLE IF NOT EXISTS tenant_prefs (owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, key TEXT NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(owner_id, key))",
+        )
+
+    @staticmethod
+    def _apply_version(connection: sqlite3.Connection, version: int, statements: tuple[str, ...]) -> None:
+        if connection.execute("SELECT 1 FROM tenant_schema_migrations WHERE version=?", (version,)).fetchone():
+            return
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            for statement in statements:
+                connection.execute(statement)
+            connection.execute("INSERT INTO tenant_schema_migrations(version, applied_at) VALUES(?, ?)", (version, _now()))
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
 
     @staticmethod
     def _migrate(connection: sqlite3.Connection) -> None:
         if not connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'").fetchone():
             raise TenantMigrationError("accounts database is required before tenant state")
         connection.execute("CREATE TABLE IF NOT EXISTS tenant_schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)")
-        if connection.execute("SELECT 1 FROM tenant_schema_migrations WHERE version=1").fetchone():
-            return
-        connection.execute("BEGIN IMMEDIATE")
-        try:
-            for statement in TenantStore._schema_statements():
-                connection.execute(statement)
-            connection.execute("INSERT INTO tenant_schema_migrations(version, applied_at) VALUES(1, ?)", (_now(),))
-            connection.commit()
-        except Exception:
-            connection.rollback()
-            raise
+        TenantStore._apply_version(connection, 1, TenantStore._schema_statements())
+        TenantStore._apply_version(connection, 2, TenantStore._schema_v2_statements())
 
     @staticmethod
     def _owner(owner_id: str | None) -> str:

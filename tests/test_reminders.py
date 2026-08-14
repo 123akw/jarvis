@@ -85,3 +85,21 @@ def test_pending_endpoint_marks_per_transport(monkeypatch):
     d.headers["X-JWS-Token"] = token
     assert [x["title"] for x in d.get("/api/reminders/pending").json()["items"]] == ["已到点的会"]
     assert d.get("/api/reminders/pending").json()["items"] == []  # desktop 通道独立记账
+
+
+def test_v2_migration_upgrades_existing_v1_database():
+    """存量库升级路径：只打过 v1 的库重新连接后必须补建 v2 三张表（线上踩坑回归）。"""
+    store = TenantStore()
+    with store._connect() as c:  # 先造一个「旧库」：删掉 v2 记录与三张新表
+        c.execute("DROP TABLE tenant_prefs")
+        c.execute("DROP TABLE tenant_profile")
+        c.execute("DROP TABLE tenant_reminders_sent")
+        c.execute("DELETE FROM tenant_schema_migrations WHERE version=2")
+        c.commit()
+    # 任何一次重新连接都应触发 v2 迁移，三张表可用
+    assert store.get_pref("nope") is None
+    store.set_pref("tts_voice", "female-yujie")
+    assert store.get_pref("tts_voice") == "female-yujie"
+    assert store.list_profile() == []
+    floor, ceiling = reminder_window(NOW)
+    assert store.due_reminders(floor=floor, ceiling=ceiling, channel="wechat") == []
