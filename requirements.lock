@@ -159,6 +159,8 @@ pwdlib==0.3.1
     # via jarvis (pyproject.toml)
 pycparser==3.0
     # via cffi
+pypdf==6.16.0
+    # via jarvis (pyproject.toml)
 python-dateutil==2.9.0.post0
     # via
     #   dateparser

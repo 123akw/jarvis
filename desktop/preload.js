@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('jws', {
   showLogin: () => ipcRenderer.invoke('show-login'),
   voiceMicAccess: () => ipcRenderer.invoke('voice-mic-access'),
   openProviderLink: url => ipcRenderer.invoke('open-provider-link', url),
+  openExternalLink: url => ipcRenderer.invoke('open-external-link', url),
   onForceExpand: eventApi.onForceExpand,
   onSetExpanded: eventApi.onSetExpanded,
   onHandoffAuthenticated: eventApi.onHandoffAuthenticated,

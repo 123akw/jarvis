@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import AIMessageChunk, ToolMessage
 from pydantic import BaseModel, SecretStr
 
-from jarvis import __version__, config, wechat
+from jarvis import __version__, config, reminders, wechat
 from jarvis.accounts import AccountStore, Principal, csrf_token, session_secret_configured
 from jarvis.graph import build_agent, heal_dangling_tool_calls
 from jarvis.provider_runtime import AgentRuntimeManager, probe_integration
@@ -40,11 +40,30 @@ from jarvis.tools.todo import all_todos
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """恢复持久微信桥；退出时停线程但不删除 Token。"""
+    """恢复持久微信桥并启动日程提醒扫描；退出时停线程但不删除 Token。"""
     wechat.resume_on_boot()
+    scanner = None
+    radio = None
+    if os.getenv("JARVIS_REMINDERS_ENABLED", "1") != "0":
+        scanner = reminders.ReminderScanner(
+            owner_getter=_accounts.unique_active_owner,
+            push_wechat=wechat.push_text,
+        )
+        scanner.start()
+        radio = reminders.MorningRadio(
+            owner_getter=_accounts.unique_active_owner,
+            compose=_radio_compose,
+            push_voice=wechat.push_voice_then_text,
+            push_available=wechat.push_available,
+        )
+        radio.start()
     try:
         yield
     finally:
+        if scanner is not None:
+            scanner.stop()
+        if radio is not None:
+            radio.stop()
         wechat.shutdown()
         if _runtime_manager is not None:
             _runtime_manager.close()
@@ -428,6 +447,27 @@ def change_password(request: Request, body: PasswordChangeIn):
     return resp
 
 
+# ---------- 日程主动提醒：网页/桌面轮询领取 ----------
+
+@app.get("/api/reminders/pending")
+def reminders_pending(request: Request):
+    """返回该账号到点未提醒的日程并按 transport 记账：同一通道只弹一次。"""
+    principal, _token = _request_principal(request)
+    if not principal:
+        return _deny()
+    channel = "desktop" if principal.transport == "desktop" else "web"
+    floor, ceiling = reminders.reminder_window(datetime.datetime.now())
+    try:
+        with tenant_scope(principal.user_id):
+            store = _tenant_store()
+            due = store.due_reminders(floor=floor, ceiling=ceiling, channel=channel)
+            for item in due:
+                store.mark_reminded(item["id"], item["when"], channel)
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+    return {"items": due}
+
+
 # ---------- 会话管理 ----------
 
 def _tenant_store() -> TenantStore:
@@ -477,6 +517,27 @@ def history(request: Request, thread_id: str):
             if text.strip():
                 out.append({"role": "assistant", "content": text})
     return out
+
+
+class ThreadRenameIn(BaseModel):
+    title: str
+
+
+@app.patch("/api/thread")
+def rename_thread(request: Request, thread_id: str, body: ThreadRenameIn):
+    principal = _write_authorized(request)
+    if not principal:
+        return _csrf_deny() if _authed(request) else _deny()
+    if not " ".join(body.title.split()):
+        return JSONResponse({"error": "标题不能为空"}, status_code=422)
+    try:
+        with tenant_scope(principal.user_id):
+            thread = _tenant_store().rename_thread(thread_id, body.title)
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+    if not thread:
+        return JSONResponse({"error": "未找到对话"}, status_code=404)
+    return {"ok": True, "title": thread.title}
 
 
 @app.delete("/api/thread")
@@ -582,6 +643,364 @@ def dashboard(request: Request):
         "todos": pending,
         "todos_done": len(todos) - len(pending),
     }
+
+
+# ---------- 任务台写接口：待办 / 备忘 / 日程直接点操作，不必绕道对话 ----------
+
+def _panel_write(request: Request):
+    """共用鉴权：返回 (principal, 错误响应)；错误响应非 None 时直接返回。"""
+    principal = _write_authorized(request)
+    if not principal:
+        return None, (_csrf_deny() if _authed(request) else _deny())
+    return principal, None
+
+
+def _clean_line(value: str, limit: int = 200) -> str:
+    return " ".join(str(value).split())[:limit]
+
+
+class PanelItemIn(BaseModel):
+    content: str
+
+
+class TodoPatchIn(BaseModel):
+    done: bool
+
+
+class ScheduleCreateIn(BaseModel):
+    title: str
+    when: str
+
+
+@app.post("/api/todos")
+def todo_create(request: Request, body: PanelItemIn):
+    principal, err = _panel_write(request)
+    if err:
+        return err
+    content = _clean_line(body.content)
+    if not content:
+        return JSONResponse({"error": "内容不能为空"}, status_code=422)
+    try:
+        with tenant_scope(principal.user_id):
+            item = _tenant_store().add_todo(content)
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+    return {"ok": True, "id": item["id"]}
+
+
+@app.patch("/api/todos/{item_id}")
+def todo_patch(request: Request, item_id: int, body: TodoPatchIn):
+    principal, err = _panel_write(request)
+    if err:
+        return err
+    try:
+        with tenant_scope(principal.user_id):
+            found = _tenant_store().set_todo_done(item_id, body.done)
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+    if not found:
+        return JSONResponse({"error": "未找到待办"}, status_code=404)
+    return {"ok": True}
+
+
+@app.delete("/api/todos/{item_id}")
+def todo_delete(request: Request, item_id: int):
+    principal, err = _panel_write(request)
+    if err:
+        return err
+    try:
+        with tenant_scope(principal.user_id):
+            found = _tenant_store().delete_todo(item_id)
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+    if not found:
+        return JSONResponse({"error": "未找到待办"}, status_code=404)
+    return {"ok": True}
+
+
+@app.post("/api/memos")
+def memo_create(request: Request, body: PanelItemIn):
+    principal, err = _panel_write(request)
+    if err:
+        return err
+    content = _clean_line(body.content)
+    if not content:
+        return JSONResponse({"error": "内容不能为空"}, status_code=422)
+    try:
+        with tenant_scope(principal.user_id):
+            item = _tenant_store().add_memo(content)
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+    return {"ok": True, "id": item["id"]}
+
+
+@app.delete("/api/memos/{item_id}")
+def memo_delete(request: Request, item_id: int):
+    principal, err = _panel_write(request)
+    if err:
+        return err
+    try:
+        with tenant_scope(principal.user_id):
+            found = _tenant_store().delete_memo(item_id)
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+    if not found:
+        return JSONResponse({"error": "未找到备忘"}, status_code=404)
+    return {"ok": True}
+
+
+@app.post("/api/schedule")
+def schedule_create(request: Request, body: ScheduleCreateIn):
+    principal, err = _panel_write(request)
+    if err:
+        return err
+    title = _clean_line(body.title)
+    if not title:
+        return JSONResponse({"error": "内容不能为空"}, status_code=422)
+    try:
+        datetime.datetime.strptime(body.when, "%Y-%m-%d %H:%M")
+    except ValueError:
+        return JSONResponse({"error": "时间需要 YYYY-MM-DD HH:MM 格式"}, status_code=422)
+    try:
+        with tenant_scope(principal.user_id):
+            item = _tenant_store().add_schedule(title, body.when)
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+    return {"ok": True, "id": item["id"]}
+
+
+@app.delete("/api/schedule/{item_id}")
+def schedule_delete(request: Request, item_id: int):
+    principal, err = _panel_write(request)
+    if err:
+        return err
+    try:
+        with tenant_scope(principal.user_id):
+            found = _tenant_store().delete_schedule(item_id)
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+    if not found:
+        return JSONResponse({"error": "未找到日程"}, status_code=404)
+    return {"ok": True}
+
+
+# ---------- 语音设置：每用户音色 / 语速（非密钥，不走加密存储） ----------
+
+class VoiceSettingsIn(BaseModel):
+    voice: str
+    speed: float
+
+
+@app.get("/api/voice/settings")
+def voice_settings_get(request: Request):
+    principal, _token = _request_principal(request)
+    if not principal:
+        return _deny()
+    from jarvis.voice.gateway import VOICE_CATALOG
+    try:
+        with tenant_scope(principal.user_id):
+            store = _tenant_store()
+            voice = store.get_pref("tts_voice") or "male-qn-qingse"
+            speed = store.get_pref("tts_speed") or "1.0"
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+    return {"voice": voice, "speed": float(speed), "catalog": VOICE_CATALOG}
+
+
+@app.put("/api/voice/settings")
+def voice_settings_put(request: Request, body: VoiceSettingsIn):
+    principal, err = _panel_write(request)
+    if err:
+        return err
+    from jarvis.voice.gateway import VOICE_CATALOG
+    if body.voice not in {item["id"] for item in VOICE_CATALOG}:
+        return JSONResponse({"error": "音色不在可选目录里"}, status_code=422)
+    if not (0.5 <= body.speed <= 2.0):
+        return JSONResponse({"error": "语速需在 0.5–2.0 之间"}, status_code=422)
+    try:
+        with tenant_scope(principal.user_id):
+            store = _tenant_store()
+            store.set_pref("tts_voice", body.voice)
+            store.set_pref("tts_speed", f"{body.speed:.2f}")
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+    return {"ok": True}
+
+
+# ---------- 文档上传解析：PDF / docx / TXT / MD → 纯文本注入对话 ----------
+
+class UploadIn(BaseModel):
+    name: str
+    content_b64: str
+
+
+@app.post("/api/upload")
+def upload_document(request: Request, body: UploadIn):
+    principal, err = _panel_write(request)
+    if err:
+        return err
+    name = Path(body.name).name.strip() or "文档"
+    try:
+        import base64 as b64_mod
+        data = b64_mod.b64decode(body.content_b64, validate=True)
+    except Exception:
+        return JSONResponse({"error": "文件内容编码不合法"}, status_code=422)
+    from jarvis import documents
+    try:
+        text = documents.extract_text(name, data)
+    except documents.DocumentError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=422)
+    truncated = len(text) > documents.MAX_DOC_CHARS
+    if truncated:
+        text = text[: documents.MAX_DOC_CHARS]
+    return {"ok": True, "name": name, "chars": len(text), "truncated": truncated, "text": text}
+
+
+# ---------- 晨报电台：每天定时用 Agent 生成晨报，经微信语音条+文字推送 ----------
+
+def _radio_compose(owner) -> str:
+    """用 Owner 自己的 Agent 跑一轮固定晨报指令（独立 radio 线程，不混日常对话）。"""
+    with tenant_scope(owner.user_id):
+        store = _tenant_store()
+        thread = store.upsert_thread("radio", "晨报电台")
+        with _bundle_for(owner.user_id) as bundle:
+            heal_dangling_tool_calls(bundle.agent, thread.checkpoint_thread_id)
+            result = bundle.agent.invoke(
+                {"messages": [{"role": "user", "content": reminders.RADIO_PROMPT}]},
+                config={"configurable": {"thread_id": thread.checkpoint_thread_id}},
+            )
+    return _chunk_text(result["messages"][-1].content)
+
+
+class RadioIn(BaseModel):
+    time: str = ""
+
+
+@app.get("/api/radio")
+def radio_get(request: Request):
+    principal, _token = _request_principal(request)
+    if not principal:
+        return _deny()
+    try:
+        with tenant_scope(principal.user_id):
+            return {"time": _tenant_store().get_pref("radio_time") or ""}
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+
+
+@app.put("/api/radio")
+def radio_put(request: Request, body: RadioIn):
+    principal, err = _panel_write(request)
+    if err:
+        return err
+    value = body.time.strip()
+    if value:
+        try:
+            datetime.datetime.strptime(value, "%H:%M")
+        except ValueError:
+            return JSONResponse({"error": "时间需要 HH:MM 格式"}, status_code=422)
+    try:
+        with tenant_scope(principal.user_id):
+            store = _tenant_store()
+            store.set_pref("radio_time", value or None)
+            store.set_pref("radio_last_sent", None)   # 改时间后当天仍可按新时间发
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+    return {"ok": True, "time": value}
+
+
+# ---------- 人设工坊：称呼 / 人格（J.A.R.V.I.S. ↔ MOSS）/ 语气 ----------
+
+PERSONA_STYLES = {"jarvis", "moss"}
+
+
+class PersonaIn(BaseModel):
+    style: str
+    address: str = ""
+    flavor: str = ""
+
+
+@app.get("/api/persona")
+def persona_get(request: Request):
+    principal, _token = _request_principal(request)
+    if not principal:
+        return _deny()
+    try:
+        with tenant_scope(principal.user_id):
+            store = _tenant_store()
+            return {
+                "style": store.get_pref("persona_style") or "jarvis",
+                "address": store.get_pref("persona_address") or "",
+                "flavor": store.get_pref("persona_flavor") or "",
+            }
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+
+
+@app.put("/api/persona")
+def persona_put(request: Request, body: PersonaIn):
+    principal, err = _panel_write(request)
+    if err:
+        return err
+    if body.style not in PERSONA_STYLES:
+        return JSONResponse({"error": "人格只支持 jarvis / moss"}, status_code=422)
+    address = _clean_line(body.address, 12)
+    flavor = _clean_line(body.flavor, 120)
+    try:
+        with tenant_scope(principal.user_id):
+            store = _tenant_store()
+            store.set_pref("persona_style", body.style)
+            store.set_pref("persona_address", address or None)
+            store.set_pref("persona_flavor", flavor or None)
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+    return {"ok": True}
+
+
+# ---------- 长期记忆画像：网页「记忆」面板可查可删 ----------
+
+@app.get("/api/profile")
+def profile_list_api(request: Request):
+    principal, _token = _request_principal(request)
+    if not principal:
+        return _deny()
+    try:
+        with tenant_scope(principal.user_id):
+            items = _tenant_store().list_profile()
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+    return {"items": items}
+
+
+@app.post("/api/profile")
+def profile_create(request: Request, body: PanelItemIn):
+    principal, err = _panel_write(request)
+    if err:
+        return err
+    content = _clean_line(body.content)
+    if not content:
+        return JSONResponse({"error": "内容不能为空"}, status_code=422)
+    try:
+        with tenant_scope(principal.user_id):
+            item = _tenant_store().add_profile(content)
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+    return {"ok": True, "id": item["id"]}
+
+
+@app.delete("/api/profile/{item_id}")
+def profile_delete(request: Request, item_id: int):
+    principal, err = _panel_write(request)
+    if err:
+        return err
+    try:
+        with tenant_scope(principal.user_id):
+            found = _tenant_store().delete_profile(item_id)
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+    if not found:
+        return JSONResponse({"error": "未找到画像"}, status_code=404)
+    return {"ok": True}
 
 
 class ChatIn(BaseModel):

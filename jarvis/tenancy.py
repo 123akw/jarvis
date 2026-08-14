@@ -91,6 +91,9 @@ class TenantStore:
             "CREATE TABLE IF NOT EXISTS tenant_memos (owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, id INTEGER NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(owner_id, id))",
             "CREATE TABLE IF NOT EXISTS tenant_todos (owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, id INTEGER NOT NULL, content TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0 CHECK(done IN (0,1)), created_at TEXT NOT NULL, PRIMARY KEY(owner_id, id))",
             "CREATE TABLE IF NOT EXISTS tenant_schedule (owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, id INTEGER NOT NULL, title TEXT NOT NULL, when_at TEXT NOT NULL, PRIMARY KEY(owner_id, id))",
+            "CREATE TABLE IF NOT EXISTS tenant_reminders_sent (owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, schedule_id INTEGER NOT NULL, when_at TEXT NOT NULL, channel TEXT NOT NULL, sent_at TEXT NOT NULL, PRIMARY KEY(owner_id, schedule_id, when_at, channel))",
+            "CREATE TABLE IF NOT EXISTS tenant_profile (owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, id INTEGER NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(owner_id, id))",
+            "CREATE TABLE IF NOT EXISTS tenant_prefs (owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, key TEXT NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(owner_id, key))",
             "CREATE TABLE IF NOT EXISTS tenant_location (owner_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, lat REAL NOT NULL, lon REAL NOT NULL, place TEXT NOT NULL, source TEXT NOT NULL, updated_at TEXT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS tenant_local_status (owner_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, payload TEXT NOT NULL, updated_at TEXT NOT NULL)",
         )
@@ -155,6 +158,26 @@ class TenantStore:
             rows = c.execute("SELECT alias,title,updated_at FROM tenant_threads WHERE owner_id=? ORDER BY updated_at DESC", (owner,)).fetchall()
         return [{"id": r["alias"], "title": r["title"], "updated": r["updated_at"]} for r in rows]
 
+    def rename_thread(self, alias: str, title: str, *, owner_id: str | None = None) -> TenantThread | None:
+        """改标题不改 updated_at：重命名不应打乱「最近对话」排序。"""
+        owner = self._owner(owner_id)
+        cleaned = " ".join(str(title).split())[:48]
+        if not cleaned:
+            raise ValueError("thread title is required")
+        with self._connect() as c:
+            c.execute("BEGIN IMMEDIATE")
+            try:
+                row = c.execute("SELECT checkpoint_thread_id,updated_at FROM tenant_threads WHERE owner_id=? AND alias=?", (owner, alias)).fetchone()
+                if not row:
+                    c.rollback()
+                    return None
+                c.execute("UPDATE tenant_threads SET title=? WHERE owner_id=? AND alias=?", (cleaned, owner, alias))
+                c.commit()
+                return TenantThread(alias, cleaned, row["checkpoint_thread_id"], row["updated_at"])
+            except Exception:
+                c.rollback()
+                raise
+
     def delete_thread(self, alias: str, *, owner_id: str | None = None) -> TenantThread | None:
         owner = self._owner(owner_id)
         with self._connect() as c:
@@ -214,6 +237,64 @@ class TenantStore:
             c.execute("UPDATE tenant_todos SET done=1 WHERE owner_id=? AND id=?", (owner, item_id))
             return True, False, row["content"]
 
+    def get_pref(self, key: str, default: str | None = None, *, owner_id: str | None = None) -> str | None:
+        owner = self._owner(owner_id)
+        with self._connect() as c:
+            row = c.execute("SELECT value FROM tenant_prefs WHERE owner_id=? AND key=?", (owner, key)).fetchone()
+        return row["value"] if row else default
+
+    def set_pref(self, key: str, value: str | None, *, owner_id: str | None = None) -> None:
+        """value 为 None 时删除该项（回到默认）。"""
+        owner = self._owner(owner_id)
+        with self._connect() as c:
+            if value is None:
+                c.execute("DELETE FROM tenant_prefs WHERE owner_id=? AND key=?", (owner, key))
+            else:
+                c.execute("INSERT INTO tenant_prefs(owner_id,key,value,updated_at) VALUES(?,?,?,?)"
+                          " ON CONFLICT(owner_id,key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+                          (owner, key, str(value), _now()))
+
+    def add_profile(self, content: str, *, owner_id: str | None = None) -> dict:
+        """记一条用户长期画像；内容完全相同的条目不重复入库（幂等）。"""
+        owner = self._owner(owner_id)
+        cleaned = " ".join(str(content).split())[:200]
+        if not cleaned:
+            raise ValueError("profile content is required")
+        with self._connect() as c:
+            c.execute("BEGIN IMMEDIATE")
+            try:
+                row = c.execute("SELECT id FROM tenant_profile WHERE owner_id=? AND content=?", (owner, cleaned)).fetchone()
+                if row:
+                    c.commit()
+                    return {"id": row["id"], "content": cleaned, "existed": True}
+                item_id = self._next_id(c, "tenant_profile", owner)
+                c.execute("INSERT INTO tenant_profile(owner_id,id,content,created_at) VALUES(?,?,?,?)", (owner, item_id, cleaned, _now()))
+                c.commit()
+                return {"id": item_id, "content": cleaned, "existed": False}
+            except Exception:
+                c.rollback(); raise
+
+    def list_profile(self, *, owner_id: str | None = None) -> list[dict]:
+        owner = self._owner(owner_id)
+        with self._connect() as c:
+            rows = c.execute("SELECT id,content,created_at FROM tenant_profile WHERE owner_id=? ORDER BY id", (owner,)).fetchall()
+        return [{"id": r["id"], "content": r["content"], "created": r["created_at"]} for r in rows]
+
+    def delete_profile(self, item_id: int, *, owner_id: str | None = None) -> bool:
+        owner = self._owner(owner_id)
+        with self._connect() as c:
+            return bool(c.execute("DELETE FROM tenant_profile WHERE owner_id=? AND id=?", (owner, item_id)).rowcount)
+
+    def set_todo_done(self, item_id: int, done: bool, *, owner_id: str | None = None) -> bool:
+        owner = self._owner(owner_id)
+        with self._connect() as c:
+            return bool(c.execute("UPDATE tenant_todos SET done=? WHERE owner_id=? AND id=?", (int(bool(done)), owner, item_id)).rowcount)
+
+    def delete_todo(self, item_id: int, *, owner_id: str | None = None) -> bool:
+        owner = self._owner(owner_id)
+        with self._connect() as c:
+            return bool(c.execute("DELETE FROM tenant_todos WHERE owner_id=? AND id=?", (owner, item_id)).rowcount)
+
     def add_schedule(self, title: str, when: str, *, owner_id: str | None = None, legacy_id: int | None = None) -> dict:
         owner = self._owner(owner_id)
         with self._connect() as c:
@@ -234,6 +315,26 @@ class TenantStore:
     def delete_schedule(self, item_id: int, *, owner_id: str | None = None) -> bool:
         owner = self._owner(owner_id)
         with self._connect() as c: return bool(c.execute("DELETE FROM tenant_schedule WHERE owner_id=? AND id=?", (owner, item_id)).rowcount)
+
+    def due_reminders(self, *, floor: str, ceiling: str, channel: str, owner_id: str | None = None) -> list[dict]:
+        """到点且该通道尚未提醒过的日程：floor < when_at <= ceiling（格式固定，字典序即时间序）。"""
+        owner = self._owner(owner_id)
+        with self._connect() as c:
+            rows = c.execute(
+                "SELECT s.id, s.title, s.when_at FROM tenant_schedule s"
+                " WHERE s.owner_id=? AND s.when_at>? AND s.when_at<=?"
+                " AND NOT EXISTS (SELECT 1 FROM tenant_reminders_sent r"
+                "   WHERE r.owner_id=s.owner_id AND r.schedule_id=s.id AND r.when_at=s.when_at AND r.channel=?)"
+                " ORDER BY s.when_at, s.id",
+                (owner, floor, ceiling, channel)).fetchall()
+        return [{"id": r["id"], "title": r["title"], "when": r["when_at"]} for r in rows]
+
+    def mark_reminded(self, schedule_id: int, when_at: str, channel: str, *, owner_id: str | None = None) -> None:
+        owner = self._owner(owner_id)
+        with self._connect() as c:
+            c.execute("INSERT OR IGNORE INTO tenant_reminders_sent(owner_id,schedule_id,when_at,channel,sent_at) VALUES(?,?,?,?,?)",
+                      (owner, schedule_id, when_at, channel, _now()))
+            c.commit()
 
     def get_location(self, *, owner_id: str | None = None) -> dict | None:
         owner = self._owner(owner_id)

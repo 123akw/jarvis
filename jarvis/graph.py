@@ -1,13 +1,13 @@
 """LangGraph 底座：ReAct agent + SQLite 持久记忆。"""
 import sqlite3
 
-from langchain_core.messages import RemoveMessage
+from langchain_core.messages import RemoveMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.prebuilt import create_react_agent
 
 from jarvis import config
-from jarvis.prompts import SYSTEM_PROMPT
+from jarvis.prompts import compose_system_prompt
 from jarvis.search.service import SearchService
 from jarvis.tools import build_search_service, build_tools
 
@@ -37,10 +37,14 @@ def build_agent(
         checkpointer = SqliteSaver(
             sqlite3.connect(str(config.db_path()), check_same_thread=False)
         )
+    def dynamic_prompt(state):
+        # 每轮组装：基础人设 + 当前租户的长期画像（在 tenant_scope 内求值）
+        return [SystemMessage(content=compose_system_prompt())] + state["messages"]
+
     return create_react_agent(
         model,
         tools,
-        prompt=SYSTEM_PROMPT,
+        prompt=dynamic_prompt,
         checkpointer=checkpointer,
     )
 

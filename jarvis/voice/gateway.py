@@ -50,6 +50,36 @@ VOICE_STYLE_PROMPT = (
 
 # 测试可整体替换为假会话工厂；生产即 MiniMax WSS 客户端
 create_tts_session = tts_mod.TTSSession
+
+# 网页「⚙ API → 语音」可选音色目录（MiniMax 系统音色的公开子集）
+VOICE_CATALOG = [
+    {"id": "male-qn-qingse", "name": "青涩青年（默认）"},
+    {"id": "male-qn-jingying", "name": "精英青年"},
+    {"id": "male-qn-badao", "name": "霸道青年"},
+    {"id": "female-shaonv", "name": "少女"},
+    {"id": "female-yujie", "name": "御姐"},
+    {"id": "female-chengshu", "name": "成熟女声"},
+    {"id": "presenter_male", "name": "男主持"},
+    {"id": "presenter_female", "name": "女主持"},
+]
+
+
+def tts_prefs_for(user_id) -> dict:
+    """读取该用户的音色/语速偏好；没配置或读取失败都返回空（用环境默认）。"""
+    from jarvis.tenancy import TenantStore
+    kwargs = {}
+    try:
+        with tenant_scope(user_id):
+            store = TenantStore()
+            voice = store.get_pref("tts_voice")
+            speed = store.get_pref("tts_speed")
+        if voice:
+            kwargs["voice_id"] = voice
+        if speed:
+            kwargs["speed"] = float(speed)
+    except Exception:
+        return {}
+    return kwargs
 # 测试可整体替换为假会话工厂；生产即百炼 paraformer WSS 客户端
 create_asr_session = asr_mod.ASRSession
 
@@ -275,7 +305,9 @@ class _Turn:
 
     async def _open_tts(self) -> None:
         try:
-            session = create_tts_session()
+            prefs = tts_prefs_for(self.call.user_id)
+            # 无偏好时保持零参调用：测试注入的假工厂不必接受 kwargs
+            session = create_tts_session(**prefs) if prefs else create_tts_session()
             await session.connect()
         except tts_mod.TTSError:
             await self._tts_down()

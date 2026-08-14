@@ -8,6 +8,8 @@ const MAX_STREAM_EVENTS = 4096
 const OPERATIONS = {
   session: { method: 'GET', path: () => '/api/session', validate: emptyBody },
   dashboard: { method: 'GET', path: () => '/api/dashboard', validate: emptyBody },
+  remindersPending: { method: 'GET', path: () => '/api/reminders/pending', validate: emptyBody },
+  todoPatch: { method: 'PATCH', path: body => `/api/todos/${body.id}`, validate: todoPatchBody, requestBody: body => ({ done: body.done }) },
   history: { method: 'GET', path: () => '/api/history?thread_id=desktop', validate: desktopThread },
   deleteThread: { method: 'DELETE', path: () => '/api/thread?thread_id=desktop', validate: desktopThread },
   chat: { method: 'POST', path: () => '/api/chat', validate: chatBody },
@@ -220,6 +222,12 @@ function emptyBody(body) {
   return {}
 }
 function desktopThread(body) { exact(body, ['thread_id']); if (body.thread_id !== 'desktop') throw new Error('invalid desktop thread'); return { thread_id: 'desktop' } }
+function todoPatchBody(body) {
+  exact(body, ['id', 'done'])
+  if (!Number.isInteger(body.id) || body.id < 1) throw new Error('invalid todo id')
+  if (typeof body.done !== 'boolean') throw new Error('invalid todo done')
+  return { id: body.id, done: body.done }
+}
 function chatBody(body) {
   exact(body, ['thread_id', 'message'])
   if (body.thread_id !== 'desktop') throw new Error('invalid desktop thread')

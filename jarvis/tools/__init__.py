@@ -11,6 +11,7 @@ from jarvis.tools.clock import now
 from jarvis.tools.entertainment import make_entertainment_tools, render_search_failure
 from jarvis.tools.location import coding_status, my_location
 from jarvis.tools.memo import memo_add, memo_del, memo_list
+from jarvis.tools.profile import profile_forget, profile_list, profile_remember
 from jarvis.tools.schedule import schedule_add, schedule_del, schedule_list
 from jarvis.tools.search import WebSearchArgs, _validated_request, make_web_extract_tool
 from jarvis.tools.system import sys_query
@@ -23,6 +24,7 @@ _SEARCH_GENERATIONS = count(1)
 _LOCAL_TOOLS = [
     now, calc, weather, weather_here, my_location, coding_status,
     memo_add, memo_list, memo_del,
+    profile_remember, profile_list, profile_forget,
     schedule_add, schedule_list, schedule_del,
     todo_add, todo_list, todo_done,
     sys_query,

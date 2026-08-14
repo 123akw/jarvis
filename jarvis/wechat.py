@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import base64
+import os
+import re
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
@@ -31,6 +33,43 @@ REPLY_CHUNK_SIZE = 1500
 REPLY_WORKERS = 4
 # 语音识别链路（下载/解码/识别）任何一环失败时给用户的固定提示（任务书指定文案）。
 VOICE_NOT_UNDERSTOOD = "这段语音我没听清，麻烦再说一次或打字"
+
+# 发链接即总结：消息基本只有一条链接时，包装成确定性的读文总结指令（对齐元宝的微信玩法）
+_URL_RE = re.compile(r"https?://[^\s<>\"）)】]+")
+LINK_SUMMARY_PROMPT = (
+    "请用 web_extract 读取这个链接的正文，用要点式总结主要内容（不超过 5 条），"
+    "最后用一句话给出结论；正文提取失败就改用 web_search 按标题检索后如实说明。链接：{url}"
+)
+
+
+def link_summary_prompt(text: str) -> str | None:
+    """消息=「链接（可带少量寒暄）」→ 返回总结指令；带了明确问题则返回 None 按原文走。"""
+    urls = _URL_RE.findall(text)
+    if not urls:
+        return None
+    stripped = _URL_RE.sub("", text).strip()
+    if len(stripped) > 12:
+        return None
+    return LINK_SUMMARY_PROMPT.format(url=urls[0])
+
+
+# 群聊礼貌规则：只有被 @ 才应答（@名字可用 JARVIS_WECHAT_GROUP_NAME 覆盖，默认「贾维斯」）
+def group_mention_text(text: str) -> str | None:
+    name = os.getenv("JARVIS_WECHAT_GROUP_NAME", "贾维斯").strip()
+    if not name:
+        return None
+    tag = f"@{name}"
+    if tag not in text:
+        return None
+    cleaned = text.replace(tag, " ").replace("\u2005", " ").strip()
+    return cleaned or "你好"
+
+
+# 提醒推送绑定：确定性命令词（不进大模型，谁发绑谁——由用户自己指定收提醒的会话）
+PUSH_BIND_COMMANDS = ("提醒发给我", "把提醒发到这里", "提醒发到这里")
+PUSH_UNBIND_COMMANDS = ("取消提醒推送", "关闭提醒推送")
+PUSH_BOUND_REPLY = "好的，以后日程到点我会在这里主动提醒你。发「取消提醒推送」可以关闭。"
+PUSH_UNBOUND_REPLY = "好的，日程到点我不再主动推送提醒。"
 # 必须低于 iLink 心跳帧间隔（实测约 18 秒）：心跳字节会不断重置 read 超时，
 # 僵死会话（连接活、心跳在发、但响应永不完成也不派消息）在更长的超时下
 # 永远不会被翻新，表现为「状态已连接却收不到任何消息」（2026-08-12 线上）。
@@ -226,6 +265,117 @@ class WeChatBridge:
 
     def _clear_sync_buf(self) -> None:
         self._sync_path().unlink(missing_ok=True)
+
+    # ---- 提醒主动推送：绑定的联系人与最近一次 context_token（0600 落盘） ----
+
+    def _push_target_path(self) -> Path:
+        data_dir = self._data_dir_getter()
+        data_dir.mkdir(parents=True, exist_ok=True)
+        return data_dir / "wechat_push_target.json"
+
+    def _load_push_target(self) -> dict | None:
+        try:
+            payload = json.loads(self._push_target_path().read_text(encoding="utf-8"))
+        except (OSError, TypeError, ValueError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        from_id = payload.get("from_id", "")
+        if not isinstance(from_id, str) or not from_id:
+            return None
+        context = payload.get("context_token", "")
+        return {"from_id": from_id, "context_token": context if isinstance(context, str) else ""}
+
+    def _save_push_target(self, from_id: str, context_token) -> None:
+        path = self._push_target_path()
+        pending = path.with_suffix(".tmp")
+        pending.write_text(
+            json.dumps({
+                "from_id": from_id,
+                "context_token": context_token if isinstance(context_token, str) else "",
+            }, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        pending.chmod(0o600)
+        pending.replace(path)
+        path.chmod(0o600)
+
+    def _clear_push_target(self) -> None:
+        self._push_target_path().unlink(missing_ok=True)
+
+    def _refresh_push_context(self, from_id: str, context_token) -> None:
+        """绑定联系人的 context_token 随最新消息滚动，降低推送时已过期的概率。"""
+        if not isinstance(context_token, str) or not context_token:
+            return
+        target = self._load_push_target()
+        if target and target["from_id"] == from_id and context_token != target["context_token"]:
+            self._save_push_target(from_id, context_token)
+
+    def _push_channel(self) -> tuple[dict, str] | None:
+        """推送通道三要素齐了才返回 (target, token)：已连接、已绑定、有凭据。"""
+        with self._lock:
+            if self._state["state"] != "connected":
+                return None
+        target = self._load_push_target()
+        if not target:
+            return None
+        try:
+            token = self._token_path().read_text(encoding="utf-8").strip()
+        except OSError:
+            return None
+        return (target, token) if token else None
+
+    def push_available(self) -> bool:
+        return self._push_channel() is not None
+
+    def push_text(self, text: str) -> bool:
+        """主动推送一条文字（日程提醒等）给绑定联系人；未绑定/未连接返回 False 不抛错。"""
+        channel = self._push_channel()
+        if channel is None:
+            return False
+        target, token = channel
+        client = self._client_factory()
+        try:
+            for chunk in self._split_reply(text):
+                self._send_items(
+                    client, token, target["from_id"], target["context_token"],
+                    [{"type": 1, "text_item": {"text": chunk}}],
+                )
+            return True
+        except (httpx.HTTPError, TypeError, ValueError) as exc:
+            log.warning("WeChat push failed: %s", type(exc).__name__)
+            return False
+        finally:
+            client.close()
+
+    def push_voice_then_text(self, text: str) -> bool:
+        """晨报电台推送：先试语音条（失败只降级），再发文字；文字发出即算成功。"""
+        channel = self._push_channel()
+        if channel is None:
+            return False
+        target, token = channel
+        client = self._client_factory()
+        try:
+            try:
+                items = self._voice.voice_reply_items(text)
+                self._send_items(client, token, target["from_id"], target["context_token"], items)
+            except wechat_voice.VoiceError as exc:
+                log.warning("radio voice degraded to text (synthesis/encode): %s", type(exc).__name__)
+            except (httpx.HTTPError, TypeError, ValueError) as exc:
+                log.warning("radio voice degraded to text (send): %s", type(exc).__name__)
+            sent_any = False
+            for chunk in self._split_reply(text):
+                try:
+                    self._send_items(
+                        client, token, target["from_id"], target["context_token"],
+                        [{"type": 1, "text_item": {"text": chunk}}],
+                    )
+                    sent_any = True
+                except (httpx.HTTPError, TypeError, ValueError) as exc:
+                    log.warning("radio text push failed: %s", type(exc).__name__)
+            return sent_any
+        finally:
+            client.close()
 
     @staticmethod
     def _base_info() -> dict:
@@ -535,8 +685,9 @@ class WeChatBridge:
         self, client, token: str, from_id: str, context_token: str, text: str
     ) -> None:
         """计算并发送对一条私聊消息的回复；整段在回复工作池线程中运行。"""
+        prompt = link_summary_prompt(text) or text  # 光发一条链接=让贾维斯读文总结
         try:
-            answer = self._reply(text, from_id)
+            answer = self._reply(prompt, from_id)
         except Exception as exc:
             log.warning("JARVIS WeChat reply failed: %s", type(exc).__name__)
             answer = self._humanize_reply_failure(exc)
@@ -629,8 +780,27 @@ class WeChatBridge:
             if not isinstance(from_id, str) or not from_id:
                 continue
             if "@im.chatroom" in from_id or "group" in from_id.lower():
+                # 群聊礼貌规则：只处理文本且被 @ 的消息，其余一律沉默
+                if message.get("message_type") != 1:
+                    continue
+                mention = group_mention_text(self._text_of(message).strip())
+                if mention is None:
+                    continue
+                group_ctx = message.get("context_token", "")
+                if dispatcher is None:
+                    self._deliver_reply(client, token, from_id, group_ctx, mention)
+                    continue
+                accepted = dispatcher.submit(
+                    from_id,
+                    lambda c=client, t=token, f=from_id, ctx=group_ctx, x=mention: (
+                        self._deliver_reply(c, t, f, ctx, x)
+                    ),
+                )
+                if not accepted:
+                    log.info("WeChat group reply skipped: dispatcher stopped")
                 continue
             context_token = message.get("context_token", "")
+            self._refresh_push_context(from_id, context_token)
             voice_item = wechat_voice.find_voice_item(message)
             if voice_item is not None:
                 if dispatcher is None:
@@ -650,6 +820,14 @@ class WeChatBridge:
                 continue
             text = self._text_of(message).strip()
             if not text:
+                continue
+            if text in PUSH_BIND_COMMANDS:   # 绑定提醒推送：确定性命令，不进大模型
+                self._save_push_target(from_id, context_token)
+                self._send_text_chunks(client, token, from_id, context_token, PUSH_BOUND_REPLY)
+                continue
+            if text in PUSH_UNBIND_COMMANDS:
+                self._clear_push_target()
+                self._send_text_chunks(client, token, from_id, context_token, PUSH_UNBOUND_REPLY)
                 continue
             if dispatcher is None:
                 self._deliver_reply(client, token, from_id, context_token, text)
@@ -811,3 +989,18 @@ def resume_on_boot() -> dict:
 
 def shutdown() -> None:
     _bridge.shutdown()
+
+
+def push_text(text: str) -> bool:
+    """主动推送文字给绑定联系人；桥未连接或未绑定时返回 False。"""
+    return _bridge.push_text(text)
+
+
+def push_available() -> bool:
+    """推送通道是否就绪（已连接 + 已绑定 + 有凭据）。"""
+    return _bridge.push_available()
+
+
+def push_voice_then_text(text: str) -> bool:
+    """主动推送语音条+文字（晨报电台用）；语音失败自动降级纯文字。"""
+    return _bridge.push_voice_then_text(text)

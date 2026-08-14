@@ -1,26 +1,16 @@
-import { useEffect, useRef, useState } from 'react'
-import { chatStream, getHistory } from './api.js'
+import { memo, useEffect, useRef, useState } from 'react'
+import { chatStream, getHistory, uploadDocument } from './api.js'
+import { handleCodeCopyClick, renderMarkdown } from './markdown.js'
 import VoiceCall from './VoiceCall.jsx'
 
-const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-
-/** 迷你 Markdown 渲染：代码块/标题/列表/粗体/行内代码，够聊天用，不引依赖 */
-function md(t) {
-  let s = t
-  if (((s.match(/```/g) || []).length) % 2 === 1) s += '\n```'  // 流式中未闭合的代码块
-  s = esc(s)
-  s = s.replace(/```\w*\n?([\s\S]*?)```/g, (_, c) => `<pre><code>${c.trimEnd()}</code></pre>`)
-  s = s.replace(/^#{1,3} (.+)$/gm, '<h4>$1</h4>')
-  s = s.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
-  s = s.replace(/`([^`]+?)`/g, '<code>$1</code>')
-  s = s.replace(/(^|\n)((?:[-•] .*(?:\n|$))+)/g, (_, pre, block) =>
-    `${pre}<ul>${block.trim().split('\n').map(l => `<li>${l.replace(/^[-•] /, '')}</li>`).join('')}</ul>`)
-  s = s.replace(/(^|\n)((?:\d+[.、] .*(?:\n|$))+)/g, (_, pre, block) =>
-    `${pre}<ol>${block.trim().split('\n').map(l => `<li>${l.replace(/^\d+[.、] /, '')}</li>`).join('')}</ol>`)
-  s = s.replace(/\n/g, '<br>')
-  s = s.replace(/<br>(<\/?(?:ul|ol|li|h4|pre))/g, '$1').replace(/(<\/(?:ul|ol|h4|pre)>)<br>/g, '$1')
-  return s
-}
+/** 回答正文单独成组件并 memo：流式时只重渲染正在生成的那条，不拖累整个历史 */
+const JarvisBody = memo(function JarvisBody({ raw, streaming }) {
+  return (
+    <div className="jbody" onClick={handleCodeCopyClick} dangerouslySetInnerHTML={{
+      __html: renderMarkdown(raw, { streaming })
+    }} />
+  )
+})
 
 const SUGGESTIONS = ['给我今日晨报', '我在做什么任务？', '今天天气怎么样？', '记一条备忘：']
 
@@ -35,6 +25,9 @@ export default function Chat({ threadId, location, onBusy, onTurnDone, onExpired
   const logRef = useRef()
   const boxRef = useRef()
   const abortRef = useRef(null)
+  const fileRef = useRef()
+  const [uploading, setUploading] = useState(false)
+  const [uploadErr, setUploadErr] = useState('')
 
   useEffect(() => {  // 切换会话/挂断通话：从服务端记忆库回放历史
     setMsgs([])
@@ -111,8 +104,40 @@ export default function Chat({ threadId, location, onBusy, onTurnDone, onExpired
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input) }
   }
 
+  /** 📎 文档上传：解析成文本后作为一条消息发出，让贾维斯先总结、后续可追问 */
+  async function onPickFile(e) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file || busy || uploading) return
+    setUploadErr('')
+    if (file.size > 10 * 1024 * 1024) { setUploadErr('文件超过 10MB 上限'); return }
+    setUploading(true)
+    try {
+      const b64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result).split(',')[1] || '')
+        reader.onerror = () => reject(new Error('读取文件失败'))
+        reader.readAsDataURL(file)
+      })
+      const doc = await uploadDocument(file.name, b64)
+      const notice = doc.truncated ? '（文档过长，以下为截断后的开头部分）' : ''
+      await send(`请通读这份文档《${doc.name}》${notice}，先用不超过 5 条要点总结主要内容；之后我会就它继续提问。\n\n【文档开始】\n${doc.text}\n【文档结束】`)
+    } catch (err) {
+      if (err.message === '401') { onExpired?.(); return }
+      setUploadErr(err.message || '上传失败')
+    } finally {
+      setUploading(false)
+    }
+  }
+
   function copyText(raw) {
     navigator.clipboard?.writeText(raw)
+  }
+
+  /** 该条回答对应的上一条用户提问（重新回答 / 失败重试用） */
+  function userTextBefore(idx) {
+    for (let i = idx - 1; i >= 0; i--) if (msgs[i].kind === 'user') return msgs[i].raw
+    return ''
   }
 
   return (
@@ -132,8 +157,15 @@ export default function Chat({ threadId, location, onBusy, onTurnDone, onExpired
               </div>
             </div>
           )}
-          {msgs.map(m => m.kind === 'user' ? (
-            <div key={m.id} className="row-user"><div className="ubox">{m.raw}</div></div>
+          {msgs.map((m, idx) => m.kind === 'user' ? (
+            <div key={m.id} className="row-user">
+              <div className="uactions">
+                <button className="abtn" onClick={() => copyText(m.raw)} title="复制这条消息">复制</button>
+                <button className="abtn" title="编辑后重新发送"
+                  onClick={() => { setInput(m.raw); boxRef.current?.focus(); requestAnimationFrame(autoGrow) }}>编辑</button>
+              </div>
+              <div className="ubox">{m.raw}</div>
+            </div>
           ) : (
             <div key={m.id} className="row-jarvis">
               <div className="jtag">{m.streaming && <span className="jdot" />}J.A.R.V.I.S.</div>
@@ -146,23 +178,39 @@ export default function Chat({ threadId, location, onBusy, onTurnDone, onExpired
                   ))}
                 </div>
               )}
-              <div className="jbody" dangerouslySetInnerHTML={{
-                __html: md(m.raw) + (m.streaming ? '<span class="caret"></span>' : '')
-              }} />
-              {m.error && <div className="msg-err">⚠ {m.error}</div>}
+              <JarvisBody raw={m.raw} streaming={m.streaming} />
+              {m.error && (
+                <div className="msg-err">⚠ {m.error}
+                  {!busy && userTextBefore(idx) && (
+                    <button className="retrybtn" onClick={() => send(userTextBefore(idx))}>重试</button>
+                  )}
+                </div>
+              )}
               {!m.streaming && m.raw && (
-                <button className="copybtn" onClick={() => copyText(m.raw)}>复制</button>
+                <div className="msg-actions">
+                  <button className="abtn" onClick={() => copyText(m.raw)} title="复制回答原文">复制</button>
+                  {userTextBefore(idx) && (
+                    <button className="abtn" disabled={busy} title="就同一个问题再答一次"
+                      onClick={() => send(userTextBefore(idx))}>重新回答</button>
+                  )}
+                </div>
               )}
             </div>
           ))}
         </div>
       </div>
       <div className="inputwrap">
+        {uploadErr && <div className="upload-err">⚠ {uploadErr}</div>}
         <div className="inputbar2">
           <textarea ref={boxRef} value={input} rows={1}
             onChange={e => { setInput(e.target.value); autoGrow() }}
             onKeyDown={onKey}
             placeholder="吩咐一句…（Enter 发送，Shift+Enter 换行）" autoFocus />
+          <input ref={fileRef} type="file" accept=".pdf,.docx,.txt,.md" style={{ display: 'none' }}
+            aria-label="选择文档" onChange={onPickFile} />
+          <button className="callbtn" onClick={() => fileRef.current?.click()}
+            disabled={busy || uploading}
+            title="上传文档（PDF / Word / TXT / MD）" aria-label="上传文档">{uploading ? '…' : '📎'}</button>
           <button className="callbtn" onClick={() => setCalling(true)} disabled={busy}
             title="语音通话" aria-label="语音通话">📞</button>
           {busy

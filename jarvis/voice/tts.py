@@ -38,11 +38,17 @@ class TTSSession:
     """一次回合的合成会话：task_start 一次、task_continue 多句、音频异步流出。"""
 
     def __init__(self, *, url: str | None = None, model: str | None = None,
-                 voice_id: str | None = None, sample_rate: int = SAMPLE_RATE,
+                 voice_id: str | None = None, speed: float | None = None,
+                 sample_rate: int = SAMPLE_RATE,
                  audio_format: str = AUDIO_FORMAT, timeout: float = 10.0) -> None:
         self.url = url or os.getenv("MINIMAX_TTS_WSS_URL", DEFAULT_WSS_URL)
         self.model = model or os.getenv("MINIMAX_TTS_MODEL", DEFAULT_MODEL)
         self.voice_id = voice_id or os.getenv("MINIMAX_TTS_VOICE", DEFAULT_VOICE)
+        try:
+            raw_speed = float(speed if speed is not None else os.getenv("MINIMAX_TTS_SPEED", "1.0"))
+        except (TypeError, ValueError):
+            raw_speed = 1.0
+        self.speed = min(2.0, max(0.5, raw_speed))   # MiniMax 允许 0.5–2.0
         self.sample_rate = sample_rate
         self.audio_format = audio_format
         self.timeout = timeout
@@ -71,7 +77,7 @@ class TTSSession:
             await self._ws.send(json.dumps({
                 "event": "task_start",
                 "model": self.model,
-                "voice_setting": {"voice_id": self.voice_id, "speed": 1.0},
+                "voice_setting": {"voice_id": self.voice_id, "speed": self.speed},
                 "audio_setting": {
                     "sample_rate": self.sample_rate,
                     "format": self.audio_format,

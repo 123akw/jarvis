@@ -342,3 +342,33 @@
 - 硬指标 2 ✅：`git diff main...HEAD` 中 jarvis/ 下仅 server.py（72 行纯追加：顶部 2 import+末尾区块）；accounts.py/tenancy.py/voice/wechat/Chat.jsx/Voice* 零改动；新增代码 grep "sk-1deb\|sk-api" 为 0。
 - 两处反向验证红→绿 ✅（任务 1「换票即删」、任务 2「Origin 校验」，输出均贴对话）。
 - 不新增运行时依赖 ✅（服务端 hashlib/secrets 标准库；桌面 node:http；网页零新依赖）。
+
+# 体验升级三批次（对标豆包/腾讯元宝，2026-08-14）
+
+依据当日产出的《贾维斯体验升级蓝图》按序交付三批共 14 项；基线 pytest 455 / vitest 37 / desktop 63，交付后 **pytest 491 / vitest 65 / desktop 67，全绿 0 失败**，前端产物已重建（jarvis/web）。
+
+## 第一批 · 立竿见影
+1. **Markdown 渲染引擎**：网页（web-src/src/markdown.js，marked+DOMPurify+highlight.js）与桌面（desktop/md-render.js 注入版同逻辑）替换 15 行手写正则——可点来源链接（新窗口+noopener，修复与系统提示词「≥2 可点击来源」的自相矛盾）、GFM 表格、代码高亮+语言标签+独立复制按钮、引用块/任务列表、流式未闭合代码块兼容、XSS 消毒；桌面外链经新 IPC open-external-link 交系统浏览器（http/https 校验）。回答正文组件 memo 化，流式只重渲染当前条。
+2. **消息级操作**：AI 消息「复制/重新回答」、用户消息「复制/编辑」（填回输入框）、失败气泡「重试」。
+3. **会话管理**：新端点 PATCH /api/thread 重命名（改名不打乱最近排序）；前端改名（✎ 行内编辑）、标题搜索、删除二次确认（3 秒回退）；桌面「清空」同样二次确认。
+4. **悬浮球一键语音通话**：右键悬浮球直接展开并接通（mousedown 只认左键，右键不再误触发拖动/展开）。
+5. **.env.example**：补 MINIMAX_API_KEY / DASHSCOPE_API_KEY / MINIMAX_TTS_VOICE 等语音变量说明。
+
+## 第二批 · 管家灵魂
+6. **日程主动提醒**（jarvis/reminders.py）：服务端 30s 扫描线程 + tenant_reminders_sent 记账表（每 owner/日程/when/通道只提醒一次，宽限 30 分钟不翻旧账）。三通道：微信主动推送（联系人发「提醒发给我」绑定，`wechat_push_target.json` 0600 落盘，context_token 随消息滚动；「取消提醒推送」解绑）、桌面系统 Notification（主进程每分钟领取 /api/reminders/pending）、网页金色弹条（30s 轮询）。JARVIS_REMINDERS_ENABLED=0 可关。
+7. **任务台可交互**：REST 写接口 POST/PATCH/DELETE /api/todos、POST/DELETE /api/memos、POST/DELETE /api/schedule（auth+CSRF+租户隔离，Member 勾不到 Owner 的条目）；网页真复选框（可反悔取消勾选）+ 快速新增 + 悬停删除；桌面任务台待办同步真复选框（session.js 新 op todoPatch）。
+8. **记忆管理面板**：新 tenant_profile 表 + profile_remember/list/forget 三工具（工具数 21→24，两处计数测试同步更新）；画像经 compose_system_prompt 注入每轮系统提示词（graph.py prompt 改可调用，无租户上下文安全回退）；网页顶栏「◉ 记忆」面板可查/可删/可手动补，空态引导「记住我…」。
+9. **音色选择+语速**：TTSSession 支持 voice_id/speed（0.5–2.0 收敛）；新 tenant_prefs KV 表；网关按用户偏好实例化（无偏好保持零参调用，测试假工厂零改动）；GET/PUT /api/voice/settings + 8 音色目录；网页「⚙ API → 语音」页签（音色下拉+语速滑杆），网页/桌面通话共用。
+
+## 第三批 · 可玩出圈
+10. **微信总线**：光发链接=自动包装 web_extract 总结指令（带明确问题则原文直通）；群聊被 @贾维斯 才应答（JARVIS_WECHAT_GROUP_NAME 可改名，未被 @ 一律沉默）。
+11. **人设工坊**：persona 偏好（称呼/人格/语气口头禅）注入系统提示词；MOSS 人格转正（登录页彩蛋→正式可切换）；GET/PUT /api/persona；「记忆与人设」面板合并管理。
+12. **晨报电台**：MorningRadio 调度线程——每天设定时间用 Owner 自己的 Agent 生成晨报（独立 radio 线程），微信语音条+文字推送（复用发侧语音链路，失败降级纯文字）；成本护栏：通道不通不生成、生成后失败当日不重烧、过窗 2 小时作罢；GET/PUT /api/radio，UI 在「语音」页签（留空关闭）。
+13. **文档上传**：POST /api/upload（JSON+base64，省 multipart 依赖；10MB/8000 字上限）；PDF 用 pypdf（新运行时依赖，零传递依赖）、docx 用标准库 zipfile 解析、txt/md 支持 gb18030 回退；网页输入框 📎 上传→解析→自动发出「通读并总结」消息，正文入线程记忆可追问；超长用户气泡限高滚动。
+
+## 依赖与部署提醒（管理者）
+- 新运行时依赖 2 个：**pypdf==6.16.0**（文档解析）、**pilk==0.2.4**（微信语音编解码，补上此前 BLOCKED 遗留的入依赖动作）；均已进 pyproject.toml 与 requirements.lock，生产 venv 需 `pip install -r requirements.lock`。
+- 前端新增 npm 依赖：web-src（marked/dompurify/highlight.js），desktop（marked/dompurify/@highlightjs/cdn-assets，本地文件引用零 CDN）；**桌面端部署需在 desktop/ 重新 npm install**。
+- jarvis/web 产物已随本轮重建提交（bundle 1.46MB，hljs 约 +240KB；code splitting 仍是后续项）。
+- 微信「主动推送/晨报」的 sendmessage 无回复上下文（context_token 复用最近一条），**真机联调前按最坏情况预期需微调**——失败只 log.warning 降级，不影响原有收发。
+- README 已同步：工具数 24、产品介绍补主动提醒/记忆人设/上传/微信总线；.env.example 补语音 key 与 JARVIS_WECHAT_GROUP_NAME / JARVIS_REMINDERS_ENABLED。

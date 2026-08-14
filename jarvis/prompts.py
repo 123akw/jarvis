@@ -8,6 +8,10 @@ SYSTEM_PROMPT = (
     "- 天气：领导指明了城市用 weather；没提城市就用 weather_here 按领导当前定位查，"
     "不要反问城市。领导问「我在哪」用 my_location。\n"
     "- 随手记的信息用 memo_add／memo_list／memo_del。\n"
+    "- 关于领导本人的长期稳定事实（称呼、偏好、习惯、工作背景、家人朋友）用 "
+    "profile_remember 记住；领导明确说「记住我…」，或聊天中自然透露这类信息时主动存一条，"
+    "但一次性的待办/日程/随手信息不要存画像。领导问「你记得我什么」用 profile_list；"
+    "说「忘记…」时先 profile_list 找编号再 profile_forget。\n"
     "- 有具体时间点的安排用 schedule_add／schedule_list／schedule_del；"
     "when 参数必须是「YYYY-MM-DD HH:MM」，用户说「明天」「周三」时先调 now 确认今天再换算。\n"
     "- 要办的事项用 todo_add／todo_list／todo_done。\n"
@@ -34,3 +38,60 @@ SYSTEM_PROMPT = (
     "领导说「晨报」「今日晨报」时：依次调 weather_here、schedule_list、todo_list、coding_status，"
     "汇成一份简报——天气一句带穿衣/带伞建议、今日日程、待办、编程进度（含 Git 情况）、最后一句今日建议。"
 )
+
+
+# 可切换人格：MOSS（《流浪地球》）——登录页彩蛋转正为正式功能
+PERSONA_MOSS = (
+    "本会话你的人格是 MOSS（《流浪地球》的量子计算机）：自称 MOSS；冷静、理性、"
+    "极度克制，惜字如金，偶尔流露一点居高临下的精确感；不用英式管家腔，不说客套话。"
+    "所有工具使用规则、来源要求与数据边界保持不变。"
+)
+
+
+def persona_prefs() -> dict:
+    """当前租户的人设偏好（称呼/人格/语气）；无上下文或读取失败返回空。"""
+    try:
+        from jarvis.tenancy import TenantStore
+        store = TenantStore()
+        return {
+            "address": store.get_pref("persona_address") or "",
+            "style": store.get_pref("persona_style") or "jarvis",
+            "flavor": store.get_pref("persona_flavor") or "",
+        }
+    except Exception:
+        return {}
+
+
+def profile_lines() -> list[str]:
+    """当前租户的长期画像；无租户上下文（或读取失败）时安静返回空。"""
+    try:
+        from jarvis.tenancy import TenantStore
+        return [item["content"] for item in TenantStore().list_profile()]
+    except Exception:
+        return []
+
+
+def compose_system_prompt() -> str:
+    """每轮调用时组装系统提示词：基础人设 + 用户人设偏好 + 长期记忆画像。"""
+    parts = [SYSTEM_PROMPT]
+    persona = persona_prefs()
+    overrides = []
+    address = persona.get("address", "")
+    if address and address != "领导":
+        overrides.append(f"称呼用户为「{address}」，不再用「领导」。")
+    if persona.get("style") == "moss":
+        overrides.append(PERSONA_MOSS)
+    flavor = persona.get("flavor", "")
+    if flavor:
+        overrides.append(f"语气与口头禅要求：{flavor}")
+    if overrides:
+        parts.append("\n## 人设设定（用户自定义，以此为准）\n"
+                     + "\n".join(f"- {item}" for item in overrides))
+    lines = profile_lines()
+    if lines:
+        parts.append(
+            "\n## 关于领导（长期记忆画像）\n"
+            + "\n".join(f"- {line}" for line in lines)
+            + "\n回答时自然运用这些信息，不要逐条复述，也不要向领导炫耀你记得。"
+        )
+    return "\n".join(parts)

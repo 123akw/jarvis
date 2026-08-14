@@ -40,8 +40,10 @@ class FakeClient:
     def post(self, url, **kwargs):
         self.post_calls.append((url, kwargs))
         if url.endswith("/sendmessage"):
-            text = kwargs["json"]["msg"]["item_list"][0]["text_item"]["text"]
-            self.sent.append(text)
+            first = kwargs["json"]["msg"]["item_list"][0]
+            text = first.get("text_item", {}).get("text") if isinstance(first, dict) else None
+            if text is not None:   # 语音等非文本 item 不进 sent（只按 post_calls 断言）
+                self.sent.append(text)
         return self.post_responses.pop(0) if self.post_responses else FakeResponse({"ret": 0})
 
     def close(self):
@@ -416,3 +418,132 @@ def test_non_text_messages_are_probed_with_shape_only(tmp_path, caplog):
     assert "secret-voice" not in probes[0]
     assert "wxid_secret123" not in probes[0]
     assert agent_calls == []
+
+
+def test_bind_command_binds_push_target_without_calling_agent(tmp_path):
+    """「提醒发给我」是确定性命令：落盘绑定文件（0600）、直接回执、不进大模型。"""
+    sent = []
+    client = FakeClient(sent=sent)
+    bridge, agent_calls = make_bridge(tmp_path, client)
+
+    bridge._handle_updates_response(client, "token", {
+        "get_updates_buf": "",
+        "msgs": [{
+            "message_type": 1,
+            "from_user_id": "contact-abc@ilink",
+            "context_token": "ctx-1",
+            "item_list": [{"type": 1, "text_item": {"text": "提醒发给我"}}],
+        }],
+    })
+
+    path = tmp_path / "wechat_push_target.json"
+    assert path.exists() and path.stat().st_mode & 0o777 == 0o600
+    assert agent_calls == []
+    assert sent == [wechat.PUSH_BOUND_REPLY]
+    target = bridge._load_push_target()
+    assert target == {"from_id": "contact-abc@ilink", "context_token": "ctx-1"}
+
+    # 「取消提醒推送」解除绑定
+    bridge._handle_updates_response(client, "token", {
+        "get_updates_buf": "",
+        "msgs": [{
+            "message_type": 1,
+            "from_user_id": "contact-abc@ilink",
+            "context_token": "ctx-2",
+            "item_list": [{"type": 1, "text_item": {"text": "取消提醒推送"}}],
+        }],
+    })
+    assert bridge._load_push_target() is None
+
+
+def test_push_text_requires_connection_and_binding(tmp_path):
+    bridge, _ = make_bridge(tmp_path, FakeClient())
+    assert bridge.push_text("提醒") is False          # 未连接
+    bridge._set(state="connected")
+    assert bridge.push_text("提醒") is False          # 已连接但未绑定
+
+
+def test_push_text_delivers_to_bound_contact(tmp_path):
+    sent = []
+    client = FakeClient(sent=sent)
+    bridge, _ = make_bridge(tmp_path, client)
+    (tmp_path / "wechat_token").write_text("saved-token", encoding="utf-8")
+    bridge._set(state="connected")
+    bridge._save_push_target("contact-abc@ilink", "ctx-9")
+
+    assert bridge.push_text("⏰ 日程提醒：2026-08-14 15:00 项目复盘") is True
+    assert sent == ["⏰ 日程提醒：2026-08-14 15:00 项目复盘"]
+    url, kwargs = client.post_calls[-1]
+    assert url.endswith("/sendmessage")
+    assert kwargs["json"]["msg"]["to_user_id"] == "contact-abc@ilink"
+    assert kwargs["json"]["msg"]["context_token"] == "ctx-9"
+
+
+def test_push_text_send_failure_returns_false(tmp_path):
+    client = FakeClient(post_responses=[FakeResponse({"ret": -1})])
+    bridge, _ = make_bridge(tmp_path, client)
+    (tmp_path / "wechat_token").write_text("saved-token", encoding="utf-8")
+    bridge._set(state="connected")
+    bridge._save_push_target("contact-abc@ilink", "ctx")
+    assert bridge.push_text("提醒") is False
+
+
+def test_bare_link_message_becomes_summary_task(tmp_path):
+    """光发一条链接：包装成 web_extract 总结指令再进 Agent；带明确问题则按原文走。"""
+    client = FakeClient()
+    bridge, agent_calls = make_bridge(tmp_path, client)
+    bridge._handle_updates_response(client, "token", {
+        "get_updates_buf": "",
+        "msgs": [{
+            "message_type": 1,
+            "from_user_id": "contact-abc@ilink",
+            "context_token": "ctx",
+            "item_list": [{"type": 1, "text_item": {"text": "https://example.com/post/1 看看"}}],
+        }],
+    })
+    assert len(agent_calls) == 1
+    assert "web_extract" in agent_calls[0]["text"]
+    assert "https://example.com/post/1" in agent_calls[0]["text"]
+
+    bridge._handle_updates_response(client, "token", {
+        "get_updates_buf": "",
+        "msgs": [{
+            "message_type": 1,
+            "from_user_id": "contact-abc@ilink",
+            "context_token": "ctx",
+            "item_list": [{"type": 1, "text_item": {
+                "text": "https://example.com/post/1 这篇文章的观点和上周那篇比有什么不同？"}}],
+        }],
+    })
+    assert agent_calls[1]["text"].startswith("https://example.com/post/1")  # 原文直通
+
+
+def test_group_message_replies_only_when_mentioned(tmp_path):
+    """群聊礼貌规则：被 @贾维斯 才应答（去掉 @ 前缀），没被 @ 一律沉默。"""
+    sent = []
+    client = FakeClient(sent=sent)
+    bridge, agent_calls = make_bridge(tmp_path, client, reply="群里的回答")
+
+    bridge._handle_updates_response(client, "token", {
+        "get_updates_buf": "",
+        "msgs": [
+            {
+                "message_type": 1,
+                "from_user_id": "12345@im.chatroom",
+                "context_token": "gctx",
+                "item_list": [{"type": 1, "text_item": {"text": "今晚谁有空吃饭？"}}],
+            },
+            {
+                "message_type": 1,
+                "from_user_id": "12345@im.chatroom",
+                "context_token": "gctx",
+                "item_list": [{"type": 1, "text_item": {"text": "@贾维斯 明天深圳天气怎么样"}}],
+            },
+        ],
+    })
+
+    assert len(agent_calls) == 1
+    assert agent_calls[0]["text"] == "明天深圳天气怎么样"
+    assert sent == ["群里的回答"]
+    url, kwargs = client.post_calls[-1]
+    assert kwargs["json"]["msg"]["to_user_id"] == "12345@im.chatroom"

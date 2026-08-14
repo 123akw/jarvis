@@ -8,6 +8,8 @@ import WeChatConnect from './WeChatConnect.jsx'
 import AccountSettings from './AccountSettings.jsx'
 import ProviderSettings from './ProviderSettings.jsx'
 import DesktopHandoff from './DesktopHandoff.jsx'
+import MemoryPanel from './MemoryPanel.jsx'
+import Reminders from './Reminders.jsx'
 
 function newThreadId() {
   return 't-' + (crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10))
@@ -27,6 +29,7 @@ export default function Hud({ session, onLogout }) {
   const [wxOpen, setWxOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
   const [providerOpen, setProviderOpen] = useState(false)
+  const [memoryOpen, setMemoryOpen] = useState(false)
 
   useEffect(() => { localStorage.setItem('jws_thread', thread) }, [thread])
 
@@ -61,6 +64,7 @@ export default function Hud({ session, onLogout }) {
         <span className="tagline">私人管家 · v{dash?.version ?? '—'}</span>
         <span className="spacer" />
         <button className="chip navbtn account-chip" onClick={() => setAccountOpen(true)} aria-label="账户设置"><span>{session?.username || '账号'}{session?.role ? ` · ${session.role}` : ''}</span></button>
+        <button className="chip navbtn" onClick={() => setMemoryOpen(true)} aria-label="记忆" title="贾维斯记住了什么">◉ 记忆</button>
         <button className="chip navbtn" onClick={() => setProviderOpen(true)} aria-label="API 设置" title="模型与联网 API 设置">⚙ API</button>
         <DesktopHandoff />
         <span className="chip hide-sm">{dash?.model ?? '—'}</span>
@@ -72,6 +76,7 @@ export default function Hud({ session, onLogout }) {
           onClick={() => setRightOpen(v => !v)} title="日程 / 待办 / 备忘">▦</button>
         <button className="chip logout" onClick={quit} title="退出登录">⏻</button>
       </header>
+      <Reminders onExpired={onLogout} />
       <main className={`${leftOpen ? '' : 'hide-left'} ${rightOpen ? '' : 'hide-right'}`}>
         <section className={`left pane${leftOpen ? ' open' : ''}`}>
           <Threads current={thread} refreshKey={refreshKey}
@@ -98,6 +103,7 @@ export default function Hud({ session, onLogout }) {
       {wxOpen ? (
         <WeChatConnect onClose={() => setWxOpen(false)} onExpired={onLogout} />
       ) : null}
+      {memoryOpen ? <MemoryPanel onClose={() => setMemoryOpen(false)} onExpired={onLogout} /> : null}
       {accountOpen ? <div className="wx-backdrop"><AccountSettings session={session} onClose={() => setAccountOpen(false)} onReauth={onLogout} /></div> : null}
       {providerOpen ? <div className="wx-backdrop"><ProviderSettings session={session} onClose={() => setProviderOpen(false)} onExpired={onLogout} onApplied={() => setRefreshKey(key => key + 1)} /></div> : null}
     </div>

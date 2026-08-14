@@ -42,12 +42,90 @@ export async function getDashboard() {
   return parse(await fetch('/api/dashboard'))
 }
 
+export async function getPendingReminders() {
+  return parse(await fetch('/api/reminders/pending'))
+}
+
+/* ---- 任务台写接口 ---- */
+function jsonHeaders() { return { 'Content-Type': 'application/json', ...csrfHeaders() } }
+export async function addTodo(content) {
+  return parse(await fetch('/api/todos', { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ content }) }))
+}
+export async function patchTodo(id, done) {
+  return parse(await fetch(`/api/todos/${id}`, { method: 'PATCH', headers: jsonHeaders(), body: JSON.stringify({ done }) }))
+}
+export async function deleteTodo(id) {
+  return parse(await fetch(`/api/todos/${id}`, { method: 'DELETE', headers: csrfHeaders() }))
+}
+export async function addMemo(content) {
+  return parse(await fetch('/api/memos', { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ content }) }))
+}
+export async function deleteMemo(id) {
+  return parse(await fetch(`/api/memos/${id}`, { method: 'DELETE', headers: csrfHeaders() }))
+}
+export async function addSchedule(title, when) {
+  return parse(await fetch('/api/schedule', { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ title, when }) }))
+}
+export async function deleteSchedule(id) {
+  return parse(await fetch(`/api/schedule/${id}`, { method: 'DELETE', headers: csrfHeaders() }))
+}
+
+/* ---- 语音音色 / 语速 ---- */
+export async function getVoiceSettings() {
+  return parse(await fetch('/api/voice/settings'))
+}
+export async function saveVoiceSettings(voice, speed) {
+  return parse(await fetch('/api/voice/settings', { method: 'PUT', headers: jsonHeaders(), body: JSON.stringify({ voice, speed }) }))
+}
+
+/* ---- 文档上传解析 ---- */
+export async function uploadDocument(name, contentB64) {
+  return parse(await fetch('/api/upload', {
+    method: 'POST', headers: jsonHeaders(),
+    body: JSON.stringify({ name, content_b64: contentB64 }),
+  }))
+}
+
+/* ---- 晨报电台 ---- */
+export async function getRadio() {
+  return parse(await fetch('/api/radio'))
+}
+export async function saveRadio(time) {
+  return parse(await fetch('/api/radio', { method: 'PUT', headers: jsonHeaders(), body: JSON.stringify({ time }) }))
+}
+
+/* ---- 人设工坊 ---- */
+export async function getPersona() {
+  return parse(await fetch('/api/persona'))
+}
+export async function savePersona(style, address, flavor) {
+  return parse(await fetch('/api/persona', { method: 'PUT', headers: jsonHeaders(), body: JSON.stringify({ style, address, flavor }) }))
+}
+
+/* ---- 长期记忆画像 ---- */
+export async function getProfile() {
+  return parse(await fetch('/api/profile'))
+}
+export async function addProfile(content) {
+  return parse(await fetch('/api/profile', { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ content }) }))
+}
+export async function deleteProfile(id) {
+  return parse(await fetch(`/api/profile/${id}`, { method: 'DELETE', headers: csrfHeaders() }))
+}
+
 export async function getThreads() {
   return parse(await fetch('/api/threads'))
 }
 
 export async function getHistory(threadId) {
   return parse(await fetch(`/api/history?thread_id=${encodeURIComponent(threadId)}`))
+}
+
+export async function renameThread(threadId, title) {
+  return parse(await fetch(`/api/thread?thread_id=${encodeURIComponent(threadId)}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify({ title }),
+  }))
 }
 
 export async function deleteThread(threadId) {

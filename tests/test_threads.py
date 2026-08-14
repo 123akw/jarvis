@@ -57,3 +57,40 @@ def test_delete_thread_removes_meta():
     c = _authed_client()
     assert c.delete("/api/thread", params={"thread_id": "t1"}).status_code == 200
     assert [t["id"] for t in c.get("/api/threads").json()] == ["t2"]
+
+
+def test_rename_requires_login():
+    r = TestClient(server_mod.app).patch(
+        "/api/thread", params={"thread_id": "t1"}, json={"title": "新名字"})
+    assert r.status_code == 401
+
+
+def test_rename_requires_csrf():
+    owner = AccountStore().list_users()[0]["id"]
+    server_mod._upsert_thread(owner, "t1", "原名")
+    c = TestClient(server_mod.app)
+    c.post("/api/login", json={"username": "admin", "password": "admin"})
+    r = c.patch("/api/thread", params={"thread_id": "t1"}, json={"title": "新名字"})
+    assert r.status_code == 403
+
+
+def test_rename_updates_title_but_keeps_order():
+    owner = AccountStore().list_users()[0]["id"]
+    server_mod._upsert_thread(owner, "t1", "旧话题")
+    server_mod._upsert_thread(owner, "t2", "较新的话题")
+    c = _authed_client()
+    r = c.patch("/api/thread", params={"thread_id": "t1"}, json={"title": "  改  过 的名字  "})
+    assert r.status_code == 200 and r.json()["title"] == "改 过 的名字"
+    out = c.get("/api/threads").json()
+    assert [t["id"] for t in out] == ["t2", "t1"]  # 重命名不打乱最近排序
+    assert out[1]["title"] == "改 过 的名字"
+
+
+def test_rename_missing_thread_404_and_blank_title_422():
+    c = _authed_client()
+    assert c.patch("/api/thread", params={"thread_id": "nope"},
+                   json={"title": "x"}).status_code == 404
+    owner = AccountStore().list_users()[0]["id"]
+    server_mod._upsert_thread(owner, "t1", "有名字")
+    assert c.patch("/api/thread", params={"thread_id": "t1"},
+                   json={"title": "   "}).status_code == 422

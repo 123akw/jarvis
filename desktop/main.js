@@ -1,4 +1,4 @@
-const { app, BrowserWindow, clipboard, globalShortcut, ipcMain, screen, safeStorage, shell, systemPreferences } = require('electron')
+const { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Notification, screen, safeStorage, shell, systemPreferences } = require('electron')
 const { execSync } = require('child_process')
 const fs = require('fs')
 const os = require('os')
@@ -310,6 +310,14 @@ ipcMain.handle('open-provider-link', async (event, url) => {
   await shell.openExternal(url)
   return true
 })
+ipcMain.handle('open-external-link', async (event, url) => {
+  trusted(event)
+  let parsed
+  try { parsed = new URL(String(url)) } catch { throw new Error('link is not allowed') }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new Error('link is not allowed')
+  await shell.openExternal(parsed.toString())  // 回答里的来源链接交给系统浏览器
+  return true
+})
 ipcMain.handle('get-settings', event => {
   trusted(event)
   const s = loadSettings()
@@ -405,11 +413,32 @@ app.on('second-instance', (_event, argv) => {
   if (link) handleProtocolUrl(link)
 })
 
+/* 日程主动提醒：登录态下每分钟领取一次到点日程，弹系统通知（服务端按通道只发一次） */
+function startReminderPolling() {
+  setInterval(async () => {
+    try {
+      const g = gateway()
+      if (!g.authToken()) return
+      const r = await g.request('remindersPending', {})
+      if (!r.ok || !Array.isArray(r.data?.items)) return
+      for (const item of r.data.items) {
+        if (Notification.isSupported()) {
+          new Notification({
+            title: '贾维斯 · 日程提醒',
+            body: `${String(item.when || '').slice(11)} ${item.title || ''}`.trim(),
+          }).show()
+        }
+      }
+    } catch { /* 离线或服务器不可达时静默，下一轮再试 */ }
+  }, 60 * 1000)
+}
+
 app.whenReady().then(() => {
   createWindow()
   const s = loadSettings()
   applyHotkey(s.hotkey)
   startWakeServer()
+  startReminderPolling()
   // 自检截图模式：JWS_SHOT=/path/out.png [JWS_SHOT_VIEW=settings] npm start
   if (process.env.JWS_SHOT) {
     win.webContents.once('did-finish-load', () => {

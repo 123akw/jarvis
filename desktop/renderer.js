@@ -5,18 +5,21 @@ const $ = s => document.querySelector(s)
 const log = $('#plog'), box = $('#box'), send = $('#send'), state = $('#pstate')
 
 const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-function md(t) {
-  let s = t
-  if (((s.match(/```/g) || []).length) % 2 === 1) s += '\n```'
-  s = esc(s)
-  s = s.replace(/```\w*\n?([\s\S]*?)```/g, (_, c) => `<pre>${c.trimEnd()}</pre>`)
-  s = s.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
-  s = s.replace(/`([^`]+?)`/g, '<code>$1</code>')
-  s = s.replace(/(^|\n)((?:[-•] .*(?:\n|$))+)/g, (_, p, b) =>
-    `${p}<ul>${b.trim().split('\n').map(l => `<li>${l.replace(/^[-•] /, '')}</li>`).join('')}</ul>`)
-  s = s.replace(/\n/g, '<br>')
-  s = s.replace(/<br>(<\/?(?:ul|li|pre))/g, '$1').replace(/(<\/(?:ul|pre)>)<br>/g, '$1')
-  return s
+/* 完整 Markdown 渲染（md-render.js 核心 + 页面注入的 marked/DOMPurify/hljs）。
+ * 依赖缺失（如 desktop/ 没跑 npm install）时降级为纯文本转义，绝不让整个界面卡死。 */
+let renderMd = null
+try {
+  renderMd = window.JWSMarkdown.createMarkdownRenderer({
+    marked: window.marked, DOMPurify: window.DOMPurify, hljs: window.hljs,
+  })
+} catch (error) {
+  console.warn('markdown renderer unavailable, falling back to plain text:', error)
+}
+const md = (t, streaming) => {
+  if (renderMd) {
+    try { return renderMd(t, { streaming }) } catch { /* 单条渲染失败也走纯文本 */ }
+  }
+  return esc(String(t ?? '')).replace(/\n/g, '<br>') + (streaming ? '<span class="caret"></span>' : '')
 }
 
 function addUser(text) {
@@ -28,7 +31,7 @@ function addUser(text) {
 function addAI(raw = '', streaming = false) {
   const el = document.createElement('div')
   el.className = 'm-ai'
-  el.innerHTML = md(raw) + (streaming ? '<span class="caret"></span>' : '')
+  el.innerHTML = md(raw, streaming)
   log.append(el); log.scrollTop = log.scrollHeight
   return el
 }
@@ -129,7 +132,7 @@ async function ask() {
     currentStream = window.JWSChatStream.startChatStream(window.jws.api, { message: text, thread_id: THREAD }, { onUnauthorized: requireLogin, onEvent: ev => {
       if (ev.type === 'token') {
         raw += ev.text
-        el.innerHTML = md(raw) + '<span class="caret"></span>'
+        el.innerHTML = md(raw, true)
         log.scrollTop = log.scrollHeight
       } else if (ev.type === 'tool_start') {
         if (!toolLine) {
@@ -161,9 +164,16 @@ async function ask() {
 const ballEl = $('#ball')
 let dragState = null
 ballEl.addEventListener('mousedown', e => {
+  if (e.button !== 0) return   // 右键留给「一键语音通话」
   dragState = { sx: e.screenX, sy: e.screenY, moved: false }
   window.jws.dragStart(e.screenX, e.screenY)
   e.preventDefault()
+})
+ballEl.addEventListener('contextmenu', async e => {  // 悬浮球右键：直接展开并接通语音（对齐豆包悬浮头像一键通话）
+  e.preventDefault()
+  await window.jws.toggle()
+  document.body.classList.add('expanded')
+  void startVoiceCall()
 })
 window.addEventListener('mousemove', e => {
   if (!dragState) return
@@ -188,7 +198,21 @@ $('#minbtn').addEventListener('click', async () => {
   await window.jws.collapse()
   document.body.classList.remove('expanded')
 })
+let clearArmTimer = null   // 清空是删整条 desktop 线程，误触代价高：第一击进确认态
 $('#clearbtn').addEventListener('click', async () => {
+  const btn = $('#clearbtn')
+  if (!clearArmTimer) {
+    btn.textContent = '↺?'
+    btn.title = '再点一次确认清空'
+    btn.style.color = 'var(--alert)'
+    clearArmTimer = setTimeout(() => {
+      clearArmTimer = null
+      btn.textContent = '↺'; btn.title = '清空快捷对话'; btn.style.color = ''
+    }, 3000)
+    return
+  }
+  clearTimeout(clearArmTimer); clearArmTimer = null
+  btn.textContent = '↺'; btn.title = '清空快捷对话'; btn.style.color = ''
   try {
     await api('deleteThread', { thread_id: THREAD })
     log.innerHTML = '<div class="empty">已清空。有什么吩咐？</div>'
@@ -196,7 +220,19 @@ $('#clearbtn').addEventListener('click', async () => {
     if (!isAuthenticationRequired(error)) sys('无法清空记录')
   }
 })
-log.addEventListener('click', e => {  // 空态快捷芯片
+log.addEventListener('click', e => {  // 空态快捷芯片 / 来源链接 / 代码块复制
+  const a = e.target.closest && e.target.closest('a[href]')
+  if (a) { e.preventDefault(); void window.jws.openExternalLink(a.href); return }
+  const copyBtn = e.target.closest && e.target.closest('.codecopy')
+  if (copyBtn) {
+    const code = copyBtn.closest('.codeblock')?.querySelector('code')
+    if (code) {
+      void navigator.clipboard?.writeText(code.textContent)
+      copyBtn.textContent = '已复制'
+      setTimeout(() => { copyBtn.textContent = '复制' }, 1200)
+    }
+    return
+  }
   const q = e.target && e.target.dataset && e.target.dataset.q
   if (q) { box.value = q; ask() }
 })
@@ -384,13 +420,25 @@ async function openBoard() {
       <div class="row"><span class="tag">${esc(x.when.slice(11))}</span>
       <span class="txt">${esc(x.title)}</span></div>`)
     $('#b-todos').innerHTML = rowsHtml(d.todos, x => `
-      <div class="row"><span class="tag">[ ]</span><span class="txt">${esc(x.content)}</span></div>`)
+      <div class="row"><input type="checkbox" class="b-tick" data-id="${x.id}" title="点掉即完成">
+      <span class="txt">${esc(x.content)}</span></div>`)
   } catch (error) {
     if (!isAuthenticationRequired(error)) {
       $('#b-sched').innerHTML = $('#b-todos').innerHTML = '<div class="b-empty">连不上服务器</div>'
     }
   }
 }
+$('#b-todos').addEventListener('change', async e => {  // 待办真复选框：点掉即完成
+  const box = e.target.closest && e.target.closest('.b-tick')
+  if (!box) return
+  box.disabled = true
+  try {
+    await api('todoPatch', { id: parseInt(box.dataset.id, 10), done: true })
+  } catch (error) {
+    if (isAuthenticationRequired(error)) return
+  }
+  void openBoard()
+})
 $('#boardbtn').addEventListener('click', openBoard)
 $('#boardback').addEventListener('click', () => document.body.classList.remove('show-board'))
 $('#boardrefresh').addEventListener('click', openBoard)

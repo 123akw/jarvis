@@ -114,6 +114,33 @@ body.expanded #panel{display:flex}
 .m-ai pre{background:rgba(3,10,18,.85);border:1px solid var(--line);padding:8px 10px;
   overflow-x:auto;font-family:var(--mono);font-size:12px;margin:6px 0;line-height:1.55}
 .m-ai ul,.m-ai ol{margin:4px 0 4px 18px}
+.m-ai p{margin:4px 0}
+.m-ai a{color:var(--arc);text-decoration:underline;text-underline-offset:2px;word-break:break-all}
+.m-ai blockquote{margin:5px 0;padding:2px 9px;border-left:2px solid var(--gold);
+  background:rgba(240,180,90,.07);color:var(--dim)}
+.m-ai hr{border:none;border-top:1px dashed var(--line);margin:8px 0}
+.m-ai h1,.m-ai h2,.m-ai h3,.m-ai h4{margin:8px 0 3px;color:#fff;font-size:14px}
+.m-ai table{display:block;overflow-x:auto;max-width:100%;border-collapse:collapse;
+  margin:6px 0;font-size:12.5px;line-height:1.55}
+.m-ai th,.m-ai td{border:1px solid var(--line);padding:3px 9px;text-align:left}
+.m-ai th{background:rgba(83,232,255,.08);color:var(--arc);font-family:var(--mono);
+  font-size:11px;white-space:nowrap}
+.m-ai input[type=checkbox]{accent-color:#53E8FF;margin-right:5px;vertical-align:-2px}
+.m-ai .codeblock{margin:6px 0;border:1px solid var(--line);background:rgba(3,10,18,.85)}
+.m-ai .codebar{display:flex;align-items:center;justify-content:space-between;
+  padding:3px 9px;border-bottom:1px solid rgba(83,232,255,.14);background:rgba(13,28,44,.5)}
+.m-ai .codelang{font-family:var(--mono);font-size:10px;color:var(--dim);letter-spacing:.12em}
+.m-ai .codecopy{border:none;background:none;color:var(--dim);font-family:var(--mono);
+  font-size:10px;cursor:pointer;padding:1px 3px}
+.m-ai .codecopy:hover{color:var(--arc)}
+.m-ai .codeblock pre{border:none;margin:0}
+.m-ai .hljs{color:var(--text);background:none}
+.m-ai .hljs-keyword,.m-ai .hljs-literal,.m-ai .hljs-selector-tag,.m-ai .hljs-section{color:var(--arc)}
+.m-ai .hljs-string,.m-ai .hljs-attr,.m-ai .hljs-selector-attr,.m-ai .hljs-regexp{color:var(--gold)}
+.m-ai .hljs-number,.m-ai .hljs-symbol,.m-ai .hljs-meta{color:#FF9C6B}
+.m-ai .hljs-comment,.m-ai .hljs-quote{color:var(--dim);font-style:italic}
+.m-ai .hljs-title,.m-ai .hljs-name,.m-ai .hljs-attribute{color:#7CF5B2}
+.m-ai .hljs-built_in,.m-ai .hljs-type,.m-ai .hljs-variable{color:#B48CFF}
 .caret{display:inline-block;width:7px;height:13px;background:var(--arc);
   vertical-align:-2px;animation:blink .8s steps(1) infinite;margin-left:2px}
 @keyframes blink{50%{opacity:0}}
@@ -161,6 +188,7 @@ body.show-board #board{display:flex}
 .b-list .sub{font-family:var(--mono);font-size:11px;color:var(--dim);
   margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .b-empty{color:var(--dim);font-family:var(--mono);font-size:12px}
+.b-tick{width:14px;height:14px;margin-top:3px;accent-color:#53E8FF;cursor:pointer;flex:none}
 
 /* ---------- 语音通话面板 ---------- */
 #voice{display:none;position:absolute;inset:0;background:#050B12;z-index:6;flex-direction:column}
@@ -268,7 +296,7 @@ body.show-settings #settings{display:flex}
 </style>
 </head>
 <body class="needs-login">
-  <div id="ball" title="按住拖动">
+  <div id="ball" title="点击展开 · 右键直接语音通话 · 按住拖动">
     <div id="orb"><i class="sw sw1"></i><i class="sw sw2"></i><i class="sw sw3"></i><i class="sw sw4"></i><i class="sw sw5"></i></div>
     <div id="calldot" title="语音通话进行中"></div>
     <div id="eye" title="打开对话"></div>
@@ -427,6 +455,10 @@ body.show-settings #settings{display:flex}
     </div>
   </div>
 
+  <script src="node_modules/marked/lib/marked.umd.js"></script>
+  <script src="node_modules/dompurify/dist/purify.min.js"></script>
+  <script src="node_modules/@highlightjs/cdn-assets/highlight.min.js"></script>
+  <script src="md-render.js"></script>
   <script src="wechat-ui.js"></script>
   <script src="login-controller.js"></script>
   <script src="chat-stream.js"></script>

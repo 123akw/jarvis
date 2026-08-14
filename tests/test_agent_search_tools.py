@@ -28,6 +28,9 @@ EXPECTED_TOOL_NAMES = {
     "memo_add",
     "memo_list",
     "memo_del",
+    "profile_remember",
+    "profile_list",
+    "profile_forget",
     "schedule_add",
     "schedule_list",
     "schedule_del",
@@ -86,13 +89,13 @@ def _build_tools():
     return tools_mod.build_tools
 
 
-def test_build_tools_registers_exactly_twenty_one_unique_tools():
+def test_build_tools_registers_exactly_twenty_four_unique_tools():
     """Dropping, duplicating, or renaming a tool breaks the Agent's public capability set."""
     tools = _build_tools()(FakeSearchService(generation=7))
     names = [item.name for item in tools]
 
-    assert len(names) == 21
-    assert len(set(names)) == 21
+    assert len(names) == 24
+    assert len(set(names)) == 24
     assert set(names) == EXPECTED_TOOL_NAMES
 
 
