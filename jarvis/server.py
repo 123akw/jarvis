@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import AIMessageChunk, ToolMessage
 from pydantic import BaseModel, SecretStr
 
-from jarvis import __version__, config, reminders, wechat
+from jarvis import __version__, config, heartbeat, reminders, wechat
 from jarvis.accounts import AccountStore, Principal, csrf_token, session_secret_configured
 from jarvis.graph import build_agent, heal_dangling_tool_calls
 from jarvis.provider_runtime import AgentRuntimeManager, probe_integration
@@ -44,6 +44,14 @@ async def lifespan(_app: FastAPI):
     wechat.resume_on_boot()
     scanner = None
     radio = None
+    hb = heartbeat.maybe_create(
+        owner_getter=_accounts.unique_active_owner,
+        compose=_heartbeat_compose,
+        push_wechat=wechat.push_text,
+        outbox=_heartbeat_outbox,
+    )
+    if hb is not None:
+        hb.start()
     if os.getenv("JARVIS_REMINDERS_ENABLED", "1") != "0":
         scanner = reminders.ReminderScanner(
             owner_getter=_accounts.unique_active_owner,
@@ -60,6 +68,8 @@ async def lifespan(_app: FastAPI):
     try:
         yield
     finally:
+        if hb is not None:
+            hb.stop()
         if scanner is not None:
             scanner.stop()
         if radio is not None:
@@ -465,7 +475,8 @@ def reminders_pending(request: Request):
                 store.mark_reminded(item["id"], item["when"], channel)
     except TenantMigrationError:
         return _sensitive_json({"error": "个人数据迁移失败"}, 503)
-    return {"items": due}
+    # 心跳主动唤醒共用本端点送达：领取即清，谁先轮询谁收到
+    return {"items": due + _heartbeat_outbox.drain(principal.user_id)}
 
 
 # ---------- 会话管理 ----------
@@ -854,6 +865,27 @@ def upload_document(request: Request, body: UploadIn):
     if truncated:
         text = text[: documents.MAX_DOC_CHARS]
     return {"ok": True, "name": name, "chars": len(text), "truncated": truncated, "text": text}
+
+
+# ---------- Heartbeat 主动唤醒：定期读关注清单，模型裁量后主动开口 ----------
+
+_heartbeat_outbox = heartbeat.PendingOutbox()
+
+
+def _heartbeat_compose(owner, content: str, now) -> str:
+    """用 Owner 自己的 Agent 裁量关注清单（独立 heartbeat 线程，不混日常对话）。"""
+    prompt = heartbeat.HEARTBEAT_PROMPT.format(
+        now=now.strftime("%Y-%m-%d %H:%M"), content=content)
+    with tenant_scope(owner.user_id):
+        store = _tenant_store()
+        thread = store.upsert_thread("heartbeat", "主动唤醒")
+        with _bundle_for(owner.user_id) as bundle:
+            heal_dangling_tool_calls(bundle.agent, thread.checkpoint_thread_id)
+            result = bundle.agent.invoke(
+                {"messages": [{"role": "user", "content": prompt}]},
+                config={"configurable": {"thread_id": thread.checkpoint_thread_id}},
+            )
+    return _chunk_text(result["messages"][-1].content)
 
 
 # ---------- 晨报电台：每天定时用 Agent 生成晨报，经微信语音条+文字推送 ----------
@@ -1356,6 +1388,8 @@ wechat.init(_get_agent, _chunk_text, _accounts.unique_active_owner)
 def run() -> None:
     import uvicorn
 
+    # JARVIS_LOG_LEVEL=INFO 可看到心跳/提醒等后台线程的推送记录；默认维持 WARNING
+    logging.basicConfig(level=os.getenv("JARVIS_LOG_LEVEL", "WARNING").upper())
     config.load_env()
     _initialize_runtime()
     port = int(os.getenv("JARVIS_PORT", "7789"))

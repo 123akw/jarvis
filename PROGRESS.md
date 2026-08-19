@@ -408,3 +408,10 @@
 - 版本自证：新 desktop/app-info.js（buildAppInfo git 短 hash+启动时刻、restartApp relaunch→exit 顺序锁定）；设置页底部显示版本行、托盘菜单加「重启贾维斯（当前 hash）」。反向验证：注释 relaunch→测试红→还原绿。
 - 顺手修一处工具缺陷（建议层）：JWS_SHOT_SCROLL 滚动后未等重绘就 capturePage，截图永远是滚动前的帧——加 rAF+150ms 等待，截图已能拍到页面底部（output/task1-settings.png 见版本行）。
 - 验收：vitest 连跑 5 次全绿；全量 pytest 493 / desktop 71（68+3）/ vitest 71（70+1），0 skipped。
+
+## 任务 2 ✅（2026-08-19）Heartbeat 主动唤醒
+- 新 jarvis/heartbeat.py：HeartbeatScanner（30 分钟一轮可调，JARVIS_HEARTBEAT_ENABLED=0 时 maybe_create 返回 None 线程根本不建）+ PendingOutbox（桌面/网页领取箱，领取即清）。server.py：lifespan 起停、_heartbeat_compose 用 Owner 自己的 Agent 独立 heartbeat 线程裁量、/api/reminders/pending 合并投递（桌面通知/网页弹条零客户端改动）。
+- run() 增加 JARVIS_LOG_LEVEL 环境变量日志初始化（默认 WARNING 不变），后台线程推送才有可见证据。
+- pytest 新增 8 条（到点双通道推送/PASS 与空判沉默/文件缺失或空不烧模型/开关与 interval 解析/微信挂了桌面照送/compose 异常不外抛/领取箱按用户清空/端点送达）。
+- 实跑正向：隔离数据目录 + HEARTBEAT.md「立刻提醒我喝水」+ 5s 轮询，真实 DeepSeek 裁量，日志 6 条「heartbeat pushed: 该喝水了主人…」；反向：JARVIS_HEARTBEAT_ENABLED=0 复跑 30s，heartbeat 日志 0 行。
+- 全量：pytest 501（493+8）/ desktop 71 / vitest 71，0 skipped。
