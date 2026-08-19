@@ -81,6 +81,6 @@
 - 生产 Origin 白名单取自桌面端设置里的 server 地址（默认 https://jws.gkgeek-set.cn）；若领导换生产域名，桌面端设置改 server 后白名单自动跟随，无需改代码。
 
 # 第三轮升级（feat/round3-upgrade，2026-08-19）待裁决清单
-- **.env.example 属禁区未更新**：本轮新增环境变量 JARVIS_HEARTBEAT_ENABLED / JARVIS_HEARTBEAT_INTERVAL / JARVIS_DISTILL_TIME / JARVIS_LOG_LEVEL / JARVIS_SKILLS_DIR 的说明需管理者补进 .env.example（.env* 在本任务书禁区内）。
-- **生产部署为管理者动作**：本分支未合并 main、未推远端、未碰生产。上线需重启 jarvis-web 服务；桌面端无新依赖，重启 Electron 即可。
+- ~~.env.example 属禁区未更新~~ **已解除（2026-08-19 晚，领导授权上推时补齐）**：五个新环境变量说明已进 .env.example 与 README 环境变量表。
+- **生产部署为管理者动作**：已合并 main 并推送 GitHub（领导授权）；生产上线仍需在服务器 fast-forward + 重启 jarvis-web；桌面端无新依赖，重启 Electron 即可。
 - 其余：无。

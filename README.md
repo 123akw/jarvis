@@ -17,7 +17,7 @@
 
 **[快速开始](#快速开始)**
 
-这是项目维护者的私有部署或演示入口，不是公共 SaaS，也不承诺持续在线；桌面端可在设置中改为你自己的服务器地址。截至 **2026-08-14**，多用户隔离、Owner 用户管理、每用户 Provider / API 设置、网页语音通话（📞）、日程主动提醒、记忆与人设面板、每用户音色语速、文档上传解析、亮色主题、`jarvis-web` 与 SearXNG 均已部署并通过最小线上验收；微信语音消息与主动推送的真机联调仍在进行中。SearXNG 仅监听服务器 loopback `127.0.0.1:18888`，不可从公网直接访问，搜索失败时可回退 DDGS。这里的状态说明不代表维护者已经替访问者执行过实时娱乐搜索或验证过任何具体结果。
+这是项目维护者的私有部署或演示入口，不是公共 SaaS，也不承诺持续在线；桌面端可在设置中改为你自己的服务器地址。截至 **2026-08-19**，多用户隔离、Owner 用户管理、每用户 Provider / API 设置、网页语音通话（📞）、日程主动提醒、记忆与人设面板、每用户音色语速、文档上传解析、亮色主题、`jarvis-web` 与 SearXNG 均已部署并通过最小线上验收；第三轮升级（Heartbeat 主动唤醒、夜间记忆蒸馏、技能热加载、划词工具条、悬浮球通话态外显、托盘重构与版本自证）已合并主干并通过全量回归（pytest 512 / desktop 83 / vitest 71×5 连跑全绿），**尚未部署到上述演示入口**；微信语音消息与主动推送的真机联调仍在进行中。SearXNG 仅监听服务器 loopback `127.0.0.1:18888`，不可从公网直接访问，搜索失败时可回退 DDGS。这里的状态说明不代表维护者已经替访问者执行过实时娱乐搜索或验证过任何具体结果。
 
 > **非商用项目：仅供学习、研究与个人非商业用途。禁止未经授权的商业部署、商业集成、付费分发或收费服务。**
 
@@ -32,11 +32,13 @@
 - **网页对话**：流式聊天（完整 Markdown 渲染：可点来源链接 / 表格 / 代码高亮），消息可重答、编辑重发、失败重试；配可勾选、可增删的今日日程 / 待办 / 备忘任务台，支持上传 PDF / Word / TXT 文档解析追问。
 - **语音通话**：网页端点 📞 直接开口说话，贾维斯用语音回答；音色与语速每用户可选。
 - **主动提醒**：日程到点自动推送——微信（对贾维斯说「提醒发给我」绑定）、桌面系统通知、网页弹条三通道；可选每天定时的「晨报电台」语音条。
-- **记忆与人设**：长期记忆画像可查可删（「记住我…/忘记…」），称呼、语气可自定义，J.A.R.V.I.S. ↔ MOSS 双人格切换。
+- **Heartbeat 主动唤醒**：在 `data/HEARTBEAT.md` 写下关注事项，贾维斯每 30 分钟看一眼清单，判断该开口时主动找你（微信+桌面双通道）；不该说话时保持沉默，`JARVIS_HEARTBEAT_ENABLED=0` 一键关闭。
+- **记忆与人设**：长期记忆画像可查可删（「记住我…/忘记…」），称呼、语气可自定义，J.A.R.V.I.S. ↔ MOSS 双人格切换；每天凌晨自动把最近一天的对话蒸馏成长期画像（夜间记忆蒸馏，内容级去重）。
+- **技能热加载**：`skills/` 目录放一个 `SKILL.md` 就长出新技能，改文件下一轮对话生效、无需重启（格式见 [`skills/README.md`](skills/README.md)）。
 - **微信桥**：扫码接入个人微信即可对话；发链接即总结，群聊被 @ 才应答；语音消息开发中。
 - **多用户与租户隔离**：Owner 邀请制开号，各账号对话、记忆、日程完全隔离。
 - **每用户 API 设置**：各自选择模型 Provider 与 Key，密钥加密存储、永不回显。
-- **桌面端**：macOS 常驻悬浮球，⌥Space 一键唤出快捷聊天，右键悬浮球直接接通语音通话，系统托盘常驻。
+- **桌面端**：macOS 常驻悬浮球，⌥Space 一键唤出快捷聊天，右键悬浮球直接接通语音通话；通话中收起面板，球随 听（青）/想（琥珀）/说（绿）三态变色。系统托盘左键切窗、右键弹菜单（含显示当前版本的一键重启）；任意 App 选中文字按 ⌥Q 弹出「翻译 / 解释 / 改写」划词条（授予辅助功能权限可自动取词，未授权走剪贴板降级）。
 - **工具调用透明**：每次工具调用以中文名+图标展示，带耗时与成败，点开可看结果摘要。
 - **暗色 / 亮色双主题**：默认赛博 HUD 暗色，一键切换亮色办公风；会话可一键导出为 Markdown。
 - **免费搜索链**：SearXNG → DDGS 免费降级，结果带时间与来源；Tavily 可选。
@@ -84,6 +86,19 @@
     <td><img src="docs/assets/readme/desktop-settings.png" alt="JWS-Agent 桌面设置页（含语音与晨报）" width="100%"></td>
   </tr>
 </table>
+
+<table>
+  <tr>
+    <td align="center" colspan="3"><strong>语音通话三态外显：收起面板后悬浮球随状态变色</strong></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/assets/readme/desktop-ball-listening.png" alt="听：青色描边呼吸" width="88"><br>听（青色呼吸）</td>
+    <td align="center"><img src="docs/assets/readme/desktop-ball-thinking.png" alt="想：琥珀描边" width="88"><br>想（琥珀）</td>
+    <td align="center"><img src="docs/assets/readme/desktop-ball-speaking.png" alt="说：绿色脉冲" width="88"><br>说（绿色脉冲）</td>
+  </tr>
+</table>
+
+桌面截图为 JWS_SHOT 自检模式实拍（三态图为 2026-08-19 新增）；无真实对话与凭据入图。
 
 ## 为什么是 JWS-Agent
 
@@ -300,6 +315,12 @@ npm start
 | `JARVIS_EXTRACT_BACKENDS` | 否 | `trafilatura,playwright` | 正文提取降级顺序；Playwright 未安装时明确跳过 |
 | `TAVILY_API_KEY` | 否 | 无 | 可选 Tavily 搜索密钥；未配置不影响 SearXNG/DDGS 免费链，仓库与演示入口均不保证已配置 |
 | `PANDASCORE_TOKEN` | 否 | 无 | 可选 PandaScore 结构化电竞数据 Token；缺失或失败时回退默认网页搜索链 |
+| `JARVIS_REMINDERS_ENABLED` | 否 | `1` | 设为 `0` 关闭日程提醒、晨报电台与夜间记忆蒸馏的后台线程 |
+| `JARVIS_HEARTBEAT_ENABLED` | 否 | `1` | 设为 `0` 关闭 Heartbeat 主动唤醒（线程根本不启动） |
+| `JARVIS_HEARTBEAT_INTERVAL` | 否 | `1800` | Heartbeat 扫描周期（秒） |
+| `JARVIS_DISTILL_TIME` | 否 | `03:00` | 夜间记忆蒸馏触发时刻（HH:MM，过点 2 小时窗口内可补跑） |
+| `JARVIS_SKILLS_DIR` | 否 | `<项目根>/skills` | 技能热加载目录，放 `<名>/SKILL.md` 即生效 |
+| `JARVIS_LOG_LEVEL` | 否 | `WARNING` | 设为 `INFO` 可看到心跳/提醒/蒸馏等后台线程的推送日志 |
 
 ## 多用户 Provider / API 设置
 
@@ -373,12 +394,15 @@ JWS-Agent/
 ├── jarvis/
 │   ├── config.py          # 环境变量、模型与数据路径
 │   ├── graph.py           # LangGraph ReAct Agent + SQLite checkpointer
+│   ├── heartbeat.py       # Heartbeat 主动唤醒（关注清单巡检+双通道推送）
+│   ├── distill.py         # 夜间记忆蒸馏（最近一天对话 → 长期画像）
 │   ├── server.py          # FastAPI、登录、SSE、仪表盘与兼容接口
 │   ├── cli.py             # 交互式与单发 CLI
 │   ├── wechat.py          # Web 服务内置个人微信桥
 │   ├── web/               # 零构建的网页端
 │   └── tools/             # 24 项工具及注册表
 ├── desktop/               # macOS Electron 悬浮球与设置页
+├── skills/                # 技能热加载目录（放 SKILL.md 即生效）
 ├── wechat/                # 命令行备用网关
 ├── tests/                 # 确定性单元测试
 ├── scripts/               # 真模型、记忆与实时搜索验收脚本
