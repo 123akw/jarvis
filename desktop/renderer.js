@@ -305,6 +305,8 @@ function renderVoicePhase(p) {
   voiceEl.className = p
   $('#v-phase').textContent = VOICE_PHASE_LABEL[p] || p
   $('#v-interrupt').style.display = p === 'speaking' ? '' : 'none'
+  // 收起面板继续通话时，悬浮球按听/想/说三态变色动效
+  if (window.JWSVoiceBall) window.JWSVoiceBall.applyBallPhase(document.body.classList, p)
   renderVoiceHint()
 }
 function renderVoiceHint() {
@@ -366,6 +368,7 @@ async function startVoiceCall() {
 function endVoiceCall() {
   if (activeCall) { activeCall.hangup(); activeCall = null }
   document.body.classList.remove('show-voice', 'on-call')
+  if (window.JWSVoiceBall) window.JWSVoiceBall.applyBallPhase(document.body.classList, 'closed')
 }
 
 function sendVoiceTyped() {

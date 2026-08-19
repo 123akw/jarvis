@@ -10,6 +10,7 @@ const { assertTrustedSender, hardenWindow, validateSettingsPatch } = require('./
 const { isAllowedProviderLink } = require('./provider-links.js')
 const { createWakeServer, parseHandoffUrl } = require('./wake-server.js')
 const { buildAppInfo, restartApp } = require('./app-info.js')
+const { buildTrayMenuTemplate, wireTray } = require('./tray-setup.js')
 
 const PANEL = { w: 420, h: 640 }
 const ballWin = size => size + 8  // 球体 + 辉光留白
@@ -438,14 +439,15 @@ function createTray() {
   if (process.platform === 'darwin') icon.setTemplateImage(true)
   tray = new Tray(icon)
   tray.setToolTip('J.A.R.V.I.S. 贾维斯')
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: '打开对话', click: () => ensureExpanded() },
-    { label: '语音通话', click: () => { ensureExpanded(); win.webContents.send('tray-command', 'voice') } },
-    { label: '设置', click: () => { ensureExpanded(); win.webContents.send('tray-command', 'settings') } },
-    { type: 'separator' },
-    { label: `重启贾维斯（当前 ${APP_INFO.hash}）`, click: () => restartApp(app) },
-    { label: '退出贾维斯', click: () => app.quit() },
-  ]))
+  const menu = Menu.buildFromTemplate(buildTrayMenuTemplate({
+    onOpen: () => ensureExpanded(),
+    onVoice: () => { ensureExpanded(); win.webContents.send('tray-command', 'voice') },
+    onSettings: () => { ensureExpanded(); win.webContents.send('tray-command', 'settings') },
+    onRestart: () => restartApp(app),
+    onQuit: () => app.quit(),
+    versionHash: APP_INFO.hash,
+  }))
+  wireTray(tray, { menu, onToggle: summon })
 }
 
 /* 日程主动提醒：登录态下每分钟领取一次到点日程，弹系统通知（服务端按通道只发一次） */
@@ -480,6 +482,14 @@ app.whenReady().then(() => {
     win.webContents.once('did-finish-load', () => {
       if (process.env.JWS_SHOT_VIEW === 'ball') {
         setTimeout(async () => {
+          const phase = process.env.JWS_SHOT_BALL_PHASE  // listening|thinking|speaking：拍通话态外显
+          if (phase) {
+            await win.webContents.executeJavaScript(
+              `new Promise(done => {
+                 window.JWSVoiceBall.applyBallPhase(document.body.classList, ${JSON.stringify(phase)})
+                 requestAnimationFrame(() => setTimeout(done, 250))
+               })`)
+          }
           const img = await win.webContents.capturePage()
           fs.writeFileSync(process.env.JWS_SHOT, img.toPNG())
           app.quit()

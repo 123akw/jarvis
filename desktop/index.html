@@ -25,6 +25,18 @@ html,body{height:100%;background:transparent;overflow:hidden;
   position:relative;z-index:3;background:transparent;border:none}
 body.expanded #ball{display:none}
 
+/* 通话态外显：收起面板继续通话时，球按听/想/说三态变色动效。
+ * 球窗只比球大 8px，外辉光会被窗口裁掉——用描边+内辉光，任何球样式下都可见 */
+body.voice-listening #ball{border:2px solid rgba(83,232,255,.95)!important;
+  box-shadow:0 0 4px 1px rgba(83,232,255,.6),inset 0 0 14px rgba(83,232,255,.5);animation:vglow-l 2.4s ease-in-out infinite}
+body.voice-thinking #ball{border:2px solid rgba(255,193,84,.95)!important;
+  box-shadow:0 0 4px 1px rgba(255,193,84,.6),inset 0 0 14px rgba(255,193,84,.5);animation:vglow-t 1.2s ease-in-out infinite}
+body.voice-speaking #ball{border:2px solid rgba(122,255,170,.95)!important;
+  box-shadow:0 0 4px 1px rgba(122,255,170,.7),inset 0 0 14px rgba(122,255,170,.55);animation:vglow-s .8s ease-in-out infinite}
+@keyframes vglow-l{50%{box-shadow:0 0 2px 0 rgba(83,232,255,.25),inset 0 0 5px rgba(83,232,255,.2)}}
+@keyframes vglow-t{50%{box-shadow:0 0 2px 0 rgba(255,193,84,.25),inset 0 0 5px rgba(255,193,84,.2)}}
+@keyframes vglow-s{50%{transform:scale(1.05);box-shadow:0 0 6px 2px rgba(122,255,170,.85),inset 0 0 18px rgba(122,255,170,.7)}}
+
 /* 样式一：MOSS 能量核（默认）——玻璃球体 + 内部流体能量 */
 #orb{position:absolute;inset:0;border-radius:50%;overflow:hidden;display:none;
   pointer-events:none;
@@ -480,6 +492,7 @@ body.show-settings #settings{display:flex}
   <script src="chat-stream.js"></script>
   <script src="voice-audio.js"></script>
   <script src="voice-call.js"></script>
+  <script src="voice-ball.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

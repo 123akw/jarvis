@@ -426,3 +426,10 @@
 - prompts.py：skills_dir（JARVIS_SKILLS_DIR 可覆盖）/load_skills（每轮现读现用，天然热更新；坏文件空文件安静跳过）/skill_sections 注入 compose_system_prompt；护栏 MAX_SKILLS=20、单条 2000 字符截断。skills/README.md 说明格式。
 - pytest 新增 5 条（空目录静默/注入/热更新不重启/坏文件容错与目录名回退/数量与长度护栏）。
 - 实测：隔离服务放「回答末尾带🦞」技能→回复「…有什么需要我效劳的？🦞」；rm SKILL.md 不重启再聊→回复无🦞。两轮输出已贴对话。
+
+## 任务 5 ✅（2026-08-19）语音体验包（桌面端）
+- 球通话态外显：新 desktop/voice-ball.js（phase→body 类，任何时刻至多一个态类，UMD 可测）；renderVoicePhase/endVoiceCall 接线；CSS 三态=听青色描边呼吸/想琥珀描边/说绿色脉冲——第一版外辉光被球窗（球+8px）裁掉肉眼难辨，改「描边+内辉光」后三态清晰（截图 output/task5-ball-{listening,thinking,speaking}.png，JWS_SHOT 新支持 JWS_SHOT_BALL_PHASE）。
+- TTS 打断清缓冲**已具备**，证据：voice-call.js:78-81 bargeIn()→player.stop()；voice-audio.js:153-157 stop() 停掉全部已排 source、sources.clear()、nextTime=0——排队缓冲全部作废立即静音。本项零改动。
+- 托盘重构：新 desktop/tray-setup.js（buildTrayMenuTemplate+wireTray）；main.js 去 setContextMenu，tray.on('click')→summon 切换悬浮窗、tray.on('right-click')→popUpContextMenu（#13820 阻塞主进程属官方已知，可接受）；测试锁死「绝不调用 setContextMenu」防回退。
+- node --test 新增 6 条（voice-ball 3 + tray-setup 3），77 全绿；全量 pytest 512 / vitest 71。
+- 领导亲验清单项：托盘左键应切换悬浮窗、右键弹菜单；通话中收起面板看球的三态变色。
