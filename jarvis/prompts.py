@@ -1,4 +1,6 @@
 """贾维斯的人设与系统提示词。改语气、改行为规则只动这个文件。"""
+import os
+from pathlib import Path
 
 SYSTEM_PROMPT = (
     "你是贾维斯（J.A.R.V.I.S.），领导的私人管家。永远用简体中文回答，语气干练、周到，"
@@ -71,6 +73,59 @@ def profile_lines() -> list[str]:
         return []
 
 
+SKILL_FILE = "SKILL.md"
+MAX_SKILLS = 20            # 护栏：技能数量上限，先到先得（目录名排序）
+MAX_SKILL_CHARS = 2000     # 护栏：单技能正文截断，防提示词爆炸
+
+
+def skills_dir() -> Path:
+    """技能根目录：仓库根 skills/；JARVIS_SKILLS_DIR 可覆盖（测试与私有部署用）。"""
+    override = os.getenv("JARVIS_SKILLS_DIR", "").strip()
+    if override:
+        return Path(override)
+    return Path(__file__).resolve().parent.parent / "skills"
+
+
+def load_skills() -> list[dict]:
+    """枚举 skills/<名>/SKILL.md：首行「# 名称」，正文即技能指令。
+
+    每轮组装提示词时现读现用——放文件、改文件、删文件都在下一轮对话生效，
+    不需要重启服务。坏文件/空文件安静跳过，永远不因技能拖垮对话。
+    """
+    root = skills_dir()
+    out: list[dict] = []
+    try:
+        subdirs = sorted(p for p in root.iterdir() if p.is_dir())
+    except OSError:
+        return out
+    for sub in subdirs:
+        if len(out) >= MAX_SKILLS:
+            break
+        try:
+            raw = (sub / SKILL_FILE).read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if not raw:
+            continue
+        first, _, rest = raw.partition("\n")
+        name = first.lstrip("#").strip() or sub.name
+        body = rest.strip()[:MAX_SKILL_CHARS]
+        if body:
+            out.append({"name": name, "body": body})
+    return out
+
+
+def skill_sections() -> str:
+    """技能拼装成系统提示词片段；没有技能返回空串。"""
+    skills = load_skills()
+    if not skills:
+        return ""
+    parts = ["\n## 附加技能（领导放进 skills/ 目录的扩展指令，同样要遵守）"]
+    for s in skills:
+        parts.append(f"\n### 技能：{s['name']}\n{s['body']}")
+    return "\n".join(parts)
+
+
 def compose_system_prompt() -> str:
     """每轮调用时组装系统提示词：基础人设 + 用户人设偏好 + 长期记忆画像。"""
     parts = [SYSTEM_PROMPT]
@@ -94,4 +149,7 @@ def compose_system_prompt() -> str:
             + "\n".join(f"- {line}" for line in lines)
             + "\n回答时自然运用这些信息，不要逐条复述，也不要向领导炫耀你记得。"
         )
+    skills = skill_sections()
+    if skills:
+        parts.append(skills)
     return "\n".join(parts)

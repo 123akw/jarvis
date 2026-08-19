@@ -421,3 +421,8 @@
 - server.py：_distill_collect（get_state 拼摘录、6000 字符封顶）/_distill_compose（Owner 自己的 Agent、独立 distill 线程）/_distill_remember（add_profile 内容级去重，与 profile_remember 工具同一存储）；随 JARVIS_REMINDERS_ENABLED 总开关起停。
 - pytest 新增 6 条（到点写入画像/同日幂等零新条目/无对话不调模型/未到点与过窗/compose 失败当日不重试/解析护栏）。
 - 实测（第二轮才干净）：第一轮发现聊天 agent 自己会调 profile_remember 污染证据、且蒸馏扫描赶在对话前空跑作罢——重做：3 轮真实对话后清空 tenant_profile 再等触发，4 条画像由蒸馏线程独立写回（日志 distill wrote 4 profile fact(s)、distill 线程在 tenant_threads），坐标见对话贴证。
+
+## 任务 4 ✅（2026-08-19）技能热加载
+- prompts.py：skills_dir（JARVIS_SKILLS_DIR 可覆盖）/load_skills（每轮现读现用，天然热更新；坏文件空文件安静跳过）/skill_sections 注入 compose_system_prompt；护栏 MAX_SKILLS=20、单条 2000 字符截断。skills/README.md 说明格式。
+- pytest 新增 5 条（空目录静默/注入/热更新不重启/坏文件容错与目录名回退/数量与长度护栏）。
+- 实测：隔离服务放「回答末尾带🦞」技能→回复「…有什么需要我效劳的？🦞」；rm SKILL.md 不重启再聊→回复无🦞。两轮输出已贴对话。
