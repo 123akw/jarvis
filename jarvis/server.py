@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import AIMessageChunk, ToolMessage
 from pydantic import BaseModel, SecretStr
 
-from jarvis import __version__, config, heartbeat, reminders, wechat
+from jarvis import __version__, config, distill, heartbeat, reminders, wechat
 from jarvis.accounts import AccountStore, Principal, csrf_token, session_secret_configured
 from jarvis.graph import build_agent, heal_dangling_tool_calls
 from jarvis.provider_runtime import AgentRuntimeManager, probe_integration
@@ -44,6 +44,7 @@ async def lifespan(_app: FastAPI):
     wechat.resume_on_boot()
     scanner = None
     radio = None
+    distiller = None
     hb = heartbeat.maybe_create(
         owner_getter=_accounts.unique_active_owner,
         compose=_heartbeat_compose,
@@ -65,6 +66,13 @@ async def lifespan(_app: FastAPI):
             push_available=wechat.push_available,
         )
         radio.start()
+        distiller = distill.NightlyDistiller(
+            owner_getter=_accounts.unique_active_owner,
+            collect=_distill_collect,
+            compose=_distill_compose,
+            remember=_distill_remember,
+        )
+        distiller.start()
     try:
         yield
     finally:
@@ -74,6 +82,8 @@ async def lifespan(_app: FastAPI):
             scanner.stop()
         if radio is not None:
             radio.stop()
+        if distiller is not None:
+            distiller.stop()
         wechat.shutdown()
         if _runtime_manager is not None:
             _runtime_manager.close()
@@ -886,6 +896,61 @@ def _heartbeat_compose(owner, content: str, now) -> str:
                 config={"configurable": {"thread_id": thread.checkpoint_thread_id}},
             )
     return _chunk_text(result["messages"][-1].content)
+
+
+# ---------- 夜间记忆蒸馏：把最近一天的对话浓缩进长期画像 ----------
+
+_DISTILL_SERVICE_ALIASES = {"radio", "heartbeat", "distill"}     # 服务线程不参与蒸馏
+_DISTILL_MAX_CHARS = 6000
+
+
+def _distill_collect(owner) -> str:
+    """取最近 24 小时更新过的日常对话线程，拼成蒸馏摘录；没有就返回空串。"""
+    cutoff = (datetime.datetime.now(datetime.timezone.utc)
+              - datetime.timedelta(days=1)).isoformat()
+    parts: list[str] = []
+    with tenant_scope(owner.user_id):
+        store = _tenant_store()
+        recent = [t for t in store.list_threads()
+                  if t["id"] not in _DISTILL_SERVICE_ALIASES and (t["updated"] or "") >= cutoff]
+        with _bundle_for(owner.user_id) as bundle:
+            for t in recent:
+                thread = store.get_thread(t["id"])
+                if not thread:
+                    continue
+                state = bundle.agent.get_state(
+                    {"configurable": {"thread_id": thread.checkpoint_thread_id}})
+                for m in (state.values or {}).get("messages", []):
+                    if m.type == "human":
+                        parts.append(f"主人：{_chunk_text(m.content)}")
+                    elif m.type == "ai":
+                        text = _chunk_text(m.content)
+                        if text.strip():
+                            parts.append(f"贾维斯：{text}")
+                if sum(len(p) for p in parts) > _DISTILL_MAX_CHARS:
+                    break
+    return "\n".join(parts)[:_DISTILL_MAX_CHARS]
+
+
+def _distill_compose(owner, transcript: str) -> str:
+    """用 Owner 自己的 Agent 提炼画像（独立 distill 线程，不混日常对话）。"""
+    prompt = distill.DISTILL_PROMPT.format(transcript=transcript)
+    with tenant_scope(owner.user_id):
+        store = _tenant_store()
+        thread = store.upsert_thread("distill", "记忆蒸馏")
+        with _bundle_for(owner.user_id) as bundle:
+            heal_dangling_tool_calls(bundle.agent, thread.checkpoint_thread_id)
+            result = bundle.agent.invoke(
+                {"messages": [{"role": "user", "content": prompt}]},
+                config={"configurable": {"thread_id": thread.checkpoint_thread_id}},
+            )
+    return _chunk_text(result["messages"][-1].content)
+
+
+def _distill_remember(owner, fact: str) -> bool:
+    """写入 tenant_profile（与 profile_remember 工具同一存储，内容级去重）。"""
+    with tenant_scope(owner.user_id):
+        return not _tenant_store().add_profile(fact)["existed"]
 
 
 # ---------- 晨报电台：每天定时用 Agent 生成晨报，经微信语音条+文字推送 ----------

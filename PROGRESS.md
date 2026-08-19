@@ -415,3 +415,9 @@
 - pytest 新增 8 条（到点双通道推送/PASS 与空判沉默/文件缺失或空不烧模型/开关与 interval 解析/微信挂了桌面照送/compose 异常不外抛/领取箱按用户清空/端点送达）。
 - 实跑正向：隔离数据目录 + HEARTBEAT.md「立刻提醒我喝水」+ 5s 轮询，真实 DeepSeek 裁量，日志 6 条「heartbeat pushed: 该喝水了主人…」；反向：JARVIS_HEARTBEAT_ENABLED=0 复跑 30s，heartbeat 日志 0 行。
 - 全量：pytest 501（493+8）/ desktop 71 / vitest 71，0 skipped。
+
+## 任务 3 ✅（2026-08-19）夜间记忆蒸馏
+- 新 jarvis/distill.py：NightlyDistiller 照 MorningRadio 模式——默认 03:00（JARVIS_DISTILL_TIME 可调，主要给实测）、2 小时补跑窗、distill_last_run 记账（同日只跑一次）、失败当日不重试、当日无对话不烧模型；parse_facts 护栏（PASS 即空、≤5 条、去符号头）。「当日对话」按语义落为「最近 24 小时更新过的日常线程」（03:00 蒸昨天的对话；radio/heartbeat/distill 服务线程除外），记录于此。
+- server.py：_distill_collect（get_state 拼摘录、6000 字符封顶）/_distill_compose（Owner 自己的 Agent、独立 distill 线程）/_distill_remember（add_profile 内容级去重，与 profile_remember 工具同一存储）；随 JARVIS_REMINDERS_ENABLED 总开关起停。
+- pytest 新增 6 条（到点写入画像/同日幂等零新条目/无对话不调模型/未到点与过窗/compose 失败当日不重试/解析护栏）。
+- 实测（第二轮才干净）：第一轮发现聊天 agent 自己会调 profile_remember 污染证据、且蒸馏扫描赶在对话前空跑作罢——重做：3 轮真实对话后清空 tenant_profile 再等触发，4 条画像由蒸馏线程独立写回（日志 distill wrote 4 profile fact(s)、distill 线程在 tenant_threads），坐标见对话贴证。
