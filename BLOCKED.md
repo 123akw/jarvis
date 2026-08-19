@@ -79,3 +79,8 @@
 - Chrome 私网访问预检（PNA）按拍板实现（预检回 `Access-Control-Allow-Private-Network: true`），Playwright Chromium 实测通过；Chrome 后续版本若把 PNA 升级为强制「本机访问需用户授权」（Chrome 官方路线图上有），届时浏览器会弹一次授权框，代码无需改动，但体验会多一次点击——留意即可。
 - e2e 验证用 vite dev server 跑新前端（构建产物写死 ../jarvis/web，在白名单外故未重建未提交）；合并上线前需 `cd web-src && npm ci && npm run build` 再部署，否则线上跑的还是没有「悬浮窗」入口的旧版页面（旧页面对新服务端端点无感知、零影响）。
 - 生产 Origin 白名单取自桌面端设置里的 server 地址（默认 https://jws.gkgeek-set.cn）；若领导换生产域名，桌面端设置改 server 后白名单自动跟随，无需改代码。
+
+# 第三轮升级（feat/round3-upgrade，2026-08-19）待裁决清单
+- **.env.example 属禁区未更新**：本轮新增环境变量 JARVIS_HEARTBEAT_ENABLED / JARVIS_HEARTBEAT_INTERVAL / JARVIS_DISTILL_TIME / JARVIS_LOG_LEVEL / JARVIS_SKILLS_DIR 的说明需管理者补进 .env.example（.env* 在本任务书禁区内）。
+- **生产部署为管理者动作**：本分支未合并 main、未推远端、未碰生产。上线需重启 jarvis-web 服务；桌面端无新依赖，重启 Electron 即可。
+- 其余：无。

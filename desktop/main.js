@@ -11,6 +11,7 @@ const { isAllowedProviderLink } = require('./provider-links.js')
 const { createWakeServer, parseHandoffUrl } = require('./wake-server.js')
 const { buildAppInfo, restartApp } = require('./app-info.js')
 const { buildTrayMenuTemplate, wireTray } = require('./tray-setup.js')
+const { hotkeyFailureNotice, quickAskPayload } = require('./quick-ask.js')
 
 const PANEL = { w: 420, h: 640 }
 const ballWin = size => size + 8  // 球体 + 辉光留白
@@ -27,7 +28,7 @@ function settingsPath() {
   return path.join(app.getPath('userData'), 'settings.json')
 }
 function loadSettings() {
-  const defaults = { hotkey: 'Alt+Space', openAtLogin: false, ballSize: 64, ballStyle: 'moss', server: 'https://jws.gkgeek-set.cn' }
+  const defaults = { hotkey: 'Alt+Space', quickAskHotkey: 'Alt+Q', openAtLogin: false, ballSize: 64, ballStyle: 'moss', server: 'https://jws.gkgeek-set.cn' }
   try {
     return { ...defaults, ...JSON.parse(fs.readFileSync(settingsPath(), 'utf-8')) }
   } catch {
@@ -76,15 +77,23 @@ function setAutoLaunch(on) {
   }
 }
 
-/* ---------- 全局唤醒快捷键 ---------- */
-function applyHotkey(acc) {
-  globalShortcut.unregisterAll()
-  if (!acc) return true
+/* ---------- 全局快捷键：唤醒 + 划词问 ---------- */
+function safeRegister(acc, handler) {
   try {
-    return globalShortcut.register(acc, summon)
+    return globalShortcut.register(acc, handler)
   } catch {
     return false
   }
+}
+
+function applyHotkeys(s) {
+  globalShortcut.unregisterAll()
+  const hotkeyOk = !s.hotkey || safeRegister(s.hotkey, summon)
+  const quickAskOk = !s.quickAskHotkey || safeRegister(s.quickAskHotkey, () => { void triggerQuickAsk() })
+  if (s.quickAskHotkey && !quickAskOk && win) {   // 注册失败不许静默：面板给人话提示
+    win.webContents.send('wake-server-notice', hotkeyFailureNotice(s.quickAskHotkey))
+  }
+  return { hotkeyOk, quickAskOk }
 }
 
 function summon() {
@@ -93,6 +102,36 @@ function summon() {
   toggleWindow()
   win.webContents.send('set-expanded', expanded)
   if (expanded) win.focus()
+}
+
+/* ---------- 划词问：快捷键取词 → 弹小条（翻译/解释/改写） ---------- */
+function hasAccessibility() {
+  if (process.platform !== 'darwin') return true   // 非 macOS 无此权限概念
+  try { return systemPreferences.isTrustedAccessibilityClient(false) } catch { return false }
+}
+
+async function triggerQuickAsk() {
+  if (!win) return
+  let captured = ''
+  const accessibility = hasAccessibility()
+  if (accessibility && process.platform === 'darwin') {
+    try {
+      // 模拟 ⌘C 把当前选中文字送进剪贴板；System Events 正需要辅助功能权限
+      execSync(`osascript -e 'tell application "System Events" to keystroke "c" using command down'`,
+        { timeout: 2000 })
+      await new Promise(resolve => setTimeout(resolve, 180))
+      captured = clipboard.readText() || ''
+    } catch { /* 取词失败走剪贴板降级 */ }
+  }
+  const payload = quickAskPayload({
+    accessibility, capturedText: captured, clipboardText: clipboard.readText() || '',
+  })
+  if (!payload.text) return   // 啥都没有就不打扰
+  win.show()
+  if (!expanded) toggleWindow()
+  win.webContents.send('set-expanded', true)
+  win.focus()
+  win.webContents.send('quick-ask', payload)
 }
 
 /* ---------- 窗口 ---------- */
@@ -302,6 +341,16 @@ ipcMain.handle('show-login', event => {
   win.webContents.send('set-expanded', true)
   return true
 })
+ipcMain.handle('quick-ask-authorize', event => {
+  trusted(event)
+  if (process.platform !== 'darwin') return true
+  try {
+    // prompt=true：用户点了「去授权」才引导去系统设置，绝不启动即弹
+    return systemPreferences.isTrustedAccessibilityClient(true)
+  } catch {
+    return false
+  }
+})
 ipcMain.handle('voice-mic-access', async event => {
   trusted(event)
   if (process.platform !== 'darwin') return true
@@ -329,7 +378,8 @@ ipcMain.handle('open-external-link', async (event, url) => {
 ipcMain.handle('get-settings', event => {
   trusted(event)
   const s = loadSettings()
-  return { ...s, hotkeyOk: !!s.hotkey && globalShortcut.isRegistered(s.hotkey), appInfo: APP_INFO }
+  return { ...s, hotkeyOk: !!s.hotkey && globalShortcut.isRegistered(s.hotkey),
+    quickAskOk: !!s.quickAskHotkey && globalShortcut.isRegistered(s.quickAskHotkey), appInfo: APP_INFO }
 })
 ipcMain.handle('set-settings', (event, suppliedPatch) => {
   trusted(event)
@@ -343,14 +393,14 @@ ipcMain.handle('set-settings', (event, suppliedPatch) => {
     apiGateway = replaceSessionGateway({ currentGateway, previousSettings: previous, nextSettings: s,
       createGateway: gatewayFor, persistSettings: saveSettings })
   } else saveSettings(s)
-  const hotkeyOk = applyHotkey(s.hotkey)
+  const { hotkeyOk, quickAskOk } = applyHotkeys(s)
   try { setAutoLaunch(s.openAtLogin) } catch {}
   if (!expanded && win) {  // 收起态下即时按新尺寸重排（右缘钉住）
     const b = win.getBounds()
     const bw = ballWin(s.ballSize)
     win.setBounds({ x: b.x + b.width - bw, y: b.y, width: bw, height: bw })
   }
-  return { ...s, hotkeyOk }
+  return { ...s, hotkeyOk, quickAskOk }
 })
 
 const apiHandlers = createApiHandlers({
@@ -474,7 +524,7 @@ app.whenReady().then(() => {
   createWindow()
   createTray()
   const s = loadSettings()
-  applyHotkey(s.hotkey)
+  applyHotkeys(s)
   startWakeServer()
   startReminderPolling()
   // 自检截图模式：JWS_SHOT=/path/out.png [JWS_SHOT_VIEW=settings] npm start
@@ -504,6 +554,13 @@ app.whenReady().then(() => {
         if (process.env.JWS_SHOT_VIEW === 'board') {
           setTimeout(() => win.webContents.executeJavaScript(
             "document.querySelector('#boardbtn').click()"), 900)
+        }
+        if (process.env.JWS_SHOT_VIEW === 'quickbar') {  // 划词条演示态（自检截图用）
+          setTimeout(() => win.webContents.executeJavaScript(`
+            document.body.classList.add('show-quickbar')
+            document.querySelector('#qb-preview').textContent = '✂ tray.setContextMenu 会在 macOS 上接管左右键…'
+            document.querySelector('#qb-auth').style.display = ''
+          `), 900)
         }
         if (process.env.JWS_SHOT_VIEW === 'settings') {
           setTimeout(() => win.webContents.executeJavaScript(`

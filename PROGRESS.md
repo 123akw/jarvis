@@ -433,3 +433,22 @@
 - 托盘重构：新 desktop/tray-setup.js（buildTrayMenuTemplate+wireTray）；main.js 去 setContextMenu，tray.on('click')→summon 切换悬浮窗、tray.on('right-click')→popUpContextMenu（#13820 阻塞主进程属官方已知，可接受）；测试锁死「绝不调用 setContextMenu」防回退。
 - node --test 新增 6 条（voice-ball 3 + tray-setup 3），77 全绿；全量 pytest 512 / vitest 71。
 - 领导亲验清单项：托盘左键应切换悬浮窗、右键弹菜单；通话中收起面板看球的三态变色。
+
+## 任务 6 ✅（2026-08-19）划词悬浮工具条
+- 新 desktop/quick-ask.js（纯逻辑）：buildQuickPrompt 三动作指令拼装（4000 字符截断）、quickAskPayload 取词决策（有辅助功能权限用模拟 ⌘C 抓的选中文字；无权限降级剪贴板+「去授权」提示；有权限没选中退剪贴板不算降级）、hotkeyFailureNotice 注册失败文案。
+- main.js：默认快捷键 Alt+Q（settings.quickAskHotkey，security.js 白名单+校验+2 条新测试）；applyHotkeys 双键注册，划词键注册失败经 wake-server-notice 弹面板提示（不静默）+ 设置页状态行；triggerQuickAsk 用 osascript 模拟 ⌘C（System Events 正需要辅助功能权限）、180ms 后读剪贴板；quick-ask-authorize IPC 只在用户点「去授权」时调 isTrustedAccessibilityClient(true)，绝不启动即弹。
+- UI：#quickbar 三按钮+预览+降级授权链接+关闭；设置页「划词问快捷键」行；JWS_SHOT_VIEW=quickbar 演示截图 output/task6-quickbar.png。
+- node --test 新增 6 条（quick-ask 5 + security quickAskHotkey 1），83 全绿。
+- 领导亲验清单项：任意 App 选中文字按 Alt+Q（首次需在弹条点「去授权」并在系统设置勾选辅助功能）。
+
+## 完成条件对账（2026-08-19）
+- 硬指标 1 ✅：一次连续运行 pytest **512** passed 0 skipped（基线 493，要求 ≥507）；desktop node --test **83** pass 0 skipped（基线 68，要求 ≥78）；vitest **71**（基线 70）且连跑 5 次 0 失败。
+- 硬指标 2 ✅：git diff main...HEAD 仅落在 PROGRESS.md / desktop/ / jarvis/ / skills/ / tests/ / web-src/；deploy/、wechat/、.env* 改动数 0。
+- 反向验证均已红→绿：任务1 注释 relaunch→测试红；任务2 ENABLED=0→日志 0 行；任务3 清表后蒸馏独立写回；任务4 删技能→🦞消失。
+
+## 领导亲验清单（GUI 半托项）
+1. 托盘图标：左键=切换悬浮窗展开/收起，右键=弹菜单（打开对话/语音通话/设置/重启贾维斯(带版本)/退出）。
+2. 设置页底部可见「版本 <hash> · 本次启动 <时间>」；改代码后点托盘「重启贾维斯」应加载新版。
+3. 语音通话中点「—」收起面板：悬浮球应随 听（青色描边呼吸）/想（琥珀）/说（绿色脉冲）变色。
+4. 任意 App 选中一段文字按 Alt+Q：悬浮窗弹出划词条（翻译/解释/改写）；未授权辅助功能时用剪贴板内容并显示金色「去授权」链接。
+5. data/HEARTBEAT.md 写一行关注事项（如「下午三点提醒我开会」），30 分钟内贾维斯应主动通知（微信绑定过「提醒发给我」则微信也收到）。

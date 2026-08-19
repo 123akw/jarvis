@@ -19,6 +19,8 @@ contextBridge.exposeInMainWorld('jws', {
   setSettings: patch => ipcRenderer.invoke('set-settings', patch),
   showLogin: () => ipcRenderer.invoke('show-login'),
   voiceMicAccess: () => ipcRenderer.invoke('voice-mic-access'),
+  quickAskAuthorize: () => ipcRenderer.invoke('quick-ask-authorize'),
+  onQuickAsk: cb => ipcRenderer.on('quick-ask', (_e, payload) => cb(payload)),
   openProviderLink: url => ipcRenderer.invoke('open-provider-link', url),
   openExternalLink: url => ipcRenderer.invoke('open-external-link', url),
   onTrayCommand: cb => ipcRenderer.on('tray-command', (_e, cmd) => cb(cmd)),

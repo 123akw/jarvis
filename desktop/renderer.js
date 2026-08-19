@@ -274,6 +274,37 @@ clipbar.addEventListener('click', () => {
   ask()
 })
 
+/* 划词工具条：主进程快捷键取词后弹条，三动作直接把指令+原文发进对话流 */
+const quickbar = $('#quickbar')
+let quickText = ''
+function hideQuickbar() { document.body.classList.remove('show-quickbar'); quickText = '' }
+if (window.jws.onQuickAsk) {
+  window.jws.onQuickAsk(payload => {
+    quickText = payload.text || ''
+    if (!quickText) return
+    $('#qb-preview').textContent = `✂ ${quickText.slice(0, 60).replace(/\s+/g, ' ')}${quickText.length > 60 ? '…' : ''}`
+    $('#qb-auth').style.display = payload.degraded ? '' : 'none'
+    if (payload.notice) $('#qb-auth').title = payload.notice
+    document.body.classList.add('show-quickbar')
+  })
+}
+$('#qb-actions').addEventListener('click', e => {
+  const act = e.target && e.target.dataset && e.target.dataset.act
+  if (!act || !quickText) return
+  const prompt = window.JWSQuickAsk.buildQuickPrompt(act, quickText)
+  hideQuickbar()
+  if (!prompt) return
+  box.value = prompt
+  ask()
+})
+$('#qb-auth').addEventListener('click', async () => {
+  try {
+    const granted = await window.jws.quickAskAuthorize()  // 只在用户点击时发起系统授权引导
+    if (granted) $('#qb-auth').style.display = 'none'
+  } catch { /* 授权结果下次取词再看 */ }
+})
+$('#qb-close').addEventListener('click', hideQuickbar)
+
 send.addEventListener('click', () => { if (busy && currentStream) void currentStream.cancel(); else void ask() })
 box.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask() }
@@ -752,6 +783,11 @@ async function openSettings() {
     ? (s.hotkeyOk ? `当前生效：${displayAcc(s.hotkey)}` : `注册失败（可能被占用）：${displayAcc(s.hotkey)}`)
     : '未启用'
   $('#s-hotkey-state').className = 's-hint ' + (s.hotkey ? (s.hotkeyOk ? 'ok' : 'bad') : '')
+  $('#s-quickask').value = s.quickAskHotkey || ''
+  $('#s-quickask-state').textContent = s.quickAskHotkey
+    ? (s.quickAskOk ? `当前生效：${displayAcc(s.quickAskHotkey)}` : `注册失败（可能被占用）：${displayAcc(s.quickAskHotkey)}`)
+    : '未启用'
+  $('#s-quickask-state').className = 's-hint ' + (s.quickAskHotkey ? (s.quickAskOk ? 'ok' : 'bad') : '')
   $('#s-server').value = s.server || ''
   $('#s-about').textContent = s.appInfo
     ? `版本 ${s.appInfo.hash} · 本次启动 ${s.appInfo.startedAt}（更新代码后请从托盘重启）` : ''
@@ -773,13 +809,20 @@ $('#s-save').addEventListener('click', async () => {
   const ballSize = parseInt($('#s-ballsize').value, 10)
   const ballStyle = $('#s-ballstyle').value
   const server = $('#s-server').value.trim().replace(/\/+$/, '')
+  const quickAskHotkey = $('#s-quickask').value.trim()
   const r = await window.jws.setSettings({
     hotkey: pendingHotkey,
+    quickAskHotkey,
     openAtLogin: $('#s-autolaunch').checked,
     ballSize,
     ballStyle,
     server,
   })
+  const qst = $('#s-quickask-state')
+  qst.textContent = quickAskHotkey
+    ? (r.quickAskOk ? `当前生效：${displayAcc(quickAskHotkey)}` : `注册失败（可能被占用）：${displayAcc(quickAskHotkey)}`)
+    : '未启用'
+  qst.className = 's-hint ' + (quickAskHotkey ? (r.quickAskOk ? 'ok' : 'bad') : '')
   applyBallLook(ballSize, ballStyle)
   const msg = $('#s-msg')
   const st = $('#s-hotkey-state')

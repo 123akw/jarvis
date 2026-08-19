@@ -35,3 +35,9 @@ test('settings patch rejects extra fields and invalid types or limits', () => {
   assert.throws(() => validateSettingsPatch({ ballSize: 1000 }, false), /ballSize/)
   assert.throws(() => validateSettingsPatch({ hotkey: 'x'.repeat(65) }, false), /hotkey/)
 })
+
+test('settings patch accepts quickAskHotkey with the same hotkey rules', () => {
+  assert.deepEqual(validateSettingsPatch({ quickAskHotkey: 'Alt+Q' }, false), { quickAskHotkey: 'Alt+Q' })
+  assert.throws(() => validateSettingsPatch({ quickAskHotkey: 'x'.repeat(65) }, false), /quickAskHotkey/)
+  assert.throws(() => validateSettingsPatch({ quickAskHotkey: 'bad\nkey' }, false), /quickAskHotkey/)
+})
