@@ -750,6 +750,8 @@ async function openSettings() {
     : '未启用'
   $('#s-hotkey-state').className = 's-hint ' + (s.hotkey ? (s.hotkeyOk ? 'ok' : 'bad') : '')
   $('#s-server').value = s.server || ''
+  $('#s-about').textContent = s.appInfo
+    ? `版本 ${s.appInfo.hash} · 本次启动 ${s.appInfo.startedAt}（更新代码后请从托盘重启）` : ''
   $('#s-msg').textContent = ''
   document.body.classList.add('show-settings')
   void loadVoiceSettings()

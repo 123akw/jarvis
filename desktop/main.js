@@ -9,6 +9,7 @@ const { createApiHandlers } = require('./ipc-api.js')
 const { assertTrustedSender, hardenWindow, validateSettingsPatch } = require('./security.js')
 const { isAllowedProviderLink } = require('./provider-links.js')
 const { createWakeServer, parseHandoffUrl } = require('./wake-server.js')
+const { buildAppInfo, restartApp } = require('./app-info.js')
 
 const PANEL = { w: 420, h: 640 }
 const ballWin = size => size + 8  // 球体 + 辉光留白
@@ -18,6 +19,7 @@ const INDEX_URL = pathToFileURL(INDEX_PATH).href
 let win = null
 let expanded = false
 let apiGateway = null
+const APP_INFO = buildAppInfo({ execSync, dirname: __dirname, version: app.getVersion(), startedAt: Date.now() })
 
 /* ---------- 设置持久化 ---------- */
 function settingsPath() {
@@ -326,7 +328,7 @@ ipcMain.handle('open-external-link', async (event, url) => {
 ipcMain.handle('get-settings', event => {
   trusted(event)
   const s = loadSettings()
-  return { ...s, hotkeyOk: !!s.hotkey && globalShortcut.isRegistered(s.hotkey) }
+  return { ...s, hotkeyOk: !!s.hotkey && globalShortcut.isRegistered(s.hotkey), appInfo: APP_INFO }
 })
 ipcMain.handle('set-settings', (event, suppliedPatch) => {
   trusted(event)
@@ -441,6 +443,7 @@ function createTray() {
     { label: '语音通话', click: () => { ensureExpanded(); win.webContents.send('tray-command', 'voice') } },
     { label: '设置', click: () => { ensureExpanded(); win.webContents.send('tray-command', 'settings') } },
     { type: 'separator' },
+    { label: `重启贾维斯（当前 ${APP_INFO.hash}）`, click: () => restartApp(app) },
     { label: '退出贾维斯', click: () => app.quit() },
   ]))
 }
@@ -518,8 +521,12 @@ app.whenReady().then(() => {
             } catch (e) { console.log('JWS_SHOT_PROBE failed', String(e)) }
           }
           if (process.env.JWS_SHOT_SCROLL === 'bottom') {
+            // 滚动后必须等重绘落地再截图，否则 capturePage 拿到的还是滚动前的帧
             await win.webContents.executeJavaScript(
-              "document.querySelectorAll('.s-body').forEach(el => { el.scrollTop = el.scrollHeight })")
+              `new Promise(done => {
+                 document.querySelectorAll('.s-body').forEach(el => { el.scrollTop = el.scrollHeight })
+                 requestAnimationFrame(() => setTimeout(done, 150))
+               })`)
           }
           const img = await win.webContents.capturePage()
           fs.writeFileSync(process.env.JWS_SHOT, img.toPNG())

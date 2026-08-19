@@ -58,6 +58,21 @@ describe('消息级操作', () => {
     expect(chatStream.mock.calls[1][0]).toBe('现在几点')
   })
 
+  it('「编辑」后组件立即卸载，延后的行高回调不抛错', async () => {
+    let rafCb = null
+    const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(cb => { rafCb = cb; return 1 })
+    getHistory.mockResolvedValue([
+      { role: 'user', content: '明天天气怎么样' },
+      { role: 'assistant', content: '晴。' },
+    ])
+    render(<Chat threadId="t1" />)
+    fireEvent.click(await screen.findByTitle('编辑后重新发送'))
+    cleanup()
+    expect(rafCb).toBeTypeOf('function')
+    expect(() => rafCb()).not.toThrow()
+    rafSpy.mockRestore()
+  })
+
   it('用户消息也有「复制」按钮', async () => {
     getHistory.mockResolvedValue([{ role: 'user', content: '记一条备忘' }])
     render(<Chat threadId="t1" />)

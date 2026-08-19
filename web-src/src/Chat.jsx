@@ -73,6 +73,7 @@ export default function Chat({ threadId, location, onBusy, onTurnDone, onExpired
 
   function autoGrow() {
     const el = boxRef.current
+    if (!el) return  // 「编辑」经 rAF 延后调用，期间组件可能已卸载
     el.style.height = 'auto'
     el.style.height = Math.min(el.scrollHeight, 168) + 'px'
   }

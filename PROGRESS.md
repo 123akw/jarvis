@@ -394,3 +394,17 @@
 
 ## 未做与原因（下轮候选）
 - dmg/exe 打包安装器：需签名/公证链路，建议单独立项；划词取词：需辅助功能权限模拟 ⌘C，半成品风险高；生图/图片理解：等 Provider 侧配置多模态模型。
+
+# 第三轮升级（feat/round3-upgrade 分支，2026-08-19 开工）
+
+## 开工回执（任务 0 ✅ 2026-08-19）
+- 目标：贾维斯从问答机→主动管家。六个任务：①vitest flaky 清零+版本自证 ②Heartbeat 主动唤醒 ③夜间记忆蒸馏 ④技能热加载 ⑤语音体验包（球三态+托盘重构）⑥划词悬浮条。
+- 基线复核：pytest 493 passed 0 skipped（38s）✓；desktop node --test 68 pass 0 skipped ✓；vitest 70 passed（本轮未触发 flaky，书载约 1/3 概率挂 Chat.actions.test.jsx）✓。
+- 顺序：按书 1→6，每任务全量三套回归+任务粒度提交；不合并 main、不推远端、不碰生产。
+- 最大风险：任务 1 flaky 根因若在组件卸载时序而非测试本身，修「实现」可能越界——若确认属实现 bug 按书写 BLOCKED.md 裁决；任务 6 辅助功能权限路径无法自动化，降级路径全测、真机效果留领导亲验。
+
+## 任务 1 ✅（2026-08-19）flaky 清零 + 版本自证
+- flaky 根因在实现非测试：Chat.jsx「编辑」按钮 requestAnimationFrame(autoGrow) 在组件卸载后触发，boxRef.current=null 抛 TypeError 成为 unhandled error 污染测试进程（书里预判过此情形，属「建议」层临场决定：修实现加空守卫，比改测试掩盖诚实）。新增回归测试锁时序，红→绿已证。
+- 版本自证：新 desktop/app-info.js（buildAppInfo git 短 hash+启动时刻、restartApp relaunch→exit 顺序锁定）；设置页底部显示版本行、托盘菜单加「重启贾维斯（当前 hash）」。反向验证：注释 relaunch→测试红→还原绿。
+- 顺手修一处工具缺陷（建议层）：JWS_SHOT_SCROLL 滚动后未等重绘就 capturePage，截图永远是滚动前的帧——加 rAF+150ms 等待，截图已能拍到页面底部（output/task1-settings.png 见版本行）。
+- 验收：vitest 连跑 5 次全绿；全量 pytest 493 / desktop 71（68+3）/ vitest 71（70+1），0 skipped。
