@@ -452,3 +452,42 @@
 3. 语音通话中点「—」收起面板：悬浮球应随 听（青色描边呼吸）/想（琥珀）/说（绿色脉冲）变色。
 4. 任意 App 选中一段文字按 Alt+Q：悬浮窗弹出划词条（翻译/解释/改写）；未授权辅助功能时用剪贴板内容并显示金色「去授权」链接。
 5. data/HEARTBEAT.md 写一行关注事项（如「下午三点提醒我开会」），30 分钟内贾维斯应主动通知（微信绑定过「提醒发给我」则微信也收到）。
+
+# 第四轮升级（2026-08-24）：语音唤醒 + 网页控悬浮窗 + 会议纪要
+
+基线：pytest 512 / desktop node --test 83 / vitest 71。交付后 **pytest 542 / desktop 100 / vitest 82（连跑 5 次全绿）**，前端产物已重建（jarvis/web）。
+
+## 任务 1 ✅ 语音唤醒「贾维斯」
+- 桌面新模块 desktop/wake-word.js（UMD 纯逻辑）：本地 VAD 圈人声段（前置缓冲 3 帧防吃「贾」字、静音 600ms 收段、最长 3s 截断、短于 300ms 当噪声、送检后 4s 冷却）→ encodeWav → 服务端一次性识别；静音零请求零费用。
+- 服务端 POST /api/voice/wake：复用微信语音线的 DashScopeASR（qwen3-asr-flash 文件级识别），wake_matched 归一化匹配（去标点空格、小写化），唤醒词表 JARVIS_WAKE_WORDS 可配（默认贾维斯+四个同音兜底+jarvis）；无 key 返回 ok:false 人话提示（桌面只提示一次）。
+- renderer 接线：唤醒命中 → 亮窗展开 → startVoiceCall（与悬浮球右键同路）；通话/会议期间暂停判定防自吵醒。设置页新增开关（默认关），settings 白名单加 wakeWordEnabled（security.js）。
+- 测试：pytest 新增 test_voice_wake.py 5 条（归一化匹配/env 覆盖/命中/无 key 降级/未登录+超长+坏编码守卫）；desktop wake-word.test.js 5 条（一段话只送检一次+WAV 头、短噪声丢弃、冷却窗、超长截断+识别抛错不炸、base64 可逆）。
+
+## 任务 2 ✅ 网页端悬浮窗控制
+- wake-server.js 新路由 POST /window {action: show|hide|quit}：沿用 Origin 白名单+PNA 预检；quit 先回响应再延迟 150ms 执行（网页能拿到结果）；非法 action 400 且绝不触发动作。
+- main.js：setBallVisible（隐藏前先收成球再 win.hide，summon/托盘/接管唤起自动清隐藏态）；托盘菜单新增「显示/隐藏悬浮球」与「会议纪要（开始/停止）」。
+- 服务端 GET/PUT /api/desktop/settings（tenant_prefs: desktop_ball_visible，PUT 走 CSRF）+ GET /api/desktop/commands（10 秒轮询：指令领取箱领取即清 + 顺带回带球显隐偏好；桌面只在偏好变化时应用、首轮只记基线，不跟托盘手动操作打架）。
+- 网页「⚙ API → 桌面与会议」新页签：探活状态、显示/隐藏悬浮球（先写服务端偏好、再走本机 17789 快路径秒级生效；跨机 10 秒内下发）、二次确认的「彻底关闭桌面端」。
+- 测试：pytest test_desktop_window.py（偏好读写+CSRF、指令领取即清）；desktop wake-server 新增 3 条（show/hide 同步执行+严格校验、quit 先响应后动作、Origin 白名单同 wake）；vitest desktopWake desktopWindow 3 条 + ProviderSettings.desktop 4 条。
+
+## 任务 3 ✅ 会议纪要（实时转写 → 总结 → 发邮箱）
+- 双路采集：voice-audio.js 抽出 startStreamCapture 共用管线，新增 startSystemAudioStream（getDisplayMedia：视频轨是门票拿到即停，无音频轨抛 NoSystemAudioError 降级只录麦克风）；main.js 开 macOS 回环三代特性开关（MacLoopbackAudioForScreenShare/MacSckSystemAudioLoopbackOverride/MacCatapSystemAudioLoopbackCapture）+ setDisplayMediaRequestHandler 只服务本窗口、audio:'loopback'；X-JWS-Token 注入扩到 meetingStreamUrl。
+- 服务端 WS /api/meeting/stream（jarvis/voice/meeting_gateway.py）：二进制帧首字节声道头（0x00=我/0x01=对方），双路各一条百炼流式识别；与语音通话网关的关键差异——没有回合与 TTS，识别断线不降级浏览器而是自动重建续传（上限 6 次，长会议单条 WSS 会超时），彻底坏才一次性 asr_unavailable；正常 stop 先 finish-task 冲刷尾句。断线（合盖/崩溃）服务端照样完成总结+发邮件，已录内容不丢。
+- 领域层 jarvis/meeting.py：MeetingSession（带说话人+时刻的转写，60k 字符护栏）/MeetingRegistry（每用户一场，冲突 4409）/CommandOutbox（桌面指令领取箱，照 PendingOutbox）。
+- 总结与落库：_meeting_compose 照 _distill_compose 模板（独立 meeting 线程，已加进 _DISTILL_SERVICE_ALIASES 防夜间蒸馏二次咀嚼）；tenant_meetings 表走 **schema v3 独立版本号**（v2 存量库踩坑的铁律，含「删表删版本记录再连接可重建」的存量库升级回归测试）；无发言不烧模型不发信。
+- 邮件 jarvis/mailer.py：标准库 smtplib+EmailMessage 零新依赖，465 SSL / 其他端口 STARTTLS，上游异常只留类名；默认收件人 JARVIS_MEETING_MAIL_TO=1539598158@qq.com，每用户 tenant_prefs meeting_mail_to 可覆盖；SMTP 未配置纪要照存、mail 帧带人话提示。
+- 入口三条路：① 对话工具 meeting_start/meeting_stop（工具数 24→26，两处计数测试同步更新，SYSTEM_PROMPT 补规则）→ 指令箱 → 桌面 10 秒内领取；② 桌面 🎙 面板（实时双路字幕、段数计数、收起球上红点、结束后面板内渲染纪要+邮件结果）；③ 托盘菜单。REST：GET /api/meetings（列表+active）/GET /api/meetings/{id}/POST /api/meetings/{id}/email 重发/GET+PUT /api/meeting/settings。
+- 网页：任务台新增「会议纪要」卡片（无会议整卡隐藏、监控中状态点、点开看纪要、一键重发邮件）；收件邮箱设置在「桌面与会议」页签。
+- 测试：pytest test_meeting.py 19 条（纯逻辑 4 + 邮件 5 + 全链路 WS 10：双声道转写落库发信、并发冲突、空会议零成本、SMTP 未配置仍存档、识别彻底坏一次性通知、重发端点、收件人覆盖）；desktop meeting.test.js 7 条；vitest Panels 会议卡 4 条。
+
+## 部署提醒（管理者）
+- 生产 .env 新增（均可选）：JARVIS_SMTP_HOST/PORT/USER/PASSWORD/FROM、JARVIS_MEETING_MAIL_TO、JARVIS_WAKE_WORDS；QQ 邮箱发信用授权码。
+- nginx 需为 **/api/meeting/stream** 增加与 /api/voice/call 同款的 WebSocket location 块（Upgrade 头 + 3600s 超时），否则会议推流会被掐。
+- 数据库自动迁移 schema v3（tenant_meetings），升级前照例快照 accounts.sqlite3。
+- 桌面端零新增 npm 依赖，但需重启加载新代码；会议纪要首次使用需授予「屏幕录制」权限（录对方声音），语音唤醒开关默认关。
+
+## 领导亲验清单（GUI 半托项）
+1. 桌面设置勾「语音唤醒」→ 喊「贾维斯」→ 悬浮球亮出并接通语音通话（首次需允许麦克风）。
+2. 网页 ⚙ API → 桌面与会议：点「隐藏悬浮球」桌面球即消失，「显示悬浮球」回来；「彻底关闭桌面端」二次确认后应用退出。
+3. 开一场飞书会议 → 对贾维斯说「监控会议」（或点 🎙）→ 面板双路字幕滚动（我/对方）→ 说「停止监控会议」→ 1539598158@qq.com 收到纪要邮件（需 .env 配好 SMTP）；网页任务台出现该会议可回看。
+4. 若字幕只有「我」没有「对方」：按面板提示到 系统设置 → 隐私与安全性 → 屏幕录制 勾选本应用后重开会议监控。
