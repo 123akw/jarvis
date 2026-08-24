@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { getProviderSettings, getRadio, getVoiceSettings, restoreIntegration, restoreLLMSettings, saveIntegration, saveLLMSettings, saveRadio, saveVoiceSettings, testIntegration, testLLMSettings } from './api.js'
+import { getDesktopSettings, getMeetingSettings, getProviderSettings, getRadio, getVoiceSettings, restoreIntegration, restoreLLMSettings, saveDesktopSettings, saveIntegration, saveLLMSettings, saveMeetingSettings, saveRadio, saveVoiceSettings, testIntegration, testLLMSettings } from './api.js'
+import { desktopWindow, pingDesktop } from './desktopWake.js'
 
 const errorText = error => error?.message === '401' ? '登录已失效，请重新登录。' : (error?.message || '操作失败。')
 
@@ -31,8 +32,9 @@ export default function ProviderSettings({ session, onClose, onExpired, onApplie
   if (!settings) return <section className="provider-card"><p role="status">{message || '正在读取 API 设置…'}</p></section>
   return <section className="provider-card" aria-label="API 设置中心">
     <div className="account-head"><div><b>API 设置中心</b><small>{session.username} · 密钥不会回显</small></div><button className="wx-x" onClick={onClose} aria-label="关闭 API 设置">×</button></div>
-    <div className="provider-tabs" role="tablist"><button className={tab === 'llm' ? 'on' : ''} onClick={() => setTab('llm')}>模型 API</button><button className={tab === 'voice' ? 'on' : ''} onClick={() => setTab('voice')}>语音</button>{session.role === 'Owner' ? <button className={tab === 'search' ? 'on' : ''} onClick={() => setTab('search')}>联网数据源</button> : null}</div>
+    <div className="provider-tabs" role="tablist"><button className={tab === 'llm' ? 'on' : ''} onClick={() => setTab('llm')}>模型 API</button><button className={tab === 'voice' ? 'on' : ''} onClick={() => setTab('voice')}>语音</button><button className={tab === 'desktop' ? 'on' : ''} onClick={() => setTab('desktop')}>桌面与会议</button>{session.role === 'Owner' ? <button className={tab === 'search' ? 'on' : ''} onClick={() => setTab('search')}>联网数据源</button> : null}</div>
     {tab === 'voice' ? <VoiceSettingsPane onMessage={setMessage} onExpired={onExpired} /> : null}
+    {tab === 'desktop' ? <DesktopMeetingPane onMessage={setMessage} onExpired={onExpired} /> : null}
     {tab === 'llm' ? <div className="provider-pane">
       <label>Provider<select aria-label="Provider" value={provider} onChange={event => { const id = event.target.value; const item = settings.catalog.find(row => row.id === id); setProvider(id); setBaseUrl(item?.base_url || ''); setKeep(false); setApiKey('') }}>{settings.catalog.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <label>Base URL<input aria-label="Base URL" value={baseUrl} readOnly={!catalog?.editable} onChange={event => { setBaseUrl(event.target.value); setKeep(false); setApiKey('') }} /></label>
@@ -100,6 +102,65 @@ function VoiceSettingsPane({ onMessage, onExpired }) {
     </label>
     <p className="provider-risk">音色与语速只影响你自己的语音通话答复（网页与桌面端共用）。晨报电台会在每天设定时间把「天气+日程+待办」做成语音条+文字发到你的微信——需要先在微信里对贾维斯说「提醒发给我」完成绑定。</p>
     <div className="provider-actions"><button disabled={busy || !voice} onClick={save}>保存</button></div>
+  </div>
+}
+
+function DesktopMeetingPane({ onMessage, onExpired }) {
+  const [alive, setAlive] = useState(null)          // null=探测中 / {loggedIn} / false=未运行
+  const [ballVisible, setBallVisible] = useState(true)
+  const [mailTo, setMailTo] = useState(''), [mailDefault, setMailDefault] = useState('')
+  const [smtpReady, setSmtpReady] = useState(true)
+  const [quitArmed, setQuitArmed] = useState(false), [busy, setBusy] = useState(false)
+  useEffect(() => {
+    pingDesktop().then(result => setAlive(result || false)).catch(() => setAlive(false))
+    getDesktopSettings().then(d => setBallVisible(Boolean(d.ball_visible))).catch(() => {})
+    getMeetingSettings()
+      .then(m => { setMailTo(m.mail_to || ''); setMailDefault(m.default || ''); setSmtpReady(Boolean(m.smtp_configured)) })
+      .catch(error => { if (error.message === '401') onExpired?.() })
+  }, [])
+  async function setBall(visible) {
+    setBusy(true)
+    try {
+      await saveDesktopSettings(visible)            // 服务端偏好：跨机 10 秒内轮询生效
+      setBallVisible(visible)
+      const local = await desktopWindow(visible ? 'show' : 'hide')  // 同机快路径：秒级生效
+      onMessage(local.status === 'done'
+        ? (visible ? '悬浮球已显示。' : '悬浮球已隐藏（托盘和快捷键仍可唤回）。')
+        : (visible ? '偏好已保存；桌面端在线后 10 秒内显示悬浮球。' : '偏好已保存；桌面端在线后 10 秒内隐藏悬浮球。'))
+    } catch (error) { if (error.message === '401') onExpired?.(); onMessage(errorText(error)) }
+    finally { setBusy(false) }
+  }
+  async function quitDesktop() {
+    if (!quitArmed) { setQuitArmed(true); setTimeout(() => setQuitArmed(false), 4000); return }
+    setQuitArmed(false)
+    setBusy(true)
+    try {
+      const result = await desktopWindow('quit')
+      onMessage(result.status === 'done' ? '桌面端已彻底关闭；需要时重新启动应用即可。'
+        : result.status === 'not-running' ? '桌面端不在这台电脑上运行（或已经关闭）。'
+          : '关闭请求没有送达，请在桌面端托盘里退出。')
+      if (result.status === 'done') setAlive(false)
+    } finally { setBusy(false) }
+  }
+  async function saveMail() {
+    setBusy(true)
+    try { const saved = await saveMeetingSettings(mailTo.trim()); onMessage(`会议纪要将发送至 ${saved.mail_to}。`) }
+    catch (error) { if (error.message === '401') onExpired?.(); onMessage(errorText(error)) }
+    finally { setBusy(false) }
+  }
+  return <div className="provider-pane">
+    <p role="status">桌面端状态：{alive === null ? '探测中…' : alive ? '在这台电脑上运行中' : '未运行（或不在这台电脑上；跨机时以下开关经服务器下发）'}</p>
+    <label className="provider-check"><input type="checkbox" checked={ballVisible} disabled={busy} onChange={event => void setBall(event.target.checked)} />在桌面显示悬浮球</label>
+    <div className="provider-actions">
+      <button disabled={busy} onClick={() => void setBall(true)}>显示悬浮球</button>
+      <button disabled={busy} onClick={() => void setBall(false)}>隐藏悬浮球</button>
+      <button disabled={busy} onClick={() => void quitDesktop()}>{quitArmed ? '再点一次确认关闭' : '彻底关闭桌面端'}</button>
+    </div>
+    <label>会议纪要收件邮箱
+      <input aria-label="会议纪要收件邮箱" value={mailTo} onChange={event => setMailTo(event.target.value)} placeholder={mailDefault ? `留空使用默认：${mailDefault}` : '如 1539598158@qq.com'} />
+    </label>
+    <p className="provider-risk">会议纪要由 macOS 桌面端采集（你的麦克风 + 系统里对方的声音），结束后自动整理并发送到上面的邮箱。{smtpReady ? '' : '当前服务器还没配置 SMTP 发信（.env 里的 JARVIS_SMTP_*），纪要会保存但发不出邮件。'}对话里说「监控会议」也能远程开始。</p>
+    <div className="provider-actions"><button disabled={busy} onClick={() => void saveMail()}>保存收件邮箱</button></div>
   </div>
 }
 

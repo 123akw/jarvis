@@ -22,6 +22,23 @@ export async function pingDesktop({ fetchImpl = fetch, timeoutMs = 800 } = {}) {
   }
 }
 
+/** 悬浮窗控制：show 显示 / hide 隐藏 / quit 彻底退出桌面端。
+ *  返回 { status: 'done' | 'not-running' | 'failed' }。 */
+export async function desktopWindow(action, { fetchImpl = fetch, timeoutMs = 800 } = {}) {
+  const alive = await pingDesktop({ fetchImpl, timeoutMs })
+  if (!alive) return { status: 'not-running' }
+  try {
+    const response = await fetchImpl(`${WAKE_BASE}/window`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+    })
+    return response.ok ? { status: 'done' } : { status: 'failed' }
+  } catch {
+    return { status: 'failed' }
+  }
+}
+
 /** 一键唤起：探活 → 领票 → /wake。返回四态之一：
  *  awakened（已亮出悬浮窗）/ not-running（未启动，附 jws:// 地址与指引）
  *  / ticket-failed（领票失败）/ wake-failed（唤起请求失败）。 */

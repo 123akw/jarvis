@@ -165,6 +165,31 @@ export async function testIntegration(name, body) { return parse(await fetch(`/a
 export async function saveIntegration(name, body) { return parse(await fetch(`/api/settings/integrations/${encodeURIComponent(name)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...csrfHeaders() }, body: JSON.stringify(body) })) }
 export async function restoreIntegration(name, body) { return parse(await fetch(`/api/settings/integrations/${encodeURIComponent(name)}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json', ...csrfHeaders() }, body: JSON.stringify(body) })) }
 
+/* ---- 会议纪要 ---- */
+export async function getMeetings() {
+  return parse(await fetch('/api/meetings'))
+}
+export async function getMeeting(id) {
+  return parse(await fetch(`/api/meetings/${id}`))
+}
+export async function emailMeeting(id) {
+  return parse(await fetch(`/api/meetings/${id}/email`, { method: 'POST', headers: csrfHeaders() }))
+}
+export async function getMeetingSettings() {
+  return parse(await fetch('/api/meeting/settings'))
+}
+export async function saveMeetingSettings(mailTo) {
+  return parse(await fetch('/api/meeting/settings', { method: 'PUT', headers: jsonHeaders(), body: JSON.stringify({ mail_to: mailTo }) }))
+}
+
+/* ---- 桌面悬浮窗偏好（跨机兜底：桌面端 10 秒内轮询到；同机另有 wake-server 快路径） ---- */
+export async function getDesktopSettings() {
+  return parse(await fetch('/api/desktop/settings'))
+}
+export async function saveDesktopSettings(ballVisible) {
+  return parse(await fetch('/api/desktop/settings', { method: 'PUT', headers: jsonHeaders(), body: JSON.stringify({ ball_visible: ballVisible }) }))
+}
+
 /** 桌面接管：领一次性票据（60 秒时效，桌面端凭它免密码换桌面令牌） */
 export async function desktopHandoffTicket() {
   return parse(await fetch('/api/desktop/handoff', { method: 'POST', headers: csrfHeaders() }))

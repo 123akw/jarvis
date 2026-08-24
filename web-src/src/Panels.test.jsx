@@ -3,6 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('./api.js', () => ({
   getDashboard: vi.fn(),
+  getMeetings: vi.fn(),
+  getMeeting: vi.fn(),
+  emailMeeting: vi.fn(),
   addTodo: vi.fn(),
   patchTodo: vi.fn(),
   deleteTodo: vi.fn(),
@@ -12,7 +15,7 @@ vi.mock('./api.js', () => ({
   deleteSchedule: vi.fn(),
 }))
 
-import { addTodo, deleteMemo, getDashboard, patchTodo } from './api.js'
+import { addTodo, deleteMemo, emailMeeting, getDashboard, getMeeting, getMeetings, patchTodo } from './api.js'
 import Panels from './Panels.jsx'
 
 const DASH = {
@@ -26,6 +29,7 @@ describe('任务台可交互', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     getDashboard.mockResolvedValue(DASH)
+    getMeetings.mockResolvedValue({ items: [], active: false })
     patchTodo.mockResolvedValue({ ok: true })
     addTodo.mockResolvedValue({ ok: true, id: 8 })
     deleteMemo.mockResolvedValue({ ok: true })
@@ -53,5 +57,50 @@ describe('任务台可交互', () => {
     render(<Panels refreshKey={0} />)
     fireEvent.click(await screen.findByTitle('删除这条备忘'))
     await waitFor(() => expect(deleteMemo).toHaveBeenCalledWith(3))
+  })
+})
+
+describe('会议纪要卡片', () => {
+  const MEETINGS = {
+    active: false,
+    items: [{ id: 2, title: '产品周会', started_at: '2026-08-24 10:00', ended_at: '2026-08-24 10:45', mailed_to: '1539598158@qq.com', has_minutes: true }],
+  }
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getDashboard.mockResolvedValue(DASH)
+    getMeetings.mockResolvedValue(MEETINGS)
+    getMeeting.mockResolvedValue({ id: 2, title: '产品周会', minutes: '# 会议纪要\n- 方案明天上线', transcript: '[10:00:01] 我：开始吧' })
+    emailMeeting.mockResolvedValue({ ok: true, to: '1539598158@qq.com' })
+  })
+  afterEach(cleanup)
+
+  it('列出会议并点开查看纪要', async () => {
+    render(<Panels refreshKey={0} />)
+    const open = await screen.findByTitle('查看纪要')
+    expect(open.textContent).toContain('产品周会')
+    expect(open.textContent).toContain('✉')   // 已发过邮件的标记
+    fireEvent.click(open)
+    await waitFor(() => expect(getMeeting).toHaveBeenCalledWith(2))
+    expect((await screen.findByText(/方案明天上线/)).textContent).toContain('会议纪要')
+  })
+
+  it('重发邮件按钮真的调接口并回显收件人', async () => {
+    render(<Panels refreshKey={0} />)
+    fireEvent.click(await screen.findByTitle('重发纪要邮件'))
+    await waitFor(() => expect(emailMeeting).toHaveBeenCalledWith(2))
+    expect((await screen.findByRole('status')).textContent).toContain('1539598158@qq.com')
+  })
+
+  it('没有任何会议且未在监控时整卡隐藏', async () => {
+    getMeetings.mockResolvedValue({ items: [], active: false })
+    render(<Panels refreshKey={0} />)
+    await screen.findByLabelText('完成：整理会议材料')
+    expect(screen.queryByText('会议纪要')).toBeNull()
+  })
+
+  it('监控中显示状态点', async () => {
+    getMeetings.mockResolvedValue({ items: [], active: true })
+    render(<Panels refreshKey={0} />)
+    expect((await screen.findByText('● 监控中')).textContent).toBeTruthy()
   })
 })

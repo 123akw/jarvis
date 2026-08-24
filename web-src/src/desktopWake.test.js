@@ -72,3 +72,34 @@ describe('桌面悬浮窗联动三态', () => {
     expect(await pingDesktop({ fetchImpl })).toBeNull()
   })
 })
+
+describe('悬浮窗控制 /window', () => {
+  it('在跑时转发动作并报 done', async () => {
+    const { desktopWindow } = await import('./desktopWake.js')
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(ping(true))
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) })
+    const result = await desktopWindow('hide', { fetchImpl })
+    expect(result).toEqual({ status: 'done' })
+    expect(fetchImpl).toHaveBeenNthCalledWith(2, `${WAKE_BASE}/window`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'hide' }),
+    })
+  })
+
+  it('没在跑：不发 /window，报 not-running', async () => {
+    const { desktopWindow } = await import('./desktopWake.js')
+    const fetchImpl = vi.fn().mockRejectedValue(new Error('refused'))
+    expect(await desktopWindow('quit', { fetchImpl })).toEqual({ status: 'not-running' })
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('请求被拒：报 failed', async () => {
+    const { desktopWindow } = await import('./desktopWake.js')
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(ping(true))
+      .mockResolvedValueOnce({ ok: false, json: async () => ({}) })
+    expect(await desktopWindow('show', { fetchImpl })).toEqual({ status: 'failed' })
+  })
+})
