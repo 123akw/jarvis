@@ -284,3 +284,32 @@ test('voice/radio operations validate bodies and hit the right endpoints', async
   await assert.rejects(() => instance.request('voiceSettingsPut', { voice: 'x', speed: 9 }), /speed/i)
   await assert.rejects(() => instance.request('radioPut', { time: '8点半' }), /radio/i)
 })
+
+test('meetingStreamUrl maps the HTTPS origin to the wss meeting endpoint', () => {
+  const { instance } = gateway()
+  assert.equal(instance.meetingStreamUrl(), 'wss://example.test/api/meeting/stream')
+})
+
+test('desktop command/window/meeting/wake operations validate bodies and hit the right endpoints', async () => {
+  const { instance, calls } = gateway()
+  await instance.login('admin', 'pw')
+
+  await instance.request('desktopCommands')
+  assert.ok(calls.at(-1).url.endsWith('/api/desktop/commands'))
+  assert.equal(calls.at(-1).options.method, 'GET')
+  await instance.request('desktopWindowGet')
+  assert.ok(calls.at(-1).url.endsWith('/api/desktop/settings'))
+  await instance.request('meetingSettingsGet')
+  assert.ok(calls.at(-1).url.endsWith('/api/meeting/settings'))
+
+  await instance.request('voiceWakeCheck', { audio_b64: 'aGVsbG8=' })
+  assert.ok(calls.at(-1).url.endsWith('/api/voice/wake'))
+  assert.equal(calls.at(-1).options.method, 'POST')
+  assert.deepEqual(JSON.parse(calls.at(-1).options.body), { audio_b64: 'aGVsbG8=' })
+  assert.equal(calls.at(-1).options.headers['X-JWS-Token'], 'desktop-test-token')
+
+  await assert.rejects(() => instance.request('voiceWakeCheck', { audio_b64: '' }), /wake audio/i)
+  await assert.rejects(() => instance.request('voiceWakeCheck', { audio_b64: 'A'.repeat(1_400_001) }), /wake audio/i)
+  await assert.rejects(() => instance.request('voiceWakeCheck', { audio_b64: 'x', extra: 1 }), /field/i)
+  await assert.rejects(() => instance.request('desktopCommands', { junk: true }), /empty/i)
+})

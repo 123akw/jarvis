@@ -261,12 +261,43 @@ body.show-voice #voice{display:flex}
 #v-hangup{border-color:rgba(255,92,74,.5);color:var(--alert)}
 #v-hangup:hover{background:rgba(255,92,74,.12)}
 
+/* ---------- 会议纪要面板 ---------- */
+#meeting{display:none;position:absolute;inset:0;background:#050B12;z-index:6;flex-direction:column}
+body.show-meeting #meeting{display:flex}
+#m-body{flex:1;display:flex;flex-direction:column;gap:12px;padding:18px 18px 14px;overflow:hidden}
+#m-status{display:flex;align-items:center;gap:10px;font-size:13.5px}
+#m-dot{width:12px;height:12px;border-radius:50%;flex:none;background:var(--dim)}
+#meeting.recording #m-dot{background:var(--alert);box-shadow:0 0 12px rgba(255,92,74,.8);
+  animation:vpulse 1.4s ease-in-out infinite}
+#meeting.summarizing #m-dot{background:var(--gold);box-shadow:0 0 10px rgba(240,180,90,.7);
+  animation:vpulse .9s ease-in-out infinite}
+#meeting.done #m-dot{background:#7CF5B2}
+#m-count{font-family:var(--mono);font-size:11px;color:var(--dim);margin-left:auto}
+#m-captions{flex:1;min-height:80px;overflow-y:auto;border-left:2px solid rgba(83,232,255,.4);
+  padding-left:11px;font-size:13px;line-height:1.7}
+#m-captions::-webkit-scrollbar{width:4px}
+#m-captions::-webkit-scrollbar-thumb{background:rgba(83,232,255,.3)}
+#m-captions .m-line b{color:var(--arc);font-weight:600;margin-right:4px}
+#m-captions .m-part{color:var(--dim)}
+#m-captions .m-empty{color:var(--dim);font-family:var(--mono);font-size:11.5px}
+#m-notice{color:var(--gold);font-size:12px;line-height:1.6;border:1px dashed rgba(240,180,90,.45);
+  padding:8px 10px;background:rgba(240,180,90,.08)}
+#m-minutes{flex:1;overflow-y:auto;border:1px solid var(--line);padding:10px 12px;
+  font-size:13px;line-height:1.7}
+#m-actions{display:flex;gap:10px;justify-content:center;padding-bottom:2px}
+#m-actions button{border:1px solid var(--line);background:rgba(13,28,44,.6);color:var(--text);
+  font-size:13px;letter-spacing:.06em;padding:9px 22px;cursor:pointer}
+#m-stop{border-color:rgba(255,92,74,.5);color:var(--alert)}
+#m-stop:hover{background:rgba(255,92,74,.12)}
+#meeting.done #m-stop,#meeting.error #m-stop,#meeting.closed #m-stop{display:none}
+
 /* 悬浮球收起态：通话进行中的红点指示 */
 #calldot{display:none;position:absolute;right:2%;top:2%;width:24%;height:24%;border-radius:50%;z-index:4;
   background:radial-gradient(circle at 40% 35%,#FF8A7C,#FF2A1F 60%,#7A0E08);
   border:1.5px solid rgba(5,11,18,.9);box-shadow:0 0 10px rgba(255,42,31,.95);
   animation:breath 1.2s infinite;pointer-events:none}
 body.on-call #calldot{display:block}
+body.on-meeting #calldot{display:block}
 
 /* ---------- 设置面板 ---------- */
 #settings{display:none;position:absolute;inset:0;background:#050B12;
@@ -335,6 +366,7 @@ body.show-settings #settings{display:flex}
       <span id="pstate">连接中…</span>
       <span class="sp"></span>
       <button class="hbtn" id="callbtn" title="语音通话">📞</button>
+      <button class="hbtn" id="meetbtn" title="会议纪要">🎙</button>
       <button class="hbtn" id="boardbtn" title="任务台">📋</button>
       <button class="hbtn" id="setbtn" title="设置">⚙</button>
       <button class="hbtn" id="clearbtn" title="清空快捷对话">↺</button>
@@ -401,6 +433,28 @@ body.show-settings #settings{display:flex}
       </div>
     </div>
 
+    <div id="meeting" role="dialog" aria-label="会议纪要">
+      <div class="s-head">
+        <button class="hbtn" id="m-min" title="收起为悬浮球（监控继续）">—</button>
+        <span class="s-title">会 议 纪 要</span>
+        <span class="sp"></span>
+      </div>
+      <div id="m-body">
+        <div id="m-status">
+          <span id="m-dot"></span>
+          <span id="m-phase">连接中…</span>
+          <span id="m-count"></span>
+        </div>
+        <div id="m-captions"><div class="m-empty">连接后开始实时转写：你的发言标「我」，会议里其他人标「对方」。</div></div>
+        <div id="m-notice" role="alert" style="display:none"></div>
+        <div id="m-minutes" style="display:none"></div>
+        <div id="m-actions">
+          <button id="m-stop">⏹ 结束并生成纪要</button>
+          <button id="m-close" style="display:none">关闭面板</button>
+        </div>
+      </div>
+    </div>
+
     <div id="settings">
       <div class="s-head">
         <button class="hbtn" id="backbtn" title="返回">←</button>
@@ -423,6 +477,13 @@ body.show-settings #settings{display:flex}
           <span>划词问快捷键（选中文字后按它，弹出翻译/解释/改写）</span>
           <input type="text" id="s-quickask" placeholder="如 Alt+Q，留空停用" maxlength="64">
           <div class="s-hint" id="s-quickask-state"></div>
+        </div>
+        <label class="s-row">
+          <span>语音唤醒「贾维斯」</span>
+          <input type="checkbox" id="s-wakeword">
+        </label>
+        <div class="s-row s-col" style="margin-top:-10px">
+          <div class="s-hint">开启后本机持续监听人声（静音零上传）；检测到一段话才送云端判断是否喊了「贾维斯」，命中即接通语音通话。</div>
         </div>
         <div class="s-row s-col">
           <span>悬浮球样式</span>
@@ -522,6 +583,8 @@ body.show-settings #settings{display:flex}
   <script src="voice-audio.js"></script>
   <script src="voice-call.js"></script>
   <script src="voice-ball.js"></script>
+  <script src="wake-word.js"></script>
+  <script src="meeting.js"></script>
   <script src="quick-ask.js"></script>
   <script src="renderer.js"></script>
 </body>

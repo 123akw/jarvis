@@ -14,17 +14,19 @@ function fakeTray() {
   }
 }
 
-test('菜单模板：五个动作齐全，重启项带当前版本号', () => {
+test('菜单模板：七个动作齐全，重启项带当前版本号', () => {
   const hits = []
   const tpl = buildTrayMenuTemplate({
     onOpen: () => hits.push('open'), onVoice: () => hits.push('voice'),
+    onMeeting: () => hits.push('meeting'), onToggleBall: () => hits.push('ball'),
     onSettings: () => hits.push('settings'), onRestart: () => hits.push('restart'),
     onQuit: () => hits.push('quit'), versionHash: 'abc1234',
   })
   const labels = tpl.filter(x => x.label).map(x => x.label)
-  assert.deepStrictEqual(labels, ['打开对话', '语音通话', '设置', '重启贾维斯（当前 abc1234）', '退出贾维斯'])
+  assert.deepStrictEqual(labels, ['打开对话', '语音通话', '会议纪要（开始/停止）', '显示/隐藏悬浮球',
+    '设置', '重启贾维斯（当前 abc1234）', '退出贾维斯'])
   tpl.filter(x => x.click).forEach(x => x.click())
-  assert.deepStrictEqual(hits, ['open', 'voice', 'settings', 'restart', 'quit'])
+  assert.deepStrictEqual(hits, ['open', 'voice', 'meeting', 'ball', 'settings', 'restart', 'quit'])
 })
 
 test('接线：左键切换悬浮窗，右键弹菜单', () => {

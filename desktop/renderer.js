@@ -60,6 +60,7 @@ const loginController = window.JWSLoginController.createLoginController({
     state.textContent = '在线'
     await loadHistory()
     void syncCoding().catch(() => {})
+    void syncWakeWord().catch(() => {})
   },
 })
 function requireLogin() { return loginController.requireLogin() }
@@ -314,9 +315,10 @@ box.addEventListener('input', () => {
   box.style.height = Math.min(box.scrollHeight, 96) + 'px'
 })
 window.jws.onForceExpand(() => document.body.classList.add('expanded'))
-if (window.jws.onTrayCommand) {  // 托盘菜单：语音通话 / 设置
+if (window.jws.onTrayCommand) {  // 托盘菜单：语音通话 / 会议纪要 / 设置
   window.jws.onTrayCommand(cmd => {
     if (cmd === 'voice') void startVoiceCall()
+    if (cmd === 'meeting') void toggleMeeting()
     if (cmd === 'settings') void openSettings()
   })
 }
@@ -418,6 +420,216 @@ $('#v-min').addEventListener('click', async () => {  // 收起为悬浮球，通
 })
 $('#v-send').addEventListener('click', sendVoiceTyped)
 $('#v-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendVoiceTyped() })
+
+/* ---------- 会议纪要（🎙）：核心逻辑在 meeting.js，这里接 DOM 与双路采集 ---------- */
+const meetingEl = $('#meeting')
+const MEETING_PHASE_LABEL = {
+  connecting: '连接中…',
+  recording: '监控中（我+对方双路转写）',
+  summarizing: '正在整理纪要…（可收起面板，弄好自动发邮件）',
+  done: '已完成',
+  error: '已停止',
+  closed: '已结束',
+}
+let activeMeeting = null
+let meetingMic = null
+let meetingSys = null
+
+function meetingNotice(text) {
+  if (!text) return
+  const el = $('#m-notice')
+  el.style.display = ''
+  const line = document.createElement('div')
+  line.textContent = '⚠ ' + text
+  el.append(line)
+  while (el.children.length > 3) el.firstChild.remove()
+}
+
+function stopMeetingCapture() {
+  if (meetingMic) { try { meetingMic.stop() } catch { /* 已停 */ } meetingMic = null }
+  if (meetingSys) { try { meetingSys.stop() } catch { /* 已停 */ } meetingSys = null }
+}
+
+function renderMeetingPhase(p) {
+  meetingEl.className = p
+  $('#m-phase').textContent = MEETING_PHASE_LABEL[p] || p
+  const finished = p === 'done' || p === 'error' || p === 'closed'
+  $('#m-close').style.display = finished ? '' : 'none'
+  if (p !== 'connecting' && p !== 'recording') stopMeetingCapture()
+  if (finished) document.body.classList.remove('on-meeting')
+}
+
+function meetingCaption(c) {
+  const wrap = $('#m-captions')
+  const empty = wrap.querySelector('.m-empty')
+  if (empty) empty.remove()
+  let part = wrap.querySelector('.m-part')
+  if (!c.final) {
+    if (!part) { part = document.createElement('div'); part.className = 'm-part'; wrap.append(part) }
+    part.textContent = `${c.speaker}：${c.text}`
+  } else {
+    if (part) part.remove()
+    const line = document.createElement('div')
+    line.className = 'm-line'
+    line.innerHTML = `<b>${esc(c.speaker)}</b>${esc(c.text)}`
+    wrap.append(line)
+    while (wrap.children.length > 60) wrap.firstChild.remove()
+  }
+  wrap.scrollTop = wrap.scrollHeight
+}
+
+async function startMeeting(title = '') {
+  if (activeMeeting) { document.body.classList.add('show-meeting'); return }
+  document.body.classList.add('show-meeting', 'on-meeting')
+  $('#m-captions').innerHTML = '<div class="m-empty">连接后开始实时转写：你的发言标「我」，会议里其他人标「对方」。</div>'
+  const minutesEl = $('#m-minutes')
+  minutesEl.style.display = 'none'; minutesEl.innerHTML = ''
+  const noticeEl = $('#m-notice')
+  noticeEl.style.display = 'none'; noticeEl.innerHTML = ''
+  $('#m-count').textContent = ''
+  try { await window.jws.voiceMicAccess() } catch { /* 授权结果由 getUserMedia 再判 */ }
+  try {
+    const screenAccess = await window.jws.meetingScreenAccess()
+    if (screenAccess !== 'granted') {
+      meetingNotice('系统还没授予「屏幕录制/系统音频」权限，可能录不到对方的声音；请在 系统设置 → 隐私与安全性 → 屏幕录制 勾选本应用后重开。')
+    }
+  } catch { /* 状态读不到就等采集结果说话 */ }
+  const s = await window.jws.getSettings()
+  const url = String(s.server || '').replace(/^http/, 'ws') + '/api/meeting/stream'
+  activeMeeting = window.JWSMeeting.createMeetingSession({
+    url,
+    title,
+    createWebSocket: u => new WebSocket(u),
+    on: {
+      phase: renderMeetingPhase,
+      caption: meetingCaption,
+      segments: n => { $('#m-count').textContent = `${n} 段` },
+      notice: meetingNotice,
+      minutes: m => {
+        minutesEl.style.display = ''
+        minutesEl.innerHTML = md(m.text || '（无纪要）')
+        if (m.message) meetingNotice(m.message)
+      },
+      mail: r => meetingNotice(r.ok
+        ? `✉ 纪要已发送至 ${r.to}`
+        : `邮件未发出：${r.message || '发送失败'}（纪要已保存，可在网页端重发）`),
+      expired: () => { endMeeting(); requireLogin() },
+    },
+  })
+  renderMeetingPhase('connecting')
+  activeMeeting.start()
+  // 双路采集：麦克风=「我」，系统回环=「对方」；系统声拿不到就降级只录麦克风
+  try {
+    meetingMic = await window.JWSVoiceAudio.startMicStream({
+      onFrame: buf => { if (activeMeeting) activeMeeting.feedMic(buf) },
+    })
+  } catch { meetingNotice('没拿到麦克风权限，无法记录你自己的发言') }
+  try {
+    meetingSys = await window.JWSVoiceAudio.startSystemAudioStream({
+      onFrame: buf => { if (activeMeeting) activeMeeting.feedSystem(buf) },
+    })
+  } catch { meetingNotice(window.JWSMeeting.MESSAGES.noSystemAudio) }
+}
+
+function endMeeting() {
+  stopMeetingCapture()
+  if (activeMeeting) { activeMeeting.dispose(); activeMeeting = null }
+  document.body.classList.remove('show-meeting', 'on-meeting')
+}
+
+function meetingRunning() {
+  if (!activeMeeting) return false
+  const p = activeMeeting.state().phase
+  return p === 'connecting' || p === 'recording' || p === 'summarizing'
+}
+
+async function toggleMeeting() {
+  if (meetingRunning()) {
+    document.body.classList.add('show-meeting')
+    activeMeeting.stop()
+    return
+  }
+  if (activeMeeting) endMeeting()  // 上一场已结束：清面板重新开
+  await startMeeting()
+}
+
+$('#meetbtn').addEventListener('click', () => {
+  if (activeMeeting) document.body.classList.add('show-meeting')
+  else void startMeeting()
+})
+$('#m-stop').addEventListener('click', () => { if (activeMeeting) activeMeeting.stop() })
+$('#m-close').addEventListener('click', endMeeting)
+$('#m-min').addEventListener('click', async () => {  // 收起为悬浮球，监控继续（球上有红点）
+  await window.jws.collapse()
+  document.body.classList.remove('expanded')
+})
+if (window.jws.onMeetingCommand) {  // 服务端指令（对话里「监控会议」→ 桌面 10 秒内领取）
+  window.jws.onMeetingCommand(payload => {
+    if (!payload) return
+    if (payload.action === 'start' && !meetingRunning()) {
+      if (activeMeeting) endMeeting()
+      void startMeeting(payload.title || '')
+    }
+    if (payload.action === 'stop' && activeMeeting) activeMeeting.stop()
+  })
+}
+
+/* ---------- 语音唤醒：喊「贾维斯」直接接通语音通话（wake-word.js 状态机） ---------- */
+let wakeMic = null
+let wakeListener = null
+let wakeNoticeShown = false
+
+async function wakeRecognize(wav) {
+  const b64 = window.JWSWakeWord.bufferToBase64(wav)
+  const r = await api('voiceWakeCheck', { audio_b64: b64 })
+  const data = await r.json()
+  if (!r.ok) return { matched: false }
+  if (data.ok === false && data.message && !wakeNoticeShown) {
+    wakeNoticeShown = true   // 识别端没配好只提示一次，不刷屏
+    sys(`语音唤醒暂不可用：${data.message}`)
+  }
+  return { matched: !!data.matched, text: data.text || '' }
+}
+
+async function startWakeWord() {
+  if (wakeMic) return
+  wakeListener = window.JWSWakeWord.createWakeWordListener({
+    recognize: wakeRecognize,
+    onWake: async () => {
+      if (activeCall || meetingRunning()) return
+      await window.jws.showLogin()   // 主进程亮窗+展开+聚焦（与右键悬浮球同一条路）
+      document.body.classList.add('expanded')
+      void startVoiceCall()
+    },
+  })
+  let lastRms = 0
+  try {
+    wakeMic = await window.JWSVoiceAudio.startMicStream({
+      onLevel: rms => { lastRms = rms },
+      onFrame: buf => {
+        // 通话/会议期间暂停唤醒判定，避免自己的回答把自己吵醒
+        if (wakeListener && !activeCall && !meetingRunning()) {
+          wakeListener.feed({ pcm: buf, rms: lastRms })
+        }
+      },
+    })
+  } catch {
+    wakeMic = null
+    wakeListener = null
+    sys('语音唤醒开启失败：没拿到麦克风权限')
+  }
+}
+
+function stopWakeWord() {
+  if (wakeMic) { try { wakeMic.stop() } catch { /* 已停 */ } wakeMic = null }
+  wakeListener = null
+}
+
+async function syncWakeWord() {
+  const s = await window.jws.getSettings()
+  if (s.wakeWordEnabled) await startWakeWord()
+  else stopWakeWord()
+}
 
 /* ---------- 悬浮球外观 ---------- */
 function applyBallLook(size, style) {
@@ -784,6 +996,7 @@ async function openSettings() {
     : '未启用'
   $('#s-hotkey-state').className = 's-hint ' + (s.hotkey ? (s.hotkeyOk ? 'ok' : 'bad') : '')
   $('#s-quickask').value = s.quickAskHotkey || ''
+  $('#s-wakeword').checked = !!s.wakeWordEnabled
   $('#s-quickask-state').textContent = s.quickAskHotkey
     ? (s.quickAskOk ? `当前生效：${displayAcc(s.quickAskHotkey)}` : `注册失败（可能被占用）：${displayAcc(s.quickAskHotkey)}`)
     : '未启用'
@@ -817,7 +1030,9 @@ $('#s-save').addEventListener('click', async () => {
     ballSize,
     ballStyle,
     server,
+    wakeWordEnabled: $('#s-wakeword').checked,
   })
+  void syncWakeWord().catch(() => {})
   const qst = $('#s-quickask-state')
   qst.textContent = quickAskHotkey
     ? (r.quickAskOk ? `当前生效：${displayAcc(quickAskHotkey)}` : `注册失败（可能被占用）：${displayAcc(quickAskHotkey)}`)

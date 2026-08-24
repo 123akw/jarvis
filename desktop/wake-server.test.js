@@ -209,3 +209,53 @@ test('jws:// protocol urls parse into the same wake semantics', () => {
   assert.equal(parseHandoffUrl('jws://handoff?ticket=has space'), null)
   assert.equal(parseHandoffUrl('not a url'), null)
 })
+
+test('window actions show/hide call onWindowAction synchronously with strict validation', async t => {
+  const actions = []
+  const { server, base, logs } = await startServer({ onWindowAction: a => actions.push(a) })
+  t.after(() => server.stop())
+  for (const action of ['show', 'hide']) {
+    const response = await fetch(`${base}/window`, {
+      method: 'POST', headers: { Origin: PROD, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+    })
+    assert.equal(response.status, 200)
+    assert.deepEqual(await response.json(), { ok: true })
+  }
+  assert.deepEqual(actions, ['show', 'hide'])
+  assert.ok(logs.includes('window-show') && logs.includes('window-hide'))
+  for (const body of [JSON.stringify({ action: 'destroy' }), JSON.stringify({}), '{bad json']) {
+    const response = await fetch(`${base}/window`, {
+      method: 'POST', headers: { Origin: PROD, 'Content-Type': 'application/json' }, body,
+    })
+    assert.equal(response.status, 400, `should reject body: ${body}`)
+  }
+  assert.deepEqual(actions, ['show', 'hide'], '非法请求绝不触发窗口动作')
+})
+
+test('window quit responds first and fires the action shortly after', async t => {
+  const actions = []
+  const { server, base } = await startServer({ onWindowAction: a => actions.push(a) })
+  t.after(() => server.stop())
+  const response = await fetch(`${base}/window`, {
+    method: 'POST', headers: { Origin: PROD, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'quit' }),
+  })
+  assert.equal(response.status, 200)
+  assert.deepEqual(actions, [], '响应先落地，退出动作延迟执行')
+  await new Promise(resolve => setTimeout(resolve, 250))
+  assert.deepEqual(actions, ['quit'])
+})
+
+test('window route enforces the same origin whitelist as wake', async t => {
+  const actions = []
+  const { server, base } = await startServer({ onWindowAction: a => actions.push(a) })
+  t.after(() => server.stop())
+  const response = await fetch(`${base}/window`, {
+    method: 'POST', headers: { Origin: 'https://evil.test', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'quit' }),
+  })
+  assert.equal(response.status, 403)
+  await new Promise(resolve => setTimeout(resolve, 200))
+  assert.deepEqual(actions, [])
+})

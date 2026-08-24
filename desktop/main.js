@@ -1,4 +1,4 @@
-const { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, nativeImage, Notification, screen, safeStorage, shell, systemPreferences, Tray } = require('electron')
+const { app, BrowserWindow, clipboard, desktopCapturer, globalShortcut, ipcMain, Menu, nativeImage, Notification, screen, safeStorage, shell, systemPreferences, Tray } = require('electron')
 const { execSync } = require('child_process')
 const fs = require('fs')
 const os = require('os')
@@ -12,6 +12,13 @@ const { createWakeServer, parseHandoffUrl } = require('./wake-server.js')
 const { buildAppInfo, restartApp } = require('./app-info.js')
 const { buildTrayMenuTemplate, wireTray } = require('./tray-setup.js')
 const { hotkeyFailureNotice, quickAskPayload } = require('./quick-ask.js')
+
+/* macOS 系统回环音频（会议纪要录「对方」声音）需显式开 Chromium 特性；
+ * 三个开关分别覆盖 macOS 13/14/15+ 的三代实现，未知特性名会被静默忽略。 */
+if (process.platform === 'darwin') {
+  app.commandLine.appendSwitch('enable-features',
+    'MacLoopbackAudioForScreenShare,MacSckSystemAudioLoopbackOverride,MacCatapSystemAudioLoopbackCapture')
+}
 
 const PANEL = { w: 420, h: 640 }
 const ballWin = size => size + 8  // 球体 + 辉光留白
@@ -28,7 +35,7 @@ function settingsPath() {
   return path.join(app.getPath('userData'), 'settings.json')
 }
 function loadSettings() {
-  const defaults = { hotkey: 'Alt+Space', quickAskHotkey: 'Alt+Q', openAtLogin: false, ballSize: 64, ballStyle: 'moss', server: 'https://jws.gkgeek-set.cn' }
+  const defaults = { hotkey: 'Alt+Space', quickAskHotkey: 'Alt+Q', openAtLogin: false, ballSize: 64, ballStyle: 'moss', server: 'https://jws.gkgeek-set.cn', wakeWordEnabled: false }
   try {
     return { ...defaults, ...JSON.parse(fs.readFileSync(settingsPath(), 'utf-8')) }
   } catch {
@@ -98,6 +105,7 @@ function applyHotkeys(s) {
 
 function summon() {
   if (!win) return
+  ballHidden = false
   win.show()
   toggleWindow()
   win.webContents.send('set-expanded', expanded)
@@ -167,12 +175,21 @@ function setupVoiceSession(ses) {
     const requestHeaders = { ...details.requestHeaders }
     try {
       const g = gateway()
-      if (details.url === g.voiceCallUrl()) {
+      if (details.url === g.voiceCallUrl() || details.url === g.meetingStreamUrl()) {
         const token = g.authToken()
         if (token) requestHeaders['X-JWS-Token'] = token
       }
     } catch { /* 网关未就绪则不注入，服务端会按未登录拒绝 */ }
     callback({ requestHeaders })
+  })
+  // 会议纪要的系统回环音频：getDisplayMedia 只服务本窗口，视频轨是门票（渲染层拿到即停），
+  // 音频指到系统 loopback（配合文件顶部的 Chromium 特性开关）。
+  ses.setDisplayMediaRequestHandler((request, callback) => {
+    if (!win || request.frame !== win.webContents.mainFrame) { callback({}); return }
+    desktopCapturer.getSources({ types: ['screen'] }).then(sources => {
+      if (!sources.length) { callback({}); return }
+      callback({ video: sources[0], audio: 'loopback' })
+    }).catch(() => callback({}))
   })
 }
 
@@ -351,6 +368,12 @@ ipcMain.handle('quick-ask-authorize', event => {
     return false
   }
 })
+ipcMain.handle('meeting-screen-access', event => {
+  trusted(event)
+  if (process.platform !== 'darwin') return 'granted'
+  // 屏幕录制/系统音频权限没有编程式请求入口，只能读状态；未授权时渲染层给指引
+  try { return systemPreferences.getMediaAccessStatus('screen') } catch { return 'unknown' }
+})
 ipcMain.handle('voice-mic-access', async event => {
   trusted(event)
   if (process.platform !== 'darwin') return true
@@ -417,6 +440,20 @@ ipcMain.handle('api-request', apiHandlers.request)
 ipcMain.handle('api-stream-start', apiHandlers.start)
 ipcMain.handle('api-stream-cancel', apiHandlers.cancel)
 
+/* ---------- 悬浮球显隐：网页端设置/托盘均可控；隐藏前先收成球，避免面板态残留 ---------- */
+let ballHidden = false
+function setBallVisible(visible) {
+  if (!win) return
+  ballHidden = !visible
+  if (visible) {
+    win.show()
+  } else {
+    if (expanded) toggleWindow()
+    win.webContents.send('set-expanded', false)
+    win.hide()
+  }
+}
+
 /* ---------- 网页↔桌面接管：本机唤起监听 + jws:// 协议 ----------
  * 监听只绑 127.0.0.1:17789；票据只在主进程转手（gateway().exchange），
  * 不进渲染进程、不落盘、不写日志。端口被占用则降级为面板提示，不崩。 */
@@ -424,6 +461,7 @@ let wakeServer = null
 
 function summonForHandoff() {
   if (!win) return
+  ballHidden = false
   win.show()
   if (!expanded) toggleWindow()
   win.webContents.send('set-expanded', true)
@@ -447,6 +485,11 @@ function startWakeServer() {
     serverOrigin,
     isLoggedIn: () => { try { return Boolean(gateway().authToken()) } catch { return false } },
     onWake: summonForHandoff,
+    onWindowAction: action => {
+      if (action === 'show') setBallVisible(true)
+      else if (action === 'hide') setBallVisible(false)
+      else if (action === 'quit') app.quit()   // 网页端「彻底关闭桌面端」
+    },
     exchangeTicket: ticket => handleHandoffTicket(ticket),
     onUnavailable: () => {
       if (win) win.webContents.send('wake-server-notice',
@@ -478,6 +521,7 @@ let tray = null
 
 function ensureExpanded() {
   if (!win) return
+  ballHidden = false
   if (!expanded) toggleWindow()
   win.show()
   win.focus()
@@ -492,12 +536,45 @@ function createTray() {
   const menu = Menu.buildFromTemplate(buildTrayMenuTemplate({
     onOpen: () => ensureExpanded(),
     onVoice: () => { ensureExpanded(); win.webContents.send('tray-command', 'voice') },
+    onMeeting: () => { ensureExpanded(); win.webContents.send('tray-command', 'meeting') },
+    onToggleBall: () => setBallVisible(ballHidden),
     onSettings: () => { ensureExpanded(); win.webContents.send('tray-command', 'settings') },
     onRestart: () => restartApp(app),
     onQuit: () => app.quit(),
     versionHash: APP_INFO.hash,
   }))
   wireTray(tray, { menu, onToggle: summon })
+}
+
+/* 桌面指令轮询：登录态下每 10 秒领取服务端指令（对话里「监控会议」由此送达），
+ * 顺带同步网页端设置的悬浮球显隐偏好（只在偏好变化时应用，不跟托盘手动操作打架）。 */
+let lastBallVisiblePref = null
+function applyDesktopCommands(data) {
+  const visible = data && data.ball_visible
+  if (typeof visible === 'boolean' && visible !== lastBallVisiblePref) {
+    if (lastBallVisiblePref !== null) setBallVisible(visible)  // 首轮只记基线，不闪窗
+    lastBallVisiblePref = visible
+  }
+  const commands = data && Array.isArray(data.commands) ? data.commands : []
+  for (const cmd of commands) {
+    if (!cmd || typeof cmd !== 'object') continue
+    if (cmd.command === 'meeting-start') {
+      ensureExpanded()
+      win.webContents.send('meeting-command', { action: 'start', title: String(cmd.title || '').slice(0, 60) })
+    } else if (cmd.command === 'meeting-stop') {
+      win.webContents.send('meeting-command', { action: 'stop' })
+    }
+  }
+}
+function startCommandPolling() {
+  setInterval(async () => {
+    try {
+      const g = gateway()
+      if (!g.authToken()) return
+      const r = await g.request('desktopCommands', {})
+      if (r.ok) applyDesktopCommands(r.data)
+    } catch { /* 离线或服务器不可达时静默，下一轮再试 */ }
+  }, 10 * 1000)
 }
 
 /* 日程主动提醒：登录态下每分钟领取一次到点日程，弹系统通知（服务端按通道只发一次） */
@@ -527,6 +604,7 @@ app.whenReady().then(() => {
   applyHotkeys(s)
   startWakeServer()
   startReminderPolling()
+  startCommandPolling()
   // 自检截图模式：JWS_SHOT=/path/out.png [JWS_SHOT_VIEW=settings] npm start
   if (process.env.JWS_SHOT) {
     win.webContents.once('did-finish-load', () => {

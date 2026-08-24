@@ -30,10 +30,13 @@ function parseHandoffUrl(value) {
   return { ticket }
 }
 
+const WINDOW_ACTIONS = ['show', 'hide', 'quit']
+
 function createWakeServer({
   serverOrigin = '',          // 生产域名（设置里 server URL 的 origin）
   isLoggedIn = () => false,   // 主进程会话网关是否已持有令牌
   onWake = () => {},          // 亮出悬浮窗/面板置顶
+  onWindowAction = () => {},  // 网页端悬浮窗控制：show 显示 / hide 隐藏 / quit 彻底退出
   exchangeTicket = async () => ({ ok: false }),  // 凭票换令牌（主进程网关）
   onUnavailable = () => {},   // 端口被占用等降级通知（面板提示，不崩）
   log = () => {},             // 只记事件名，绝不记票据/令牌
@@ -115,6 +118,29 @@ function createWakeServer({
         } catch { log('wake-exchange-failed') }
       }
       finish(response, 200, cors, { ok: true, loggedIn: Boolean(safeLoggedIn()) })
+      return
+    }
+    if (request.method === 'POST' && path === '/window') {
+      let action = ''
+      try {
+        const raw = await readBody(request)
+        const parsed = raw ? JSON.parse(raw) : null
+        if (parsed && typeof parsed === 'object' && typeof parsed.action === 'string') {
+          action = parsed.action
+        }
+      } catch { finish(response, 400, cors, { error: 'invalid body' }); return }
+      if (!WINDOW_ACTIONS.includes(action)) {
+        finish(response, 400, cors, { error: 'invalid action' })
+        return
+      }
+      log(`window-${action}`)
+      finish(response, 200, cors, { ok: true })
+      if (action === 'quit') {
+        // 先把响应发出去再退出，网页端才能拿到结果
+        setTimeout(() => { try { onWindowAction(action) } catch { /* 退出失败不崩 */ } }, 150)
+      } else {
+        try { onWindowAction(action) } catch { /* 执行失败不影响响应 */ }
+      }
       return
     }
     finish(response, 404, cors, { error: 'not found' })

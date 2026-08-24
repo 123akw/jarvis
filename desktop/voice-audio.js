@@ -67,14 +67,11 @@ registerProcessor('${WORKLET_NAME}', JwsPcmCapture)
   }
 
   /**
-   * 开始采集。onFrame(ArrayBuffer) 每 100ms 一帧 PCM16/16kHz；onLevel(rms) 同步回调。
-   * 返回 { stop() }。麦克风问题原样抛出（isMicError 可判），其余异常代表推流组件不可用。
+   * 已有 MediaStream → PCM16/16kHz 帧流（麦克风与系统回环共用的采集管线）。
+   * 返回 { stop() }；stop 会停掉 stream 里的全部 track。
    */
-  async function startMicStream({ onFrame, onLevel }, scope = globalThis) {
+  async function startStreamCapture(stream, { onFrame, onLevel }, scope = globalThis) {
     const Ctx = scope.AudioContext || scope.webkitAudioContext
-    const stream = await scope.navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
-    })
     let ctx
     try {
       ctx = new Ctx()
@@ -105,6 +102,34 @@ registerProcessor('${WORKLET_NAME}', JwsPcmCapture)
       try { if (ctx) ctx.close() } catch { /* 已关 */ }
       throw err
     }
+  }
+
+  /**
+   * 麦克风采集。onFrame(ArrayBuffer) 每 100ms 一帧 PCM16/16kHz；onLevel(rms) 同步回调。
+   * 返回 { stop() }。麦克风问题原样抛出（isMicError 可判），其余异常代表推流组件不可用。
+   */
+  async function startMicStream({ onFrame, onLevel }, scope = globalThis) {
+    const stream = await scope.navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
+    })
+    return startStreamCapture(stream, { onFrame, onLevel }, scope)
+  }
+
+  /**
+   * 系统回环音频采集（会议里「对方」的声音）。走 getDisplayMedia：主进程的
+   * setDisplayMediaRequestHandler 会把音频源指到系统 loopback；视频轨只是门票，
+   * 拿到即停。没有音频轨说明平台/权限拿不到系统声音，抛 NoSystemAudioError。
+   */
+  async function startSystemAudioStream({ onFrame, onLevel }, scope = globalThis) {
+    const stream = await scope.navigator.mediaDevices.getDisplayMedia({ audio: true, video: true })
+    stream.getVideoTracks().forEach(t => t.stop())
+    if (!stream.getAudioTracks().length) {
+      stream.getTracks().forEach(t => t.stop())
+      const err = new Error('system loopback audio is unavailable')
+      err.name = 'NoSystemAudioError'
+      throw err
+    }
+    return startStreamCapture(stream, { onFrame, onLevel }, scope)
   }
 
   /**
@@ -161,5 +186,6 @@ registerProcessor('${WORKLET_NAME}', JwsPcmCapture)
     }
   }
 
-  return { TARGET_SAMPLE_RATE, FRAME_SAMPLES, pcmStreamSupported, isMicError, startMicStream, createPcmPlayer }
+  return { TARGET_SAMPLE_RATE, FRAME_SAMPLES, pcmStreamSupported, isMicError,
+    startStreamCapture, startMicStream, startSystemAudioStream, createPcmPlayer }
 })

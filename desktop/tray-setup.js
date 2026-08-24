@@ -8,11 +8,13 @@
   if (typeof module === 'object' && module.exports) module.exports = api
   if (root) root.JWSTraySetup = api
 })(typeof globalThis === 'undefined' ? this : globalThis, function createApi() {
-  /** 托盘菜单模板：打开对话/语音通话/设置/重启（带当前版本）/退出 */
-  function buildTrayMenuTemplate({ onOpen, onVoice, onSettings, onRestart, onQuit, versionHash }) {
+  /** 托盘菜单模板：打开对话/语音通话/会议纪要/悬浮球显隐/设置/重启（带当前版本）/退出 */
+  function buildTrayMenuTemplate({ onOpen, onVoice, onMeeting, onToggleBall, onSettings, onRestart, onQuit, versionHash }) {
     return [
       { label: '打开对话', click: onOpen },
       { label: '语音通话', click: onVoice },
+      { label: '会议纪要（开始/停止）', click: onMeeting },
+      { label: '显示/隐藏悬浮球', click: onToggleBall },
       { label: '设置', click: onSettings },
       { type: 'separator' },
       { label: `重启贾维斯（当前 ${versionHash}）`, click: onRestart },

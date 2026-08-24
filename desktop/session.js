@@ -10,6 +10,10 @@ const OPERATIONS = {
   dashboard: { method: 'GET', path: () => '/api/dashboard', validate: emptyBody },
   remindersPending: { method: 'GET', path: () => '/api/reminders/pending', validate: emptyBody },
   todoPatch: { method: 'PATCH', path: body => `/api/todos/${body.id}`, validate: todoPatchBody, requestBody: body => ({ done: body.done }) },
+  desktopCommands: { method: 'GET', path: () => '/api/desktop/commands', validate: emptyBody },
+  desktopWindowGet: { method: 'GET', path: () => '/api/desktop/settings', validate: emptyBody },
+  meetingSettingsGet: { method: 'GET', path: () => '/api/meeting/settings', validate: emptyBody },
+  voiceWakeCheck: { method: 'POST', path: () => '/api/voice/wake', validate: wakeCheckBody },
   voiceSettingsGet: { method: 'GET', path: () => '/api/voice/settings', validate: emptyBody },
   voiceSettingsPut: { method: 'PUT', path: () => '/api/voice/settings', validate: voiceSettingsBody },
   radioGet: { method: 'GET', path: () => '/api/radio', validate: emptyBody },
@@ -163,7 +167,8 @@ function createSessionGateway({ fetchImpl, safeStorage, fs, path, dataDir, serve
      令牌不经过渲染进程；voiceCallUrl 是唯一允许注入的精确地址。 */
   function authToken() { load(); return token }
   function voiceCallUrl() { return serverUrl.replace(/^http/, 'ws') + '/api/voice/call' }
-  return { login, exchange, request, stream, clear, load, setServer, server: () => serverUrl, authToken, voiceCallUrl }
+  function meetingStreamUrl() { return serverUrl.replace(/^http/, 'ws') + '/api/meeting/stream' }
+  return { login, exchange, request, stream, clear, load, setServer, server: () => serverUrl, authToken, voiceCallUrl, meetingStreamUrl }
 }
 
 function replaceSessionGateway({ currentGateway, previousSettings, nextSettings, createGateway, persistSettings }) {
@@ -237,6 +242,13 @@ function voiceSettingsBody(body) {
   if (typeof body.voice !== 'string' || !body.voice || body.voice.length > 64) throw new Error('invalid voice')
   if (typeof body.speed !== 'number' || !(body.speed >= 0.5 && body.speed <= 2)) throw new Error('invalid speed')
   return { voice: body.voice, speed: body.speed }
+}
+function wakeCheckBody(body) {
+  exact(body, ['audio_b64'])
+  if (typeof body.audio_b64 !== 'string' || !body.audio_b64 || body.audio_b64.length > 1_400_000) {
+    throw new Error('invalid wake audio')
+  }
+  return { audio_b64: body.audio_b64 }
 }
 function radioBody(body) {
   exact(body, ['time'])

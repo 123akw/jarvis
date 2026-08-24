@@ -18,7 +18,7 @@ function hardenWindow(win, indexUrl) {
 
 function validateSettingsPatch(patch, development = false) {
   if (!record(patch)) throw new Error('settings patch must be an object')
-  const allowed = new Set(['hotkey', 'openAtLogin', 'ballSize', 'ballStyle', 'server', 'quickAskHotkey'])
+  const allowed = new Set(['hotkey', 'openAtLogin', 'ballSize', 'ballStyle', 'server', 'quickAskHotkey', 'wakeWordEnabled'])
   const keys = Object.keys(patch)
   if (!keys.length || keys.some(key => !allowed.has(key))) throw new Error('settings field is not allowed')
   const out = {}
@@ -30,6 +30,10 @@ function validateSettingsPatch(patch, development = false) {
     if (typeof patch.quickAskHotkey !== 'string' || patch.quickAskHotkey.length > 64
       || /[\r\n\0]/.test(patch.quickAskHotkey)) throw new Error('invalid quickAskHotkey')
     out.quickAskHotkey = patch.quickAskHotkey
+  }
+  if ('wakeWordEnabled' in patch) {
+    if (typeof patch.wakeWordEnabled !== 'boolean') throw new Error('invalid wakeWordEnabled')
+    out.wakeWordEnabled = patch.wakeWordEnabled
   }
   if ('openAtLogin' in patch) {
     if (typeof patch.openAtLogin !== 'boolean') throw new Error('invalid openAtLogin')
