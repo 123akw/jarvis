@@ -109,6 +109,13 @@ class TenantStore:
         )
 
     @staticmethod
+    def _schema_v3_statements() -> tuple[str, ...]:
+        """v3（2026-08-24 会议纪要）：转写与纪要按用户落库，可回看可重发邮件。"""
+        return (
+            "CREATE TABLE IF NOT EXISTS tenant_meetings (owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, id INTEGER NOT NULL, title TEXT NOT NULL, started_at TEXT NOT NULL, ended_at TEXT NOT NULL, transcript TEXT NOT NULL, minutes TEXT NOT NULL, mailed_to TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, PRIMARY KEY(owner_id, id))",
+        )
+
+    @staticmethod
     def _apply_version(connection: sqlite3.Connection, version: int, statements: tuple[str, ...]) -> None:
         if connection.execute("SELECT 1 FROM tenant_schema_migrations WHERE version=?", (version,)).fetchone():
             return
@@ -129,6 +136,7 @@ class TenantStore:
         connection.execute("CREATE TABLE IF NOT EXISTS tenant_schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)")
         TenantStore._apply_version(connection, 1, TenantStore._schema_statements())
         TenantStore._apply_version(connection, 2, TenantStore._schema_v2_statements())
+        TenantStore._apply_version(connection, 3, TenantStore._schema_v3_statements())
 
     @staticmethod
     def _owner(owner_id: str | None) -> str:
@@ -299,6 +307,39 @@ class TenantStore:
         owner = self._owner(owner_id)
         with self._connect() as c:
             return bool(c.execute("DELETE FROM tenant_profile WHERE owner_id=? AND id=?", (owner, item_id)).rowcount)
+
+    def add_meeting(self, *, title: str, started_at: str, ended_at: str, transcript: str,
+                    minutes: str, mailed_to: str = "", owner_id: str | None = None) -> dict:
+        owner = self._owner(owner_id)
+        with self._connect() as c:
+            c.execute("BEGIN IMMEDIATE")
+            try:
+                item_id = self._next_id(c, "tenant_meetings", owner)
+                c.execute("INSERT INTO tenant_meetings(owner_id,id,title,started_at,ended_at,transcript,minutes,mailed_to,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                          (owner, item_id, title, started_at, ended_at, transcript, minutes, mailed_to, _now()))
+                c.commit()
+            except Exception:
+                c.rollback(); raise
+        return {"id": item_id, "title": title}
+
+    def list_meetings(self, *, owner_id: str | None = None) -> list[dict]:
+        owner = self._owner(owner_id)
+        with self._connect() as c:
+            rows = c.execute("SELECT id,title,started_at,ended_at,mailed_to,length(minutes) AS mlen FROM tenant_meetings WHERE owner_id=? ORDER BY id DESC", (owner,)).fetchall()
+        return [{"id": r["id"], "title": r["title"], "started_at": r["started_at"],
+                 "ended_at": r["ended_at"], "mailed_to": r["mailed_to"],
+                 "has_minutes": bool(r["mlen"])} for r in rows]
+
+    def get_meeting(self, item_id: int, *, owner_id: str | None = None) -> dict | None:
+        owner = self._owner(owner_id)
+        with self._connect() as c:
+            row = c.execute("SELECT id,title,started_at,ended_at,transcript,minutes,mailed_to FROM tenant_meetings WHERE owner_id=? AND id=?", (owner, item_id)).fetchone()
+        return dict(row) if row else None
+
+    def mark_meeting_mailed(self, item_id: int, mailed_to: str, *, owner_id: str | None = None) -> bool:
+        owner = self._owner(owner_id)
+        with self._connect() as c:
+            return bool(c.execute("UPDATE tenant_meetings SET mailed_to=? WHERE owner_id=? AND id=?", (mailed_to, owner, item_id)).rowcount)
 
     def set_todo_done(self, item_id: int, done: bool, *, owner_id: str | None = None) -> bool:
         owner = self._owner(owner_id)

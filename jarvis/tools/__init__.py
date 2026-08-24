@@ -10,6 +10,7 @@ from jarvis.tools.calc import calc
 from jarvis.tools.clock import now
 from jarvis.tools.entertainment import make_entertainment_tools, render_search_failure
 from jarvis.tools.location import coding_status, my_location
+from jarvis.tools.meeting import meeting_start, meeting_stop
 from jarvis.tools.memo import memo_add, memo_del, memo_list
 from jarvis.tools.profile import profile_forget, profile_list, profile_remember
 from jarvis.tools.schedule import schedule_add, schedule_del, schedule_list
@@ -27,6 +28,7 @@ _LOCAL_TOOLS = [
     profile_remember, profile_list, profile_forget,
     schedule_add, schedule_list, schedule_del,
     todo_add, todo_list, todo_done,
+    meeting_start, meeting_stop,
     sys_query,
 ]
 
@@ -101,6 +103,7 @@ __all__ = [
     "memo_add", "memo_list", "memo_del",
     "schedule_add", "schedule_list", "schedule_del",
     "todo_add", "todo_list", "todo_done",
+    "meeting_start", "meeting_stop",
     "sys_query",
     "web_search", "web_extract", "movie_ratings", "esports_scores", "ticket_search",
 ]

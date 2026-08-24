@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import AIMessageChunk, ToolMessage
 from pydantic import BaseModel, SecretStr
 
-from jarvis import __version__, config, distill, heartbeat, reminders, wechat
+from jarvis import __version__, config, distill, heartbeat, mailer, meeting, reminders, wechat
 from jarvis.accounts import AccountStore, Principal, csrf_token, session_secret_configured
 from jarvis.graph import build_agent, heal_dangling_tool_calls
 from jarvis.provider_runtime import AgentRuntimeManager, probe_integration
@@ -33,6 +33,8 @@ from jarvis.tenancy import TenantMigrationError, TenantStore, tenant_scope
 from jarvis.tools import TOOLS
 from jarvis.tools.location import get_location, locate_by_ip, set_location
 from jarvis.voice.gateway import register_voice
+from jarvis.voice.meeting_gateway import register_meeting
+from jarvis.wechat_voice import DashScopeASR, VoiceError
 from jarvis.tools.memo import all_memos
 from jarvis.tools.schedule import all_schedule
 from jarvis.tools.todo import all_todos
@@ -900,7 +902,7 @@ def _heartbeat_compose(owner, content: str, now) -> str:
 
 # ---------- 夜间记忆蒸馏：把最近一天的对话浓缩进长期画像 ----------
 
-_DISTILL_SERVICE_ALIASES = {"radio", "heartbeat", "distill"}     # 服务线程不参与蒸馏
+_DISTILL_SERVICE_ALIASES = {"radio", "heartbeat", "distill", "meeting"}  # 服务线程不参与蒸馏
 _DISTILL_MAX_CHARS = 6000
 
 
@@ -1554,3 +1556,259 @@ def desktop_handoff_exchange(body: HandoffExchangeIn):
             "openai_token_type": "bearer",
         }
     )
+
+
+# ---- 会议纪要 / 悬浮窗远程控制 / 语音唤醒 ----
+# 会议链路：桌面端双路推流 → /api/meeting/stream（jarvis/voice/meeting_gateway.py）
+# → 结束时 _meeting_finalize：Agent 总结（独立 meeting 线程）→ tenant_meetings 入库
+# → SMTP 发送（jarvis/mailer.py，默认收件人 JARVIS_MEETING_MAIL_TO）。
+
+
+def _meeting_compose(owner_id: str, date_str: str, transcript: str) -> str:
+    """用 Owner 自己的 Agent 总结转写（独立 meeting 线程，不混日常对话）。"""
+    prompt = meeting.MEETING_PROMPT.format(date=date_str, transcript=transcript)
+    with tenant_scope(owner_id):
+        store = _tenant_store()
+        thread = store.upsert_thread("meeting", "会议纪要")
+        with _bundle_for(owner_id) as bundle:
+            heal_dangling_tool_calls(bundle.agent, thread.checkpoint_thread_id)
+            result = bundle.agent.invoke(
+                {"messages": [{"role": "user", "content": prompt}]},
+                config={"configurable": {"thread_id": thread.checkpoint_thread_id}},
+            )
+    return _chunk_text(result["messages"][-1].content)
+
+
+def _meeting_recipient(owner_id: str) -> str:
+    with tenant_scope(owner_id):
+        pref = _tenant_store().get_pref("meeting_mail_to")
+    return (pref or "").strip() or mailer.default_meeting_recipient()
+
+
+def _meeting_mail_body(minutes: str, transcript: str) -> str:
+    body = minutes.strip() or "（纪要生成失败，请见下方原始转写）"
+    return (body + "\n\n——由贾维斯（JWS-Agent）自动整理\n\n"
+            "===== 原始转写 =====\n" + transcript[:20000])
+
+
+def _meeting_finalize(owner_id: str, session) -> dict:
+    """会议结束：总结 → 入库 → 发邮件；任何一环失败都保住已有产物并回报人话。"""
+    transcript = session.transcript_text()
+    if not transcript.strip():
+        return {"ok": False, "empty": True, "message": "没有捕捉到任何发言，未生成纪要"}
+    date_str = session.started_at.strftime("%Y-%m-%d %H:%M")
+    message = ""
+    try:
+        minutes = _meeting_compose(owner_id, date_str, transcript).strip()
+    except Exception as exc:
+        log.warning("meeting compose failed: %s", type(exc).__name__)
+        minutes = ""
+    if not minutes:
+        message = "纪要生成失败（模型暂不可用），已保存原始转写，可稍后在网页端查看"
+    try:
+        with tenant_scope(owner_id):
+            record = _tenant_store().add_meeting(
+                title=session.title, started_at=date_str,
+                ended_at=(session.ended_at or session.started_at).strftime("%Y-%m-%d %H:%M"),
+                transcript=transcript, minutes=minutes)
+    except Exception as exc:
+        log.warning("meeting store failed: %s", type(exc).__name__)
+        return {"ok": False, "minutes": minutes, "message": message or "纪要保存失败", "mail": None}
+    mail_to = _meeting_recipient(owner_id)
+    mail = {"ok": False, "to": mail_to, "message": ""}
+    try:
+        mailer.send_mail(f"会议纪要 · {session.title} · {date_str}",
+                         _meeting_mail_body(minutes, transcript), mail_to)
+        mail["ok"] = True
+        with tenant_scope(owner_id):
+            _tenant_store().mark_meeting_mailed(record["id"], mail_to)
+    except mailer.MailError as exc:
+        mail["message"] = str(exc)
+    except Exception as exc:
+        log.warning("meeting mail failed: %s", type(exc).__name__)
+        mail["message"] = "邮件发送失败"
+    return {"ok": True, "meeting_id": record["id"], "minutes": minutes,
+            "message": message, "mail": mail}
+
+
+register_meeting(app, cookie_name=_COOKIE, accounts=_accounts, finalize=_meeting_finalize)
+
+
+@app.get("/api/meetings")
+def meetings_list(request: Request):
+    principal, _token = _request_principal(request)
+    if not principal:
+        return _deny()
+    try:
+        with tenant_scope(principal.user_id):
+            items = _tenant_store().list_meetings()
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+    return {"items": items,
+            "active": meeting.active_meetings.get(principal.user_id) is not None}
+
+
+@app.get("/api/meetings/{item_id}")
+def meeting_detail(request: Request, item_id: int):
+    principal, _token = _request_principal(request)
+    if not principal:
+        return _deny()
+    try:
+        with tenant_scope(principal.user_id):
+            item = _tenant_store().get_meeting(item_id)
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+    if not item:
+        return JSONResponse({"error": "没有这场会议"}, status_code=404)
+    return item
+
+
+@app.post("/api/meetings/{item_id}/email")
+def meeting_email(request: Request, item_id: int):
+    """把已保存的纪要（重新）发送到当前收件邮箱。"""
+    principal, err = _panel_write(request)
+    if err:
+        return err
+    try:
+        with tenant_scope(principal.user_id):
+            item = _tenant_store().get_meeting(item_id)
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+    if not item:
+        return JSONResponse({"error": "没有这场会议"}, status_code=404)
+    mail_to = _meeting_recipient(principal.user_id)
+    try:
+        mailer.send_mail(f"会议纪要 · {item['title']} · {item['started_at']}",
+                         _meeting_mail_body(item["minutes"], item["transcript"]), mail_to)
+    except mailer.MailError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
+    with tenant_scope(principal.user_id):
+        _tenant_store().mark_meeting_mailed(item_id, mail_to)
+    return {"ok": True, "to": mail_to}
+
+
+class MeetingSettingsIn(BaseModel):
+    mail_to: str = ""
+
+
+@app.get("/api/meeting/settings")
+def meeting_settings_get(request: Request):
+    principal, _token = _request_principal(request)
+    if not principal:
+        return _deny()
+    try:
+        with tenant_scope(principal.user_id):
+            pref = _tenant_store().get_pref("meeting_mail_to") or ""
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+    return {"mail_to": pref, "default": mailer.default_meeting_recipient(),
+            "smtp_configured": mailer.smtp_configured()}
+
+
+@app.put("/api/meeting/settings")
+def meeting_settings_put(request: Request, body: MeetingSettingsIn):
+    principal, err = _panel_write(request)
+    if err:
+        return err
+    value = body.mail_to.strip()
+    if value and not mailer.valid_address(value):
+        return JSONResponse({"error": "邮箱格式不对"}, status_code=422)
+    try:
+        with tenant_scope(principal.user_id):
+            _tenant_store().set_pref("meeting_mail_to", value or None)
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+    return {"ok": True, "mail_to": value or mailer.default_meeting_recipient()}
+
+
+# 悬浮窗显隐偏好：网页写、桌面端轮询读（同机时另有 wake-server 快路径秒级生效）
+
+class DesktopSettingsIn(BaseModel):
+    ball_visible: bool
+
+
+@app.get("/api/desktop/settings")
+def desktop_settings_get(request: Request):
+    principal, _token = _request_principal(request)
+    if not principal:
+        return _deny()
+    try:
+        with tenant_scope(principal.user_id):
+            visible = _tenant_store().get_pref("desktop_ball_visible") != "0"
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+    return {"ball_visible": visible}
+
+
+@app.put("/api/desktop/settings")
+def desktop_settings_put(request: Request, body: DesktopSettingsIn):
+    principal, err = _panel_write(request)
+    if err:
+        return err
+    try:
+        with tenant_scope(principal.user_id):
+            _tenant_store().set_pref("desktop_ball_visible", "1" if body.ball_visible else "0")
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+    return {"ok": True, "ball_visible": body.ball_visible}
+
+
+@app.get("/api/desktop/commands")
+def desktop_commands_get(request: Request):
+    """桌面端 10 秒轮询：领取指令（领取即清）+ 顺带回带悬浮球显隐偏好。"""
+    principal, _token = _request_principal(request)
+    if not principal:
+        return _deny()
+    try:
+        with tenant_scope(principal.user_id):
+            visible = _tenant_store().get_pref("desktop_ball_visible") != "0"
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+    return {"commands": meeting.desktop_commands.drain(principal.user_id),
+            "ball_visible": visible}
+
+
+# 语音唤醒：桌面端本地 VAD 圈出短语音段送检，静音零请求；识别用现成的
+# 文件级百炼 ASR（qwen3-asr-flash，与微信语音同一条链）。
+
+DEFAULT_WAKE_WORDS = ("贾维斯", "佳维斯", "加维斯", "家维斯", "嘉维斯", "jarvis")
+_WAKE_AUDIO_B64_MAX = 1_400_000   # ~1MB（约 30s@16k PCM16），唤醒片段远小于此
+create_wake_asr = DashScopeASR    # 测试可整体替换为假识别器
+
+
+def _wake_words() -> tuple[str, ...]:
+    raw = os.getenv("JARVIS_WAKE_WORDS", "")
+    words = tuple(w.strip().lower() for w in raw.split(",") if w.strip())
+    return words or DEFAULT_WAKE_WORDS
+
+
+def wake_matched(text: str) -> bool:
+    normalized = "".join(ch for ch in str(text).lower() if ch.isalnum())
+    return any(word in normalized for word in _wake_words())
+
+
+class WakeCheckIn(BaseModel):
+    audio_b64: str
+
+
+@app.post("/api/voice/wake")
+def voice_wake(request: Request, body: WakeCheckIn):
+    """桌面端语音唤醒送检：一小段 wav → 一次性识别 → 是否命中唤醒词。"""
+    principal = _write_authorized(request)
+    if not principal:
+        return _csrf_deny() if _authed(request) else _deny()
+    if len(body.audio_b64) > _WAKE_AUDIO_B64_MAX:
+        return JSONResponse({"error": "音频片段太长"}, status_code=422)
+    try:
+        import base64 as b64_mod
+        wav = b64_mod.b64decode(body.audio_b64, validate=True)
+    except Exception:
+        return JSONResponse({"error": "音频编码不合法"}, status_code=422)
+    if not wav:
+        return JSONResponse({"error": "音频为空"}, status_code=422)
+    try:
+        text = create_wake_asr()(wav)
+    except VoiceError as exc:
+        # 未配置/识别失败不是致命错：桌面端跳过本段，首次给一条人话提示即可
+        return {"ok": False, "matched": False, "text": "", "message": str(exc)}
+    return {"ok": True, "matched": wake_matched(text), "text": text}
