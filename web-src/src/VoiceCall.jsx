@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { currentCsrf, voiceSocketUrl } from './api.js'
+import { currentCsrf, getVoiceSettings, voiceSocketUrl } from './api.js'
 import { toolLabel } from './toolInfo.js'
 import { isMicError, pcmStreamSupported, startMicStream } from './VoiceAudio.js'
 import './VoiceCall.css'
@@ -16,6 +16,11 @@ const VAD_RMS_THRESHOLD = 0.04 // 帧级 RMS 高于此视作人声（回声消�
 const VAD_VOICE_FRAMES = 2     // 连续 2 帧（约 200ms）确认开口 → 打断，远小于 500ms 预算
 
 const speechCtor = () => window.SpeechRecognition || window.webkitSpeechRecognition
+
+const EMOTION_EMOJI = {
+  happy: '😊', sad: '😢', angry: '😠', surprised: '😲',
+  fearful: '😨', disgusted: '😒', neutral: '🙂',
+}
 
 /**
  * 语音通话面板：三层输入链路，自动逐级降级。
@@ -35,6 +40,9 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
   const [reply, setReply] = useState('')
   const [tools, setTools] = useState([])
   const [typed, setTyped] = useState('')
+  const [scenes, setScenes] = useState([])       // 场景目录（豆包式情景模式）
+  const [scene, setScene] = useState('butler')
+  const [emotion, setEmotion] = useState(null)   // {emotion, label} 语气感知
 
   const wsRef = useRef(null)
   const recRef = useRef(null)
@@ -159,9 +167,23 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
 
   // ---- 下行事件 ----
 
+  function sendScene(id) {
+    const ws = wsRef.current
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'scene', scene: id }))
+  }
+
   function handleEvent(ev) {
     if (ev.type === 'ready') {
       setPhaseSafe('listening')
+      if (ev.scene) setScene(ev.scene)
+      if (ev.opening) setReply(ev.opening)
+    } else if (ev.type === 'scene') {
+      setScene(ev.scene)
+      setHeard('')
+      setReply(ev.opening || '')
+      setNotice('')
+    } else if (ev.type === 'emotion') {
+      setEmotion({ emotion: ev.emotion, label: ev.label || '' })
     } else if (ev.type === 'asr_partial') {
       setInterim(ev.text || '')
       if ((ev.text || '').trim()) bargeIn() // 服务端听到人声：本地 VAD 之外的兜底打断
@@ -345,6 +367,9 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
     }
     ws.onclose = () => { if (aliveRef.current) setPhase('closed') }
     ws.onerror = () => { if (aliveRef.current) setNotice('通话链路出错') }
+    getVoiceSettings()
+      .then(v => { setScenes(v.scenes || []); if (v.scene) setScene(v.scene) })
+      .catch(() => {})   // 老服务端没有场景字段也不影响通话
     startVoiceInput()
     return () => {
       aliveRef.current = false
@@ -368,7 +393,22 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
           <span className="voice-phase">{PHASE_LABEL[phase] || phase}</span>
           {phase === 'thinking' && <span className="voice-dots" aria-hidden="true"><i /><i /><i /></span>}
           {phase === 'speaking' && <span className="voice-eq" aria-hidden="true"><i /><i /><i /><i /></span>}
+          {emotion && (
+            <span className="voice-emotion" title="语气感知（识别你说话的情绪）">
+              {EMOTION_EMOJI[emotion.emotion] || ''} {emotion.label}
+            </span>
+          )}
         </div>
+        {scenes.length > 1 && (
+          <div className="voice-scenes" data-testid="voice-scenes">
+            {scenes.map(s => (
+              <button key={s.id} className={`voice-scene${s.id === scene ? ' on' : ''}`}
+                onClick={() => sendScene(s.id)} title={s.opening || s.name}>
+                {s.icon} {s.name}
+              </button>
+            ))}
+          </div>
+        )}
         {micState === 'granted' && phase === 'listening' && (
           <div className="voice-hint">
             {inputMode === 'stream' ? '实时识别中，直接说话即可' : '说话停顿后自动发送'}

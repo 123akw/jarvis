@@ -112,8 +112,8 @@ def test_meeting_store_roundtrip_and_mailed_mark():
             title="周会", started_at="2026-08-24 09:00", ended_at="2026-08-24 09:45",
             transcript="[09:00:01] 对方：开始吧", minutes="")
         assert store.get_meeting(record["id"])["mailed_to"] == ""
-        assert store.mark_meeting_mailed(record["id"], "1539598158@qq.com")
+        assert store.mark_meeting_mailed(record["id"], "1539598168@qq.com")
         detail = store.get_meeting(record["id"])
-        assert detail["mailed_to"] == "1539598158@qq.com"
+        assert detail["mailed_to"] == "1539598168@qq.com"
         assert store.list_meetings()[0]["has_minutes"] is False
         assert store.get_meeting(999) is None

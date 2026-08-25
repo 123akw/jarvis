@@ -176,7 +176,7 @@ def test_voice_turn_streams_tokens_and_audio(monkeypatch):
     csrf, token = _login(client)
     with _connect(client, token) as ws:
         ws.send_json({"type": "init", "csrf": csrf, "thread_id": "voice"})
-        assert ws.receive_json() == {"type": "ready"}
+        assert ws.receive_json()["type"] == "ready"
         ws.send_json({"type": "user_text", "text": "在吗"})
         events, audio = _collect_turn(ws)
     kinds = [e["type"] for e in events]
@@ -195,7 +195,7 @@ def test_voice_turn_degrades_to_text_when_tts_fails(monkeypatch):
     csrf, token = _login(client)
     with _connect(client, token) as ws:
         ws.send_json({"type": "init", "csrf": csrf})
-        assert ws.receive_json() == {"type": "ready"}
+        assert ws.receive_json()["type"] == "ready"
         ws.send_json({"type": "user_text", "text": "在吗"})
         events, audio = _collect_turn(ws)
     kinds = [e["type"] for e in events]
@@ -215,7 +215,7 @@ def test_new_utterance_interrupts_inflight_turn(monkeypatch):
     csrf, token = _login(client)
     with _connect(client, token) as ws:
         ws.send_json({"type": "init", "csrf": csrf})
-        assert ws.receive_json() == {"type": "ready"}
+        assert ws.receive_json()["type"] == "ready"
         ws.send_json({"type": "user_text", "text": "讲个长故事"})
         first_events, _ = _collect_turn(ws, max_events=6)  # 只收前几帧就打断
         assert first_events[0]["type"] == "turn_start"
@@ -237,7 +237,7 @@ def test_binary_uplink_falls_back_without_asr_key(monkeypatch):
     csrf, token = _login(client)
     with _connect(client, token) as ws:
         ws.send_json({"type": "init", "csrf": csrf})
-        assert ws.receive_json() == {"type": "ready"}
+        assert ws.receive_json()["type"] == "ready"
         ws.send_bytes(b"\x00\x01fake-pcm")
         notice = ws.receive_json()
         assert notice["type"] == "asr_fallback"
@@ -263,7 +263,7 @@ def test_asr_partials_stream_as_subtitles_and_final_starts_turn(monkeypatch):
     client, csrf, token = _start_call(monkeypatch, _FakeASR)
     with _connect(client, token) as ws:
         ws.send_json({"type": "init", "csrf": csrf})
-        assert ws.receive_json() == {"type": "ready"}
+        assert ws.receive_json()["type"] == "ready"
         ws.send_bytes("P:今天".encode())
         assert ws.receive_json() == {"type": "asr_partial", "text": "今天"}
         ws.send_bytes("P:今天天气".encode())
@@ -284,7 +284,7 @@ def test_asr_buffers_audio_while_connecting(monkeypatch):
         client, csrf, token = _start_call(monkeypatch, _FakeASR)
         with _connect(client, token) as ws:
             ws.send_json({"type": "init", "csrf": csrf})
-            assert ws.receive_json() == {"type": "ready"}
+            assert ws.receive_json()["type"] == "ready"
             ws.send_bytes(b"\x00\x01head")       # 建连期间先攒着
             ws.send_bytes("P:第一句".encode())
             assert ws.receive_json() == {"type": "asr_partial", "text": "第一句"}
@@ -298,7 +298,7 @@ def test_asr_connect_failure_downgrades_and_user_text_still_works(monkeypatch):
     client, csrf, token = _start_call(monkeypatch, _BrokenASR)
     with _connect(client, token) as ws:
         ws.send_json({"type": "init", "csrf": csrf})
-        assert ws.receive_json() == {"type": "ready"}
+        assert ws.receive_json()["type"] == "ready"
         ws.send_bytes(b"\x00\x01pcm")
         notice = ws.receive_json()
         assert notice["type"] == "asr_fallback"
@@ -313,7 +313,7 @@ def test_asr_midstream_disconnect_downgrades_once(monkeypatch):
     client, csrf, token = _start_call(monkeypatch, _FakeASR)
     with _connect(client, token) as ws:
         ws.send_json({"type": "init", "csrf": csrf})
-        assert ws.receive_json() == {"type": "ready"}
+        assert ws.receive_json()["type"] == "ready"
         ws.send_bytes("P:喂喂".encode())
         assert ws.receive_json() == {"type": "asr_partial", "text": "喂喂"}
         ws.send_bytes(b"E:")  # 识别流中途断掉
@@ -334,7 +334,7 @@ def test_voice_turn_injects_style_prompt_then_scrubs_it(monkeypatch):
     csrf, token = _login(client)
     with _connect(client, token) as ws:
         ws.send_json({"type": "init", "csrf": csrf})
-        assert ws.receive_json() == {"type": "ready"}
+        assert ws.receive_json()["type"] == "ready"
         ws.send_json({"type": "user_text", "text": "现在几点了"})
         _collect_turn(ws)
     messages = agent.stream_inputs[-1]["messages"]
@@ -394,7 +394,7 @@ def test_interrupt_discards_unfinalized_partial(monkeypatch):
     client, csrf, token = _start_call(monkeypatch, _FakeASR)
     with _connect(client, token) as ws:
         ws.send_json({"type": "init", "csrf": csrf})
-        assert ws.receive_json() == {"type": "ready"}
+        assert ws.receive_json()["type"] == "ready"
         ws.send_bytes("P:帮我查一下那个".encode())
         assert ws.receive_json() == {"type": "asr_partial", "text": "帮我查一下那个"}
         ws.send_json({"type": "interrupt"})

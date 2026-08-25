@@ -45,3 +45,34 @@ describe('文档上传', () => {
     expect(chatStream).not.toHaveBeenCalled()
   })
 })
+
+describe('图片 / 视频上传', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getHistory.mockResolvedValue([])
+    chatStream.mockImplementation(async function* () { yield { type: 'done' } })
+  })
+  afterEach(cleanup)
+
+  it('图片走视觉识别：自动发出带图片描述的消息', async () => {
+    uploadDocument.mockResolvedValue({ ok: true, kind: 'image', name: '现场.jpg', chars: 20, truncated: false, text: '一间会议室，白板上写着方案 A。' })
+    render(<Chat threadId="web" />)
+    const input = document.querySelector('input[type=file]')
+    fireEvent.change(input, { target: { files: [new File(['fake-jpg'], '现场.jpg', { type: 'image/jpeg' })] } })
+    await waitFor(() => expect(uploadDocument).toHaveBeenCalled())
+    await waitFor(() => expect(chatStream).toHaveBeenCalled())
+    const message = chatStream.mock.calls[0][0]
+    expect(message).toContain('图片《现场.jpg》')
+    expect(message).toContain('白板上写着方案 A')
+  })
+
+  it('视频描述模板注明无声音', async () => {
+    uploadDocument.mockResolvedValue({ ok: true, kind: 'video', name: 'demo.mp4', chars: 10, truncated: false, text: '演示了产品首页滚动。' })
+    render(<Chat threadId="web" />)
+    const input = document.querySelector('input[type=file]')
+    fireEvent.change(input, { target: { files: [new File(['fake-mp4'], 'demo.mp4', { type: 'video/mp4' })] } })
+    await waitFor(() => expect(chatStream).toHaveBeenCalled())
+    expect(chatStream.mock.calls[0][0]).toContain('视频《demo.mp4》')
+    expect(chatStream.mock.calls[0][0]).toContain('无声音')
+  })
+})

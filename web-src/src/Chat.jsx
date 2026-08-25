@@ -142,8 +142,14 @@ export default function Chat({ threadId, location, onBusy, onTurnDone, onExpired
         reader.readAsDataURL(file)
       })
       const doc = await uploadDocument(file.name, b64)
-      const notice = doc.truncated ? '（文档过长，以下为截断后的开头部分）' : ''
-      await send(`请通读这份文档《${doc.name}》${notice}，先用不超过 5 条要点总结主要内容；之后我会就它继续提问。\n\n【文档开始】\n${doc.text}\n【文档结束】`)
+      if (doc.kind === 'image') {
+        await send(`我发了一张图片《${doc.name}》，以下是对画面的识别描述，请基于它先简要回应，我可能会继续追问图里的细节。\n\n【图片内容】\n${doc.text}\n【图片内容结束】`)
+      } else if (doc.kind === 'video') {
+        await send(`我发了一段视频《${doc.name}》，以下是对画面的识别描述（无声音），请基于它先简要回应，我可能会继续追问。\n\n【视频内容】\n${doc.text}\n【视频内容结束】`)
+      } else {
+        const notice = doc.truncated ? '（文档过长，以下为截断后的开头部分）' : ''
+        await send(`请通读这份文档《${doc.name}》${notice}，先用不超过 5 条要点总结主要内容；之后我会就它继续提问。\n\n【文档开始】\n${doc.text}\n【文档结束】`)
+      }
     } catch (err) {
       if (err.message === '401') { onExpired?.(); return }
       setUploadErr(err.message || '上传失败')
@@ -224,7 +230,7 @@ export default function Chat({ threadId, location, onBusy, onTurnDone, onExpired
             onChange={e => { setInput(e.target.value); autoGrow() }}
             onKeyDown={onKey}
             placeholder="吩咐一句…（Enter 发送，Shift+Enter 换行）" autoFocus />
-          <input ref={fileRef} type="file" accept=".pdf,.docx,.txt,.md" style={{ display: 'none' }}
+          <input ref={fileRef} type="file" accept=".pdf,.docx,.txt,.md,.jpg,.jpeg,.png,.webp,.bmp,.mp4,.mov" style={{ display: 'none' }}
             aria-label="选择文档" onChange={onPickFile} />
           <button className="callbtn" onClick={() => fileRef.current?.click()}
             disabled={busy || uploading}

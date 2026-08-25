@@ -31,6 +31,7 @@ from jarvis.graph import heal_dangling_tool_calls
 from jarvis.tenancy import TenantMigrationError, tenant_scope
 from jarvis.voice import asr as asr_mod
 from jarvis.voice import tts as tts_mod
+from jarvis.voice.emotion import EMOTION_LABELS, detect_emotion, pcm_to_wav
 from jarvis.voice.segment import FirstFastSegmenter, speakable
 
 CLOSE_UNAUTHORIZED = 4401
@@ -38,10 +39,13 @@ CLOSE_BAD_REQUEST = 4400
 _INIT_TIMEOUT = 15.0
 _TTS_DRAIN_TIMEOUT = 120.0
 _ASR_BUFFER_CAP = 320_000  # 连接建立前最多攒 ~10s@16kHz PCM16，超了丢最旧的
+_EMOTION_TAIL_CAP = 480_000     # 情绪检测取本句最后 ~15s 音频
+_EMOTION_MIN_PCM_BYTES = 12_800  # 不足 ~0.4s 的音频不值得送情绪检测
 ASR_FALLBACK_MESSAGE = "服务端语音识别暂不可用，已切换浏览器识别"
 
 # 语音回合注入的一次性应答规则（拍板：≤3 句、先结论、口语化、不念 URL/代码/表格）。
 # 只在语音网关注入，回合结束即从 checkpoint 摘除——文字聊天 /api/chat 完全不受影响。
+# 场景模式（jarvis/voice/scenes.py）在此基础上按用户选择替换成场景化规则。
 VOICE_STYLE_PROMPT = (
     "【语音通话模式·仅本回合有效】你正在和用户语音通话，回答会被合成语音读出来："
     "最多三句话，第一句先给结论；用自然口语，不要书面腔、不要客套铺垫；"
@@ -96,11 +100,15 @@ class _AsrPipeline:
         self._buffer: list[bytes] = []   # 识别连接建立前先攒帧，接上后一次性补发
         self._buffered = 0
         self._pending_partial = ""       # 已下发字幕但尚未定稿的识别文字
+        self._utter = bytearray()        # 本句音频尾部缓冲：定稿后送情绪检测
 
     async def feed(self, chunk: bytes) -> None:
         """收一帧麦克风音频。第一帧触发建连；降级后静默丢弃。"""
         if self.failed or not chunk:
             return
+        self._utter.extend(chunk)
+        if len(self._utter) > _EMOTION_TAIL_CAP:
+            del self._utter[:len(self._utter) - _EMOTION_TAIL_CAP]
         if self.session is None:
             self._buffer.append(chunk)
             self._buffered += len(chunk)
@@ -159,8 +167,12 @@ class _AsrPipeline:
             async for result in session.results():
                 if result.is_final:
                     self._pending_partial = ""
+                    utter_pcm = bytes(self._utter)
+                    self._utter.clear()
                     text = result.text.strip()
                     if text:
+                        if len(utter_pcm) >= _EMOTION_MIN_PCM_BYTES:
+                            asyncio.create_task(self.call.check_emotion(utter_pcm))
                         await self.call.send_json(
                             {"type": "asr_final", "text": text}, best_effort=True)
                         await self.call.start_turn(text)
@@ -245,6 +257,7 @@ class _Turn:
 
     def _agent_thread(self, checkpoint_id: str) -> None:
         style_id = f"voice-style-{uuid.uuid4().hex}"
+        style_prompt = self.call.style_prompt()
         try:
             with tenant_scope(self.call.user_id):
                 with self.call.bundle_for(self.call.user_id) as bundle:
@@ -253,7 +266,7 @@ class _Turn:
                     try:
                         stream = bundle.agent.stream(
                             {"messages": [
-                                SystemMessage(content=VOICE_STYLE_PROMPT, id=style_id),
+                                SystemMessage(content=style_prompt, id=style_id),
                                 {"role": "user", "content": self.text},
                             ]},
                             config=config, stream_mode="messages")
@@ -394,6 +407,57 @@ class _CallSession:
         self._send_lock = asyncio.Lock()
         self._turn_task: asyncio.Task | None = None
         self.asr = _AsrPipeline(self)
+        self.scene_id = "butler"
+        self.last_emotion = ""
+
+    def style_prompt(self) -> str:
+        """本回合注入的应答规则：场景化规则 + 最近一次的语气感知（若有）。"""
+        from jarvis.voice import scenes
+        prompt = scenes.scene_prompt(self.scene_id)
+        if self.last_emotion and self.last_emotion != "neutral":
+            label = EMOTION_LABELS.get(self.last_emotion, "")
+            if label:
+                prompt += (f"（语气感知：主人刚才听起来有点{label}，"
+                           "回应时自然照应这份情绪，不要点破你在识别情绪。）")
+        return prompt
+
+    async def check_emotion(self, pcm: bytes) -> None:
+        """把刚定稿的一句话送情绪检测（异步旁路，绝不拖慢回合）。"""
+        try:
+            result = await asyncio.to_thread(detect_emotion, pcm_to_wav(pcm))
+        except Exception:
+            return
+        if not result:
+            return
+        self.last_emotion = result
+        await self.send_json({"type": "emotion", "emotion": result,
+                              "label": EMOTION_LABELS.get(result, result)}, best_effort=True)
+
+    def set_scene(self, scene_id: str) -> dict | None:
+        """切换场景（下一回合生效）并保存为用户偏好；未知场景返回 None。"""
+        from jarvis.voice import scenes
+        scene = scenes.scene_by_id(scene_id)
+        if scene is None:
+            return None
+        self.scene_id = scene["id"]
+        try:
+            from jarvis.tenancy import TenantStore
+            with tenant_scope(self.user_id):
+                TenantStore().set_pref("voice_scene", None if scene["id"] == "butler" else scene["id"])
+        except Exception:
+            pass  # 偏好存不上不影响本通电话
+        return scene
+
+    def load_scene_pref(self) -> None:
+        try:
+            from jarvis.tenancy import TenantStore
+            from jarvis.voice import scenes
+            with tenant_scope(self.user_id):
+                saved = TenantStore().get_pref("voice_scene")
+            if saved and scenes.scene_by_id(saved) is not None:
+                self.scene_id = saved
+        except Exception:
+            pass
 
     def upsert_thread(self, first_message: str) -> str:
         with tenant_scope(self.user_id):
@@ -474,7 +538,14 @@ def register_voice(app, *, cookie_name: str, accounts, bundle_for, tenant_store,
         session = _CallSession(
             ws, principal, alias, bundle_for=bundle_for, tenant_store=tenant_store,
             chunk_text=chunk_text, public_error=public_error, count_chat=count_chat)
-        await session.send_json({"type": "ready"})
+        session.load_scene_pref()
+        init_scene = session.set_scene(str(init.get("scene", ""))) if init.get("scene") else None
+        from jarvis.voice import scenes as scenes_mod
+        current = init_scene or scenes_mod.scene_by_id(session.scene_id)
+        await session.send_json({
+            "type": "ready", "scene": current["id"], "scene_name": current["name"],
+            "opening": current.get("opening", ""),
+        })
         try:
             while True:
                 message = await ws.receive()
@@ -498,6 +569,13 @@ def register_voice(app, *, cookie_name: str, accounts, bundle_for, tenant_store,
                 elif mtype == "interrupt":
                     await session.interrupt()
                     await session.asr.discard_pending()
+                elif mtype == "scene":
+                    scene = session.set_scene(str(data.get("scene", "")))
+                    if scene is not None:
+                        await session.send_json({
+                            "type": "scene", "scene": scene["id"], "scene_name": scene["name"],
+                            "opening": scene.get("opening", ""),
+                        }, best_effort=True)
                 elif mtype == "ping":
                     await session.send_json({"type": "pong"}, best_effort=True)
         except WebSocketDisconnect:

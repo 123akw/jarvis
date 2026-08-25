@@ -104,7 +104,15 @@
       if (!ev || typeof ev !== 'object') return
       if (ev.type === 'ready') {
         setPhase('listening')
+        if (ev.scene) emit('scene', { id: ev.scene, name: ev.scene_name || '', opening: ev.opening || '' })
+        if (ev.opening) { state.reply = ev.opening; emit('reply', state.reply) }
         startVoiceInput()
+      } else if (ev.type === 'scene') {
+        state.reply = ev.opening || ''
+        emit('reply', state.reply)
+        emit('scene', { id: ev.scene, name: ev.scene_name || '', opening: ev.opening || '' })
+      } else if (ev.type === 'emotion') {
+        emit('emotion', { emotion: ev.emotion || '', label: ev.label || '' })
       } else if (ev.type === 'asr_partial') {
         setInterim(ev.text || '')
         if ((ev.text || '').trim()) bargeIn() // 服务端听到人声：本地 VAD 之外的兜底打断
@@ -326,6 +334,7 @@
       start: connect,
       hangup,
       sendTyped: text => sendUtterance(text),
+      sendScene: id => wsSend({ type: 'scene', scene: String(id || '') }),
       bargeIn,
       state: () => ({ ...state, tools: state.tools.slice() }),
     }

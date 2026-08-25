@@ -333,6 +333,22 @@ const VOICE_PHASE_LABEL = {
   closed: '通话已断开',
 }
 let activeCall = null
+let voiceScenes = []
+const EMOTION_EMOJI = {
+  happy: '😊', sad: '😢', angry: '😠', surprised: '😲',
+  fearful: '😨', disgusted: '😒', neutral: '🙂',
+}
+
+function renderVoiceScenes(currentId) {
+  const wrap = $('#v-scenes')
+  wrap.innerHTML = voiceScenes.map(s =>
+    `<button data-scene="${esc(s.id)}" class="${s.id === currentId ? 'on' : ''}"` +
+    ` title="${esc(s.opening || s.name)}">${esc(s.icon || '')} ${esc(s.name)}</button>`).join('')
+}
+$('#v-scenes').addEventListener('click', e => {
+  const id = e.target && e.target.dataset && e.target.dataset.scene
+  if (id && activeCall) activeCall.sendScene(id)
+})
 
 function renderVoicePhase(p) {
   voiceEl.className = p
@@ -365,6 +381,8 @@ async function startVoiceCall() {
   $('#v-tools').innerHTML = ''
   $('#v-notice').style.display = 'none'
   $('#v-typebar').style.display = 'none'
+  $('#v-emotion').style.display = 'none'
+  $('#v-scenes').innerHTML = ''
   renderVoicePhase('connecting')
   try { await window.jws.voiceMicAccess() } catch { /* 授权结果由 getUserMedia 再判 */ }
   const s = await window.jws.getSettings()
@@ -392,10 +410,23 @@ async function startVoiceCall() {
         el.textContent = n ? '⚠ ' + n : ''
         el.style.display = n ? '' : 'none'
       },
+      scene: s => renderVoiceScenes(s.id),
+      emotion: em => {
+        const el = $('#v-emotion')
+        el.textContent = `${EMOTION_EMOJI[em.emotion] || ''} ${em.label}`.trim()
+        el.style.display = ''
+      },
       expired: () => { endVoiceCall(); requireLogin() },
     },
   })
   activeCall.start()
+  void (async () => {  // 场景目录：老服务端没有该字段也不影响通话
+    try {
+      const v = await (await api('voiceSettingsGet')).json()
+      voiceScenes = v.scenes || []
+      renderVoiceScenes(v.scene || 'butler')
+    } catch { /* 忽略 */ }
+  })()
 }
 
 function endVoiceCall() {
@@ -591,9 +622,15 @@ async function wakeRecognize(wav) {
   return { matched: !!data.matched, text: data.text || '' }
 }
 
+function renderWakeState(text, cls) {
+  const el = $('#s-wakeword-state')
+  if (el) { el.textContent = text; el.className = 's-hint ' + (cls || '') }
+}
+
 async function startWakeWord() {
   if (wakeMic) return
   wakeListener = window.JWSWakeWord.createWakeWordListener({
+    threshold: 0.025,   // 比通话打断的 0.04 更敏感：唤醒时人往往离麦更远
     recognize: wakeRecognize,
     onWake: async () => {
       if (activeCall || meetingRunning()) return
@@ -613,9 +650,11 @@ async function startWakeWord() {
         }
       },
     })
+    renderWakeState('语音唤醒运行中：喊「贾维斯」即可接通', 'ok')
   } catch {
     wakeMic = null
     wakeListener = null
+    renderWakeState('语音唤醒开启失败：没拿到麦克风权限', 'bad')
     sys('语音唤醒开启失败：没拿到麦克风权限')
   }
 }
@@ -623,6 +662,7 @@ async function startWakeWord() {
 function stopWakeWord() {
   if (wakeMic) { try { wakeMic.stop() } catch { /* 已停 */ } wakeMic = null }
   wakeListener = null
+  renderWakeState('语音唤醒已关闭')
 }
 
 async function syncWakeWord() {

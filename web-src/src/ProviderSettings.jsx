@@ -157,7 +157,7 @@ function DesktopMeetingPane({ onMessage, onExpired }) {
       <button disabled={busy} onClick={() => void quitDesktop()}>{quitArmed ? '再点一次确认关闭' : '彻底关闭桌面端'}</button>
     </div>
     <label>会议纪要收件邮箱
-      <input aria-label="会议纪要收件邮箱" value={mailTo} onChange={event => setMailTo(event.target.value)} placeholder={mailDefault ? `留空使用默认：${mailDefault}` : '如 1539598158@qq.com'} />
+      <input aria-label="会议纪要收件邮箱" value={mailTo} onChange={event => setMailTo(event.target.value)} placeholder={mailDefault ? `留空使用默认：${mailDefault}` : '如 1539598168@qq.com'} />
     </label>
     <p className="provider-risk">会议纪要由 macOS 桌面端采集（你的麦克风 + 系统里对方的声音），结束后自动整理并发送到上面的邮箱。{smtpReady ? '' : '当前服务器还没配置 SMTP 发信（.env 里的 JARVIS_SMTP_*），纪要会保存但发不出邮件。'}对话里说「监控会议」也能远程开始。</p>
     <div className="provider-actions"><button disabled={busy} onClick={() => void saveMail()}>保存收件邮箱</button></div>

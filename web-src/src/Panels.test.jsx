@@ -63,14 +63,14 @@ describe('任务台可交互', () => {
 describe('会议纪要卡片', () => {
   const MEETINGS = {
     active: false,
-    items: [{ id: 2, title: '产品周会', started_at: '2026-08-24 10:00', ended_at: '2026-08-24 10:45', mailed_to: '1539598158@qq.com', has_minutes: true }],
+    items: [{ id: 2, title: '产品周会', started_at: '2026-08-24 10:00', ended_at: '2026-08-24 10:45', mailed_to: '1539598168@qq.com', has_minutes: true }],
   }
   beforeEach(() => {
     vi.clearAllMocks()
     getDashboard.mockResolvedValue(DASH)
     getMeetings.mockResolvedValue(MEETINGS)
     getMeeting.mockResolvedValue({ id: 2, title: '产品周会', minutes: '# 会议纪要\n- 方案明天上线', transcript: '[10:00:01] 我：开始吧' })
-    emailMeeting.mockResolvedValue({ ok: true, to: '1539598158@qq.com' })
+    emailMeeting.mockResolvedValue({ ok: true, to: '1539598168@qq.com' })
   })
   afterEach(cleanup)
 
@@ -88,7 +88,7 @@ describe('会议纪要卡片', () => {
     render(<Panels refreshKey={0} />)
     fireEvent.click(await screen.findByTitle('重发纪要邮件'))
     await waitFor(() => expect(emailMeeting).toHaveBeenCalledWith(2))
-    expect((await screen.findByRole('status')).textContent).toContain('1539598158@qq.com')
+    expect((await screen.findByRole('status')).textContent).toContain('1539598168@qq.com')
   })
 
   it('没有任何会议且未在监控时整卡隐藏', async () => {

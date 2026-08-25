@@ -20,6 +20,12 @@ if (process.platform === 'darwin') {
     'MacLoopbackAudioForScreenShare,MacSckSystemAudioLoopbackOverride,MacCatapSystemAudioLoopbackCapture')
 }
 
+// 自检截图可用独立 userData（JWS_SHOT_USERDATA=/tmp/xxx）：避免与常驻实例抢
+// Chromium 配置锁（同 profile 双开会卡在页面加载）。必须在 ready 前设置。
+if (process.env.JWS_SHOT_USERDATA) {
+  try { app.setPath('userData', process.env.JWS_SHOT_USERDATA) } catch { /* 沿用默认 */ }
+}
+
 const PANEL = { w: 420, h: 640 }
 const ballWin = size => size + 8  // 球体 + 辉光留白
 const PLIST = path.join(os.homedir(), 'Library/LaunchAgents/com.jws.jarvis.desktop.plist')
@@ -35,7 +41,7 @@ function settingsPath() {
   return path.join(app.getPath('userData'), 'settings.json')
 }
 function loadSettings() {
-  const defaults = { hotkey: 'Alt+Space', quickAskHotkey: 'Alt+Q', openAtLogin: false, ballSize: 64, ballStyle: 'moss', server: 'https://jws.gkgeek-set.cn', wakeWordEnabled: false }
+  const defaults = { hotkey: 'Alt+Space', quickAskHotkey: 'Alt+Q', openAtLogin: false, ballSize: 64, ballStyle: 'moss', server: 'https://jws.gkgeek-set.cn', wakeWordEnabled: true }
   try {
     return { ...defaults, ...JSON.parse(fs.readFileSync(settingsPath(), 'utf-8')) }
   } catch {
@@ -632,6 +638,22 @@ app.whenReady().then(() => {
         if (process.env.JWS_SHOT_VIEW === 'board') {
           setTimeout(() => win.webContents.executeJavaScript(
             "document.querySelector('#boardbtn').click()"), 900)
+        }
+        if (process.env.JWS_SHOT_VIEW === 'meeting') {  // 会议纪要面板演示态（自检截图用）
+          setTimeout(() => win.webContents.executeJavaScript(`
+            document.body.classList.remove('needs-login')
+            document.body.classList.add('show-meeting', 'on-meeting')
+            document.querySelector('#meeting').className = 'recording'
+            document.querySelector('#m-phase').textContent = '监控中（我+对方双路转写）'
+            document.querySelector('#m-count').textContent = '6 段'
+            document.querySelector('#m-captions').innerHTML = [
+              '<div class="m-line"><b>我</b>主要瓶颈在多群聊切换和录入正文，快则十二秒慢则三十秒。</div>',
+              '<div class="m-line"><b>对方</b>对，之前就是这个问题，读消息其实不需要焦点。</div>',
+              '<div class="m-line"><b>我</b>那把焦点操作放主线程，发送走队列拿焦点。</div>',
+              '<div class="m-line"><b>对方</b>可以，本周分公司接完至少三百个群，得往底层走。</div>',
+              '<div class="m-part">我：先加日志把慢的原因定位出来，明天……</div>',
+            ].join('')
+          `), 900)
         }
         if (process.env.JWS_SHOT_VIEW === 'quickbar') {  // 划词条演示态（自检截图用）
           setTimeout(() => win.webContents.executeJavaScript(`

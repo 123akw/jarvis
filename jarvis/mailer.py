@@ -17,7 +17,7 @@ from email.message import EmailMessage
 
 log = logging.getLogger("jarvis")
 
-DEFAULT_MEETING_RECIPIENT = "1539598158@qq.com"
+DEFAULT_MEETING_RECIPIENT = "1539598168@qq.com"
 _SEND_TIMEOUT_SECONDS = 30
 _ADDRESS_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 

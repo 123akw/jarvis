@@ -187,9 +187,12 @@ class _MeetingConn:
     async def feed(self, frame: bytes) -> None:
         if len(frame) < 2:
             return
-        pipeline = self.pipelines.get(frame[0])
+        channel, pcm = frame[0], frame[1:]
+        if channel == CHANNEL_OTHERS:
+            self.session.record_others(pcm)   # 落盘供离线说话人分离（失败静默）
+        pipeline = self.pipelines.get(channel)
         if pipeline is not None:
-            await pipeline.feed(frame[1:])
+            await pipeline.feed(pcm)
 
     async def close_pipelines(self, flush: bool = False) -> None:
         for pipeline in self.pipelines.values():

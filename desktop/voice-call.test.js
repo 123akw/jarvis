@@ -293,3 +293,33 @@ test('hangup tears everything down and stops reconnecting', async () => {
   sockets[0].drop()
   assert.equal(sockets.length, 1, '挂断后不得重连')
 })
+
+test('场景：ready 带出当前场景，切换事件更新回执并把开场白当回答显示', () => {
+  const scenes = []
+  const { call, sockets, events } = harness({ on: {
+    scene: s => scenes.push(s),
+    reply: r => events.replies.push(r),
+    phase: () => {}, notice: () => {},
+  } })
+  call.start()
+  const ws = sockets[0]
+  ws.open()
+  ws.emit({ type: 'ready', scene: 'butler', scene_name: '管家模式', opening: '' })
+  assert.deepStrictEqual(scenes[0], { id: 'butler', name: '管家模式', opening: '' })
+  call.sendScene('night')
+  assert.deepStrictEqual(ws.sent.at(-1), { type: 'scene', scene: 'night' })
+  ws.emit({ type: 'scene', scene: 'night', scene_name: '晚安电台', opening: '今天过得还好吗？' })
+  assert.deepStrictEqual(scenes[1], { id: 'night', name: '晚安电台', opening: '今天过得还好吗？' })
+  assert.strictEqual(events.replies.at(-1), '今天过得还好吗？', '开场白直接显示在回答区')
+})
+
+test('情绪：emotion 帧透传给界面回调', () => {
+  const emotions = []
+  const { call, sockets } = harness({ on: { emotion: e => emotions.push(e), phase: () => {} } })
+  call.start()
+  const ws = sockets[0]
+  ws.open()
+  ws.emit({ type: 'ready' })
+  ws.emit({ type: 'emotion', emotion: 'sad', label: '低落' })
+  assert.deepStrictEqual(emotions, [{ emotion: 'sad', label: '低落' }])
+})

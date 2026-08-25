@@ -167,10 +167,10 @@ def test_send_mail_delivers_via_factory(monkeypatch):
     _smtp_env(monkeypatch)
     _FakeSMTP.sent.clear()
     _FakeSMTP.fail = False
-    mailer_mod.send_mail("会议纪要", "正文", "1539598158@qq.com", smtp_factory=_FakeSMTP)
+    mailer_mod.send_mail("会议纪要", "正文", "1539598168@qq.com", smtp_factory=_FakeSMTP)
     assert len(_FakeSMTP.sent) == 1
     message = _FakeSMTP.sent[0]
-    assert message["To"] == "1539598158@qq.com"
+    assert message["To"] == "1539598168@qq.com"
     assert message["From"] == "bot@example.com"
     assert "正文" in message.get_content()
 
@@ -190,13 +190,13 @@ def test_send_mail_rejects_bad_address(monkeypatch):
     _smtp_env(monkeypatch)
     with pytest.raises(mailer_mod.MailError):
         mailer_mod.send_mail("s", "b", "不是邮箱", smtp_factory=_FakeSMTP)
-    assert mailer_mod.valid_address("1539598158@qq.com")
+    assert mailer_mod.valid_address("1539598168@qq.com")
     assert not mailer_mod.valid_address("a@b")
 
 
 def test_default_recipient_prefers_env(monkeypatch):
     monkeypatch.delenv("JARVIS_MEETING_MAIL_TO", raising=False)
-    assert mailer_mod.default_meeting_recipient() == "1539598158@qq.com"
+    assert mailer_mod.default_meeting_recipient() == "1539598168@qq.com"
     monkeypatch.setenv("JARVIS_MEETING_MAIL_TO", "x@y.cn")
     assert mailer_mod.default_meeting_recipient() == "x@y.cn"
 
@@ -281,7 +281,7 @@ def test_meeting_two_channels_transcribe_summarize_store_and_mail(monkeypatch):
         minutes = ws.receive_json()
         assert minutes["type"] == "minutes" and "会议纪要" in minutes["text"]
         mail = ws.receive_json()
-        assert mail["type"] == "mail" and mail["ok"] and mail["to"] == "1539598158@qq.com"
+        assert mail["type"] == "mail" and mail["ok"] and mail["to"] == "1539598168@qq.com"
     assert len(mail_calls) == 1
     assert "产品周会" in mail_calls[0]["subject"]
     assert "我：这个方案明天上线。" in mail_calls[0]["body"], "邮件必须附原始转写"
@@ -292,7 +292,7 @@ def test_meeting_two_channels_transcribe_summarize_store_and_mail(monkeypatch):
     listing = client.get("/api/meetings").json()
     assert len(listing["items"]) == 1 and not listing["active"]
     item = listing["items"][0]
-    assert item["title"] == "产品周会" and item["mailed_to"] == "1539598158@qq.com"
+    assert item["title"] == "产品周会" and item["mailed_to"] == "1539598168@qq.com"
     detail = client.get(f"/api/meetings/{item['id']}").json()
     assert "对方：没问题，我这边配合。" in detail["transcript"]
     assert "会议纪要" in detail["minutes"]
@@ -400,7 +400,7 @@ def test_meeting_settings_roundtrip_and_validation():
     client = _client()
     csrf, _token = _login(client)
     initial = client.get("/api/meeting/settings").json()
-    assert initial["mail_to"] == "" and initial["default"] == "1539598158@qq.com"
+    assert initial["mail_to"] == "" and initial["default"] == "1539598168@qq.com"
     assert client.put("/api/meeting/settings", json={"mail_to": "不是邮箱"},
                       headers={"X-JWS-CSRF": csrf}).status_code == 422
     assert client.put("/api/meeting/settings", json={"mail_to": "boss@corp.cn"},

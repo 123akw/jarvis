@@ -171,3 +171,42 @@ describe('VoiceCall', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('VoiceCall 场景与情绪', () => {
+  beforeEach(() => {
+    MockWebSocket.instances = []
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    vi.stubGlobal('AudioContext', MockAudioContext)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      status: 200, ok: true,
+      json: async () => ({
+        voice: 'male-qn-qingse', speed: 1, catalog: [], scene: 'butler',
+        scenes: [
+          { id: 'butler', name: '管家模式', icon: '🎩', opening: '' },
+          { id: 'night', name: '晚安电台', icon: '🌙', opening: '今天过得还好吗？' },
+        ],
+      }),
+    }))
+  })
+  afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+
+  it('展示场景芯片，点击经 WS 上行 scene，回执后高亮并显示开场白', async () => {
+    render(<VoiceCall />)
+    const ws = lastSocket()
+    await act(async () => { ws.open(); ws.emit({ type: 'ready', scene: 'butler', scene_name: '管家模式', opening: '' }) })
+    const night = await screen.findByRole('button', { name: /晚安电台/ })
+    await userEvent.click(night)
+    expect(ws.sent.map(x => JSON.parse(x)).find(m => m.type === 'scene')).toEqual({ type: 'scene', scene: 'night' })
+    await act(async () => { ws.emit({ type: 'scene', scene: 'night', scene_name: '晚安电台', opening: '今天过得还好吗？' }) })
+    expect(night.className).toContain('on')
+    expect(screen.getByText('今天过得还好吗？')).toBeInTheDocument()
+  })
+
+  it('emotion 帧显示语气感知徽标', async () => {
+    render(<VoiceCall />)
+    const ws = lastSocket()
+    await act(async () => { ws.open(); ws.emit({ type: 'ready' }) })
+    await act(async () => { ws.emit({ type: 'emotion', emotion: 'sad', label: '低落' }) })
+    expect(screen.getByTitle(/语气感知/).textContent).toContain('低落')
+  })
+})

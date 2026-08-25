@@ -819,15 +819,20 @@ def voice_settings_get(request: Request):
     principal, _token = _request_principal(request)
     if not principal:
         return _deny()
+    from jarvis.voice import scenes as voice_scenes
     from jarvis.voice.gateway import VOICE_CATALOG
     try:
         with tenant_scope(principal.user_id):
             store = _tenant_store()
             voice = store.get_pref("tts_voice") or "male-qn-qingse"
             speed = store.get_pref("tts_speed") or "1.0"
+            scene = store.get_pref("voice_scene") or "butler"
     except TenantMigrationError:
         return _sensitive_json({"error": "个人数据迁移失败"}, 503)
-    return {"voice": voice, "speed": float(speed), "catalog": VOICE_CATALOG}
+    if voice_scenes.scene_by_id(scene) is None:
+        scene = "butler"
+    return {"voice": voice, "speed": float(speed), "catalog": VOICE_CATALOG,
+            "scene": scene, "scenes": voice_scenes.catalog()}
 
 
 @app.put("/api/voice/settings")
@@ -868,6 +873,20 @@ def upload_document(request: Request, body: UploadIn):
         data = b64_mod.b64decode(body.content_b64, validate=True)
     except Exception:
         return JSONResponse({"error": "文件内容编码不合法"}, status_code=422)
+    # 图片 / 短视频：qwen3-vl 转成详细中文描述注入对话（与文档解析同一模式）
+    from jarvis import vision
+    image_ext = vision.image_extension(name)
+    video_ext = vision.video_extension(name)
+    if image_ext or video_ext:
+        try:
+            if image_ext:
+                text = vision.describe_image(data, image_ext)
+            else:
+                text = vision.describe_video(data, video_ext)
+        except vision.VisionError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=422)
+        return {"ok": True, "kind": "image" if image_ext else "video", "name": name,
+                "chars": len(text), "truncated": False, "text": text}
     from jarvis import documents
     try:
         text = documents.extract_text(name, data)
@@ -876,7 +895,8 @@ def upload_document(request: Request, body: UploadIn):
     truncated = len(text) > documents.MAX_DOC_CHARS
     if truncated:
         text = text[: documents.MAX_DOC_CHARS]
-    return {"ok": True, "name": name, "chars": len(text), "truncated": truncated, "text": text}
+    return {"ok": True, "kind": "document", "name": name, "chars": len(text),
+            "truncated": truncated, "text": text}
 
 
 # ---------- Heartbeat 主动唤醒：定期读关注清单，模型裁量后主动开口 ----------
@@ -1592,7 +1612,28 @@ def _meeting_mail_body(minutes: str, transcript: str) -> str:
 
 
 def _meeting_finalize(owner_id: str, session) -> dict:
-    """会议结束：总结 → 入库 → 发邮件；任何一环失败都保住已有产物并回报人话。"""
+    """会议结束：说话人分离（尽力）→ 总结 → 入库 → 发邮件；失败保产物、回报人话。"""
+    session.close_audio()
+    speakers_note = ""
+    audio_path = session.audio_path
+    try:
+        if audio_path:
+            from jarvis.voice import diarize
+            try:
+                sentences = diarize.diarize_wav(audio_path)
+                count = session.relabel_others(sentences)
+                if count >= 2:
+                    speakers_note = f"已自动区分出 {count} 位对方说话人（对方1/对方2…）"
+            except diarize.DiarizeError as exc:
+                log.info("meeting diarize skipped: %s", exc)
+            except Exception as exc:
+                log.warning("meeting diarize failed: %s", type(exc).__name__)
+    finally:
+        if audio_path:
+            try:
+                os.remove(audio_path)
+            except OSError:
+                pass
     transcript = session.transcript_text()
     if not transcript.strip():
         return {"ok": False, "empty": True, "message": "没有捕捉到任何发言，未生成纪要"}
@@ -1627,6 +1668,8 @@ def _meeting_finalize(owner_id: str, session) -> dict:
     except Exception as exc:
         log.warning("meeting mail failed: %s", type(exc).__name__)
         mail["message"] = "邮件发送失败"
+    if speakers_note:
+        message = f"{message}；{speakers_note}" if message else speakers_note
     return {"ok": True, "meeting_id": record["id"], "minutes": minutes,
             "message": message, "mail": mail}
 
