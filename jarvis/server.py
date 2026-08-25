@@ -904,20 +904,35 @@ def upload_document(request: Request, body: UploadIn):
 _heartbeat_outbox = heartbeat.PendingOutbox()
 
 
+def _service_invoke(owner_id: str, alias: str, title: str, prompt: str) -> str:
+    """服务线程（heartbeat/distill/radio/meeting）的一次性 Agent 调用。
+
+    alias 线程照常注册（网页排除与蒸馏豁免都依赖它），但每次调用用全新的
+    checkpoint 上下文并用完即删——此前这些定时任务在同一 checkpoint 上无限追加，
+    heartbeat 每 30 分钟一轮，历史会持续累积并整段重放给模型（成本与延迟爬坡）。
+    这些任务的提示词都是自包含的，不需要跨轮记忆。"""
+    with tenant_scope(owner_id):
+        store = _tenant_store()
+        thread = store.upsert_thread(alias, title)
+        ephemeral = f"{thread.checkpoint_thread_id}#{uuid.uuid4().hex[:12]}"
+        config = {"configurable": {"thread_id": ephemeral}}
+        with _bundle_for(owner_id) as bundle:
+            try:
+                result = bundle.agent.invoke(
+                    {"messages": [{"role": "user", "content": prompt}]}, config=config)
+            finally:
+                try:
+                    bundle.agent.checkpointer.delete_thread(ephemeral)
+                except Exception:
+                    pass  # 一次性上下文清不掉也无害（不会再被读到）
+    return _chunk_text(result["messages"][-1].content)
+
+
 def _heartbeat_compose(owner, content: str, now) -> str:
     """用 Owner 自己的 Agent 裁量关注清单（独立 heartbeat 线程，不混日常对话）。"""
     prompt = heartbeat.HEARTBEAT_PROMPT.format(
         now=now.strftime("%Y-%m-%d %H:%M"), content=content)
-    with tenant_scope(owner.user_id):
-        store = _tenant_store()
-        thread = store.upsert_thread("heartbeat", "主动唤醒")
-        with _bundle_for(owner.user_id) as bundle:
-            heal_dangling_tool_calls(bundle.agent, thread.checkpoint_thread_id)
-            result = bundle.agent.invoke(
-                {"messages": [{"role": "user", "content": prompt}]},
-                config={"configurable": {"thread_id": thread.checkpoint_thread_id}},
-            )
-    return _chunk_text(result["messages"][-1].content)
+    return _service_invoke(owner.user_id, "heartbeat", "主动唤醒", prompt)
 
 
 # ---------- 夜间记忆蒸馏：把最近一天的对话浓缩进长期画像 ----------
@@ -957,16 +972,7 @@ def _distill_collect(owner) -> str:
 def _distill_compose(owner, transcript: str) -> str:
     """用 Owner 自己的 Agent 提炼画像（独立 distill 线程，不混日常对话）。"""
     prompt = distill.DISTILL_PROMPT.format(transcript=transcript)
-    with tenant_scope(owner.user_id):
-        store = _tenant_store()
-        thread = store.upsert_thread("distill", "记忆蒸馏")
-        with _bundle_for(owner.user_id) as bundle:
-            heal_dangling_tool_calls(bundle.agent, thread.checkpoint_thread_id)
-            result = bundle.agent.invoke(
-                {"messages": [{"role": "user", "content": prompt}]},
-                config={"configurable": {"thread_id": thread.checkpoint_thread_id}},
-            )
-    return _chunk_text(result["messages"][-1].content)
+    return _service_invoke(owner.user_id, "distill", "记忆蒸馏", prompt)
 
 
 def _distill_remember(owner, fact: str) -> bool:
@@ -979,16 +985,7 @@ def _distill_remember(owner, fact: str) -> bool:
 
 def _radio_compose(owner) -> str:
     """用 Owner 自己的 Agent 跑一轮固定晨报指令（独立 radio 线程，不混日常对话）。"""
-    with tenant_scope(owner.user_id):
-        store = _tenant_store()
-        thread = store.upsert_thread("radio", "晨报电台")
-        with _bundle_for(owner.user_id) as bundle:
-            heal_dangling_tool_calls(bundle.agent, thread.checkpoint_thread_id)
-            result = bundle.agent.invoke(
-                {"messages": [{"role": "user", "content": reminders.RADIO_PROMPT}]},
-                config={"configurable": {"thread_id": thread.checkpoint_thread_id}},
-            )
-    return _chunk_text(result["messages"][-1].content)
+    return _service_invoke(owner.user_id, "radio", "晨报电台", reminders.RADIO_PROMPT)
 
 
 class RadioIn(BaseModel):
@@ -1587,16 +1584,17 @@ def desktop_handoff_exchange(body: HandoffExchangeIn):
 def _meeting_compose(owner_id: str, date_str: str, transcript: str) -> str:
     """用 Owner 自己的 Agent 总结转写（独立 meeting 线程，不混日常对话）。"""
     prompt = meeting.MEETING_PROMPT.format(date=date_str, transcript=transcript)
-    with tenant_scope(owner_id):
-        store = _tenant_store()
-        thread = store.upsert_thread("meeting", "会议纪要")
-        with _bundle_for(owner_id) as bundle:
-            heal_dangling_tool_calls(bundle.agent, thread.checkpoint_thread_id)
-            result = bundle.agent.invoke(
-                {"messages": [{"role": "user", "content": prompt}]},
-                config={"configurable": {"thread_id": thread.checkpoint_thread_id}},
-            )
-    return _chunk_text(result["messages"][-1].content)
+    return _service_invoke(owner_id, "meeting", "会议纪要", prompt)
+
+
+def _meeting_live_compose(owner_id: str, transcript_tail: str) -> str:
+    """会中实时要点（对标飞书妙记）：对最近一段转写做增量小结，失败返空不打扰。"""
+    prompt = meeting.LIVE_POINTS_PROMPT.format(transcript=transcript_tail)
+    try:
+        return _service_invoke(owner_id, "meeting", "会议纪要", prompt).strip()
+    except Exception as exc:
+        log.warning("meeting live compose failed: %s", type(exc).__name__)
+        return ""
 
 
 def _meeting_recipient(owner_id: str) -> str:
@@ -1674,7 +1672,8 @@ def _meeting_finalize(owner_id: str, session) -> dict:
             "message": message, "mail": mail}
 
 
-register_meeting(app, cookie_name=_COOKIE, accounts=_accounts, finalize=_meeting_finalize)
+register_meeting(app, cookie_name=_COOKIE, accounts=_accounts,
+                 finalize=_meeting_finalize, live_compose=_meeting_live_compose)
 
 
 @app.get("/api/meetings")
@@ -1819,14 +1818,19 @@ _WAKE_AUDIO_B64_MAX = 1_400_000   # ~1MB（约 30s@16k PCM16），唤醒片段�
 create_wake_asr = DashScopeASR    # 测试可整体替换为假识别器
 
 
+def _normalize_wake(text: str) -> str:
+    return "".join(ch for ch in str(text).lower() if ch.isalnum())
+
+
 def _wake_words() -> tuple[str, ...]:
     raw = os.getenv("JARVIS_WAKE_WORDS", "")
-    words = tuple(w.strip().lower() for w in raw.split(",") if w.strip())
+    # 唤醒词与转写做同一套归一化：否则配了「hey jarvis」这类带空格/标点的词永远匹配不上
+    words = tuple(w for w in (_normalize_wake(item) for item in raw.split(",")) if w)
     return words or DEFAULT_WAKE_WORDS
 
 
 def wake_matched(text: str) -> bool:
-    normalized = "".join(ch for ch in str(text).lower() if ch.isalnum())
+    normalized = _normalize_wake(text)
     return any(word in normalized for word in _wake_words())
 
 

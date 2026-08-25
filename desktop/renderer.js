@@ -339,10 +339,12 @@ const EMOTION_EMOJI = {
   fearful: '😨', disgusted: '😒', neutral: '🙂',
 }
 
+let currentVoiceScene = 'butler'
 function renderVoiceScenes(currentId) {
+  if (currentId) currentVoiceScene = currentId   // WS 回执是权威；HTTP 目录只补芯片列表
   const wrap = $('#v-scenes')
   wrap.innerHTML = voiceScenes.map(s =>
-    `<button data-scene="${esc(s.id)}" class="${s.id === currentId ? 'on' : ''}"` +
+    `<button data-scene="${esc(s.id)}" class="${s.id === currentVoiceScene ? 'on' : ''}"` +
     ` title="${esc(s.opening || s.name)}">${esc(s.icon || '')} ${esc(s.name)}</button>`).join('')
 }
 $('#v-scenes').addEventListener('click', e => {
@@ -374,6 +376,7 @@ function renderVoiceDegraded() {
 
 async function startVoiceCall() {
   if (activeCall) { document.body.classList.add('show-voice'); return }
+  stopWakeWord()   // 通话期间唤醒采集整个停掉（省一路白跑的音频图），挂断后恢复
   document.body.classList.add('show-voice', 'on-call')
   $('#v-final').textContent = ''
   $('#v-interim').textContent = ''
@@ -424,7 +427,7 @@ async function startVoiceCall() {
     try {
       const v = await (await api('voiceSettingsGet')).json()
       voiceScenes = v.scenes || []
-      renderVoiceScenes(v.scene || 'butler')
+      renderVoiceScenes()   // 当前场景以 WS ready/scene 回执为准，这里只补芯片
     } catch { /* 忽略 */ }
   })()
 }
@@ -433,6 +436,7 @@ function endVoiceCall() {
   if (activeCall) { activeCall.hangup(); activeCall = null }
   document.body.classList.remove('show-voice', 'on-call')
   if (window.JWSVoiceBall) window.JWSVoiceBall.applyBallPhase(document.body.classList, 'closed')
+  void syncWakeWord().catch(() => {})   // 恢复唤醒监听
 }
 
 function sendVoiceTyped() {
@@ -487,30 +491,54 @@ function renderMeetingPhase(p) {
   const finished = p === 'done' || p === 'error' || p === 'closed'
   $('#m-close').style.display = finished ? '' : 'none'
   if (p !== 'connecting' && p !== 'recording') stopMeetingCapture()
-  if (finished) document.body.classList.remove('on-meeting')
+  if (finished) {
+    document.body.classList.remove('on-meeting')
+    void syncWakeWord().catch(() => {})   // 恢复唤醒监听
+  }
 }
 
 function meetingCaption(c) {
   const wrap = $('#m-captions')
   const empty = wrap.querySelector('.m-empty')
   if (empty) empty.remove()
-  let part = wrap.querySelector('.m-part')
+  // 灰字按说话人各占一行：我和对方是两条独立识别管道，共用一行会互相覆盖闪跳
+  const partSelector = `.m-part[data-speaker="${c.speaker}"]`
+  let part = wrap.querySelector(partSelector)
   if (!c.final) {
-    if (!part) { part = document.createElement('div'); part.className = 'm-part'; wrap.append(part) }
+    if (!part) {
+      part = document.createElement('div')
+      part.className = 'm-part'
+      part.dataset.speaker = c.speaker
+      wrap.append(part)
+    }
     part.textContent = `${c.speaker}：${c.text}`
   } else {
     if (part) part.remove()
     const line = document.createElement('div')
     line.className = 'm-line'
     line.innerHTML = `<b>${esc(c.speaker)}</b>${esc(c.text)}`
-    wrap.append(line)
+    // 定稿行插在所有灰字之前，另一路说到一半的灰字保持在底部
+    const firstPart = wrap.querySelector('.m-part')
+    if (firstPart) wrap.insertBefore(line, firstPart)
+    else wrap.append(line)
     while (wrap.children.length > 60) wrap.firstChild.remove()
   }
   wrap.scrollTop = wrap.scrollHeight
 }
 
+let meetingStarting = false   // 权限弹窗期间的重入闸：双击/托盘+指令并发只允许开一场
 async function startMeeting(title = '') {
-  if (activeMeeting) { document.body.classList.add('show-meeting'); return }
+  if (activeMeeting || meetingStarting) { document.body.classList.add('show-meeting'); return }
+  meetingStarting = true
+  try {
+    await startMeetingInner(title)
+  } finally {
+    meetingStarting = false
+  }
+}
+
+async function startMeetingInner(title) {
+  stopWakeWord()   // 会议期间唤醒采集整个停掉，结束后恢复
   document.body.classList.add('show-meeting', 'on-meeting')
   $('#m-captions').innerHTML = '<div class="m-empty">连接后开始实时转写：你的发言标「我」，会议里其他人标「对方」。</div>'
   const minutesEl = $('#m-minutes')
@@ -518,6 +546,7 @@ async function startMeeting(title = '') {
   const noticeEl = $('#m-notice')
   noticeEl.style.display = 'none'; noticeEl.innerHTML = ''
   $('#m-count').textContent = ''
+  $('#m-live').style.display = 'none'; $('#m-live-body').textContent = ''
   try { await window.jws.voiceMicAccess() } catch { /* 授权结果由 getUserMedia 再判 */ }
   try {
     const screenAccess = await window.jws.meetingScreenAccess()
@@ -535,6 +564,10 @@ async function startMeeting(title = '') {
       phase: renderMeetingPhase,
       caption: meetingCaption,
       segments: n => { $('#m-count').textContent = `${n} 段` },
+      livePoints: text => {   // 会中实时要点（对标飞书妙记）：随会议进展滚动更新
+        $('#m-live').style.display = ''
+        $('#m-live-body').textContent = text
+      },
       notice: meetingNotice,
       minutes: m => {
         minutesEl.style.display = ''
@@ -549,16 +582,23 @@ async function startMeeting(title = '') {
   })
   renderMeetingPhase('connecting')
   activeMeeting.start()
-  // 双路采集：麦克风=「我」，系统回环=「对方」；系统声拿不到就降级只录麦克风
+  // 双路采集：麦克风=「我」，系统回环=「对方」；系统声拿不到就降级只录麦克风。
+  // 每个 await 回来都要确认会话还活着：权限弹窗期间会话可能已 busy/断开收场，
+  // 迟到的音频流若不当场停掉，麦克风/录屏指示灯会永远亮着喂一个死会话。
   try {
-    meetingMic = await window.JWSVoiceAudio.startMicStream({
+    const mic = await window.JWSVoiceAudio.startMicStream({
       onFrame: buf => { if (activeMeeting) activeMeeting.feedMic(buf) },
     })
+    if (meetingRunning()) meetingMic = mic
+    else { try { mic.stop() } catch { /* 已停 */ } }
   } catch { meetingNotice('没拿到麦克风权限，无法记录你自己的发言') }
+  if (!meetingRunning()) return
   try {
-    meetingSys = await window.JWSVoiceAudio.startSystemAudioStream({
+    const sys = await window.JWSVoiceAudio.startSystemAudioStream({
       onFrame: buf => { if (activeMeeting) activeMeeting.feedSystem(buf) },
     })
+    if (meetingRunning()) meetingSys = sys
+    else { try { sys.stop() } catch { /* 已停 */ } }
   } catch { meetingNotice(window.JWSMeeting.MESSAGES.noSystemAudio) }
 }
 
@@ -584,10 +624,7 @@ async function toggleMeeting() {
   await startMeeting()
 }
 
-$('#meetbtn').addEventListener('click', () => {
-  if (activeMeeting) document.body.classList.add('show-meeting')
-  else void startMeeting()
-})
+$('#meetbtn').addEventListener('click', () => { void startMeeting() })
 $('#m-stop').addEventListener('click', () => { if (activeMeeting) activeMeeting.stop() })
 $('#m-close').addEventListener('click', endMeeting)
 $('#m-min').addEventListener('click', async () => {  // 收起为悬浮球，监控继续（球上有红点）
@@ -609,12 +646,22 @@ if (window.jws.onMeetingCommand) {  // 服务端指令（对话里「监控会�
 let wakeMic = null
 let wakeListener = null
 let wakeNoticeShown = false
+let wakeWanted = false      // syncWakeWord 维护的期望态：await 空档里被关掉要能感知
+let wakeStarting = false    // getUserMedia 弹窗期间的重入闸
 
 async function wakeRecognize(wav) {
   const b64 = window.JWSWakeWord.bufferToBase64(wav)
-  const r = await api('voiceWakeCheck', { audio_b64: b64 })
-  const data = await r.json()
+  // 走底层 api 而不是 authenticatedApi：登录过期时唤醒必须安静暂停，
+  // 绝不能每听到一句话就弹一次登录面板抢焦点。
+  const r = await window.jws.api.request('voiceWakeCheck', { audio_b64: b64 })
+  if (r.status === 401) {
+    stopWakeWord()
+    renderWakeState('登录已过期，语音唤醒暂停；重新登录后自动恢复', 'bad')
+    sys('登录已过期，语音唤醒暂停；重新登录后自动恢复')
+    return { matched: false }
+  }
   if (!r.ok) return { matched: false }
+  const data = r.data || {}
   if (data.ok === false && data.message && !wakeNoticeShown) {
     wakeNoticeShown = true   // 识别端没配好只提示一次，不刷屏
     sys(`语音唤醒暂不可用：${data.message}`)
@@ -628,7 +675,8 @@ function renderWakeState(text, cls) {
 }
 
 async function startWakeWord() {
-  if (wakeMic) return
+  if (wakeMic || wakeStarting) return
+  wakeStarting = true
   wakeListener = window.JWSWakeWord.createWakeWordListener({
     threshold: 0.025,   // 比通话打断的 0.04 更敏感：唤醒时人往往离麦更远
     recognize: wakeRecognize,
@@ -641,34 +689,47 @@ async function startWakeWord() {
   })
   let lastRms = 0
   try {
-    wakeMic = await window.JWSVoiceAudio.startMicStream({
+    const handle = await window.JWSVoiceAudio.startMicStream({
       onLevel: rms => { lastRms = rms },
       onFrame: buf => {
-        // 通话/会议期间暂停唤醒判定，避免自己的回答把自己吵醒
         if (wakeListener && !activeCall && !meetingRunning()) {
           wakeListener.feed({ pcm: buf, rms: lastRms })
         }
       },
     })
-    renderWakeState('语音唤醒运行中：喊「贾维斯」即可接通', 'ok')
+    // 权限弹窗期间可能已被关掉（设置保存/进通话/进会议）：迟到的流当场停掉，
+    // 否则这路采集没有任何变量指着它，麦克风会永远亮着
+    if (!wakeWanted || activeCall || meetingRunning()) {
+      try { handle.stop() } catch { /* 已停 */ }
+      wakeListener = null
+    } else {
+      wakeMic = handle
+      renderWakeState('语音唤醒运行中：喊「贾维斯」即可接通', 'ok')
+    }
   } catch {
-    wakeMic = null
     wakeListener = null
     renderWakeState('语音唤醒开启失败：没拿到麦克风权限', 'bad')
     sys('语音唤醒开启失败：没拿到麦克风权限')
+  } finally {
+    wakeStarting = false
   }
 }
 
 function stopWakeWord() {
+  wakeWanted = false
   if (wakeMic) { try { wakeMic.stop() } catch { /* 已停 */ } wakeMic = null }
   wakeListener = null
-  renderWakeState('语音唤醒已关闭')
+  renderWakeState('语音唤醒未在运行')
 }
 
 async function syncWakeWord() {
   const s = await window.jws.getSettings()
-  if (s.wakeWordEnabled) await startWakeWord()
-  else stopWakeWord()
+  if (s.wakeWordEnabled && !activeCall && !meetingRunning()) {
+    wakeWanted = true
+    await startWakeWord()
+  } else {
+    stopWakeWord()
+  }
 }
 
 /* ---------- 悬浮球外观 ---------- */

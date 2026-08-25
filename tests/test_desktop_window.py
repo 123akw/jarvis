@@ -93,6 +93,7 @@ def test_schema_v3_applies_to_existing_databases(isolated_data_dir):
         raw.execute("DROP TABLE tenant_meetings")
         raw.execute("DELETE FROM tenant_schema_migrations WHERE version=3")
         raw.commit()
+    TenantStore.reset_migration_cache()  # 模拟新进程首连旧库（生产迁移发生的时机）
     with tenant_scope(owner.user_id):
         record = TenantStore().add_meeting(
             title="升级验证", started_at="2026-08-24 10:00", ended_at="2026-08-24 10:30",

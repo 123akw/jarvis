@@ -96,7 +96,8 @@ def test_v2_migration_upgrades_existing_v1_database():
         c.execute("DROP TABLE tenant_reminders_sent")
         c.execute("DELETE FROM tenant_schema_migrations WHERE version=2")
         c.commit()
-    # 任何一次重新连接都应触发 v2 迁移，三张表可用
+    TenantStore.reset_migration_cache()  # 模拟新进程首连旧库（生产迁移发生的时机）
+    # 重新连接应触发 v2 迁移，三张表可用
     assert store.get_pref("nope") is None
     store.set_pref("tts_voice", "female-yujie")
     assert store.get_pref("tts_voice") == "female-yujie"

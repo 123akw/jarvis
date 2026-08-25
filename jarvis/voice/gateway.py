@@ -43,14 +43,11 @@ _EMOTION_TAIL_CAP = 480_000     # 情绪检测取本句最后 ~15s 音频
 _EMOTION_MIN_PCM_BYTES = 12_800  # 不足 ~0.4s 的音频不值得送情绪检测
 ASR_FALLBACK_MESSAGE = "服务端语音识别暂不可用，已切换浏览器识别"
 
-# 语音回合注入的一次性应答规则（拍板：≤3 句、先结论、口语化、不念 URL/代码/表格）。
-# 只在语音网关注入，回合结束即从 checkpoint 摘除——文字聊天 /api/chat 完全不受影响。
-# 场景模式（jarvis/voice/scenes.py）在此基础上按用户选择替换成场景化规则。
-VOICE_STYLE_PROMPT = (
-    "【语音通话模式·仅本回合有效】你正在和用户语音通话，回答会被合成语音读出来："
-    "最多三句话，第一句先给结论；用自然口语，不要书面腔、不要客套铺垫；"
-    "禁止念 URL、代码、表格和 Markdown 符号（如 **、#、`），需要提及时用一句话概括；"
-    "数字、时间用中文口语说法。")
+# 语音回合注入的一次性应答规则：唯一出处在 scenes.py 的「管家模式」（默认场景），
+# 这里只是兼容别名——调措辞去 scenes.py 改，不要在两处各维护一份中文散文。
+from jarvis.voice.scenes import scene_prompt as _scene_prompt  # noqa: E402
+
+VOICE_STYLE_PROMPT = _scene_prompt("butler")
 
 # 测试可整体替换为假会话工厂；生产即 MiniMax WSS 客户端
 create_tts_session = tts_mod.TTSSession
@@ -150,16 +147,19 @@ class _AsrPipeline:
         except asr_mod.ASRError:
             await self._fallback()
             return
-        self.session = session
+        # 先按序补发积压帧再发布 session：发布过早会让新帧插到旧帧前面，
+        # 建连窗口内说的第一句话以乱序 PCM 进识别（补发期间新帧仍走缓冲）。
         try:
-            for chunk in self._buffer:
+            while self._buffer:
+                chunk = self._buffer.pop(0)
+                self._buffered -= len(chunk)
                 await session.send_audio(chunk)
         except asr_mod.ASRError:
-            await self._fallback()
-            return
-        finally:
             self._buffer.clear()
             self._buffered = 0
+            await self._fallback()
+            return
+        self.session = session
         self._reader = asyncio.create_task(self._read_results(session))
 
     async def _read_results(self, session) -> None:
@@ -172,7 +172,7 @@ class _AsrPipeline:
                     text = result.text.strip()
                     if text:
                         if len(utter_pcm) >= _EMOTION_MIN_PCM_BYTES:
-                            asyncio.create_task(self.call.check_emotion(utter_pcm))
+                            self.call.spawn_emotion(utter_pcm)
                         await self.call.send_json(
                             {"type": "asr_final", "text": text}, best_effort=True)
                         await self.call.start_turn(text)
@@ -409,6 +409,7 @@ class _CallSession:
         self.asr = _AsrPipeline(self)
         self.scene_id = "butler"
         self.last_emotion = ""
+        self._emotion_task: asyncio.Task | None = None
 
     def style_prompt(self) -> str:
         """本回合注入的应答规则：场景化规则 + 最近一次的语气感知（若有）。"""
@@ -420,6 +421,16 @@ class _CallSession:
                 prompt += (f"（语气感知：主人刚才听起来有点{label}，"
                            "回应时自然照应这份情绪，不要点破你在识别情绪。）")
         return prompt
+
+    def spawn_emotion(self, pcm: bytes) -> None:
+        """情绪检测最多一件在途（只有最新结果有意义），并持有引用防 GC 半途回收。"""
+        if self._emotion_task is not None and not self._emotion_task.done():
+            return
+        self._emotion_task = asyncio.create_task(self.check_emotion(pcm))
+
+    def cancel_emotion(self) -> None:
+        if self._emotion_task is not None and not self._emotion_task.done():
+            self._emotion_task.cancel()
 
     async def check_emotion(self, pcm: bytes) -> None:
         """把刚定稿的一句话送情绪检测（异步旁路，绝不拖慢回合）。"""
@@ -581,5 +592,6 @@ def register_voice(app, *, cookie_name: str, accounts, bundle_for, tenant_store,
         except WebSocketDisconnect:
             pass
         finally:
+            session.cancel_emotion()
             await session.interrupt()
             await session.asr.close()

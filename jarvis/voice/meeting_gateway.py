@@ -9,7 +9,8 @@
 
 下行：
 - JSON：ready{meeting_id} / partial{speaker,text}（识别中灰字）/
-  segment{speaker,ts,text}（定稿转写行）/ asr_unavailable{message}（识别彻底不可用）/
+  segment{speaker,ts,text}（定稿转写行）/ live_points{text}（会中实时要点，节流）/
+  asr_unavailable{message}（识别彻底不可用）/
   stopped{segments,empty}（采集结束，开始总结）/ minutes{meeting_id,text,message} /
   mail{ok,to,message} / error / pong
 
@@ -40,6 +41,9 @@ _MAX_ASR_RESTARTS = 6       # 每路识别自动重建上限；再坏就宣告�
 CHANNEL_ME = 0
 CHANNEL_OTHERS = 1
 ASR_UNAVAILABLE_MESSAGE = "服务端语音识别不可用（请检查 DASHSCOPE_API_KEY），会议无法转写"
+LIVE_MIN_SEGMENTS = 6        # 距上次实时要点至少新增 6 段发言才再总结
+LIVE_MIN_INTERVAL = 90.0     # 且至少间隔 90 秒（双闸防成本螺旋）
+_LIVE_TAIL_CHARS = 3200      # 增量小结只看最近这么多字的转写
 
 # 测试可整体替换为假会话工厂；生产即百炼 paraformer WSS 客户端
 create_asr_session = asr_mod.ASRSession
@@ -73,7 +77,7 @@ class _ChannelPipeline:
         try:
             await self.session.send_audio(chunk)
         except asr_mod.ASRError:
-            await self._restart()
+            await self._restart(self.session)
 
     async def close(self, flush: bool = False) -> None:
         if flush and self.session is not None and self._reader is not None:
@@ -104,21 +108,29 @@ class _ChannelPipeline:
         except asr_mod.ASRError:
             await self._restart()
             return
-        self.session = session
+        # 先把积压帧按序补发完再发布 session：发布过早会让 feed() 的新帧
+        # 插到未补发的旧帧前面，开场几秒的音频乱序进识别（补发期间新帧仍进缓冲）。
         try:
-            for chunk in self._buffer:
+            while self._buffer:
+                chunk = self._buffer.pop(0)
+                self._buffered -= len(chunk)
                 await session.send_audio(chunk)
         except asr_mod.ASRError:
-            await self._restart()
-            return
-        finally:
             self._buffer.clear()
             self._buffered = 0
+            try:
+                await session.close()
+            except Exception:
+                pass
+            await self._restart()
+            return
+        self.session = session
         self._reader = asyncio.create_task(self._read_results(session))
 
     async def _read_results(self, session) -> None:
         try:
             async for result in session.results():
+                self.restarts = 0   # 会话真出结果了：重连预算按「连续失败」计，不累计终身
                 if result.is_final:
                     text = result.text.strip()
                     if text:
@@ -128,17 +140,27 @@ class _ChannelPipeline:
                                 "type": "segment", "speaker": self.speaker,
                                 "ts": entry["ts"], "text": entry["text"],
                             }, best_effort=True)
+                            self.conn.maybe_live_summary()
                 elif result.text:
                     await self.conn.send_json(
                         {"type": "partial", "speaker": self.speaker, "text": result.text},
                         best_effort=True)
         except asr_mod.ASRError:
-            await self._restart()
+            await self._restart(session)
 
-    async def _restart(self) -> None:
-        """识别链路坏了：关旧会话、下一帧触发重建；超限才宣告失败（一次性通知）。"""
+    async def _restart(self, failed_session=None) -> None:
+        """识别链路坏了：关旧会话、下一帧触发重建；超限才宣告失败（一次性通知）。
+
+        迟到的旧会话报错（重建后孤儿 reader 才炸）不重复计数，否则一次真实断线
+        会烧掉两格重连预算，长会议几次例行超时就被误判为「彻底不可用」。"""
         if self.failed:
             return
+        if failed_session is not None and failed_session is not self.session:
+            return
+        current = asyncio.current_task()
+        for task in (self._connecting, self._reader):
+            if task is not None and task is not current and not task.done():
+                task.cancel()
         if self.session is not None:
             try:
                 await self.session.close()
@@ -156,17 +178,50 @@ class _ChannelPipeline:
 
 
 class _MeetingConn:
-    """一条会议连接：双路识别管道 + 下行帧序。"""
+    """一条会议连接：双路识别管道 + 下行帧序 + 实时要点节流。"""
 
-    def __init__(self, ws: WebSocket, session: meeting_mod.MeetingSession) -> None:
+    def __init__(self, ws: WebSocket, session: meeting_mod.MeetingSession,
+                 live_compose=None) -> None:
         self.ws = ws
         self.session = session
+        self.live_compose = live_compose
         self._send_lock = asyncio.Lock()
         self._asr_notified = False
+        self._live_task: asyncio.Task | None = None
+        self._live_last = asyncio.get_running_loop().time()
+        self._live_segments = 0
         self.pipelines = {
             CHANNEL_ME: _ChannelPipeline(self, meeting_mod.SPEAKER_ME),
             CHANNEL_OTHERS: _ChannelPipeline(self, meeting_mod.SPEAKER_OTHERS),
         }
+
+    def maybe_live_summary(self) -> None:
+        """会中实时要点：新增发言够多且间隔够久才增量小结（双闸防成本螺旋）。"""
+        if self.live_compose is None:
+            return
+        if self._live_task is not None and not self._live_task.done():
+            return
+        now = asyncio.get_running_loop().time()
+        segments = len(self.session.segments)
+        if segments - self._live_segments < LIVE_MIN_SEGMENTS:
+            return
+        if now - self._live_last < LIVE_MIN_INTERVAL:
+            return
+        self._live_segments = segments
+        self._live_last = now
+        self._live_task = asyncio.create_task(self._run_live_summary())
+
+    async def _run_live_summary(self) -> None:
+        tail = self.session.transcript_text()[-_LIVE_TAIL_CHARS:]
+        try:
+            text = await asyncio.to_thread(self.live_compose, self.session.user_id, tail)
+        except Exception as exc:
+            log.warning("meeting live summary failed: %s", type(exc).__name__)
+            return
+        text = (text or "").strip()
+        if not text or text.upper() == "PASS":
+            return
+        await self.send_json({"type": "live_points", "text": text}, best_effort=True)
 
     async def send_json(self, obj: dict, best_effort: bool = False) -> None:
         try:
@@ -195,16 +250,17 @@ class _MeetingConn:
             await pipeline.feed(pcm)
 
     async def close_pipelines(self, flush: bool = False) -> None:
-        for pipeline in self.pipelines.values():
-            await pipeline.close(flush)
+        # 两路并行收摊：flush 各自最多等 ~5s，串行会把 stop 延迟翻倍
+        await asyncio.gather(*(p.close(flush) for p in self.pipelines.values()))
 
 
-def register_meeting(app, *, cookie_name: str, accounts, finalize) -> None:
+def register_meeting(app, *, cookie_name: str, accounts, finalize, live_compose=None) -> None:
     """在 FastAPI 应用上挂 /api/meeting/stream。
 
     finalize(user_id, session) 是 server.py 注入的同步回调（线程里跑）：
     总结 → 入库 → 发邮件，返回
     {"ok", "empty"?, "meeting_id"?, "minutes"?, "message"?, "mail"?}。
+    live_compose(user_id, transcript_tail) 可选：会中实时要点的增量小结。
     """
 
     def _principal_for(ws: WebSocket):
@@ -250,10 +306,12 @@ def register_meeting(app, *, cookie_name: str, accounts, finalize) -> None:
                 ensure_ascii=False))
             await ws.close(code=CLOSE_CONFLICT)
             return
-        conn = _MeetingConn(ws, session)
-        await conn.send_json({"type": "ready", "meeting_id": session.id})
+        conn = _MeetingConn(ws, session, live_compose=live_compose)
         graceful = False
         try:
+            # ready 也要在 try 里发：此刻客户端可能已掉线，send 抛异常若发生在
+            # finally 保护区之外，registry 里这场会议将永远占位（后续全部 4409）。
+            await conn.send_json({"type": "ready", "meeting_id": session.id})
             while True:
                 message = await ws.receive()
                 if message["type"] == "websocket.disconnect":
@@ -277,6 +335,8 @@ def register_meeting(app, *, cookie_name: str, accounts, finalize) -> None:
         except WebSocketDisconnect:
             pass
         finally:
+            if conn._live_task is not None and not conn._live_task.done():
+                conn._live_task.cancel()
             await conn.close_pipelines(flush=graceful)
             finished = meeting_mod.active_meetings.finish(principal.user_id)
             # 即使桌面端已掉线也要完成总结与邮件（best_effort 下行送不到就算了）

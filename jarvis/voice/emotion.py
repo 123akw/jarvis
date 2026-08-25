@@ -6,12 +6,12 @@ disgusted/angry/fearful）。无 key 或任何失败都安静返回空串——�
 绝不拖垮通话主链路。
 """
 import base64
-import io
 import logging
 import os
-import wave
 
 import httpx
+
+from jarvis.wechat_voice import pcm_to_wav as _shared_pcm_to_wav
 
 log = logging.getLogger("jarvis")
 
@@ -27,13 +27,8 @@ EMOTION_LABELS = {
 
 
 def pcm_to_wav(pcm: bytes, sample_rate: int = 16000) -> bytes:
-    buf = io.BytesIO()
-    with wave.open(buf, "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(sample_rate)
-        w.writeframes(pcm)
-    return buf.getvalue()
+    """复用 wechat_voice 的同一实现（wav 头逻辑只维护一份）。"""
+    return _shared_pcm_to_wav(pcm, sample_rate)
 
 
 def extract_emotion(payload: dict) -> str:

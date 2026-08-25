@@ -55,6 +55,8 @@
         st.segments += 1
         emit('caption', { speaker: ev.speaker || '', text: ev.text || '', final: true, ts: ev.ts })
         emit('segments', st.segments)
+      } else if (ev.type === 'live_points') {
+        emit('livePoints', ev.text || '')
       } else if (ev.type === 'asr_unavailable') {
         setNotice(ev.message || '服务端语音识别不可用，会议无法转写')
         stop()   // 转不出字继续录也没意义
@@ -131,7 +133,9 @@
         ws.send(JSON.stringify({ type: 'stop' }))
         setPhase('summarizing')
       } else {
-        setPhase('closed')
+        // 连接还没建立就喊停：必须整个收摊。只标记不关 socket 的话，onopen 仍会
+        // 发 init 把服务端会议开起来，ready 回来还会把「已关闭」的面板复活成录制中。
+        dispose()
       }
     }
 

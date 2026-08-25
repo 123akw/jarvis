@@ -280,6 +280,9 @@ body.show-meeting #meeting{display:flex}
   animation:vpulse .9s ease-in-out infinite}
 #meeting.done #m-dot{background:#7CF5B2}
 #m-count{font-family:var(--mono);font-size:11px;color:var(--dim);margin-left:auto}
+#m-live{border:1px solid rgba(240,180,90,.4);background:rgba(240,180,90,.06);padding:8px 11px}
+.m-live-title{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;color:var(--gold);margin-bottom:5px}
+#m-live-body{font-size:12.5px;line-height:1.7;white-space:pre-wrap;max-height:130px;overflow-y:auto}
 #m-captions{flex:1;min-height:80px;overflow-y:auto;border-left:2px solid rgba(83,232,255,.4);
   padding-left:11px;font-size:13px;line-height:1.7}
 #m-captions::-webkit-scrollbar{width:4px}
@@ -453,6 +456,10 @@ body.show-settings #settings{display:flex}
           <span id="m-dot"></span>
           <span id="m-phase">连接中…</span>
           <span id="m-count"></span>
+        </div>
+        <div id="m-live" style="display:none">
+          <div class="m-live-title">⚡ 实时要点</div>
+          <div id="m-live-body"></div>
         </div>
         <div id="m-captions"><div class="m-empty">连接后开始实时转写：你的发言标「我」，会议里其他人标「对方」。</div></div>
         <div id="m-notice" role="alert" style="display:none"></div>

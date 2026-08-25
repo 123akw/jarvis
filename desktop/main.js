@@ -554,11 +554,11 @@ function createTray() {
 
 /* 桌面指令轮询：登录态下每 10 秒领取服务端指令（对话里「监控会议」由此送达），
  * 顺带同步网页端设置的悬浮球显隐偏好（只在偏好变化时应用，不跟托盘手动操作打架）。 */
-let lastBallVisiblePref = null
+let lastBallVisiblePref = true   // 应用启动时球可见；离线期间存下的「隐藏」首轮就要生效
 function applyDesktopCommands(data) {
   const visible = data && data.ball_visible
   if (typeof visible === 'boolean' && visible !== lastBallVisiblePref) {
-    if (lastBallVisiblePref !== null) setBallVisible(visible)  // 首轮只记基线，不闪窗
+    setBallVisible(visible)
     lastBallVisiblePref = visible
   }
   const commands = data && Array.isArray(data.commands) ? data.commands : []

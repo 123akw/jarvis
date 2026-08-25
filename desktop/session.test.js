@@ -297,10 +297,6 @@ test('desktop command/window/meeting/wake operations validate bodies and hit the
   await instance.request('desktopCommands')
   assert.ok(calls.at(-1).url.endsWith('/api/desktop/commands'))
   assert.equal(calls.at(-1).options.method, 'GET')
-  await instance.request('desktopWindowGet')
-  assert.ok(calls.at(-1).url.endsWith('/api/desktop/settings'))
-  await instance.request('meetingSettingsGet')
-  assert.ok(calls.at(-1).url.endsWith('/api/meeting/settings'))
 
   await instance.request('voiceWakeCheck', { audio_b64: 'aGVsbG8=' })
   assert.ok(calls.at(-1).url.endsWith('/api/voice/wake'))

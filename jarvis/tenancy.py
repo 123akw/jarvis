@@ -25,6 +25,9 @@ class TenantMigrationError(RuntimeError):
 
 _OWNER: ContextVar[str | None] = ContextVar("jarvis_tenant_owner", default=None)
 _MIGRATION_LOCK = threading.Lock()
+# 迁移成功过的库路径：同进程内不再逐连接重跑版本检查（每次 DB 操作都开新连接，
+# 这笔固定开销在 dashboard 等多查询端点上会乘好几倍）。只缓存成功；失败照常抛。
+_MIGRATED_PATHS: set[str] = set()
 _LEGACY = ("threads.json", "memos.json", "todos.json", "schedule.json", "location.json", "local_status.json")
 
 
@@ -71,12 +74,15 @@ class TenantStore:
         connection = sqlite3.connect(self.path, timeout=5, isolation_level=None)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
-        try:
-            with _MIGRATION_LOCK:
-                self._migrate(connection)
-        except Exception:
-            connection.close()
-            raise
+        path_key = str(self.path)
+        if path_key not in _MIGRATED_PATHS:
+            try:
+                with _MIGRATION_LOCK:
+                    self._migrate(connection)
+                    _MIGRATED_PATHS.add(path_key)
+            except Exception:
+                connection.close()
+                raise
         try:
             self.path.chmod(0o600)
         except OSError:
@@ -128,6 +134,11 @@ class TenantStore:
         except Exception:
             connection.rollback()
             raise
+
+    @staticmethod
+    def reset_migration_cache() -> None:
+        """仅测试用：模拟「旧库升级」路径时清掉进程内迁移缓存。"""
+        _MIGRATED_PATHS.clear()
 
     @staticmethod
     def _migrate(connection: sqlite3.Connection) -> None:
@@ -322,10 +333,11 @@ class TenantStore:
                 c.rollback(); raise
         return {"id": item_id, "title": title}
 
-    def list_meetings(self, *, owner_id: str | None = None) -> list[dict]:
+    def list_meetings(self, *, owner_id: str | None = None, limit: int = 20) -> list[dict]:
+        """最近的会议（默认 20 场）：网页任务台 30 秒轮询一次，不能无界全量拉。"""
         owner = self._owner(owner_id)
         with self._connect() as c:
-            rows = c.execute("SELECT id,title,started_at,ended_at,mailed_to,length(minutes) AS mlen FROM tenant_meetings WHERE owner_id=? ORDER BY id DESC", (owner,)).fetchall()
+            rows = c.execute("SELECT id,title,started_at,ended_at,mailed_to,length(minutes) AS mlen FROM tenant_meetings WHERE owner_id=? ORDER BY id DESC LIMIT ?", (owner, int(limit))).fetchall()
         return [{"id": r["id"], "title": r["title"], "started_at": r["started_at"],
                  "ended_at": r["ended_at"], "mailed_to": r["mailed_to"],
                  "has_minutes": bool(r["mlen"])} for r in rows]

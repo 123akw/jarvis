@@ -41,14 +41,28 @@ MEETING_PROMPT = (
 )
 
 
+LIVE_POINTS_PROMPT = (
+    "你是会议记录员，会议还在进行中。下面是最近一段实时转写（「我」是主人，「对方」是"
+    "其他与会者，识别可能有错字）。请只依据这段转写，提炼「到目前为止的要点」："
+    "3 到 5 条，每条一句话，可含刚敲定的结论或分工；纯文本输出，每条一行、行首用「· 」，"
+    "不用 Markdown 标题，不要编造，不要寒暄。信息太少提炼不出时只输出 PASS。\n\n{transcript}"
+)
+
+
 class MeetingAudioRecorder:
-    """「对方」声道 PCM 落盘成 wav（供离线说话人分离）：懒打开、封顶、关闭幂等。"""
+    """「对方」声道 PCM 落盘成 wav（供离线说话人分离）：懒打开、封顶、关闭幂等。
+
+    write 跑在网关的事件循环上：帧先攒进内存，每 ~1 秒批量写一次盘，
+    避免每 100ms 一次同步磁盘写卡住整个事件循环。"""
+
+    _FLUSH_BYTES = 32_000   # ~1s@16kHz PCM16
 
     def __init__(self, path) -> None:
         self.path = str(path)
         self.started_at = None
         self._wav = None
         self._bytes = 0
+        self._pending = bytearray()
 
     def write(self, pcm: bytes, now_fn=None) -> None:
         if self._bytes >= MAX_AUDIO_BYTES or not pcm:
@@ -59,12 +73,18 @@ class MeetingAudioRecorder:
             self._wav.setsampwidth(2)
             self._wav.setframerate(AUDIO_SAMPLE_RATE)
             self.started_at = (now_fn or datetime.datetime.now)()
-        self._wav.writeframes(pcm)
+        self._pending.extend(pcm)
         self._bytes += len(pcm)
+        if len(self._pending) >= self._FLUSH_BYTES:
+            self._wav.writeframes(bytes(self._pending))
+            self._pending.clear()
 
     def close(self) -> None:
         if self._wav is not None:
             try:
+                if self._pending:
+                    self._wav.writeframes(bytes(self._pending))
+                    self._pending.clear()
                 self._wav.close()
             except Exception:
                 pass
@@ -86,6 +106,7 @@ class MeetingSession:
         self._chars = 0
         self._lock = threading.Lock()
         self._recorder: MeetingAudioRecorder | None = None
+        self._audio_failed = False
 
     def add_segment(self, speaker: str, text: str) -> dict | None:
         cleaned = " ".join(str(text).split())
@@ -127,6 +148,8 @@ class MeetingSession:
 
     def record_others(self, pcm: bytes) -> None:
         """gateway 每收到一帧「对方」音频调用一次；失败静默（录音只服务分离增强）。"""
+        if self._audio_failed:
+            return
         try:
             if self._recorder is None:
                 audio_dir = config.data_dir() / "meeting-audio"
@@ -134,7 +157,10 @@ class MeetingSession:
                 self._recorder = MeetingAudioRecorder(audio_dir / f"{self.id}.wav")
             self._recorder.write(pcm, now_fn=self._now)
         except Exception:
-            self._recorder = None
+            # 写盘坏了就此打住：若换新文件重录会截掉已录音频并重置对齐基准，
+            # 说话人分离会把标签安到错误的句子上——宁可保留半截音频原样收尾。
+            self._audio_failed = True
+            self.close_audio()
 
     def close_audio(self) -> None:
         if self._recorder is not None:

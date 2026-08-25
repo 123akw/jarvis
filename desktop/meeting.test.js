@@ -127,3 +127,25 @@ test('dispose 彻底收摊：关连接、不再回调', () => {
   assert.ok(ws.closed)
   assert.strictEqual(session.state().phase, 'closed')
 })
+
+test('实时要点：live_points 帧透传给界面回调', () => {
+  const points = []
+  const { ws, session } = newSession({ livePoints: t => points.push(t) })
+  session.start(); ws.open()
+  ws.message({ type: 'ready' })
+  ws.message({ type: 'live_points', text: '· 首屏用动效\n· 九月第二周上线' })
+  assert.deepStrictEqual(points, ['· 首屏用动效\n· 九月第二周上线'])
+})
+
+test('连接建立前喊停：整个收摊，onopen 不再发 init、ready 不能复活会话', () => {
+  const { ws, session } = newSession()
+  session.start()                 // readyState 仍是 0（未 open）
+  ws.readyState = 0
+  session.stop()
+  assert.strictEqual(session.state().phase, 'closed')
+  assert.ok(ws.closed, '未建立的连接必须直接关掉')
+  ws.open()                       // 迟到的 onopen
+  assert.strictEqual(ws.sent.length, 0, '不得再发 init 把服务端会议开起来')
+  ws.message({ type: 'ready', meeting_id: 'zombie' })
+  assert.strictEqual(session.state().phase, 'closed', 'ready 不能把已关闭的会话复活')
+})

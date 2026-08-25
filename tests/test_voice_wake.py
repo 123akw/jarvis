@@ -48,6 +48,14 @@ def test_wake_words_env_override(monkeypatch):
     assert not server_mod.wake_matched("贾维斯")
 
 
+def test_wake_words_with_spaces_or_punctuation_still_match(monkeypatch):
+    """唤醒词与转写同一套归一化：配「hey jarvis」这类带空格/标点的词必须能命中。"""
+    monkeypatch.setenv("JARVIS_WAKE_WORDS", "hey jarvis, 小-助手")
+    assert server_mod.wake_matched("Hey, Jarvis!")
+    assert server_mod.wake_matched("小 助 手 在吗")
+    assert not server_mod.wake_matched("hey siri")
+
+
 def test_wake_endpoint_matches(monkeypatch):
     monkeypatch.setattr(server_mod, "create_wake_asr", _FakeWakeASR)
     _FakeWakeASR.text = "贾维斯。"

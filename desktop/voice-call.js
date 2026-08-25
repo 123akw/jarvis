@@ -43,6 +43,7 @@
       inputMode: 'none',     // none|stream|speech|typing
       heard: '', interim: '', reply: '', notice: '', tools: [],
       turnDone: true, serverAsr: true, alive: true, expired: false,
+      sawReady: false,
       reconnectsLeft: maxReconnects,
     }
     let ws = null
@@ -105,7 +106,9 @@
       if (ev.type === 'ready') {
         setPhase('listening')
         if (ev.scene) emit('scene', { id: ev.scene, name: ev.scene_name || '', opening: ev.opening || '' })
-        if (ev.opening) { state.reply = ev.opening; emit('reply', state.reply) }
+        // 开场白只在首次 ready 显示：断线自动重连的 ready 不能把正在看的回答冲掉
+        if (ev.opening && !state.sawReady) { state.reply = ev.opening; emit('reply', state.reply) }
+        state.sawReady = true
         startVoiceInput()
       } else if (ev.type === 'scene') {
         state.reply = ev.opening || ''

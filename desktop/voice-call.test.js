@@ -323,3 +323,21 @@ test('情绪：emotion 帧透传给界面回调', () => {
   ws.emit({ type: 'emotion', emotion: 'sad', label: '低落' })
   assert.deepStrictEqual(emotions, [{ emotion: 'sad', label: '低落' }])
 })
+
+test('断线重连的 ready 不得用开场白冲掉正在显示的回答', () => {
+  const replies = []
+  const { call, sockets } = harness({ on: { reply: r => replies.push(r), phase: () => {}, notice: () => {} } })
+  call.start()
+  const first = sockets[0]
+  first.open()
+  first.emit({ type: 'ready', scene: 'night', scene_name: '晚安电台', opening: '今天过得还好吗？' })
+  assert.strictEqual(replies.at(-1), '今天过得还好吗？', '首次 ready 显示开场白')
+  first.emit({ type: 'turn_start' })
+  first.emit({ type: 'token', text: '从前有座山……' })
+  assert.strictEqual(replies.at(-1), '从前有座山……')
+  first.drop()                      // 触发自动重连
+  const second = sockets[1]
+  second.open()
+  second.emit({ type: 'ready', scene: 'night', scene_name: '晚安电台', opening: '今天过得还好吗？' })
+  assert.strictEqual(replies.at(-1), '从前有座山……', '重连 ready 不能重播开场白')
+})

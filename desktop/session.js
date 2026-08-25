@@ -11,8 +11,6 @@ const OPERATIONS = {
   remindersPending: { method: 'GET', path: () => '/api/reminders/pending', validate: emptyBody },
   todoPatch: { method: 'PATCH', path: body => `/api/todos/${body.id}`, validate: todoPatchBody, requestBody: body => ({ done: body.done }) },
   desktopCommands: { method: 'GET', path: () => '/api/desktop/commands', validate: emptyBody },
-  desktopWindowGet: { method: 'GET', path: () => '/api/desktop/settings', validate: emptyBody },
-  meetingSettingsGet: { method: 'GET', path: () => '/api/meeting/settings', validate: emptyBody },
   voiceWakeCheck: { method: 'POST', path: () => '/api/voice/wake', validate: wakeCheckBody },
   voiceSettingsGet: { method: 'GET', path: () => '/api/voice/settings', validate: emptyBody },
   voiceSettingsPut: { method: 'PUT', path: () => '/api/voice/settings', validate: voiceSettingsBody },
