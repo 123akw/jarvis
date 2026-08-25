@@ -491,3 +491,41 @@
 2. 网页 ⚙ API → 桌面与会议：点「隐藏悬浮球」桌面球即消失，「显示悬浮球」回来；「彻底关闭桌面端」二次确认后应用退出。
 3. 开一场飞书会议 → 对贾维斯说「监控会议」（或点 🎙）→ 面板双路字幕滚动（我/对方）→ 说「停止监控会议」→ 1539598158@qq.com 收到纪要邮件（需 .env 配好 SMTP）；网页任务台出现该会议可回看。
 4. 若字幕只有「我」没有「对方」：按面板提示到 系统设置 → 隐私与安全性 → 屏幕录制 勾选本应用后重开会议监控。
+
+# 第五轮升级（2026-08-25）：场景模式 + 情绪感知 + 视觉识别 + 说话人分离 + 唤醒修正
+
+基线：pytest 542 / desktop 100 / vitest 82。交付后 **pytest 561 / desktop 102 / vitest 86**，README 新增 4 张实拍截图并重建前端产物。
+
+## 修正与调整
+- 语音唤醒「没生效」根因＝上一轮默认关闭：现改为**默认开启**（settings 缺省 wakeWordEnabled=true），设置页加运行状态行，VAD 阈值 0.04→0.025（唤醒场景人离麦更远）。真链路验证：MiniMax 合成「贾维斯」→ qwen3-asr-flash 识别逐字命中 → wake_matched=True。
+- 会议纪要默认收件邮箱 1539598158→**1539598168@qq.com**（代码默认值/两处 .env/文档/测试同步）；发信账号维持 163 邮箱。
+
+## 任务 1 ✅ 通话场景模式（对标豆包情景模式，网上调研后定稿 9 场景）
+- jarvis/voice/scenes.py：管家/故事时间/晚安电台/解忧树洞/面试陪练/辩论擂台/英语陪练/口语翻译/玄学茶话；全部 TTS 朗读向提示词（口语、无符号）。butler 提示词与原 VOICE_STYLE_PROMPT 逐字一致（回归锁）。
+- gateway：init 可带 scene、ready 帧回场景+开场白；{"type":"scene"} 通话中切换（下一回合生效）并存 tenant_prefs voice_scene；GET /api/voice/settings 回带 scenes 目录（不泄提示词正文）。
+- 网页/桌面通话面板：场景芯片行，点击切换、高亮回执、开场白直接显示在回答区。
+
+## 任务 2 ✅ 语气情绪感知（调研结论：qwen3-asr-flash 固定附带 7 类情绪，零额外配置）
+- jarvis/voice/emotion.py：wav → annotations[0].emotion（surprised/neutral/happy/sad/disgusted/angry/fearful），无 key/失败安静返空。
+- gateway：_AsrPipeline 攒本句音频尾部（≤15s），定稿后**异步旁路**送检（<0.4s 的丢弃不烧钱）；下行 {"type":"emotion"}，下一回合风格提示词追加「语气感知…自然照应…不要点破」；neutral 不注入。
+- 会议纪要 prompt 新增「## 气氛与情绪」小节（文本推断，零成本）。
+- UI：网页/桌面通话面板「😢 低落」徽标。
+
+## 任务 3 ✅ 图片 / 短视频识别（调研结论：qwen3-vl-flash 与音频同端点同构 base64）
+- jarvis/vision.py：describe_image（≤10MB，data URI）/describe_video（≤7MB 直传+fps=2，官方 base64 硬限）；截图文字逐字转录、无声提示；上游细节只留类名。
+- /api/upload 按扩展名分流 image/video/document（响应加 kind），Chat 📎 accept 扩展，图片/视频各自的注入消息模板；JARVIS_DASHSCOPE_VL_MODEL 可换模型。
+
+## 任务 4 ✅ 会议说话人分离（调研结论：实时全线不支持；离线可行）
+- jarvis/voice/diarize.py：三段式——getPolicy 领临时存储凭证 → OSS 表单上传（48h 有效，全程出站 HTTP 不需要公网地址）→ paraformer-v2 + diarization_enabled 异步任务轮询 → sentences[].speaker_id。<10s 音频不烧任务；任何失败 DiarizeError。
+- meeting_gateway 把「对方」声道 PCM 落盘 wav（懒打开、封顶 2 小时、data/meeting-audio/）；MeetingSession.relabel_others 按段落墙钟↔音频毫秒偏移对齐命中句子，≥2 人才把「对方」改写为 对方1/对方2；单人/失败保持原样。
+- _meeting_finalize：分离（尽力）→ 总结 → 入库 → 发邮件；音频用完即删；纪要 message 附「已自动区分 N 位对方说话人」。
+
+## 回归与截图
+- pytest 新增 19（vision 7 / scenes+emotion 7 / diarize 5 含 finalize 集成与降级）；desktop +2（场景回执/情绪透传）；vitest +4（场景芯片交互/情绪徽标/图片/视频消息模板）。
+- README：状态行更新至 08-25（四、五轮均已部署演示入口）；新增 4 张实拍图——web-meetings-card / web-desktop-meeting-settings（桌面探活为真实结果）/ web-voice-scenes / desktop-meeting（JWS_SHOT_VIEW=meeting 演示态，新支持 JWS_SHOT_USERDATA 隔离资料目录避免与常驻实例抢 Chromium 配置锁）。
+- 新端点/协议：ready/scene/emotion 帧；GET /api/voice/settings 扩展字段。零新增运行时依赖。
+
+## 部署提醒（管理者）
+- 无新依赖、无 schema 变更、无 nginx 变更；.env 可选新增 JARVIS_DASHSCOPE_VL_MODEL。
+- 说话人分离用百炼「临时存储」通道（官方标注勿用于重生产：48h 过期+限流；本项目内部使用频次没问题，重生产可换自有 OSS）。
+- 桌面端本机重启生效：唤醒默认开启（首次亮麦克风权限）；会议「对方1/对方2」需真机开会（≥2 位对方发言）验收。
