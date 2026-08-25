@@ -1859,3 +1859,64 @@ def voice_wake(request: Request, body: WakeCheckIn):
         # 未配置/识别失败不是致命错：桌面端跳过本段，首次给一条人话提示即可
         return {"ok": False, "matched": False, "text": "", "message": str(exc)}
     return {"ok": True, "matched": wake_matched(text), "text": text}
+
+
+@app.post("/api/meetings/{item_id}/todos")
+def meeting_import_todos(request: Request, item_id: int):
+    """把纪要「待办事项」里属于我的条目一键导入任务台（去重，别人的任务不导）。"""
+    principal, err = _panel_write(request)
+    if err:
+        return err
+    try:
+        with tenant_scope(principal.user_id):
+            item = _tenant_store().get_meeting(item_id)
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+    if not item:
+        return JSONResponse({"error": "没有这场会议"}, status_code=404)
+    todos = meeting.extract_todos(item["minutes"])
+    mine = [t for t in todos if not t["owner"] or "我" in t["owner"]]
+    imported = 0
+    with tenant_scope(principal.user_id):
+        store = _tenant_store()
+        existing = {x["content"] for x in store.list_todos()}
+        for t in mine:
+            content = t["content"] + (f"（{t['due']}）" if t["due"] else "")
+            if content in existing:
+                continue
+            store.add_todo(content)
+            existing.add(content)
+            imported += 1
+    return {"ok": True, "found": len(todos), "mine": len(mine), "imported": imported}
+
+
+class SpeakerRenameIn(BaseModel):
+    speaker: str
+    name: str
+
+
+@app.patch("/api/meetings/{item_id}/speaker")
+def meeting_rename_speaker(request: Request, item_id: int, body: SpeakerRenameIn):
+    """说话人改名（对标飞书妙记）：把「对方1」全局改成真名，转写与纪要一起改。"""
+    principal, err = _panel_write(request)
+    if err:
+        return err
+    import re as re_mod
+    speaker = body.speaker.strip()
+    name = " ".join(body.name.split())[:24]
+    if not re_mod.fullmatch(r"对方\d*", speaker) or not name or "对方" in name:
+        return JSONResponse({"error": "只能把「对方N」改成一个具体称呼"}, status_code=422)
+    try:
+        with tenant_scope(principal.user_id):
+            store = _tenant_store()
+            item = store.get_meeting(item_id)
+            if not item:
+                return JSONResponse({"error": "没有这场会议"}, status_code=404)
+            # (?!\d) 防止「对方1」误伤「对方10」；纪要里「对方1（张三）」的括号注记一并替换
+            pattern = re_mod.compile(re_mod.escape(speaker) + r"(?!\d)(（[^）]*）)?")
+            transcript = pattern.sub(name, item["transcript"])
+            minutes = pattern.sub(name, item["minutes"])
+            store.update_meeting_texts(item_id, transcript=transcript, minutes=minutes)
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+    return {"ok": True, "speaker": speaker, "name": name}

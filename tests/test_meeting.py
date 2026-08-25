@@ -428,3 +428,100 @@ def test_meeting_recipient_pref_overrides_default(monkeypatch):
         mail = ws.receive_json()
         assert mail["to"] == "boss@corp.cn"
     assert mail_calls[0]["to"] == "boss@corp.cn"
+
+
+# ---------- 纪要待办解析与一键导入 ----------
+
+SAMPLE_MINUTES = """# 会议纪要
+
+- 会议主题：改版评审
+
+## 讨论要点
+- 首屏用动效
+
+## 结论与决定
+- 方案 B 通过
+
+## 待办事项
+· 输出移动端首图三版备选 — 对方1（张三） — 周三
+· 组件库深色变量梳理 — 我 — 周四
+- 回归用例清单 – 对方2 – 周五
+· 无期限的小事 — 我
+· 无
+
+## 气氛与情绪
+- 务实
+"""
+
+
+def test_extract_todos_parses_owners_and_due():
+    todos = meeting_mod.extract_todos(SAMPLE_MINUTES)
+    assert [t["content"] for t in todos] == [
+        "输出移动端首图三版备选", "组件库深色变量梳理", "回归用例清单", "无期限的小事"]
+    assert todos[0]["owner"] == "对方1（张三）" and todos[0]["due"] == "周三"
+    assert todos[1]["owner"] == "我"
+    assert todos[3]["due"] == ""
+    assert meeting_mod.extract_todos("") == []
+    assert meeting_mod.extract_todos("# 会议纪要\n## 待办事项\n无") == []
+
+
+def test_meeting_import_todos_endpoint_only_mine_and_dedupes():
+    client = _client()
+    csrf, _token = _login(client)
+    from jarvis.accounts import AccountStore
+    from jarvis.tenancy import TenantStore, tenant_scope
+    owner = AccountStore().unique_active_owner()
+    with tenant_scope(owner.user_id):
+        store = TenantStore()
+        store.migrate_legacy()
+        record = store.add_meeting(title="评审", started_at="2026-08-25 10:00",
+                                   ended_at="2026-08-25 10:30",
+                                   transcript="[10:00:01] 我：开始", minutes=SAMPLE_MINUTES)
+    first = client.post(f"/api/meetings/{record['id']}/todos",
+                        headers={"X-JWS-CSRF": csrf}).json()
+    assert first == {"ok": True, "found": 4, "mine": 2, "imported": 2}, \
+        "只导属于我的（含期限拼接），别人的任务不导"
+    with tenant_scope(owner.user_id):
+        contents = [t["content"] for t in TenantStore().list_todos()]
+    assert "组件库深色变量梳理（周四）" in contents and "无期限的小事" in contents
+    assert all("首图" not in c for c in contents)
+    again = client.post(f"/api/meetings/{record['id']}/todos",
+                        headers={"X-JWS-CSRF": csrf}).json()
+    assert again["imported"] == 0, "重复导入必须去重"
+    assert client.post("/api/meetings/999/todos", headers={"X-JWS-CSRF": csrf}).status_code == 404
+    assert client.post(f"/api/meetings/{record['id']}/todos").status_code == 403, "写操作必须带 CSRF"
+
+
+def test_meeting_rename_speaker_endpoint():
+    """说话人改名：对方1→张三 全局替换，不误伤对方10，纪要括号注记一并替换。"""
+    client = _client()
+    csrf, _token = _login(client)
+    from jarvis.accounts import AccountStore
+    from jarvis.tenancy import TenantStore, tenant_scope
+    owner = AccountStore().unique_active_owner()
+    transcript = ("[10:00:01] 对方1：方案可以。\n[10:00:05] 对方10：预算再看。\n"
+                  "[10:00:09] 对方1：那就定了。")
+    minutes = "# 会议纪要\n- 参会人：我、对方1（张总）、对方10\n## 讨论要点\n- 对方1 拍板方案"
+    with tenant_scope(owner.user_id):
+        store = TenantStore()
+        store.migrate_legacy()
+        record = store.add_meeting(title="改名验证", started_at="2026-08-25 10:00",
+                                   ended_at="2026-08-25 10:30",
+                                   transcript=transcript, minutes=minutes)
+    response = client.patch(f"/api/meetings/{record['id']}/speaker",
+                            headers={"X-JWS-CSRF": csrf},
+                            json={"speaker": "对方1", "name": "张总"})
+    assert response.status_code == 200
+    detail = client.get(f"/api/meetings/{record['id']}").json()
+    assert "张总：方案可以。" in detail["transcript"]
+    assert "张总：那就定了。" in detail["transcript"]
+    assert "对方10：预算再看。" in detail["transcript"], "对方10 不得被误伤"
+    assert "张总（张总）" not in detail["minutes"], "纪要括号注记要一并吸收"
+    assert "我、张总、对方10" in detail["minutes"]
+    # 守卫：非法目标与非法来源
+    assert client.patch(f"/api/meetings/{record['id']}/speaker", headers={"X-JWS-CSRF": csrf},
+                        json={"speaker": "我", "name": "张三"}).status_code == 422
+    assert client.patch(f"/api/meetings/{record['id']}/speaker", headers={"X-JWS-CSRF": csrf},
+                        json={"speaker": "对方1", "name": "对方2"}).status_code == 422
+    assert client.patch("/api/meetings/999/speaker", headers={"X-JWS-CSRF": csrf},
+                        json={"speaker": "对方1", "name": "张三"}).status_code == 404

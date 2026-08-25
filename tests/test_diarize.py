@@ -176,3 +176,23 @@ def test_finalize_survives_diarize_failure(monkeypatch):
     with tenant_scope(owner.user_id):
         detail = TenantStore().get_meeting(result["meeting_id"])
     assert "对方：方案没问题。" in detail["transcript"], "降级后保持不分说话人的原样转写"
+
+
+def test_relabel_supports_three_or_more_speakers():
+    """三方及以上会议：speaker_id 0/1/2 → 对方1/对方2/对方3。"""
+    clock = {"now": datetime.datetime(2026, 8, 25, 10, 0, 0)}
+    session = meeting_mod.MeetingSession("u1", "三方会", now_fn=lambda: clock["now"])
+    session.record_others(b"\x00\x00" * 800)
+    for seconds, text in ((2, "甲的发言。"), (6, "乙的发言。"), (10, "丙的发言。")):
+        clock["now"] = datetime.datetime(2026, 8, 25, 10, 0, seconds)
+        session.add_segment(meeting_mod.SPEAKER_OTHERS, text)
+    sentences = [
+        {"start_ms": 0, "end_ms": 3000, "speaker": 0, "text": "甲的发言。"},
+        {"start_ms": 4000, "end_ms": 7000, "speaker": 1, "text": "乙的发言。"},
+        {"start_ms": 8000, "end_ms": 11000, "speaker": 2, "text": "丙的发言。"},
+    ]
+    assert session.relabel_others(sentences) == 3
+    transcript = session.transcript_text()
+    assert "对方1：甲的发言。" in transcript
+    assert "对方2：乙的发言。" in transcript
+    assert "对方3：丙的发言。" in transcript

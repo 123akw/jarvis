@@ -34,7 +34,7 @@ const SUGGESTIONS = ['给我今日晨报', '我在做什么任务？', '今天�
 
 let nextId = 1
 
-export default function Chat({ threadId, location, onBusy, onTurnDone, onExpired }) {
+export default function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = null }) {
   const [msgs, setMsgs] = useState([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -62,6 +62,10 @@ export default function Chat({ threadId, location, onBusy, onTurnDone, onExpired
 
   useEffect(() => { logRef.current.scrollTop = logRef.current.scrollHeight }, [msgs])
   useEffect(() => { onBusy?.(busy); if (!busy) boxRef.current?.focus() }, [busy])
+
+  useEffect(() => {  // 外部注入的消息（会议纪要「追问」）：整条自动发出，后续可连续追问
+    if (injected?.text) void send(injected.text)
+  }, [injected?.seq])
 
   function patchLast(fn) {
     setMsgs(ms => {

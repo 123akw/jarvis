@@ -25,20 +25,55 @@ MAX_COMMANDS = 10               # 领取箱上限：桌面长期离线时旧指�
 
 MEETING_PROMPT = (
     "你是会议记录员。下面是一场会议的实时语音转写：「我」是主人自己的发言，「对方」是"
-    "会议里其他人的发言（若标注为「对方1」「对方2」，那是声纹分离出的不同说话人，"
-    "请分别对待）；语音识别可能有错字，请按上下文理解。只依据转写内容整理一份"
-    "简洁的中文会议纪要，用 Markdown 输出，不要调用任何工具，不要添加转写里没有的信息，"
-    "按下面结构写：\n"
+    "会议里其他人的发言（若标注为「对方1」「对方2」「对方3」…，那是声纹分离出的不同"
+    "说话人，请分别对待）；语音识别可能有错字，请按上下文理解。\n"
+    "说话人身份：若转写内容能明确推断某位说话人的称呼或姓名（例如有人喊「张总你看呢」"
+    "而下一句是对方2 回应，或说话人自报家门），在纪要中用「对方2（张总）」的形式标注；"
+    "推断不出就保持编号，绝不允许猜测或编造身份。\n"
+    "只依据转写内容整理一份简洁的中文会议纪要，用 Markdown 输出，不要调用任何工具，"
+    "不要添加转写里没有的信息，按下面结构写：\n"
     "# 会议纪要\n"
     "- 会议主题：（一句话概括）\n"
     "- 时间：{date}\n"
-    "## 讨论要点\n（3-8 条，每条一句话）\n"
+    "- 参会人：（我 + 各位对方，能推断出称呼的带上）\n"
+    "## 讨论要点\n（3-8 条，每条一句话，多方观点分别归属）\n"
     "## 结论与决定\n（没有就写「无明确结论」）\n"
     "## 待办事项\n（每条「事项 — 负责人 — 期限」，信息缺失的部分留空；没有就写「无」）\n"
     "## 气氛与情绪\n（一两句话：会议节奏与各方情绪状态，如「讨论热烈，双方对技术路线有分歧但氛围务实」；"
     "只依据转写措辞判断，不要过度解读）\n\n"
     "转写开始：\n{transcript}"
 )
+
+
+def extract_todos(minutes: str) -> list[dict]:
+    """从纪要「## 待办事项」小节解析条目：[{content, owner, due}]。
+
+    行格式「· 事项 — 负责人 — 期限」（连接符兼容 — / - / –），解析不出的行跳过；
+    「无」不算条目。给任务台一键导入用。"""
+    lines = []
+    in_section = False
+    for raw in str(minutes or "").splitlines():
+        line = raw.strip()
+        if line.startswith("##"):
+            in_section = "待办" in line
+            continue
+        if not in_section or not line:
+            continue
+        cleaned = line.lstrip("·-•* ").strip()
+        if not cleaned or cleaned in ("无", "暂无"):
+            continue
+        parts = [p.strip() for p in cleaned.replace("—", "|").replace("–", "|").split("|")]
+        if len(parts) == 1 and " - " in cleaned:
+            parts = [p.strip() for p in cleaned.split(" - ")]
+        content = parts[0]
+        if not content:
+            continue
+        lines.append({
+            "content": content[:200],
+            "owner": parts[1] if len(parts) > 1 else "",
+            "due": parts[2] if len(parts) > 2 else "",
+        })
+    return lines
 
 
 LIVE_POINTS_PROMPT = (

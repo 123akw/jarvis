@@ -348,6 +348,15 @@ class TenantStore:
             row = c.execute("SELECT id,title,started_at,ended_at,transcript,minutes,mailed_to FROM tenant_meetings WHERE owner_id=? AND id=?", (owner, item_id)).fetchone()
         return dict(row) if row else None
 
+    def update_meeting_texts(self, item_id: int, *, transcript: str, minutes: str,
+                             owner_id: str | None = None) -> bool:
+        """说话人改名等会后编辑：整体回写转写与纪要文本。"""
+        owner = self._owner(owner_id)
+        with self._connect() as c:
+            return bool(c.execute(
+                "UPDATE tenant_meetings SET transcript=?, minutes=? WHERE owner_id=? AND id=?",
+                (transcript, minutes, owner, item_id)).rowcount)
+
     def mark_meeting_mailed(self, item_id: int, mailed_to: str, *, owner_id: str | None = None) -> bool:
         owner = self._owner(owner_id)
         with self._connect() as c:

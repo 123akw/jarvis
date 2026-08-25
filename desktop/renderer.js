@@ -469,6 +469,14 @@ const MEETING_PHASE_LABEL = {
 let activeMeeting = null
 let meetingMic = null
 let meetingSys = null
+let meetingSysVoiceAt = 0     // 系统声道最近一次有声的时刻（兼容性自检）
+let meetingSilenceTimer = null
+let meetingSilenceWarned = false
+
+function setVu(id, rms) {
+  const el = $(id)
+  if (el) el.style.setProperty('--vu', `${Math.min(100, Math.round(rms * 900))}%`)
+}
 
 function meetingNotice(text) {
   if (!text) return
@@ -483,6 +491,8 @@ function meetingNotice(text) {
 function stopMeetingCapture() {
   if (meetingMic) { try { meetingMic.stop() } catch { /* 已停 */ } meetingMic = null }
   if (meetingSys) { try { meetingSys.stop() } catch { /* 已停 */ } meetingSys = null }
+  if (meetingSilenceTimer) { clearInterval(meetingSilenceTimer); meetingSilenceTimer = null }
+  setVu('#m-vu-me', 0); setVu('#m-vu-sys', 0)
 }
 
 function renderMeetingPhase(p) {
@@ -540,7 +550,7 @@ async function startMeeting(title = '') {
 async function startMeetingInner(title) {
   stopWakeWord()   // 会议期间唤醒采集整个停掉，结束后恢复
   document.body.classList.add('show-meeting', 'on-meeting')
-  $('#m-captions').innerHTML = '<div class="m-empty">连接后开始实时转写：你的发言标「我」，会议里其他人标「对方」。</div>'
+  $('#m-captions').innerHTML = '<div class="m-empty">连接后开始实时转写：你的发言标「我」，对方标「对方」（飞书/腾讯会议/Zoom/微信语音通话等任何出声软件都能录）。</div>'
   const minutesEl = $('#m-minutes')
   minutesEl.style.display = 'none'; minutesEl.innerHTML = ''
   const noticeEl = $('#m-notice')
@@ -587,6 +597,7 @@ async function startMeetingInner(title) {
   // 迟到的音频流若不当场停掉，麦克风/录屏指示灯会永远亮着喂一个死会话。
   try {
     const mic = await window.JWSVoiceAudio.startMicStream({
+      onLevel: rms => setVu('#m-vu-me', rms),
       onFrame: buf => { if (activeMeeting) activeMeeting.feedMic(buf) },
     })
     if (meetingRunning()) meetingMic = mic
@@ -595,10 +606,21 @@ async function startMeetingInner(title) {
   if (!meetingRunning()) return
   try {
     const sys = await window.JWSVoiceAudio.startSystemAudioStream({
+      onLevel: rms => { setVu('#m-vu-sys', rms); if (rms > 0.01) meetingSysVoiceAt = Date.now() },
       onFrame: buf => { if (activeMeeting) activeMeeting.feedSystem(buf) },
     })
-    if (meetingRunning()) meetingSys = sys
-    else { try { sys.stop() } catch { /* 已停 */ } }
+    if (meetingRunning()) {
+      meetingSys = sys
+      // 兼容性自检：系统声道 30 秒完全无声给一次性提示（软件没出声/权限没给全）
+      meetingSysVoiceAt = Date.now()
+      meetingSilenceWarned = false
+      meetingSilenceTimer = setInterval(() => {
+        if (!meetingSilenceWarned && Date.now() - meetingSysVoiceAt > 30_000) {
+          meetingSilenceWarned = true
+          meetingNotice('系统声道 30 秒没有捕捉到声音：确认会议软件正在出声、系统设置里已授予「屏幕录制」权限；戴耳机不影响捕获。')
+        }
+      }, 10_000)
+    } else { try { sys.stop() } catch { /* 已停 */ } }
   } catch { meetingNotice(window.JWSMeeting.MESSAGES.noSystemAudio) }
 }
 

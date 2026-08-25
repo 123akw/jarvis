@@ -21,7 +21,7 @@ class MeetingStopArgs(BaseModel):
 
 @tool(args_schema=MeetingStartArgs)
 def meeting_start(title: str = "") -> str:
-    """开始监控当前会议并生成会议纪要（飞书等会议的双方声音由桌面端采集）。领导说「监控会议」「帮我记会议纪要」「开始记录会议」时使用。"""
+    """开始监控当前会议并生成会议纪要（飞书/腾讯会议/Zoom/微信语音通话等任何出声软件的双方声音都由桌面端采集）。领导说「监控会议」「帮我记会议纪要」「开始记录会议」时使用。"""
     owner = current_owner_id()
     if meeting.active_meetings.get(owner) is not None:
         return "已经有一场会议在监控中了，无需重复开始；结束时说「停止监控会议」即可。"

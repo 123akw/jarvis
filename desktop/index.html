@@ -279,6 +279,10 @@ body.show-meeting #meeting{display:flex}
 #meeting.summarizing #m-dot{background:var(--gold);box-shadow:0 0 10px rgba(240,180,90,.7);
   animation:vpulse .9s ease-in-out infinite}
 #meeting.done #m-dot{background:#7CF5B2}
+#m-vu{display:flex;gap:3px;align-items:flex-end;height:14px;margin-left:6px}
+#m-vu i{width:5px;height:14px;background:rgba(83,232,255,.15);border-radius:1px;position:relative;overflow:hidden}
+#m-vu i::after{content:'';position:absolute;left:0;right:0;bottom:0;height:var(--vu,0%);background:#53E8FF;transition:height .12s}
+#m-vu-sys::after{background:var(--gold)}
 #m-count{font-family:var(--mono);font-size:11px;color:var(--dim);margin-left:auto}
 #m-live{border:1px solid rgba(240,180,90,.4);background:rgba(240,180,90,.06);padding:8px 11px}
 .m-live-title{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;color:var(--gold);margin-bottom:5px}
@@ -455,13 +459,14 @@ body.show-settings #settings{display:flex}
         <div id="m-status">
           <span id="m-dot"></span>
           <span id="m-phase">连接中…</span>
+          <span id="m-vu" title="声道电平：麦克风(我) / 系统声(对方)"><i id="m-vu-me"></i><i id="m-vu-sys"></i></span>
           <span id="m-count"></span>
         </div>
         <div id="m-live" style="display:none">
           <div class="m-live-title">⚡ 实时要点</div>
           <div id="m-live-body"></div>
         </div>
-        <div id="m-captions"><div class="m-empty">连接后开始实时转写：你的发言标「我」，会议里其他人标「对方」。</div></div>
+        <div id="m-captions"><div class="m-empty">连接后开始实时转写：你的发言标「我」，对方标「对方」（飞书/腾讯会议/Zoom/微信语音通话等任何出声软件都能录）。</div></div>
         <div id="m-notice" role="alert" style="display:none"></div>
         <div id="m-minutes" style="display:none"></div>
         <div id="m-actions">

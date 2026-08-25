@@ -175,6 +175,12 @@ export async function getMeeting(id) {
 export async function emailMeeting(id) {
   return parse(await fetch(`/api/meetings/${id}/email`, { method: 'POST', headers: csrfHeaders() }))
 }
+export async function importMeetingTodos(id) {
+  return parse(await fetch(`/api/meetings/${id}/todos`, { method: 'POST', headers: csrfHeaders() }))
+}
+export async function renameMeetingSpeaker(id, speaker, name) {
+  return parse(await fetch(`/api/meetings/${id}/speaker`, { method: 'PATCH', headers: jsonHeaders(), body: JSON.stringify({ speaker, name }) }))
+}
 export async function getMeetingSettings() {
   return parse(await fetch('/api/meeting/settings'))
 }

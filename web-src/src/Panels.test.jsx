@@ -6,6 +6,7 @@ vi.mock('./api.js', () => ({
   getMeetings: vi.fn(),
   getMeeting: vi.fn(),
   emailMeeting: vi.fn(),
+  importMeetingTodos: vi.fn(),
   addTodo: vi.fn(),
   patchTodo: vi.fn(),
   deleteTodo: vi.fn(),
@@ -15,7 +16,7 @@ vi.mock('./api.js', () => ({
   deleteSchedule: vi.fn(),
 }))
 
-import { addTodo, deleteMemo, emailMeeting, getDashboard, getMeeting, getMeetings, patchTodo } from './api.js'
+import { addTodo, deleteMemo, emailMeeting, getDashboard, getMeeting, getMeetings, importMeetingTodos, patchTodo } from './api.js'
 import Panels from './Panels.jsx'
 
 const DASH = {
@@ -102,5 +103,41 @@ describe('会议纪要卡片', () => {
     getMeetings.mockResolvedValue({ items: [], active: true })
     render(<Panels refreshKey={0} />)
     expect((await screen.findByText('● 监控中')).textContent).toBeTruthy()
+  })
+})
+
+describe('会议纪要：导入待办与追问', () => {
+  const MEETINGS = {
+    active: false,
+    items: [{ id: 2, title: '产品周会', started_at: '2026-08-25 10:00', ended_at: '2026-08-25 10:45', mailed_to: '', has_minutes: true }],
+  }
+  const DETAIL = { id: 2, title: '产品周会', started_at: '2026-08-25 10:00', minutes: '# 会议纪要\n## 待办事项\n· 梳理变量 — 我 — 周四', transcript: '[10:00:01] 我：开始吧' }
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getDashboard.mockResolvedValue(DASH)
+    getMeetings.mockResolvedValue(MEETINGS)
+    getMeeting.mockResolvedValue(DETAIL)
+    importMeetingTodos.mockResolvedValue({ ok: true, found: 1, mine: 1, imported: 1 })
+  })
+  afterEach(cleanup)
+
+  it('导入待办：调接口并刷新任务台', async () => {
+    render(<Panels refreshKey={0} />)
+    fireEvent.click(await screen.findByTitle('查看纪要'))
+    fireEvent.click(await screen.findByRole('button', { name: /导入待办/ }))
+    await waitFor(() => expect(importMeetingTodos).toHaveBeenCalledWith(2))
+    expect((await screen.findByRole('status')).textContent).toContain('1 条')
+    expect(getDashboard.mock.calls.length).toBeGreaterThan(1)
+  })
+
+  it('追问：把纪要+转写整包交给对话', async () => {
+    const asked = []
+    render(<Panels refreshKey={0} onAskMeeting={t => asked.push(t)} />)
+    fireEvent.click(await screen.findByTitle('查看纪要'))
+    fireEvent.click(await screen.findByRole('button', { name: /就这场会议追问/ }))
+    expect(asked).toHaveLength(1)
+    expect(asked[0]).toContain('产品周会')
+    expect(asked[0]).toContain('梳理变量')
+    expect(asked[0]).toContain('原始转写')
   })
 })

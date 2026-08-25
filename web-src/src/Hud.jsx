@@ -30,6 +30,7 @@ export default function Hud({ session, onLogout }) {
   const [leftOpen, setLeftOpen] = useState(() => !isNarrow())
   const [rightOpen, setRightOpen] = useState(() => !isNarrow())
   const [wxOpen, setWxOpen] = useState(false)
+  const [injected, setInjected] = useState(null)   // 会议纪要「追问」注入对话的消息
   const [accountOpen, setAccountOpen] = useState(false)
   const [providerOpen, setProviderOpen] = useState(false)
   const [memoryOpen, setMemoryOpen] = useState(false)
@@ -101,10 +102,11 @@ export default function Hud({ session, onLogout }) {
             </div>
           </div>
         </section>
-        <Chat threadId={thread} location={geo} onBusy={setBusy}
+        <Chat threadId={thread} location={geo} onBusy={setBusy} injected={injected}
           onTurnDone={() => setRefreshKey(k => k + 1)} onExpired={onLogout} />
         <section className={`right${rightOpen ? ' open' : ''}`}>
-          <Panels refreshKey={refreshKey} onData={setDash} onExpired={onLogout} />
+          <Panels refreshKey={refreshKey} onData={setDash} onExpired={onLogout}
+            onAskMeeting={text => setInjected({ seq: Date.now(), text })} />
         </section>
         {(leftOpen || rightOpen) && (
           <div className="drawer-backdrop"
