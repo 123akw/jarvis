@@ -31,7 +31,7 @@ from jarvis.provider_settings import (
 )
 from jarvis.tenancy import TenantMigrationError, TenantStore, tenant_scope
 from jarvis.tools import TOOLS
-from jarvis.tools.location import get_location, locate_by_ip, set_location
+from jarvis.tools.location import get_location, refresh_location
 from jarvis.voice.gateway import register_voice
 from jarvis.voice.meeting_gateway import register_meeting
 from jarvis.wechat_voice import DashScopeASR, VoiceError
@@ -110,25 +110,36 @@ def _stream_from_agent_thread(sync_gen_factory):
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue = asyncio.Queue()
         finished = object()
+        abandoned = threading.Event()  # 客户端断开（点停止/关页/刷新）后置位
 
         def pump():
+            gen = None
             try:
-                for item in sync_gen_factory():
+                gen = sync_gen_factory()
+                for item in gen:
+                    if abandoned.is_set():
+                        break  # 没人听了：停掉 agent，别再烧模型/工具并占着线程池名额
                     loop.call_soon_threadsafe(queue.put_nowait, item)
             except Exception as exc:  # 生成器自身已兜底，这里只防线程静默死亡
                 log.exception("agent stream pump crashed: %s", type(exc).__name__)
             finally:
+                close = getattr(gen, "close", None)
+                if callable(close):
+                    close()  # GeneratorExit 沿 agent.stream 传下去，LangGraph 照常落盘已完成的步骤
                 try:
                     loop.call_soon_threadsafe(queue.put_nowait, finished)
                 except RuntimeError:
                     pass  # 事件循环已关闭（连接断开/停机），无人再消费
 
         _agent_pool.submit(pump)
-        while True:
-            item = await queue.get()
-            if item is finished:
-                return
-            yield item
+        try:
+            while True:
+                item = await queue.get()
+                if item is finished:
+                    return
+                yield item
+        finally:
+            abandoned.set()
 
     return event_stream()
 
@@ -1126,15 +1137,13 @@ class ChatIn(BaseModel):
 
 
 def _update_location(request: Request, body: "ChatIn") -> None:
+    """浏览器坐标优先；没有任何定位时用 IP 兜底。需联网的查询在后台做，不挡首 token。"""
     loc = body.location or {}
     if isinstance(loc.get("lat"), (int, float)) and isinstance(loc.get("lon"), (int, float)):
-        set_location(loc["lat"], loc["lon"], source="浏览器")
+        refresh_location(loc["lat"], loc["lon"])
         return
-    if get_location() is None:  # 没有任何定位时才用 IP 兜底
-        ip = request.headers.get("x-real-ip") or (request.client.host if request.client else "")
-        hit = locate_by_ip(ip)
-        if hit:
-            set_location(hit["lat"], hit["lon"], source="IP")
+    ip = request.headers.get("x-real-ip") or (request.client.host if request.client else "")
+    refresh_location(ip=ip)
 
 
 def _chunk_text(content) -> str:

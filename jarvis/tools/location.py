@@ -1,9 +1,11 @@
 """定位：网页端上报浏览器坐标（优先）或服务端按 IP 兜底，落盘 data/location.json。"""
 import datetime
+import threading
+import time
 
 from langchain_core.tools import tool
 
-from jarvis.tenancy import TenantStore
+from jarvis.tenancy import TenantStore, current_owner_id, tenant_scope
 from jarvis.tools.weather import _get_json
 
 _REVERSE = "https://api.bigdatacloud.net/data/reverse-geocode-client"
@@ -37,9 +39,13 @@ def set_location(lat: float, lon: float, source: str) -> None:
                                updated_at=datetime.datetime.now().isoformat(timespec="seconds"))
 
 
+def _private_ip(ip: str) -> bool:
+    return not ip or ip.startswith(("127.", "10.", "192.168.", "172."))
+
+
 def locate_by_ip(ip: str) -> dict | None:
     """公网 IP 定位兜底（先 ip-api 后美团，双源互备），城市级精度；内网/失败返回 None。"""
-    if not ip or ip.startswith(("127.", "10.", "192.168.", "172.")):
+    if _private_ip(ip):
         return None
     try:
         d = _get_json(_IPAPI.format(ip=ip),
@@ -57,6 +63,74 @@ def locate_by_ip(ip: str) -> dict | None:
     except Exception:
         pass
     return None
+
+
+# ---- 聊天请求路径上的定位刷新：网络查询一律后台做，不挡首 token ----
+# 此前 /api/chat 在返回流之前同步做 IP 定位（ip-api 4s + 美团 4s 超时）或地名反查
+# （10s 超时）：实测本机网络下分别耗时 4.2s（且未命中——之后每次聊天都重来一遍）
+# 与 3.2s，整段挡在首个字节之前。
+IP_MISS_TTL_SECONDS = 600.0   # IP 定位失败后 10 分钟内不再重试同一 IP
+_refresh_lock = threading.Lock()
+_refresh_inflight: set[str] = set()
+_ip_misses: dict[str, float] = {}
+
+
+def _moved(old: dict | None, lat: float, lon: float) -> bool:
+    return not old or abs(old["lat"] - lat) > 0.01 or abs(old["lon"] - lon) > 0.01
+
+
+def _refresh_worker(owner_id: str, lat, lon, ip: str) -> None:
+    try:
+        with tenant_scope(owner_id):
+            if lat is not None:
+                set_location(lat, lon, source="浏览器")
+                return
+            if get_location() is not None:
+                return
+            hit = locate_by_ip(ip)
+            if hit:
+                set_location(hit["lat"], hit["lon"], source="IP")
+            else:
+                with _refresh_lock:
+                    if len(_ip_misses) >= 256:   # 有界：只留未过期的失败记录
+                        cutoff = time.monotonic() - IP_MISS_TTL_SECONDS
+                        for stale in [k for k, v in _ip_misses.items() if v < cutoff]:
+                            del _ip_misses[stale]
+                    _ip_misses[ip] = time.monotonic()
+    except Exception:
+        pass  # 定位只是锦上添花，失败安静放弃
+    finally:
+        with _refresh_lock:
+            _refresh_inflight.discard(owner_id)
+
+
+def refresh_location(lat=None, lon=None, ip: str = "") -> threading.Thread | None:
+    """按请求刷新当前租户定位：无需联网的部分就地完成，需联网的丢后台线程。
+
+    返回后台线程（测试可 join），无需后台工作时返回 None。须在 tenant_scope 内调用。
+    """
+    owner_id = current_owner_id()
+    if lat is not None and lon is not None:
+        old = get_location()
+        if not _moved(old, lat, lon):
+            set_location(lat, lon, source="浏览器")   # 没挪窝：沿用旧地名，不联网
+            return None
+    else:
+        lat = lon = None
+        if _private_ip(ip) or get_location() is not None:
+            return None
+        with _refresh_lock:
+            missed = _ip_misses.get(ip)
+            if missed is not None and time.monotonic() - missed < IP_MISS_TTL_SECONDS:
+                return None
+    with _refresh_lock:
+        if owner_id in _refresh_inflight:
+            return None   # 同一用户已有一单在查，别叠加
+        _refresh_inflight.add(owner_id)
+    worker = threading.Thread(target=_refresh_worker, args=(owner_id, lat, lon, ip),
+                              daemon=True, name="jarvis-locate")
+    worker.start()
+    return worker
 
 
 @tool
