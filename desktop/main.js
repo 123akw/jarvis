@@ -1,8 +1,13 @@
 const { app, BrowserWindow, clipboard, desktopCapturer, globalShortcut, ipcMain, Menu, nativeImage, Notification, screen, safeStorage, shell, systemPreferences, Tray } = require('electron')
-const { execSync } = require('child_process')
+const { execFile, execSync } = require('child_process')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
+const { promisify } = require('util')
+
+/* 主进程里一律不用同步子进程/大文件读：主进程一卡，流式 token 的 IPC、悬浮球拖动、
+ * 快捷键全都跟着卡（旧版编程进度采集 execSync 跑 git，实测每次阻塞 100~170ms）。 */
+const execFileP = promisify(execFile)
 const { pathToFileURL } = require('url')
 const { createSessionGateway, replaceSessionGateway } = require('./session.js')
 const { createApiHandlers } = require('./ipc-api.js')
@@ -130,8 +135,9 @@ async function triggerQuickAsk() {
   const accessibility = hasAccessibility()
   if (accessibility && process.platform === 'darwin') {
     try {
-      // 模拟 ⌘C 把当前选中文字送进剪贴板；System Events 正需要辅助功能权限
-      execSync(`osascript -e 'tell application "System Events" to keystroke "c" using command down'`,
+      // 模拟 ⌘C 把当前选中文字送进剪贴板；System Events 正需要辅助功能权限。
+      // 异步执行：osascript 冷启动要几百毫秒，同步跑会把主进程整个冻住
+      await execFileP('osascript', ['-e', 'tell application "System Events" to keystroke "c" using command down'],
         { timeout: 2000 })
       await new Promise(resolve => setTimeout(resolve, 180))
       captured = clipboard.readText() || ''
@@ -234,27 +240,36 @@ function createWindow() {
 /* ---------- Claude Code 编程进度采集（读 ~/.claude/projects 会话记录） ---------- */
 const CLAUDE_PROJECTS = path.join(os.homedir(), '.claude', 'projects')
 
-function gitInfo(cwd) {
+async function gitInfo(cwd) {
   if (!cwd) return {}
-  const opt = { cwd, timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }
+  const opt = { cwd, timeout: 3000, maxBuffer: 8 * 1024 * 1024 }
+  const git = args => execFileP('git', args, opt).then(r => String(r.stdout))
   try {
-    const branch = execSync('git rev-parse --abbrev-ref HEAD', opt).toString().trim()
-    const dirty = execSync('git status --porcelain', opt).toString().split('\n').filter(Boolean).length
-    const log = execSync('git log --since=midnight --pretty=%s', opt).toString().split('\n').filter(Boolean)
-    return { branch, dirty, commits_today: log.length, last_commit: (log[0] || '').slice(0, 50) }
+    const [branch, status, log] = await Promise.all([
+      git(['rev-parse', '--abbrev-ref', 'HEAD']),
+      git(['status', '--porcelain']),
+      git(['log', '--since=midnight', '--pretty=%s']),
+    ])
+    const commits = log.split('\n').filter(Boolean)
+    return { branch: branch.trim(), dirty: status.split('\n').filter(Boolean).length,
+      commits_today: commits.length, last_commit: (commits[0] || '').slice(0, 50) }
   } catch { return {} }
 }
 
-function extractDetail(file) {
+async function readTail(file, size, limit) {
+  const len = Math.min(size, limit)
+  const fh = await fs.promises.open(file, 'r')
+  try {
+    const buf = Buffer.alloc(len)
+    await fh.read(buf, 0, len, size - len)
+    return buf.toString('utf-8')
+  } finally { await fh.close() }
+}
+
+async function extractDetail(file, size) {
   const detail = { task: '', step: '', files: [], cwd: '' }
   try {
-    const sz = fs.statSync(file).size
-    const len = Math.min(sz, 262144)
-    const buf = Buffer.alloc(len)
-    const fd = fs.openSync(file, 'r')
-    fs.readSync(fd, buf, 0, len, sz - len)
-    fs.closeSync(fd)
-    const text = buf.toString('utf-8')
+    const text = await readTail(file, size, 262144)
     const cwdHit = text.match(/"cwd":"([^"]+)"/)
     if (cwdHit) detail.cwd = cwdHit[1]
     for (const line of text.split('\n').reverse()) {
@@ -298,34 +313,47 @@ function extractDetail(file) {
   return detail
 }
 
-function collectCoding() {
-  const out = []
-  let dirs = []
-  try { dirs = fs.readdirSync(CLAUDE_PROJECTS) } catch { return out }
-  for (const d of dirs) {
-    const dir = path.join(CLAUDE_PROJECTS, d)
-    let newest = null
+async function newestSession(dir) {
+  let newest = null
+  const names = (await fs.promises.readdir(dir)).filter(f => f.endsWith('.jsonl'))
+  await Promise.all(names.map(async f => {
     try {
-      for (const f of fs.readdirSync(dir)) {
-        if (!f.endsWith('.jsonl')) continue
-        const st = fs.statSync(path.join(dir, f))
-        if (!newest || st.mtimeMs > newest.m) newest = { f: path.join(dir, f), m: st.mtimeMs }
-      }
-    } catch { continue }
-    if (!newest || Date.now() - newest.m > 48 * 3600000) continue
-    const { cwd, ...detail } = extractDetail(newest.f)
-    out.push({
-      project: d.replace(/^-Users-[^-]+-/, '') || d,
-      active: Date.now() - newest.m < 10 * 60000,
-      last_active: new Date(newest.m).toLocaleString('zh-CN',
-        { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }),
-      ...detail,
-      ...gitInfo(cwd),
-      _m: newest.m,
-    })
+      const st = await fs.promises.stat(path.join(dir, f))
+      if (!newest || st.mtimeMs > newest.m) newest = { f: path.join(dir, f), m: st.mtimeMs, size: st.size }
+    } catch { /* 文件刚被删 */ }
+  }))
+  return newest
+}
+
+async function collectProject(d) {
+  let newest = null
+  try { newest = await newestSession(path.join(CLAUDE_PROJECTS, d)) } catch { return null }
+  if (!newest || Date.now() - newest.m > 48 * 3600000) return null
+  const { cwd, ...detail } = await extractDetail(newest.f, newest.size)
+  return {
+    project: d.replace(/^-Users-[^-]+-/, '') || d,
+    active: Date.now() - newest.m < 10 * 60000,
+    last_active: new Date(newest.m).toLocaleString('zh-CN',
+      { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }),
+    ...detail,
+    ...(await gitInfo(cwd)),
+    _m: newest.m,
   }
-  out.sort((a, b) => b._m - a._m)
-  return out.slice(0, 5).map(({ _m, ...rest }) => rest)
+}
+
+/** 全异步采集（各项目并行）；并发调用复用同一次采集，避免定时器与看板同时触发跑两遍 */
+let codingInFlight = null
+function collectCoding() {
+  if (!codingInFlight) {
+    codingInFlight = (async () => {
+      let dirs = []
+      try { dirs = await fs.promises.readdir(CLAUDE_PROJECTS) } catch { return [] }
+      const out = (await Promise.all(dirs.map(collectProject))).filter(Boolean)
+      out.sort((a, b) => b._m - a._m)
+      return out.slice(0, 5).map(({ _m, ...rest }) => rest)
+    })().finally(() => { codingInFlight = null })
+  }
+  return codingInFlight
 }
 
 /* ---------- 悬浮球 JS 拖动（整球可拖，松手未移动视为点击） ---------- */
@@ -423,7 +451,10 @@ ipcMain.handle('set-settings', (event, suppliedPatch) => {
       createGateway: gatewayFor, persistSettings: saveSettings })
   } else saveSettings(s)
   const { hotkeyOk, quickAskOk } = applyHotkeys(s)
-  try { setAutoLaunch(s.openAtLogin) } catch {}
+  // 开机自启只在开关真的变了才动 LaunchAgent（launchctl 同步执行会阻塞主进程，旧版每次保存都跑）
+  if (Boolean(s.openAtLogin) !== Boolean(previous.openAtLogin)) {
+    try { setAutoLaunch(s.openAtLogin) } catch {}
+  }
   if (!expanded && win) {  // 收起态下即时按新尺寸重排（右缘钉住）
     const b = win.getBounds()
     const bw = ballWin(s.ballSize)

@@ -40,11 +40,13 @@ input{font-family:inherit}
 .eyebrow small{font-family:var(--mono);color:var(--dim);letter-spacing:.05em}
 
 /* ---------- 氛围层 ---------- */
-.sweep{position:fixed;inset:0;pointer-events:none;z-index:5;
+/* 扫描光带：只动 transform（合成器线程完成，零重绘）。旧版动画 background-position，
+ * 导致整屏图层每帧在主线程重绘，和流式渲染抢主线程 */
+.sweep{position:fixed;left:0;right:0;top:0;height:260px;pointer-events:none;z-index:5;
   background:linear-gradient(180deg,transparent 0%,rgba(83,232,255,.045) 48%,rgba(83,232,255,.09) 50%,rgba(83,232,255,.045) 52%,transparent 100%);
-  background-size:100% 260px;background-repeat:no-repeat;
+  will-change:transform;transform:translateY(-260px);
   animation:sweep 8s linear infinite}
-@keyframes sweep{from{background-position:0 -260px}to{background-position:0 110vh}}
+@keyframes sweep{from{transform:translateY(-260px)}to{transform:translateY(110vh)}}
 .grain{position:fixed;inset:0;pointer-events:none;z-index:4;
   background:repeating-linear-gradient(0deg,rgba(0,0,0,.12) 0 1px,transparent 1px 3px);opacity:.35}
 
@@ -195,7 +197,7 @@ main.hide-right .right{display:none}
 
 /* 中栏：阅读列 */
 .center{display:flex;flex-direction:column;min-width:0;min-height:0}
-.log{flex:1;overflow-y:auto;min-height:0;scroll-behavior:smooth}
+.log{flex:1;overflow-y:auto;min-height:0}
 .log::-webkit-scrollbar{width:5px}
 .log::-webkit-scrollbar-thumb{background:rgba(83,232,255,.3)}
 .logcol{max-width:780px;margin:0 auto;padding:26px 18px 10px;display:flex;flex-direction:column;gap:24px}
@@ -205,6 +207,8 @@ main.hide-right .right{display:none}
 .row-jarvis{position:relative;border-left:2px solid rgba(83,232,255,.35);
   padding:2px 34px 2px 16px;animation:rise .25s ease-out}
 @keyframes rise{from{opacity:0;transform:translateY(8px)}}
+/* 长对话「轻量虚拟化」：视口外的消息跳过样式/布局/绘制，高度用上次实测值占位 */
+.row-user,.row-jarvis{content-visibility:auto;contain-intrinsic-size:auto 160px}
 .jtag{font-family:var(--mono);font-size:10.5px;letter-spacing:.22em;color:var(--arc);
   opacity:.75;margin-bottom:6px}
 .jbody{line-height:1.78;font-size:15.5px}

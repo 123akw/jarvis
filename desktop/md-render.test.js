@@ -37,3 +37,31 @@ test('无 hljs 依赖时代码块仍安全转义输出', () => {
   assert.match(html, /&lt;b&gt;x&lt;\/b&gt;/)
   assert.doesNotMatch(html, /<code[^>]*><b>/)
 })
+
+const { createStreamingMarkdown } = require('./md-render.js')
+const LONG = [
+  '### 标题', '正文 **加粗** 与 [链接](https://example.com)。',
+  '1. **要点一**\n\n   松散列表续行\n\n2. **要点二**\n   - 子项',
+  '顶格段落结束列表。',
+  '```python\ndef f():\n\n    return 1\n```',
+  '| A | B |\n| --- | --- |\n| 1 | 2 |', '> 引用', '最后一句。',
+].join('\n\n')
+
+test('流式增量渲染：逐 token 拼出的定稿结果与全量渲染逐字节一致，且确实分块提交', () => {
+  const s = createStreamingMarkdown(md)
+  let raw = ''
+  let commits = 0
+  for (let i = 0; i < LONG.length; i += 3) {
+    raw += LONG.slice(i, i + 3)
+    if (s.update(raw).appendHtml) commits++
+  }
+  assert.strictEqual(s.update(LONG, { final: true }).html, md(LONG))
+  assert.ok(commits >= 4, `commits=${commits}`)
+})
+
+test('流式增量渲染：尾巴带光标，代码块内空行不切分', () => {
+  const s = createStreamingMarkdown(md)
+  const r = s.update('前言\n\n```js\nconst a = 1\n\n\nconst b')
+  assert.match(r.html, /class="caret"/)
+  assert.strictEqual((r.html.match(/<pre>/g) || []).length, 1)
+})

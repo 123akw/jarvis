@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { logout } from './api.js'
 import Chat from './Chat.jsx'
 
@@ -20,11 +20,23 @@ function newThreadId() {
 
 const isNarrow = () => window.innerWidth <= 1180
 
+const nowText = () => new Date().toLocaleTimeString('zh-CN', { hour12: false })
+
+/** 顶栏时钟单独成组件：每秒只重渲染这一个 chip（旧版把 1Hz setState 放在 Hud，
+ *  每秒连带对话区、任务台、侧栏整树重渲染） */
+function Clock() {
+  const [clock, setClock] = useState(nowText)
+  useEffect(() => {
+    const t = setInterval(() => setClock(nowText()), 1000)
+    return () => clearInterval(t)
+  }, [])
+  return <span className="chip hide-sm">{clock}</span>
+}
+
 export default function Hud({ session, onLogout }) {
   const [busy, setBusy] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const [dash, setDash] = useState(null)
-  const [clock, setClock] = useState('')
   const [geo, setGeo] = useState(null)
   const [thread, setThread] = useState(() => localStorage.getItem('jws_thread') || 'web')
   const [leftOpen, setLeftOpen] = useState(() => !isNarrow())
@@ -43,11 +55,7 @@ export default function Hud({ session, onLogout }) {
 
   useEffect(() => { localStorage.setItem('jws_thread', thread) }, [thread])
 
-  useEffect(() => {
-    const t = setInterval(() =>
-      setClock(new Date().toLocaleTimeString('zh-CN', { hour12: false })), 1000)
-    return () => clearInterval(t)
-  }, [])
+  const onTurnDone = useCallback(() => setRefreshKey(k => k + 1), [])
 
   useEffect(() => {  // 浏览器定位：拿到就随对话上报，拒绝则服务端按 IP 兜底
     navigator.geolocation?.getCurrentPosition(
@@ -79,7 +87,7 @@ export default function Hud({ session, onLogout }) {
         <DesktopHandoff />
         <span className="chip hide-sm">{dash?.model ?? '—'}</span>
         <span className="chip online hide-sm"><span className="dot" />{dash?.place || '在线'}</span>
-        <span className="chip hide-sm">{clock}</span>
+        <Clock />
         {session?.role === 'Owner' ? <button className="chip navbtn wxnav" aria-label="接入个人微信"
           onClick={() => setWxOpen(true)} title="接入个人微信">微信</button> : null}
         <button className="chip navbtn" onClick={() => setTheme(toggleTheme())}
@@ -103,7 +111,7 @@ export default function Hud({ session, onLogout }) {
           </div>
         </section>
         <Chat threadId={thread} location={geo} onBusy={setBusy} injected={injected}
-          onTurnDone={() => setRefreshKey(k => k + 1)} onExpired={onLogout} />
+          onTurnDone={onTurnDone} onExpired={onLogout} />
         <section className={`right${rightOpen ? ' open' : ''}`}>
           <Panels refreshKey={refreshKey} onData={setDash} onExpired={onLogout}
             onAskMeeting={text => setInjected({ seq: Date.now(), text })} />

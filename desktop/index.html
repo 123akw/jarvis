@@ -364,6 +364,10 @@ body.show-settings #settings{display:flex}
   box-shadow:0 0 24px rgba(83,232,255,.16)}
 .wx-risk{font-family:var(--mono);font-size:10px;color:var(--dim);line-height:1.55}
 .api-setting{padding-top:16px;border-top:1px solid var(--line)}.api-grid{display:grid;gap:8px}.api-grid label{display:grid;gap:4px;color:var(--dim);font-family:var(--mono);font-size:10px}.api-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.api-actions button,.api-link{border:1px solid var(--line);background:rgba(83,232,255,.08);color:var(--arc);padding:8px;font-family:var(--mono);font-size:10px;cursor:pointer}.api-link{width:100%}.api-risk{font-family:var(--mono);font-size:10px;color:var(--gold);line-height:1.5}.api-check{display:flex!important;grid-template-columns:auto 1fr;align-items:center}.api-check input{width:15px;height:15px;accent-color:var(--arc)}
+/* 系统开了「减少动态效果」：悬浮球能量核与呼吸灯停在静帧（常驻透明置顶窗不再 60fps 出帧） */
+@media (prefers-reduced-motion:reduce){
+  .sw,#ball::after,#mini-eye,.caret{animation:none!important}
+}
 </style>
 </head>
 <body class="needs-login">
