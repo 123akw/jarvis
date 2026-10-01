@@ -131,7 +131,7 @@ describe('VoiceCall', () => {
 
     act(() => { ws.emit({ type: 'turn_start' }); ws.emit({ type: 'token', text: '好的，' }) })
     act(() => ws.emit({ type: 'token', text: '已记下。' }))
-    expect(screen.getByText('好的，已记下。')).toBeInTheDocument()
+    expect(await screen.findByText('好的，已记下。')).toBeInTheDocument() // 后续 token 按帧合并上屏
 
     act(() => ws.emitBinary(new Int16Array([800, -800, 400, -400]).buffer))
     expect(screen.getByText('回答中…（开口即可打断）')).toBeInTheDocument()
