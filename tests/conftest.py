@@ -11,4 +11,7 @@ def isolated_data_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("JARVIS_SESSION_SECRET", "test-session-secret-is-at-least-256-bits-long")
     monkeypatch.setenv("JARVIS_ENV", "test")
     monkeypatch.setenv("JARVIS_ALLOW_INSECURE_COOKIE", "1")
+    # 飞书渠道：外部 shell 里的真实凭据不能让 TestClient 的 lifespan 连上真飞书
+    monkeypatch.delenv("FEISHU_APP_ID", raising=False)
+    monkeypatch.delenv("FEISHU_APP_SECRET", raising=False)
     return tmp_path

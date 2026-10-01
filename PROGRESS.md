@@ -572,3 +572,20 @@
 
 ## 部署提醒（管理者）
 - 无新依赖、无 schema 变更（update_meeting_texts 走既有表）；前端产物已重建。
+
+# 飞书机器人渠道（2026-10-02，worktree 分支）
+
+基线：pytest 570 passed。交付后 **pytest 629 passed**（新增 59 条飞书用例，0 失败）。
+
+## 架构选择
+- **长连接（WebSocket）模式**收 `im.message.receive_v1`：服务器只需出公网，免公网回调/域名/内网穿透，适合宝塔部署。
+- **不引入 lark-oapi**，自写协议层：官方 SDK 装后 46MB / 10727 个文件、新增 pycryptodome 等依赖；其 `ws.Client` 在导入时抓全局事件循环、`start()` 永久阻塞且无 `stop()`，无法随 FastAPI lifespan 启停。协议（`/callback/ws/endpoint` 取址 + pbbp2.Frame 二进制帧 + ping/pong + ack）按官方 SDK 1.7.3 源码实现；帧编解码约 100 行，与官方 SDK 序列化的黄金向量逐字节一致（双向交叉验证）。WS 用锁文件里已有的 `websockets==15.0.1` 同步客户端（改为显式依赖，**零新装包**）。
+- 文档核实（open.feishu.cn 官方 llms 文档，2026-10）：3 秒内 ack 否则重推；重复推送按 `message_id` 去重而非 `event_id`；token 最长 2 小时、剩余 <30 分钟再取会发新 token；回复同人/同群 5 QPS；CardKit 流式卡片单卡 10 次/秒、sequence 严格递增、10 分钟自动关流式；发 Markdown 推荐 post+md 标签。
+
+## 已实现（jarvis/channels/feishu/）
+- frame.py 帧编解码；ws.py 长连接（立即 ack、分片合包、心跳与平台下发参数、抖动重连、握手错误分类、凭据错误 10 分钟慢重试）；api.py（token 缓存/提前 10 分钟刷新/失效重试一次、回复/发送/卡片/表情/资源下载/机器人信息）；bindings.py（open_id↔用户绑定、一次性 6 位绑定码 sha256 落盘 0600、每小时错 5 次锁定）；bridge.py（去重、15 分钟旧消息丢弃、群聊只认 @机器人、忽略机器人发信、按发信人绑定的用户租户跑 Agent、线程 fs-p/fs-g/fs-t 隔离、流式卡片→富文本→纯文本→直发会话四级降级、长回复 6000 字分段且代码块不断、图片走 qwen3-vl、链接即总结、人话报错）；routes.py（status/bind-code/unbind）；`python -m jarvis.channels.feishu` 管理 CLI。
+- server.py 只加 4 处：1 行 import、lifespan 里 `feishu.start()` / `feishu.shutdown()`、模块级 `feishu.register(...)`。wechat.py 仅给 `_ReplyDispatcher` 加可选线程名参数（向后兼容）以便复用。
+- 真网络佐证：伪造凭据打真飞书，token 接口回 10014、长连接取址回 1000040345，路径与错误分类均正确。反向验证：关掉去重/@过滤/token 重试/ack/绑定校验/卡片降级任一项，对应用例均变红。
+
+## 待办
+- 凭证到位后跑 `scripts/feishu_smoke.py --live`（后台操作清单见 README「飞书机器人」与 BLOCKED.md）。后续项：飞书语音（opus 转码接百炼 ASR）、提醒/Heartbeat 推送到飞书、网页/桌面飞书设置面板。
