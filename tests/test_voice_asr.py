@@ -72,6 +72,55 @@ def test_connect_sends_run_task_and_waits_task_started(monkeypatch):
     assert payload["task"] == "asr" and payload["function"] == "recognition"
     assert payload["parameters"]["format"] == "pcm"
     assert payload["parameters"]["sample_rate"] == 16000
+    assert "max_sentence_silence" not in payload["parameters"], "缺省（会议转写）沿用服务端 800ms"
+
+
+def test_run_task_carries_max_sentence_silence_when_set(monkeypatch):
+    """通话用短判停：run-task 带 max_sentence_silence，且收敛到百炼允许的 200–6000。"""
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-test")
+    sent = []
+
+    async def fake_connect(url, **kwargs):
+        ws = _FakeWS([_event("task-started")])
+        sent.append(ws)
+        return ws
+
+    import websockets
+    monkeypatch.setattr(websockets, "connect", fake_connect)
+
+    async def scenario(value):
+        session = ASRSession(max_sentence_silence=value)
+        await session.connect()
+        await session.close()
+        return json.loads(sent[-1].sent[0])["payload"]["parameters"]
+
+    assert _run(scenario(500))["max_sentence_silence"] == 500
+    assert _run(scenario(10))["max_sentence_silence"] == 200
+    assert _run(scenario(99999))["max_sentence_silence"] == 6000
+
+
+def test_final_result_carries_last_word_end_ms():
+    """定稿带末字结束时刻（不含句尾静音）；没有字级时间戳退回句级 end_time；增量不带。"""
+    async def scenario():
+        session = ASRSession()
+        session._ws = _FakeWS([
+            _event("result-generated", {"text": "明天", "sentence_end": False, "end_time": None}),
+            _event("result-generated", {
+                "text": "明天开会。", "sentence_end": True, "begin_time": 100, "end_time": 2600,
+                "words": [{"text": "明天", "begin_time": 100, "end_time": 900},
+                          {"text": "开会", "begin_time": 900, "end_time": 1700}]}),
+            _event("result-generated", {"text": "好的。", "sentence_end": True, "end_time": 4200}),
+            _event("task-finished"),
+        ])
+        session._receiver = asyncio.create_task(session._recv_loop())
+        results = [r async for r in session.results()]
+        await session.close()
+        return results
+
+    partial, final, no_words = _run(scenario())
+    assert partial.end_ms is None
+    assert final.end_ms == 1700
+    assert no_words.end_ms == 4200
 
 
 def test_connect_task_failed_raises(monkeypatch):

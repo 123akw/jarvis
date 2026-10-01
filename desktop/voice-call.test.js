@@ -341,3 +341,46 @@ test('断线重连的 ready 不得用开场白冲掉正在显示的回答', () =
   second.emit({ type: 'ready', scene: 'night', scene_name: '晚安电台', opening: '今天过得还好吗？' })
   assert.strictEqual(replies.at(-1), '从前有座山……', '重连 ready 不能重播开场白')
 })
+
+test('接通先预热播放器再连网关：首句音频到达时不再现建 AudioContext', () => {
+  const order = []
+  const { call, player, sockets } = harness({
+    createWebSocket: u => { order.push('socket'); const s = new FakeSocket(u); sockets.push(s); return s },
+  })
+  player.warm = () => order.push('warm')
+  call.start()
+  assert.deepEqual(order, ['warm', 'socket'])
+})
+
+test('播放器预热失败不影响接通（老播放器没有 warm 也照常）', () => {
+  const { call, player, sockets } = harness()
+  player.warm = () => { throw new Error('no audio device') }
+  call.start()
+  assert.equal(sockets.length, 1)
+})
+
+test('createPcmPlayer.warm 只建一次上下文并 resume，入队复用同一个', () => {
+  const { createPcmPlayer, pcm16ToFloat32 } = require('./voice-audio.js')
+  const made = []
+  const ctxFactory = () => {
+    const ctx = {
+      state: 'suspended', currentTime: 0, destination: {}, resumed: 0, started: [],
+      resume() { ctx.resumed += 1; ctx.state = 'running' },
+      createBuffer(_ch, len, rate) {
+        const data = new Float32Array(len)
+        return { duration: len / rate, getChannelData: () => data }
+      },
+      createBufferSource() { return { connect() {}, start(at) { ctx.started.push(at) }, stop() {} } },
+    }
+    made.push(ctx)
+    return ctx
+  }
+  const player = createPcmPlayer({ createContext: ctxFactory })
+  player.warm()
+  assert.equal(made.length, 1)
+  assert.equal(made[0].resumed, 1, '接通时就 resume，首句不再等设备启动')
+  player.enqueue(new Int16Array([16384, -32768]).buffer)
+  assert.equal(made.length, 1, '入队复用预热好的上下文')
+  assert.deepEqual(made[0].started, [0.02])
+  assert.deepEqual(Array.from(pcm16ToFloat32(new Int16Array([0, 16384, -32768]))), [0, 0.5, -1])
+})

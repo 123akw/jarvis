@@ -406,3 +406,224 @@ def test_interrupt_discards_unfinalized_partial(monkeypatch):
         events, _audio = _collect_turn(ws)
     starts = [e for e in events if e["type"] == "turn_start"]
     assert len(starts) == 1, "打断丢弃的 partial 不该开过回合"
+
+
+# ---------- 延迟与体验优化（语音延迟优化轮） ----------
+
+class _SlowFirstAgent(_FakeAgent):
+    """首块前先「想」一会儿：模拟 LLM 首 token 延迟，回合在出声前可被续说取消。"""
+
+    def __init__(self, pieces=("好的，", "马上办。"), first_delay=0.4):
+        super().__init__(pieces=pieces)
+        self.first_delay = first_delay
+
+    def stream(self, state, config=None, stream_mode=None):
+        self.stream_inputs.append(state)
+        time.sleep(self.first_delay)
+        for piece in self.pieces:
+            yield AIMessageChunk(content=piece), {}
+
+
+class _StampedASR(_FakeASR):
+    """定稿带末字时间戳 end_ms=0：网关据此算「说完→定稿」判停等待。"""
+
+    async def send_audio(self, chunk):
+        self.received.append(chunk)
+        text = chunk.decode("utf-8", errors="ignore")
+        if text.startswith("F:"):
+            self._q.put_nowait(ASRResult(text=text[2:], is_final=True, end_ms=0))
+        elif text.startswith("P:"):
+            self._q.put_nowait(ASRResult(text=text[2:], is_final=False))
+
+
+def _user_texts(agent):
+    return [s["messages"][-1]["content"] for s in agent.stream_inputs]
+
+
+def _recv_event(ws, kind, max_events=20):
+    """收到指定类型的 JSON 帧为止（中间允许 audio_start 等无关帧，但不许有音频）。"""
+    for _ in range(max_events):
+        message = ws.receive()
+        assert message.get("bytes") is None, f"等 {kind} 时不该先收到音频"
+        event = json.loads(message["text"])
+        if event["type"] == kind:
+            return event
+    raise AssertionError(f"没等到 {kind}")
+
+
+def test_call_asr_uses_short_sentence_silence(monkeypatch):
+    """通话判停 500ms（百炼缺省 800ms，实测省 ~300ms）；环境变量可调且收敛到 200–6000。"""
+    monkeypatch.delenv("DASHSCOPE_ASR_MAX_SILENCE_MS", raising=False)
+    assert gateway_mod.create_asr_session().max_sentence_silence == gateway_mod.CALL_ASR_SILENCE_MS == 500
+    monkeypatch.setenv("DASHSCOPE_ASR_MAX_SILENCE_MS", "650")
+    assert gateway_mod.create_asr_session().max_sentence_silence == 650
+    monkeypatch.setenv("DASHSCOPE_ASR_MAX_SILENCE_MS", "50")
+    assert gateway_mod.create_asr_session().max_sentence_silence == 200
+    monkeypatch.setenv("DASHSCOPE_ASR_MAX_SILENCE_MS", "abc")
+    assert gateway_mod.create_asr_session().max_sentence_silence == 500
+
+
+def test_latency_event_reports_stage_marks_before_turn_end(monkeypatch):
+    monkeypatch.setattr(server_mod, "_get_agent", lambda: _FakeAgent())
+    monkeypatch.setattr(gateway_mod, "create_tts_session", _FakeTTS)
+    client = _client()
+    csrf, token = _login(client)
+    with _connect(client, token) as ws:
+        ws.send_json({"type": "init", "csrf": csrf})
+        assert ws.receive_json()["type"] == "ready"
+        ws.send_json({"type": "user_text", "text": "在吗"})
+        events, _audio = _collect_turn(ws)
+    assert events[-1] == {"type": "turn_end", "interrupted": False}
+    latency = events[-2]
+    assert latency["type"] == "latency" and latency["interrupted"] is False
+    for key in ("agent_start", "tts_ready", "llm_first_token", "first_segment",
+                "first_tts_send", "first_audio"):
+        assert isinstance(latency[key], int) and latency[key] >= 0, key
+    assert latency["llm_first_token"] <= latency["first_segment"] <= latency["first_tts_send"]
+    assert latency["first_tts_send"] <= latency["first_audio"]
+
+
+def test_latency_event_carries_vad_wait_from_asr_timestamps(monkeypatch):
+    """判停等待 = 定稿到达时已上行音频时长 − 末字结束时刻（本例 500ms 静音 + 指令帧）。"""
+    client, csrf, token = _start_call(monkeypatch, _StampedASR)
+    final_frame = "F:今天天气怎么样".encode()
+    with _connect(client, token) as ws:
+        ws.send_json({"type": "init", "csrf": csrf})
+        assert ws.receive_json()["type"] == "ready"
+        ws.send_bytes(b"\x00" * 16000)          # 500ms 音频（建连期攒着，接上后补发计入）
+        ws.send_bytes(final_frame)
+        assert ws.receive_json()["type"] == "asr_final"
+        events, _audio = _collect_turn(ws)
+    latency = next(e for e in events if e["type"] == "latency")
+    assert latency["vad_wait"] == int((16000 + len(final_frame)) / 32)
+
+
+def test_user_resuming_before_reply_cancels_turn_then_answers_continuation(monkeypatch):
+    """句中停顿被判停：回合还没出声用户又开口 → 立即取消（不抢话），新定稿正常开回合。"""
+    agent = _SlowFirstAgent(first_delay=0.5)
+    client, csrf, token = _start_call(monkeypatch, _FakeASR)
+    monkeypatch.setattr(server_mod, "_get_agent", lambda: agent)
+    with _connect(client, token) as ws:
+        ws.send_json({"type": "init", "csrf": csrf})
+        assert ws.receive_json()["type"] == "ready"
+        ws.send_bytes("F:帮我查一下明天".encode())
+        assert ws.receive_json() == {"type": "asr_final", "text": "帮我查一下明天"}
+        assert ws.receive_json()["type"] == "turn_start"
+        ws.send_bytes("P:北京".encode())          # 用户接着说
+        assert _recv_event(ws, "asr_partial") == {"type": "asr_partial", "text": "北京"}
+        cancelled, audio = _collect_turn(ws)
+        assert cancelled[-1] == {"type": "turn_end", "interrupted": True}, "还没出声的回合必须让路"
+        assert audio == b"", "被续说取消的回合不能抢着出声"
+        ws.send_bytes("F:北京的天气".encode())
+        assert ws.receive_json() == {"type": "asr_final", "text": "北京的天气"}
+        events, audio = _collect_turn(ws)
+    assert events[0]["type"] == "turn_start"
+    assert events[-1] == {"type": "turn_end", "interrupted": False}
+    assert len(audio) > 0
+    assert _user_texts(agent)[-1] == "北京的天气"
+
+
+def test_user_speaking_after_reply_started_does_not_cancel(monkeypatch):
+    """已经出声的回合：用户再出声不算续说（打断由前端 VAD/interrupt 决定），回合照常走完。"""
+    agent = _FakeAgent(pieces=("好的，马上办。",) + tuple(f"第{i}句。" for i in range(6)), delay=0.05)
+    client, csrf, token = _start_call(monkeypatch, _FakeASR)
+    monkeypatch.setattr(server_mod, "_get_agent", lambda: agent)
+    with _connect(client, token) as ws:
+        ws.send_json({"type": "init", "csrf": csrf})
+        assert ws.receive_json()["type"] == "ready"
+        ws.send_bytes("F:安排一下".encode())
+        assert ws.receive_json()["type"] == "asr_final"
+        while ws.receive().get("bytes") is None:  # 等到第一块音频下行（已出声）
+            pass
+        ws.send_bytes("P:嗯嗯".encode())
+        events, _audio = _collect_turn(ws)
+    assert {"type": "asr_partial", "text": "嗯嗯"} in events
+    assert events[-1] == {"type": "turn_end", "interrupted": False}
+
+
+def test_resume_cancel_restarts_original_turn_when_no_new_final(monkeypatch):
+    """兜底：续说取消后迟迟等不到新定稿 → 按原话重开，回合绝不丢。"""
+    agent = _SlowFirstAgent(first_delay=0.3)
+    client, csrf, token = _start_call(monkeypatch, _FakeASR)
+    monkeypatch.setattr(server_mod, "_get_agent", lambda: agent)
+    monkeypatch.setattr(gateway_mod, "_RESUME_GRACE_S", 0.3)
+    with _connect(client, token) as ws:
+        ws.send_json({"type": "init", "csrf": csrf})
+        assert ws.receive_json()["type"] == "ready"
+        ws.send_bytes("F:提醒我开会".encode())
+        assert ws.receive_json()["type"] == "asr_final"
+        assert ws.receive_json()["type"] == "turn_start"
+        ws.send_bytes("P:呃".encode())
+        assert _recv_event(ws, "asr_partial")["text"] == "呃"
+        cancelled, _audio = _collect_turn(ws)
+        assert cancelled[-1]["interrupted"] is True
+        events, audio = _collect_turn(ws)        # 不再说话：看门狗按原话重开
+    assert events[0]["type"] == "turn_start"
+    assert events[-1] == {"type": "turn_end", "interrupted": False} and len(audio) > 0
+    # 第一回合可能在 agent 起跑前就被取消；重开的回合必须用原话真实跑完
+    assert _user_texts(agent)[-1] == "提醒我开会"
+
+
+def test_first_partial_prewarms_agent_runtime(monkeypatch):
+    """开口即预热：第一个识别增量到达就在后台取一次 agent 运行时（定稿前）。"""
+    calls = []
+    agent = _FakeAgent()
+    client, csrf, token = _start_call(monkeypatch, _FakeASR)
+    monkeypatch.setattr(server_mod, "_get_agent", lambda: calls.append(1) or agent)
+    with _connect(client, token) as ws:
+        ws.send_json({"type": "init", "csrf": csrf})
+        assert ws.receive_json()["type"] == "ready"
+        ws.send_bytes("P:今天".encode())
+        assert ws.receive_json()["type"] == "asr_partial"
+        deadline = time.monotonic() + 2
+        while not calls and time.monotonic() < deadline:
+            time.sleep(0.01)
+    assert calls, "定稿之前就该预热过运行时"
+    assert agent.stream_inputs == [], "预热只取运行时，不能真的跑一轮对话"
+
+
+def test_looks_like_echo_heuristic():
+    spoken = "北极熊的毛其实是透明的，不是白色。你看到的白，是光线散射出来的错觉。"
+    assert gateway_mod.looks_like_echo("北极熊的毛其实是透明的", spoken)
+    assert gateway_mod.looks_like_echo("北极雄的毛其实是透明", spoken), "容忍识别错字"
+    assert gateway_mod.looks_like_echo("北极", spoken), "短增量看子串"
+    assert not gateway_mod.looks_like_echo("等一下先别说了", spoken)
+    assert not gateway_mod.looks_like_echo("换个话题", spoken)
+    assert not gateway_mod.looks_like_echo("好", "")
+
+
+def test_tts_echo_is_suppressed_while_playing(monkeypatch):
+    """播放中麦克风收回 TTS 声音：回声增量/定稿不下发、不开回合；真人新话照常。"""
+    client, csrf, token = _start_call(monkeypatch, _FakeASR)
+    monkeypatch.setattr(gateway_mod, "_ECHO_TAIL_S", 30.0)   # 假 TTS 音频极短，放宽播放窗口
+    with _connect(client, token) as ws:
+        ws.send_json({"type": "init", "csrf": csrf})
+        assert ws.receive_json()["type"] == "ready"
+        ws.send_json({"type": "user_text", "text": "在吗"})
+        _events, audio = _collect_turn(ws)          # 念了「你好，领导。马上办。」
+        assert audio
+        ws.send_bytes("P:你好领导".encode())          # 回声增量
+        ws.send_bytes("F:你好领导马上办".encode())     # 回声定稿
+        ws.send_bytes("P:换个话题".encode())          # 真人开口
+        assert ws.receive_json() == {"type": "asr_partial", "text": "换个话题"}, \
+            "回声不能出字幕（否则前端会被自己的声音打断）"
+        ws.send_bytes("F:换个话题吧".encode())
+        assert ws.receive_json() == {"type": "asr_final", "text": "换个话题吧"}
+        events2, _audio = _collect_turn(ws)
+    assert [e for e in events2 if e["type"] == "turn_start"], "真人定稿照常开回合"
+
+
+def test_echo_window_closes_after_new_turn(monkeypatch):
+    """新回合开始（前端已停旧音频）后，旧回合念过的文字不再当回声过滤。"""
+    client, csrf, token = _start_call(monkeypatch, _FakeASR)
+    monkeypatch.setattr(gateway_mod, "_ECHO_TAIL_S", 30.0)
+    with _connect(client, token) as ws:
+        ws.send_json({"type": "init", "csrf": csrf})
+        assert ws.receive_json()["type"] == "ready"
+        ws.send_json({"type": "user_text", "text": "在吗"})
+        _collect_turn(ws)                             # 念了「你好，领导。马上办。」
+        monkeypatch.setattr(server_mod, "_get_agent", lambda: _FakeAgent(pieces=("收到。",)))
+        ws.send_json({"type": "user_text", "text": "再说一次"})
+        _collect_turn(ws)                             # 新回合只念「收到。」
+        ws.send_bytes("P:你好领导".encode())           # 旧回合的词，此刻是真人说的
+        assert ws.receive_json() == {"type": "asr_partial", "text": "你好领导"}

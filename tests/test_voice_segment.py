@@ -52,6 +52,33 @@ def test_first_fast_segmenter_hard_boundary_still_wins():
     assert seg.push("好的，收到。后面还有话") == ["好的，收到。"]
 
 
+def test_first_clause_goes_to_tts_at_first_comma():
+    """首句在第一个逗号就送 TTS（真 DeepSeek 时间轴回放：比旧规则早 40–50ms、首句短一半）。"""
+    seg = FirstFastSegmenter()
+    out = []
+    for piece in ["北极", "熊", "的", "毛", "其实是", "透明的", "，"]:
+        out.extend(seg.push(piece))
+    assert out == ["北极熊的毛其实是透明的，"], "不用再等缓冲超过 24 字"
+    # 开口后恢复正常节奏：同一次 push 里也不再按逗号碎切
+    assert seg.push("不是白色，你看到的白，是光线散射出来的错觉。顺带") == [
+        "不是白色，你看到的白，是光线散射出来的错觉。"]
+
+
+def test_first_clause_too_short_waits_for_next_pause():
+    seg = FirstFastSegmenter()
+    assert seg.push("好的，") == [], "3 字太短不值一次 TTS 往返"
+    assert seg.push("没问题，马上办") == ["好的，没问题，"]
+
+
+def test_first_clause_does_not_split_numbers():
+    """数字里的 ASCII 冒号/逗号不是停顿：10:30、1,000 不能被念断。"""
+    seg = FirstFastSegmenter()
+    assert seg.push("会议改到10:") == [], "冒号后的字还没到，先等"
+    assert seg.push("30开始，记得带电脑。") == ["会议改到10:30开始，", "记得带电脑。"]
+    seg = FirstFastSegmenter()
+    assert seg.push("预算一共1,000元, 够用") == ["预算一共1,000元,"]
+
+
 def test_speakable_strips_markdown():
     assert speakable("**加粗** 和 `代码`") == "加粗 和 代码"
     assert speakable("看[这里](https://example.com)就好") == "看这里就好"

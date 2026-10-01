@@ -16,7 +16,7 @@ import asyncio
 import json
 import os
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 DEFAULT_WSS_URL = "wss://dashscope.aliyuncs.com/api-ws/v1/inference"
 DEFAULT_MODEL = "paraformer-realtime-v2"
@@ -31,10 +31,14 @@ class ASRError(Exception):
 
 @dataclass
 class ASRResult:
-    """一次识别结果：is_final=False 为识别中增量，True 为断句定稿。"""
+    """一次识别结果：is_final=False 为识别中增量，True 为断句定稿。
+
+    end_ms：本句最后一个字在音频流里的结束时刻（毫秒，自任务开始计；服务端没给则 None）。
+    网关拿它和「已上行音频总时长」相减，就是「说完→定稿」的判停等待（不参与相等比较）。"""
 
     text: str
     is_final: bool
+    end_ms: int | None = field(default=None, compare=False)
 
 
 def _api_key() -> str:
@@ -44,17 +48,36 @@ def _api_key() -> str:
     return key
 
 
+def _sentence_end_ms(sentence: dict) -> int | None:
+    """定稿句的说话结束时刻：优先取最后一个字的 end_time（不含句尾静音），否则取句级 end_time。"""
+    words = sentence.get("words")
+    candidates = []
+    if isinstance(words, list) and words and isinstance(words[-1], dict):
+        candidates.append(words[-1].get("end_time"))
+    candidates.append(sentence.get("end_time"))
+    for value in candidates:
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
+            return int(value)
+    return None
+
+
 class ASRSession:
-    """一条识别连接：run-task 一次、二进制音频多帧、结果异步流出。"""
+    """一条识别连接：run-task 一次、二进制音频多帧、结果异步流出。
+
+    max_sentence_silence：VAD 断句的静音阈值（毫秒，百炼允许 200–6000，缺省 800）。
+    通话要的是「说完就答」，网关会传更短的值；会议转写不传，沿用服务端默认。"""
 
     def __init__(self, *, url: str | None = None, model: str | None = None,
                  sample_rate: int = SAMPLE_RATE, audio_format: str = AUDIO_FORMAT,
-                 timeout: float = 10.0) -> None:
+                 timeout: float = 10.0, max_sentence_silence: int | None = None) -> None:
         self.url = url or os.getenv("DASHSCOPE_ASR_WSS_URL", DEFAULT_WSS_URL)
         self.model = model or os.getenv("DASHSCOPE_ASR_MODEL", DEFAULT_MODEL)
         self.sample_rate = sample_rate
         self.audio_format = audio_format
         self.timeout = timeout
+        self.max_sentence_silence = (
+            None if max_sentence_silence is None
+            else min(6000, max(200, int(max_sentence_silence))))
         self.task_id = uuid.uuid4().hex
         self._ws = None
         self._receiver: asyncio.Task | None = None
@@ -66,6 +89,13 @@ class ASRSession:
         import websockets
 
         key = _api_key()
+        parameters = {
+            "format": self.audio_format,
+            "sample_rate": self.sample_rate,
+            "language_hints": ["zh", "en"],
+        }
+        if self.max_sentence_silence is not None:
+            parameters["max_sentence_silence"] = self.max_sentence_silence
         try:
             self._ws = await asyncio.wait_for(
                 websockets.connect(
@@ -86,11 +116,7 @@ class ASRSession:
                     "task": "asr",
                     "function": "recognition",
                     "model": self.model,
-                    "parameters": {
-                        "format": self.audio_format,
-                        "sample_rate": self.sample_rate,
-                        "language_hints": ["zh", "en"],
-                    },
+                    "parameters": parameters,
                     "input": {},
                 },
             }))
@@ -175,8 +201,10 @@ class ASRSession:
                         continue
                     text = str(sentence.get("text") or "")
                     if text:
-                        self._results.put_nowait(
-                            ASRResult(text=text, is_final=bool(sentence.get("sentence_end"))))
+                        is_final = bool(sentence.get("sentence_end"))
+                        self._results.put_nowait(ASRResult(
+                            text=text, is_final=is_final,
+                            end_ms=_sentence_end_ms(sentence) if is_final else None))
                 elif event == "task-failed":
                     self._results.put_nowait(ASRError("语音识别失败"))
                     return

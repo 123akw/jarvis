@@ -333,8 +333,14 @@
       emit('phase', 'closed')
     }
 
+    /** 接通：先把播放上下文建好（首句音频不再现建 AudioContext），再连网关。 */
+    function start() {
+      if (player.warm) { try { player.warm() } catch { /* 预热失败不影响通话，播放时再建 */ } }
+      connect()
+    }
+
     return {
-      start: connect,
+      start,
       hangup,
       sendTyped: text => sendUtterance(text),
       sendScene: id => wsSend({ type: 'scene', scene: String(id || '') }),
