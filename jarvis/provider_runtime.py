@@ -16,10 +16,9 @@ from urllib.parse import urljoin, urlsplit
 import httpcore
 import httpx
 from langchain_openai import ChatOpenAI
-from langgraph.checkpoint.sqlite import SqliteSaver
 
 from jarvis import config
-from jarvis.graph import build_agent
+from jarvis.graph import LLM_MAX_RETRIES, LLM_TIMEOUT, SqliteSaver, build_agent
 from jarvis.provider_settings import ProviderSettingsError, ResolvedLLM, SecretStore, normalize_base_url
 from jarvis.search.fetcher import _SystemResolver, _is_public_address, _parse_ip
 from jarvis.search.providers import DDGSProvider, SearXNGProvider, TavilyProvider
@@ -89,20 +88,36 @@ class _PinnedAsyncBackend(httpcore.AsyncNetworkBackend):
         return await self.backend.sleep(seconds)
 
 
-def safe_http_clients(*, resolver=None, timeout: float = 20.0) -> tuple[httpx.Client, httpx.AsyncClient]:
-    """Build clients whose pools pin approved DNS answers while preserving Host/SNI."""
+# 每个用户 runtime 的模型连接池上限。同一 Owner 的网页/桌面/微信/语音/后台服务
+# 共用一个 bundle：此前实际上限是 httpcore 默认的 10，第 11 路流式请求要排队等
+# 前面某一路「整段回答」结束才能拿到连接（且池等待无超时）。
+RUNTIME_MAX_CONNECTIONS = 32
+KEEPALIVE_EXPIRY_SECONDS = 30.0   # 空闲长连接 30 秒后弃用，避免复用被 NAT 静默掐断的连接
+
+
+def safe_http_clients(*, resolver=None, timeout: float | httpx.Timeout = 20.0,
+                      max_connections: int = 10) -> tuple[httpx.Client, httpx.AsyncClient]:
+    """Build clients whose pools pin approved DNS answers while preserving Host/SNI.
+
+    注意：transport 自带连接池时 httpx.Client(limits=...) 不会生效，连接上限与
+    keep-alive 过期必须直接配在 httpcore 池上（此前传的 Limits 一直被静默忽略）。
+    """
+    pool_limits = {
+        "max_connections": max_connections,
+        "max_keepalive_connections": max_connections,
+        "keepalive_expiry": KEEPALIVE_EXPIRY_SECONDS,
+    }
     sync_transport = httpx.HTTPTransport(retries=0)
     sync_transport._pool = httpcore.ConnectionPool(  # type: ignore[attr-defined]
-        network_backend=_PinnedSyncBackend(resolver=resolver), retries=0, http2=False,
+        network_backend=_PinnedSyncBackend(resolver=resolver), retries=0, http2=False, **pool_limits,
     )
     async_transport = httpx.AsyncHTTPTransport(retries=0)
     async_transport._pool = httpcore.AsyncConnectionPool(  # type: ignore[attr-defined]
-        network_backend=_PinnedAsyncBackend(resolver=resolver), retries=0, http2=False,
+        network_backend=_PinnedAsyncBackend(resolver=resolver), retries=0, http2=False, **pool_limits,
     )
-    limits = httpx.Limits(max_connections=10, max_keepalive_connections=5)
     return (
-        httpx.Client(transport=sync_transport, timeout=timeout, follow_redirects=False, trust_env=False, limits=limits),
-        httpx.AsyncClient(transport=async_transport, timeout=timeout, follow_redirects=False, trust_env=False, limits=limits),
+        httpx.Client(transport=sync_transport, timeout=timeout, follow_redirects=False, trust_env=False),
+        httpx.AsyncClient(transport=async_transport, timeout=timeout, follow_redirects=False, trust_env=False),
     )
 
 
@@ -224,9 +239,11 @@ class AgentRuntimeManager:
         self._checkpointer = checkpointer or SqliteSaver(sqlite3.connect(str(config.db_path()), check_same_thread=False))
 
     def _default_factory(self, user_id: str, llm: ResolvedLLM, integrations: dict[str, dict[str, Any]]) -> RuntimeBundle:
-        sync_client, async_client = safe_http_clients()
+        sync_client, async_client = safe_http_clients(timeout=LLM_TIMEOUT, max_connections=RUNTIME_MAX_CONNECTIONS)
+        # timeout 必须显式传给 ChatOpenAI：不传时 openai SDK 以 None 覆盖客户端超时，请求永不超时
         model = ChatOpenAI(model=llm.model, base_url=llm.base_url, api_key=llm.api_key,
-                           temperature=0, http_client=sync_client, http_async_client=async_client)
+                           temperature=0, http_client=sync_client, http_async_client=async_client,
+                           timeout=LLM_TIMEOUT, max_retries=LLM_MAX_RETRIES)
         searxng = integrations["searxng"]
         tavily = integrations["tavily"]
         service = SearchService([
