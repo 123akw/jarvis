@@ -240,6 +240,7 @@ uvicorn==0.52.1
     # via jarvis (pyproject.toml)
 websockets==15.0.1
     # via
+    #   jarvis (pyproject.toml)
     #   langgraph-sdk
     #   langsmith
 xxhash==3.8.1

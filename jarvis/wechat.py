@@ -123,10 +123,11 @@ class _ReplyDispatcher:
     路并行，互不等待。
     """
 
-    def __init__(self, max_workers: int = REPLY_WORKERS) -> None:
+    def __init__(self, max_workers: int = REPLY_WORKERS, *,
+                 thread_name_prefix: str = "jarvis-wechat-reply") -> None:
         self._executor = ThreadPoolExecutor(
             max_workers=max(1, int(max_workers)),
-            thread_name_prefix="jarvis-wechat-reply",
+            thread_name_prefix=thread_name_prefix,  # 飞书桥复用本类，用自己的线程名
         )
         self._lock = threading.Lock()
         self._done = threading.Condition(self._lock)

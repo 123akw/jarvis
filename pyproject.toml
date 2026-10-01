@@ -22,6 +22,8 @@ dependencies = [
     "cryptography==45.0.7",
     "pypdf>=6.0",
     "pilk>=0.2",
+    # 飞书长连接（同步客户端）。原为 langgraph-sdk/langsmith 的传递依赖、已在锁文件中，此处显式声明。
+    "websockets>=13",
 ]
 
 [project.optional-dependencies]

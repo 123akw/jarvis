@@ -23,6 +23,7 @@ from pydantic import BaseModel, SecretStr
 
 from jarvis import __version__, config, distill, heartbeat, mailer, meeting, reminders, wechat
 from jarvis.accounts import AccountStore, Principal, csrf_token, session_secret_configured
+from jarvis.channels import feishu
 from jarvis.graph import build_agent, heal_dangling_tool_calls
 from jarvis.provider_runtime import AgentRuntimeManager, probe_integration
 from jarvis.provider_settings import (
@@ -44,6 +45,7 @@ from jarvis.tools.todo import all_todos
 async def lifespan(_app: FastAPI):
     """恢复持久微信桥并启动日程提醒扫描；退出时停线程但不删除 Token。"""
     wechat.resume_on_boot()
+    feishu.start()  # 未配置 FEISHU_APP_ID/SECRET 时为 disabled，不起线程
     scanner = None
     radio = None
     distiller = None
@@ -87,6 +89,7 @@ async def lifespan(_app: FastAPI):
         if distiller is not None:
             distiller.stop()
         wechat.shutdown()
+        feishu.shutdown()
         if _runtime_manager is not None:
             _runtime_manager.close()
 
@@ -1476,6 +1479,11 @@ if (_WEB / "assets").is_dir():
 
 
 wechat.init(_get_agent, _chunk_text, _accounts.unique_active_owner)
+feishu.register(
+    app, bundle_for=_bundle_for, chunk_text=_chunk_text, tenant_store=_tenant_store,
+    accounts=_accounts, request_principal=_request_principal,
+    write_authorized=_write_authorized, deny=_deny, csrf_deny=_csrf_deny,
+)
 
 
 def run() -> None:

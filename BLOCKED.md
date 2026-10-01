@@ -84,3 +84,15 @@
 - ~~.env.example 属禁区未更新~~ **已解除（2026-08-19 晚，领导授权上推时补齐）**：五个新环境变量说明已进 .env.example 与 README 环境变量表。
 - **生产部署为管理者动作**：已合并 main 并推送 GitHub（领导授权）；生产上线仍需在服务器 fast-forward + 重启 jarvis-web；桌面端无新依赖，重启 Electron 即可。
 - 其余：无。
+
+# 飞书机器人渠道（feishu 分支，2026-10-02）待用户操作清单
+- **阻断真机验收：本机 `.env` 与生产均无飞书凭证。** 代码与 59 条离线单测（假 HTTP/假 WS + 一条本地真 socket 往返）已完成；协议帧与官方 SDK 黄金向量逐字节一致；已用伪造凭据打到真飞书确认 token 接口与长连接取址接口路径正确（分别返回 10014 / 1000040345 并被正确识别）。凭证到位后运行 `.venv/bin/python scripts/feishu_smoke.py --live`。
+- **需要用户在飞书开发者后台（https://open.feishu.cn/app）完成：**
+  1. 创建**企业自建应用**；「凭证与基础信息」复制 App ID / App Secret → 写入服务器 `.env` 的 `FEISHU_APP_ID` / `FEISHU_APP_SECRET`（不提交 Git）。
+  2. 「添加应用能力」→ **机器人**。
+  3. 「权限管理」开通：`im:message.p2p_msg:readonly`（必需）、`im:message.group_at_msg:readonly`（群聊）、`im:message:send_as_bot`（必需）、`im:message:readonly`（图片识别）、`cardkit:card:write`（流式卡片，推荐）、`im:message.reactions:write_only`（可选）。
+  4. 先让长连接在线（启动贾维斯服务或跑 `feishu_smoke.py --live`），再到「事件与回调 → 事件配置」把订阅方式改为**使用长连接接收事件**并保存，添加事件**接收消息 v2.0（im.message.receive_v1）**。
+  5. 「版本管理与发布」创建版本、设置可用范围并发布（管理员审核）；以后每次改权限都要重新发布。
+  6. 绑定账号：服务器上 `.venv/bin/python -m jarvis.channels.feishu bind-code <用户名>` 领码 → 飞书私聊机器人发「绑定 123456」。
+- 部署提醒（管理者动作，本分支未部署）：生产 venv 无需新装包（`websockets==15.0.1` 原已在锁文件中，只是改为显式依赖）；`.env` 注入两项凭证后重启 `jarvis-web` 即启用；未注入时飞书渠道保持 disabled，零影响。
+- 非阻断后续项：飞书语音消息（opus 需转码后接百炼 ASR，需真实样本验证）；日程提醒/Heartbeat 推送到飞书（需在 lifespan 的提醒线程里加飞书推送通道）；网页/桌面「飞书」设置面板（目前用 API/CLI 领绑定码，web-src 不在本次地界）。
