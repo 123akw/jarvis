@@ -61,17 +61,56 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
   const serverAsrRef = useRef(true) // 收到 asr_fallback 置 false，二进制停发
   const vadRef = useRef(0)
   const replyRef = useRef(null)
+  const replyTextRef = useRef('')     // 回答全文的唯一真相：token 先进这里，按帧刷上屏
+  const replyFrameRef = useRef(null)  // 已排的刷新帧
+  const replyShownRef = useRef(false) // 本回合是否已有字上屏（首字不等帧）
   const audioRef = useRef({ ctx: null, nextTime: 0, sources: new Set(), sampleRate: 24000 })
 
   phaseRef.current = phase
   micRef.current = micState
 
-  useEffect(() => {  // 回答字幕跟随滚动
+  useEffect(() => {  // 回答字幕跟随滚动：按帧合并后每帧至多一次（读 scrollHeight 会强制布局）
     if (replyRef.current) replyRef.current.scrollTop = replyRef.current.scrollHeight
   }, [reply])
 
   function setPhaseSafe(p) {
     if (aliveRef.current) setPhase(p)
+  }
+
+  // ---- 回答字幕：token 按帧合并（每帧至多一次 setState + 一次滚动布局） ----
+
+  function cancelReplyFrame() {
+    const id = replyFrameRef.current
+    if (id == null) return
+    replyFrameRef.current = null
+    if (window.cancelAnimationFrame) window.cancelAnimationFrame(id)
+    else clearTimeout(id)
+  }
+
+  function flushReply() {
+    cancelReplyFrame()
+    if (aliveRef.current) setReply(replyTextRef.current)
+  }
+
+  /** 整体替换回答（开场白/新回合清空）：立即生效并作废已排的刷新。 */
+  function resetReply(text) {
+    cancelReplyFrame()
+    replyTextRef.current = text
+    replyShownRef.current = false
+    setReply(text)
+  }
+
+  function appendReply(text) {
+    replyTextRef.current += text
+    if (!replyShownRef.current) {     // 本回合首个 token 立即上屏，首字延迟不加一帧
+      replyShownRef.current = true
+      flushReply()
+      return
+    }
+    if (replyFrameRef.current != null) return  // 本帧已排刷新：合并
+    replyFrameRef.current = window.requestAnimationFrame
+      ? window.requestAnimationFrame(flushReply)
+      : setTimeout(flushReply, 16)
   }
 
   // ---- 音频播放：PCM16 小端单声道，按块排队，打断时全部停掉 ----
@@ -182,11 +221,11 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
     if (ev.type === 'ready') {
       setPhaseSafe('listening')
       if (ev.scene) setScene(ev.scene)
-      if (ev.opening) setReply(ev.opening)
+      if (ev.opening) resetReply(ev.opening)
     } else if (ev.type === 'scene') {
       setScene(ev.scene)
       setHeard('')
-      setReply(ev.opening || '')
+      resetReply(ev.opening || '')
       setNotice('')
     } else if (ev.type === 'emotion') {
       setEmotion({ emotion: ev.emotion, label: ev.label || '' })
@@ -206,11 +245,11 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
       degradeToSpeech(ev.message || '服务端语音识别暂不可用，已切换浏览器识别')
     } else if (ev.type === 'turn_start') {
       turnDoneRef.current = false
-      setReply('')
+      resetReply('')
       setTools([])
       setPhaseSafe('thinking')
     } else if (ev.type === 'token') {
-      setReply(r => r + ev.text)
+      appendReply(ev.text || '')
     } else if (ev.type === 'tool_start') {
       setTools(ts => [...ts, { name: ev.name, done: false }])
     } else if (ev.type === 'tool_result') {
@@ -225,6 +264,7 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
     } else if (ev.type === 'tts_error') {
       setNotice(ev.message || '语音合成暂不可用，本回合降级为纯文字')
     } else if (ev.type === 'turn_end') {
+      flushReply() // 回合结束：残留的合并帧立即上屏（后台标签页 rAF 暂停也不丢字）
       turnDoneRef.current = true
       if (ev.interrupted || audioRef.current.sources.size === 0) setPhaseSafe('listening')
     } else if (ev.type === 'error') {
@@ -382,6 +422,7 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
     startVoiceInput()
     return () => {
       aliveRef.current = false
+      cancelReplyFrame()
       try { streamRef.current?.stop() } catch { /* 已停 */ }
       streamRef.current = null
       try { recRef.current?.stop() } catch { /* 已停 */ }

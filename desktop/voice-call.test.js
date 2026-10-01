@@ -384,3 +384,34 @@ test('createPcmPlayer.warm 只建一次上下文并 resume，入队复用同一�
   assert.deepEqual(made[0].started, [0.02])
   assert.deepEqual(Array.from(pcm16ToFloat32(new Int16Array([0, 16384, -32768]))), [0, 0.5, -1])
 })
+
+test('回答字幕按帧合并：首字立即回调，同帧 token 合并一次，turn_end 立即补齐，挂断作废', () => {
+  const frames = []
+  const { call, sockets, events } = harness({
+    requestFrame: cb => { frames.push(cb); return frames.length },
+    cancelFrame: id => { frames[id - 1] = null },
+  })
+  call.start()
+  sockets[0].open()
+  sockets[0].emit({ type: 'ready' })
+  sockets[0].emit({ type: 'turn_start' })
+  const base = events.replies.length
+  sockets[0].emit({ type: 'token', text: '现在' })
+  assert.deepEqual(events.replies.slice(base), ['现在'], '本回合首字不等帧')
+  sockets[0].emit({ type: 'token', text: '是下午' })
+  sockets[0].emit({ type: 'token', text: '三点' })
+  assert.equal(events.replies.length, base + 1, '帧没到不逐 token 回调')
+  assert.equal(frames.filter(Boolean).length, 1, '两个 token 只排一帧')
+  assert.equal(call.state().reply, '现在是下午三点', 'state() 始终是全文')
+  frames.splice(0).forEach(cb => cb && cb())
+  assert.equal(events.replies.at(-1), '现在是下午三点')
+  sockets[0].emit({ type: 'token', text: '整。' })
+  sockets[0].emit({ type: 'turn_end', interrupted: false })
+  assert.equal(events.replies.at(-1), '现在是下午三点整。', 'turn_end 不等帧直接补齐')
+  sockets[0].emit({ type: 'turn_start' })
+  sockets[0].emit({ type: 'token', text: '好' })
+  sockets[0].emit({ type: 'token', text: '的' })
+  const pending = frames.filter(Boolean).length
+  call.hangup()
+  assert.equal(frames.filter(Boolean).length, pending - 1, '挂断作废已排的刷新帧')
+})

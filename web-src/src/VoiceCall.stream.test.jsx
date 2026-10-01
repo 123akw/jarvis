@@ -205,6 +205,29 @@ describe('VoiceCall 推流模式', () => {
     expect(MockAudioContext.sources[0].start).toHaveBeenCalledWith(0.02) // 立即排播
   })
 
+  it('回答字幕按帧合并：首字立即上屏，同帧后续 token 只刷一次，turn_end 立即补齐', async () => {
+    const frames = []
+    vi.stubGlobal('requestAnimationFrame', cb => { frames.push(cb); return frames.length })
+    vi.stubGlobal('cancelAnimationFrame', id => { frames[id - 1] = null })
+    const ws = await startCall()
+    act(() => { ws.emit({ type: 'turn_start' }); ws.emit({ type: 'token', text: '现在' }) })
+    expect(screen.getByText('现在')).toBeInTheDocument() // 本回合首字不等帧
+    expect(frames).toHaveLength(0)
+
+    act(() => { ws.emit({ type: 'token', text: '是下午' }); ws.emit({ type: 'token', text: '三点' }) })
+    expect(screen.getByText('现在')).toBeInTheDocument() // 帧还没到，不逐 token 重渲染
+    expect(frames.filter(Boolean)).toHaveLength(1) // 两个 token 只排一帧
+    act(() => frames.splice(0).forEach(cb => cb && cb()))
+    expect(screen.getByText('现在是下午三点')).toBeInTheDocument()
+
+    act(() => ws.emit({ type: 'token', text: '整。' }))
+    act(() => ws.emit({ type: 'turn_end', interrupted: false })) // 不跑帧：turn_end 直接补齐
+    expect(screen.getByText('现在是下午三点整。')).toBeInTheDocument()
+
+    act(() => { ws.emit({ type: 'turn_start' }); ws.emit({ type: 'token', text: '新回合' }) })
+    expect(screen.getByText('新回合')).toBeInTheDocument() // 新回合首字又是立即上屏，旧帧不串台
+  })
+
   it('PCM16 → Float32 换算正确（循环实现，替代逐样本回调）', () => {
     const out = pcm16ToFloat32(new Int16Array([0, 16384, -32768, 32767]))
     expect(Array.from(out)).toEqual([0, 0.5, -1, 32767 / 32768])

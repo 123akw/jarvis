@@ -24,6 +24,9 @@
   /**
    * 一通语音通话。返回 { start, hangup, sendTyped, bargeIn, state }。
    * on 回调：phase/micState/inputMode/notice/interim/heard/reply/tools/expired。
+   * reply 按帧合并：本回合首个 token 立即回调，之后同一帧内的 token 合并成一次回调
+   * （渲染层每次回调都要改 textContent + 读 scrollHeight 强制布局，逐 token 回调会卡）。
+   * requestFrame/cancelFrame 可注入（测试用手动帧），缺省 requestAnimationFrame，无则 16ms 定时器。
    */
   function createVoiceCall({
     url,
@@ -36,6 +39,8 @@
     speechCtor = () => null,
     on = {},
     maxReconnects = 1,
+    requestFrame = null,
+    cancelFrame = null,
   }) {
     const state = {
       phase: 'connecting',   // connecting|listening|thinking|speaking|closed
@@ -52,6 +57,35 @@
     let vadRun = 0
 
     const emit = (name, payload) => { if (on[name]) on[name](payload) }
+    const raf = requestFrame || (typeof globalThis.requestAnimationFrame === 'function'
+      ? cb => globalThis.requestAnimationFrame(cb) : cb => setTimeout(cb, 16))
+    const caf = cancelFrame || (typeof globalThis.cancelAnimationFrame === 'function'
+      ? id => globalThis.cancelAnimationFrame(id) : id => clearTimeout(id))
+    let replyFrame = null
+    let replyShown = false   // 本回合是否已有字上屏（首字不等帧）
+
+    function cancelReplyFrame() {
+      if (replyFrame == null) return
+      const id = replyFrame
+      replyFrame = null
+      try { caf(id) } catch { /* 已过期 */ }
+    }
+    function flushReply() {
+      cancelReplyFrame()
+      if (state.alive) emit('reply', state.reply)
+    }
+    /** 整体替换回答（开场白/新回合清空）：立即回调并作废已排的刷新帧。 */
+    function resetReply(text) {
+      cancelReplyFrame()
+      state.reply = text
+      replyShown = false
+      emit('reply', text)
+    }
+    function appendReply(text) {
+      state.reply += text   // state() 永远是全文；只有回调被按帧合并
+      if (!replyShown) { replyShown = true; flushReply(); return }
+      if (replyFrame == null) replyFrame = raf(flushReply)
+    }
     function setPhase(p) { if (state.alive && state.phase !== p) { state.phase = p; emit('phase', p) } }
     function setNotice(m) { state.notice = m; emit('notice', m) }
     function setInterim(t) { if (state.interim !== t) { state.interim = t; emit('interim', t) } }
@@ -107,12 +141,11 @@
         setPhase('listening')
         if (ev.scene) emit('scene', { id: ev.scene, name: ev.scene_name || '', opening: ev.opening || '' })
         // 开场白只在首次 ready 显示：断线自动重连的 ready 不能把正在看的回答冲掉
-        if (ev.opening && !state.sawReady) { state.reply = ev.opening; emit('reply', state.reply) }
+        if (ev.opening && !state.sawReady) resetReply(ev.opening)
         state.sawReady = true
         startVoiceInput()
       } else if (ev.type === 'scene') {
-        state.reply = ev.opening || ''
-        emit('reply', state.reply)
+        resetReply(ev.opening || '')
         emit('scene', { id: ev.scene, name: ev.scene_name || '', opening: ev.opening || '' })
       } else if (ev.type === 'emotion') {
         emit('emotion', { emotion: ev.emotion || '', label: ev.label || '' })
@@ -132,14 +165,12 @@
         degradeToSpeech(ev.message || '服务端语音识别暂不可用，已切换本地识别')
       } else if (ev.type === 'turn_start') {
         state.turnDone = false
-        state.reply = ''
-        emit('reply', '')
+        resetReply('')
         state.tools = []
         emit('tools', [])
         setPhase('thinking')
       } else if (ev.type === 'token') {
-        state.reply += ev.text || ''
-        emit('reply', state.reply)
+        appendReply(ev.text || '')
       } else if (ev.type === 'tool_start') {
         state.tools.push({ name: ev.name, done: false })
         emit('tools', state.tools.slice())
@@ -152,6 +183,7 @@
       } else if (ev.type === 'tts_error') {
         setNotice(ev.message || '语音合成暂不可用，本回合降级为纯文字')
       } else if (ev.type === 'turn_end') {
+        flushReply() // 回合结束：残留的合并帧立即回调（窗口隐藏 rAF 暂停也不丢字）
         state.turnDone = true
         if (ev.interrupted || !player.playing()) setPhase('listening')
       } else if (ev.type === 'error') {
@@ -316,6 +348,7 @@
     function hangup() {
       if (!state.alive) return
       state.alive = false
+      cancelReplyFrame()
       if (micHandle) {
         try { micHandle.stop() } catch { /* 已停 */ }
         micHandle = null

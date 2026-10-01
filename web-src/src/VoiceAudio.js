@@ -9,34 +9,49 @@ export const FRAME_SAMPLES = 1600 // 100ms @16kHz
 
 const WORKLET_NAME = 'jws-pcm-capture'
 
-const WORKLET_SOURCE = `
+export const WORKLET_SOURCE = `
 class JwsPcmCapture extends AudioWorkletProcessor {
   constructor() {
     super()
-    this.buf = new Float32Array(0)   // 源采样缓冲（原始采样率）
-    this.pos = 0                     // 缓冲内的浮点读取位置
+    // 源采样缓冲（原始采样率）预分配、原地复用：process() 每 128 样本就调一次（约 375 次/秒），
+    // 唤醒词常驻时一直在跑，每次 new 数组会给音频线程制造持续的 GC 压力。
+    this.src = new Float32Array(2048)
+    this.srcLen = 0
+    this.pos = 0                     // 缓冲内的浮点读取位置（可越过缓冲尾，指向下一块）
     this.frame = new Float32Array(${FRAME_SAMPLES})
     this.frameLen = 0
   }
   process(inputs) {
     const ch = inputs[0] && inputs[0][0]
     if (!ch || !ch.length) return true
-    const merged = new Float32Array(this.buf.length + ch.length)
-    merged.set(this.buf); merged.set(ch, this.buf.length)
-    this.buf = merged
+    if (this.srcLen + ch.length > this.src.length) {  // 渲染块变大才一次性扩容，常态不触发
+      const grown = new Float32Array((this.srcLen + ch.length) * 2)
+      grown.set(this.src.subarray(0, this.srcLen))
+      this.src = grown
+    }
+    const src = this.src
+    src.set(ch, this.srcLen)
+    this.srcLen += ch.length
     const ratio = sampleRate / ${TARGET_SAMPLE_RATE}
-    while (this.pos + 1 < this.buf.length) {
+    while (this.pos + 1 < this.srcLen) {
       const j = Math.floor(this.pos)
       const frac = this.pos - j
-      this.frame[this.frameLen++] = this.buf[j] + (this.buf[j + 1] - this.buf[j]) * frac
+      this.frame[this.frameLen++] = src[j] + (src[j + 1] - src[j]) * frac
       this.pos += ratio
       if (this.frameLen === ${FRAME_SAMPLES}) this.flush()
     }
-    const keep = Math.floor(this.pos)
-    if (keep > 0) { this.buf = this.buf.slice(keep); this.pos -= keep }
+    // 已消费的样本原地前移（不分配）。读取位置可能已越过本块末尾（48kHz 时每块都会），
+    // 只能丢掉手里有的样本、保留越过的相位——旧实现在这里多丢一个相位，48kHz 下每秒多出 125 个样本。
+    const keep = Math.min(Math.floor(this.pos), this.srcLen)
+    if (keep > 0) {
+      src.copyWithin(0, keep, this.srcLen)
+      this.srcLen -= keep
+      this.pos -= keep
+    }
     return true
   }
   flush() {
+    // 每 100ms 一帧要把所有权转移给主线程（postMessage transfer），这一块只能按帧新建
     const pcm = new Int16Array(${FRAME_SAMPLES})
     let sum = 0
     for (let i = 0; i < ${FRAME_SAMPLES}; i++) {

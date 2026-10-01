@@ -105,3 +105,68 @@ test('encodeWav 产出合法 16k/16bit/单声道头；bufferToBase64 可逆', ()
   const b64 = bufferToBase64(wav)
   assert.deepStrictEqual(new Uint8Array(Buffer.from(b64, 'base64')), new Uint8Array(wav))
 })
+
+// ---------- 自适应噪声底：仿真（100ms 一帧、真实时间推进、识别异步返回） ----------
+
+function rng(seed) {   // 确定性伪随机，仿真可复现
+  let x = seed >>> 0
+  return () => { x = (x * 1664525 + 1013904223) >>> 0; return x / 2 ** 32 }
+}
+
+/** 按 rms 序列逐帧喂，返回送检次数与唤醒次数；opts 透传给监听器（含 noiseRatio）。 */
+async function simulate(rmsSeq, opts = {}) {
+  let now = 0
+  const submitted = []
+  const listener = createWakeWordListener({
+    threshold: 0.025,          // 与 renderer.js 实际接线一致
+    recognize: async wav => { submitted.push(wav); return { matched: opts.match !== false, text: '贾维斯' } },
+    now: () => now,
+    ...opts,
+  })
+  for (const rms of rmsSeq) {
+    listener.feed(frame(rms))
+    now += 100
+    await tick()
+  }
+  return { submits: submitted.length, state: listener.state() }
+}
+
+function quietRoomWithWakeWords(seconds = 30) {
+  const r = rng(7)
+  const seq = []
+  for (let i = 0; i < seconds * 10; i++) {
+    const t = i % 80                       // 每 8 秒说一次「贾维斯」（约 0.7 秒）
+    seq.push(t >= 40 && t < 47 ? 0.05 + r() * 0.04 : 0.002 + r() * 0.006)
+  }
+  return seq
+}
+
+test('安静环境：自适应门限与固定 0.025 逐帧一致，唤醒次数不变', async () => {
+  const seq = quietRoomWithWakeWords()
+  const adaptive = await simulate(seq)
+  const fixed = await simulate(seq, { noiseRatio: 0 })
+  assert.strictEqual(fixed.submits, 4)
+  assert.strictEqual(adaptive.submits, fixed.submits, '安静环境唤醒率不能降')
+  assert.strictEqual(adaptive.state.gate, 0.025, '底噪 ×2.5 仍低于固定门限 → 门限不动')
+})
+
+test('持续噪声（风扇/电视，rms 0.03–0.036）：不再每隔几秒上传云识别', async () => {
+  const r = rng(11)
+  const seq = Array.from({ length: 600 }, () => 0.03 + r() * 0.006)   // 60 秒
+  const fixed = await simulate(seq, { noiseRatio: 0, match: false })
+  const adaptive = await simulate(seq, { match: false })
+  assert.ok(fixed.submits >= 7, `固定门限下持续噪声会反复送检，实际 ${fixed.submits} 次/分钟`)
+  assert.ok(adaptive.submits <= 1, `自适应后至多开麦瞬间 1 次，实际 ${adaptive.submits}`)
+  assert.ok(adaptive.state.gate > 0.07, `门限应随底噪升高，实际 ${adaptive.state.gate}`)
+})
+
+test('噪声环境里正常音量说「贾维斯」仍能唤醒', async () => {
+  const r = rng(23)
+  const seq = []
+  for (let i = 0; i < 50; i++) seq.push(0.02 + r() * 0.005)        // 5 秒底噪 0.02–0.025
+  for (let i = 0; i < 7; i++) seq.push(0.09 + r() * 0.05)          // 0.7 秒人声
+  for (let i = 0; i < 10; i++) seq.push(0.02 + r() * 0.005)
+  const { submits, state } = await simulate(seq)
+  assert.strictEqual(submits, 1)
+  assert.strictEqual(state.wakes, 1)
+})
