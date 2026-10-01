@@ -1,9 +1,12 @@
 """语音链路冒烟：--live 分两步——1) 真连 MiniMax 流式 TTS 测首包；
 2) 拉起真实本地服务走完整通话回合（真 agent + 真 TTS），打印全链路
-「说完→首音频」毫秒数，硬指标 ≤3500ms。
+「说完→首音频」毫秒数与分段拆解（网关 latency 帧：LLM 首 token / 首句切出 /
+TTS 就绪 / 首包），硬指标 ≤3500ms。
 
 用法：
     .venv/bin/python scripts/voice_smoke.py --live
+    .venv/bin/python scripts/voice_smoke.py --live --turns 2 --dump timeline.json
+    （--dump 把每回合 token 到达时间轴存成 JSON，可离线回放比较切句策略）
 
 判定（--live）：
 - TTS：会话建立成功、音频字节 >0、首包 ≤2500ms；
@@ -30,7 +33,7 @@ from jarvis.voice.tts import TTSError, TTSSession
 
 ROOT = Path(__file__).resolve().parent.parent
 SMOKE_TEXT = "你好，我是贾维斯。语音链路冒烟测试进行中，请注意收听这一段合成语音。"
-TURN_TEXT = "给我讲一句话的冷知识。"
+TURN_TEXTS = ("给我讲一句话的冷知识。", "用两三句话介绍一下你自己能帮我做什么。")
 E2E_BUDGET_MS = 3500.0
 
 
@@ -81,8 +84,46 @@ async def live_check() -> int:
     return 0 if verdict else 1
 
 
-async def full_chain_check() -> int:
-    """拉起真实服务，走一个完整语音回合，测「说完→首音频」全链路延迟。"""
+_STAGES = (
+    ("agent_start", "回合启动（建线程记录）"),
+    ("tts_ready", "TTS 会话就绪（与 LLM 并行）"),
+    ("llm_first_token", "LLM 首 token"),
+    ("first_segment", "首句切出送 TTS"),
+    ("first_tts_send", "首句发出"),
+    ("first_audio", "TTS 首包下行"),
+)
+
+
+def playback_stalls(chunks: list, sample_rate: int, lead_ms: float = 20.0) -> tuple[int, float]:
+    """按前端排播规则（到达 +20ms 起播、首尾相接）模拟播放，统计缓冲见底次数与累计卡顿 ms。
+    chunks: [(到达 ms, 字节数)]。卡顿 >0 说明 TTS 跟不上播放（流水线不够）。"""
+    next_end = None
+    count, total = 0, 0.0
+    for arrival, nbytes in chunks:
+        ready = arrival + lead_ms
+        if next_end is not None and ready > next_end:
+            count += 1
+            total += ready - next_end
+        start = ready if next_end is None else max(ready, next_end)
+        next_end = start + nbytes / (2 * sample_rate) * 1000
+    return count, total
+
+
+def _print_breakdown(latency: dict, client_first_audio_ms: float) -> None:
+    print("[全链路] 分段（网关时间轴，自 user_text 到达起，ms）：")
+    for key, label in _STAGES:
+        if key in latency:
+            print(f"    {label:<22} {latency[key]:>6}")
+    seg, tok, audio = latency.get("first_segment"), latency.get("llm_first_token"), latency.get("first_audio")
+    if seg is not None and tok is not None:
+        print(f"    └ 首 token→首句切出      {seg - tok:>6}")
+    if audio is not None and seg is not None:
+        print(f"    └ 首句切出→TTS 首包      {audio - seg:>6}")
+    print(f"    客户端实收首音频         {client_first_audio_ms:>6.0f}")
+
+
+async def full_chain_check(turns: int = 1, dump: str | None = None) -> int:
+    """拉起真实服务，走完整语音回合，测「说完→首音频」全链路延迟与分段。"""
     import httpx
     import websockets
 
@@ -132,40 +173,63 @@ async def full_chain_check() -> int:
             if ready.get("type") != "ready":
                 print(f"全链路：握手失败 {ready} —— FAIL")
                 return 1
-            print(f"[全链路] 我说：{TURN_TEXT}")
-            t0 = time.monotonic()
-            await ws.send(json.dumps({"type": "user_text", "text": TURN_TEXT}))
-            first_audio_ms = None
-            audio_bytes = 0
-            reply = []
-            finished = False
-            while True:
-                frame = await asyncio.wait_for(ws.recv(), 120)
-                if isinstance(frame, (bytes, bytearray)):
-                    if first_audio_ms is None:
-                        first_audio_ms = (time.monotonic() - t0) * 1000
-                    audio_bytes += len(frame)
-                    continue
-                event = json.loads(frame)
-                if event["type"] == "token":
-                    reply.append(event["text"])
-                elif event["type"] == "tts_error":
-                    print(f"全链路：TTS 降级（{event.get('message')}）—— FAIL")
+            worst = 0.0
+            timelines = []
+            for text in TURN_TEXTS[:max(1, turns)]:
+                print(f"[全链路] 我说：{text}")
+                t0 = time.monotonic()
+                await ws.send(json.dumps({"type": "user_text", "text": text}))
+                first_audio_ms = None
+                audio_bytes = 0
+                chunks = []
+                sample_rate = 24000
+                reply = []
+                tokens = []
+                latency = {}
+                finished = False
+                while True:
+                    frame = await asyncio.wait_for(ws.recv(), 120)
+                    if isinstance(frame, (bytes, bytearray)):
+                        if first_audio_ms is None:
+                            first_audio_ms = (time.monotonic() - t0) * 1000
+                        audio_bytes += len(frame)
+                        chunks.append(((time.monotonic() - t0) * 1000, len(frame)))
+                        continue
+                    event = json.loads(frame)
+                    if event["type"] == "token":
+                        reply.append(event["text"])
+                        tokens.append([round((time.monotonic() - t0) * 1000, 1), event["text"]])
+                    elif event["type"] == "latency":
+                        latency = event
+                    elif event["type"] == "audio_start":
+                        sample_rate = int(event.get("sample_rate") or 24000)
+                    elif event["type"] == "tts_error":
+                        print(f"全链路：TTS 降级（{event.get('message')}）—— FAIL")
+                        return 1
+                    elif event["type"] == "turn_end":
+                        finished = not event.get("interrupted")
+                        break
+                    elif event["type"] == "error":
+                        print(f"全链路：回合出错（{event.get('message')}）—— FAIL")
+                        return 1
+                print(f"[全链路] 贾维斯答：{''.join(reply)}")
+                if first_audio_ms is None or not finished:
+                    print("全链路：没收到音频或回合未走完 —— FAIL")
                     return 1
-                elif event["type"] == "turn_end":
-                    finished = not event.get("interrupted")
-                    break
-                elif event["type"] == "error":
-                    print(f"全链路：回合出错（{event.get('message')}）—— FAIL")
-                    return 1
-        print(f"[全链路] 贾维斯答：{''.join(reply)}")
-        if first_audio_ms is None or not finished:
-            print("全链路：没收到音频或回合未走完 —— FAIL")
-            return 1
-        print(f"[全链路] 音频共 {audio_bytes} 字节")
-        print(f"全链路延迟「说完→首音频」：{first_audio_ms:.0f}ms（预算 {E2E_BUDGET_MS:.0f}ms）"
-              f" —— {'PASS' if first_audio_ms <= E2E_BUDGET_MS else 'FAIL'}")
-        return 0 if first_audio_ms <= E2E_BUDGET_MS else 1
+                print(f"[全链路] 音频共 {audio_bytes} 字节")
+                _print_breakdown(latency, first_audio_ms)
+                stall_n, stall_ms = playback_stalls(chunks, sample_rate)
+                print(f"    播放卡顿（缓冲见底）     {stall_n} 次 / 共 {stall_ms:.0f}ms"
+                      f"（音频 {audio_bytes / (2 * sample_rate):.1f}s）")
+                worst = max(worst, first_audio_ms)
+                timelines.append({"text": text, "tokens": tokens, "latency": latency,
+                                  "client_first_audio_ms": round(first_audio_ms, 1)})
+                await asyncio.sleep(1.0)  # 回合间留白，贴近真实对话节奏
+        if dump:
+            Path(dump).write_text(json.dumps(timelines, ensure_ascii=False, indent=1))
+        print(f"全链路延迟「说完→首音频」（最慢回合）：{worst:.0f}ms（预算 {E2E_BUDGET_MS:.0f}ms）"
+              f" —— {'PASS' if worst <= E2E_BUDGET_MS else 'FAIL'}")
+        return 0 if worst <= E2E_BUDGET_MS else 1
     finally:
         server.terminate()
         try:
@@ -177,6 +241,8 @@ async def full_chain_check() -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description="语音链路冒烟")
     parser.add_argument("--live", action="store_true", help="真连 MiniMax TTS + 全链路回合")
+    parser.add_argument("--turns", type=int, default=1, help="全链路回合数（1–2，同一通电话里连说）")
+    parser.add_argument("--dump", help="把每回合 token 时间轴与分段写入该 JSON 文件")
     args = parser.parse_args()
     config.load_env()
     if not args.live:
@@ -184,7 +250,7 @@ def main() -> int:
     tts_rc = asyncio.run(live_check())
     if tts_rc != 0:
         return tts_rc
-    return asyncio.run(full_chain_check())
+    return asyncio.run(full_chain_check(args.turns, args.dump))
 
 
 if __name__ == "__main__":

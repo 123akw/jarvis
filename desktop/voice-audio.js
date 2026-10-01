@@ -132,9 +132,17 @@ registerProcessor('${WORKLET_NAME}', JwsPcmCapture)
     return startStreamCapture(stream, { onFrame, onLevel }, scope)
   }
 
+  /** PCM16 → Float32：普通循环（比 Float32Array.from 逐样本回调快数倍，少占渲染主线程）。 */
+  function pcm16ToFloat32(pcm) {
+    const out = new Float32Array(pcm.length)
+    for (let i = 0; i < pcm.length; i++) out[i] = pcm[i] / 32768
+    return out
+  }
+
   /**
    * PCM16 小端单声道排队播放器（TTS 下行）。createContext 可注入，测试给 fake AudioContext。
    * enqueue 按块顺播；stop 全停清队；onIdle 在队列放空时回调（回合结束回到「听」态用）。
+   * warm 在接通时预建并 resume 上下文：首句音频到达时输出设备已在运行，不算进首音频延迟。
    */
   function createPcmPlayer({ createContext } = {}) {
     const state = { ctx: null, nextTime: 0, sources: new Set(), sampleRate: 24000, idle: null }
@@ -151,13 +159,13 @@ registerProcessor('${WORKLET_NAME}', JwsPcmCapture)
     }
     return {
       start(sampleRate) { state.sampleRate = sampleRate || 24000 },
+      warm() { ensureCtx() },
       enqueue(buf) {
         const ctx = ensureCtx()
         if (!ctx) return
         const usable = buf.byteLength - (buf.byteLength % 2)
         if (!usable) return
-        const pcm = new Int16Array(buf, 0, usable / 2)
-        const f32 = Float32Array.from(pcm, v => v / 32768)
+        const f32 = pcm16ToFloat32(new Int16Array(buf, 0, usable / 2))
         const buffer = ctx.createBuffer(1, f32.length, state.sampleRate)
         buffer.getChannelData(0).set(f32)
         const src = ctx.createBufferSource()
@@ -187,5 +195,5 @@ registerProcessor('${WORKLET_NAME}', JwsPcmCapture)
   }
 
   return { TARGET_SAMPLE_RATE, FRAME_SAMPLES, pcmStreamSupported, isMicError,
-    startStreamCapture, startMicStream, startSystemAudioStream, createPcmPlayer }
+    startStreamCapture, startMicStream, startSystemAudioStream, createPcmPlayer, pcm16ToFloat32 }
 })

@@ -17,6 +17,13 @@ const VAD_VOICE_FRAMES = 2     // 连续 2 帧（约 200ms）确认开口 → �
 
 const speechCtor = () => window.SpeechRecognition || window.webkitSpeechRecognition
 
+/** PCM16 → Float32：普通循环（比 Float32Array.from 逐样本回调快数倍，少占主线程）。 */
+export function pcm16ToFloat32(pcm) {
+  const out = new Float32Array(pcm.length)
+  for (let i = 0; i < pcm.length; i++) out[i] = pcm[i] / 32768
+  return out
+}
+
 const EMOTION_EMOJI = {
   happy: '😊', sad: '😢', angry: '😠', surprised: '😲',
   fearful: '😨', disgusted: '😒', neutral: '🙂',
@@ -86,8 +93,7 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
     if (!ctx) return
     const usable = buf.byteLength - (buf.byteLength % 2)
     if (!usable) return
-    const pcm = new Int16Array(buf, 0, usable / 2)
-    const f32 = Float32Array.from(pcm, v => v / 32768)
+    const f32 = pcm16ToFloat32(new Int16Array(buf, 0, usable / 2))
     const buffer = ctx.createBuffer(1, f32.length, a.sampleRate || 24000)
     buffer.getChannelData(0).set(f32)
     const src = ctx.createBufferSource()
@@ -370,6 +376,9 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
     getVoiceSettings()
       .then(v => { setScenes(v.scenes || []); if (v.scene) setScene(v.scene) })
       .catch(() => {})   // 老服务端没有场景字段也不影响通话
+    // 播放上下文在接通时就建好并 resume：首句回答到达时音频设备已在运行，
+    // 不再把「建 AudioContext + 打开输出设备」算进首音频延迟（也趁点击后的用户激活解锁自动播放）
+    ensureCtx()
     startVoiceInput()
     return () => {
       aliveRef.current = false

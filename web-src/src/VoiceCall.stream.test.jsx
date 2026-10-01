@@ -2,7 +2,7 @@ import '@testing-library/jest-dom/vitest'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import VoiceCall from './VoiceCall.jsx'
+import VoiceCall, { pcm16ToFloat32 } from './VoiceCall.jsx'
 
 // 推流采集模块打桩：测试直接驱动 onFrame/onLevel，覆盖「推流+字幕+VAD 打断+降级」链路
 const audioMock = vi.hoisted(() => ({
@@ -46,10 +46,14 @@ class MockRecognition {
 
 class MockAudioContext {
   static sources = []
+  static instances = []
+  static initialState = 'running'
   constructor() {
     this.currentTime = 0
     this.destination = {}
-    this.state = 'running'
+    this.state = MockAudioContext.initialState
+    this.resumed = 0
+    MockAudioContext.instances.push(this)
   }
   createBuffer(_ch, len, rate) {
     return { duration: len / rate, getChannelData: () => new Float32Array(len) }
@@ -59,7 +63,7 @@ class MockAudioContext {
     MockAudioContext.sources.push(src)
     return src
   }
-  resume() {}
+  resume() { this.resumed += 1; this.state = 'running' }
   close() {}
 }
 
@@ -83,6 +87,8 @@ describe('VoiceCall 推流模式', () => {
     MockWebSocket.instances = []
     MockRecognition.instances = []
     MockAudioContext.sources = []
+    MockAudioContext.instances = []
+    MockAudioContext.initialState = 'running'
     audioMock.handlers = null
     audioMock.stopped = false
     audioMock.supported = true
@@ -184,5 +190,23 @@ describe('VoiceCall 推流模式', () => {
 
     act(() => ws.emit({ type: 'turn_end', interrupted: true }))
     expect(screen.getByText('请讲，我在听')).toBeInTheDocument()
+  })
+
+  it('接通即建好并 resume 播放上下文：首句音频到达时不再现建（首音频不含设备启动）', async () => {
+    MockAudioContext.initialState = 'suspended'
+    const ws = await startCall()
+    expect(MockAudioContext.instances).toHaveLength(1)
+    const ctx = MockAudioContext.instances[0]
+    expect(ctx.resumed).toBeGreaterThan(0)
+    expect(MockAudioContext.sources).toHaveLength(0) // 只建上下文，没播任何东西
+
+    act(() => ws.emitBinary(new Int16Array([1000, -1000]).buffer))
+    expect(MockAudioContext.instances).toHaveLength(1) // 复用接通时那一个
+    expect(MockAudioContext.sources[0].start).toHaveBeenCalledWith(0.02) // 立即排播
+  })
+
+  it('PCM16 → Float32 换算正确（循环实现，替代逐样本回调）', () => {
+    const out = pcm16ToFloat32(new Int16Array([0, 16384, -32768, 32767]))
+    expect(Array.from(out)).toEqual([0, 0.5, -1, 32767 / 32768])
   })
 })

@@ -6,6 +6,10 @@
     .venv/bin/python scripts/asr_smoke.py --live     # 真连百炼；无 --wav 时先用
                                                      # MiniMax TTS 合成一句话再识别（回环验证）
     .venv/bin/python scripts/asr_smoke.py --live --wav path/to/16k_mono.wav
+    .venv/bin/python scripts/asr_smoke.py --live --wav x.wav --vad [--max-silence 500]
+        # 判停延迟：按真实节奏（100ms/帧）推流 + 句尾补静音，测「说完→定稿」毫秒数
+    .venv/bin/python scripts/asr_smoke.py --live --save-wav x.wav
+        # 只合成回环音频存成 16k wav（之后反复测判停不再烧 TTS）
 
 判定（--live）：
 - 无 DASHSCOPE_API_KEY → 直接失败并提示（待 key）；
@@ -72,6 +76,62 @@ async def synthesize_loop_audio() -> bytes:
         await session.close()
     print(f"[smoke] 合成回环音频：{len(audio)} 字节 @24kHz（原句：{LOOP_TEXT}）")
     return resample_pcm16(audio, 24000)
+
+
+def speech_end_ms(pcm16k: bytes, threshold: int = 800) -> int:
+    """音频里最后一个明显有声样本的时刻（ms）：判停延迟从这里起算。"""
+    import array
+    samples = array.array("h")
+    samples.frombytes(pcm16k[: len(pcm16k) - (len(pcm16k) % 2)])
+    for i in range(len(samples) - 1, -1, -1):
+        if abs(samples[i]) >= threshold:
+            return int(i * 1000 / SAMPLE_RATE)
+    return 0
+
+
+async def measure_vad(pcm16k: bytes, max_silence: int | None) -> int:
+    """真实节奏推流（100ms 一帧、句尾持续补静音），测「说完→定稿」判停等待。"""
+    end_ms = speech_end_ms(pcm16k)
+    session = ASRSession(max_sentence_silence=max_silence)
+    await session.connect()
+    silence = bytes(CHUNK_BYTES)
+    sent = {"bytes": 0}
+
+    async def pump():
+        t_start = time.monotonic()
+        i = 0
+        while True:
+            chunk = pcm16k[i:i + CHUNK_BYTES] if i < len(pcm16k) else silence
+            i += CHUNK_BYTES
+            await session.send_audio(chunk)
+            sent["bytes"] += len(chunk)
+            # 严格按墙钟对齐实时，不累积 sleep 漂移
+            await asyncio.sleep(max(0.0, t_start + sent["bytes"] / 32000 - time.monotonic()))
+
+    t_pump = time.monotonic()
+    pump_task = asyncio.create_task(pump())
+    final = None
+    try:
+        async def first_final():
+            async for result in session.results():
+                if result.is_final:
+                    return result
+            return None
+        final = await asyncio.wait_for(first_final(), 15)
+    finally:
+        t_final = time.monotonic()
+        pump_task.cancel()
+        await session.close()
+    label = f"max_sentence_silence={max_silence}" if max_silence else "服务端默认（800）"
+    if final is None:
+        print(f"FAIL：{label} 没等到定稿")
+        return 1
+    wall_wait = (t_final - t_pump) * 1000 - end_ms
+    stamp_wait = (sent["bytes"] / 32 - final.end_ms) if final.end_ms is not None else None
+    print(f"[vad] {label}：定稿「{final.text}」")
+    print(f"[vad] 说话结束 @{end_ms}ms（音频内），定稿到达 → 墙钟判停等待 {wall_wait:.0f}ms"
+          + (f"；按末字时间戳 {stamp_wait:.0f}ms（末字 end_time={final.end_ms}）" if stamp_wait is not None else ""))
+    return 0
 
 
 async def recognize(pcm16k: bytes) -> tuple[str, float]:
@@ -148,11 +208,34 @@ def offline_check() -> int:
     return 0 if ok else 1
 
 
-async def live_check(wav: str | None) -> int:
+def save_wav_16k(path: str, pcm16k: bytes) -> None:
+    with wave.open(path, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(SAMPLE_RATE)
+        wf.writeframes(pcm16k)
+
+
+async def live_check(wav: str | None, *, vad: bool = False, max_silence: int | None = None,
+                     save_wav: str | None = None) -> int:
     import os
+    if save_wav:
+        pcm = await synthesize_loop_audio()
+        save_wav_16k(save_wav, pcm)
+        print(f"[smoke] 已存 16k wav：{save_wav}（{len(pcm)} 字节）")
+        return 0
     if not os.getenv("DASHSCOPE_API_KEY", "").strip():
         print("FAIL：.env 未配置 DASHSCOPE_API_KEY，服务端识别待 key（见 BLOCKED.md）")
         return 1
+    if vad:
+        if not wav:
+            print("FAIL：--vad 需要 --wav（先用 --save-wav 合成一份）")
+            return 1
+        try:
+            return await measure_vad(load_wav_16k(wav), max_silence)
+        except ASRError as exc:
+            print(f"FAIL：{exc}")
+            return 1
     expected = None
     if wav:
         pcm = load_wav_16k(wav)
@@ -190,11 +273,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="百炼实时识别冒烟")
     parser.add_argument("--live", action="store_true", help="真连百炼识别")
     parser.add_argument("--wav", help="16kHz/16-bit/单声道 wav 路径（缺省用 TTS 合成回环）")
+    parser.add_argument("--vad", action="store_true", help="测判停延迟（真实节奏推流 + 句尾补静音）")
+    parser.add_argument("--max-silence", type=int, help="判停静音阈值 ms（缺省用服务端默认 800）")
+    parser.add_argument("--save-wav", help="只合成回环音频并存成 16k wav")
     args = parser.parse_args()
     config.load_env()
     if not args.live:
         return offline_check()
-    return asyncio.run(live_check(args.wav))
+    return asyncio.run(live_check(args.wav, vad=args.vad, max_silence=args.max_silence,
+                                  save_wav=args.save_wav))
 
 
 if __name__ == "__main__":
