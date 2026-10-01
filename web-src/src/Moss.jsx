@@ -1,5 +1,5 @@
 import { Bloom, EffectComposer } from '@react-three/postprocessing'
-import { Canvas, useFrame } from '@react-three/fiber'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
@@ -328,12 +328,49 @@ export default function Moss({ busy = false, fail = false, spinup = false, onPic
   )
 }
 
-/** 侧栏迷你 MOSS：小画布、免后处理，照样追鼠标；busy 时红瞳扫描 */
+/** 限帧 + 不可见即停：配合 frameloop="demand"，按 fps 定时 invalidate；画布不在视口内
+ *  （侧栏收起 display:none / 窄屏抽屉移出屏幕）或页面隐藏时整条循环停掉，可见时再续上。
+ *  旧版 frameloop 默认 always，侧栏收起后仍 60fps 空转渲染。 */
+function FrameDriver({ fps = 30 }) {
+  const invalidate = useThree(s => s.invalidate)
+  const gl = useThree(s => s.gl)
+  useEffect(() => {
+    let timer = 0
+    let inView = true
+    const step = Math.max(1, Math.round(1000 / fps))
+    const running = () => inView && !document.hidden
+    const tick = () => {
+      timer = 0
+      if (!running()) return
+      invalidate()
+      timer = setTimeout(tick, step)
+    }
+    const kick = () => { if (!timer && running()) tick() }
+    const io = typeof IntersectionObserver === 'function'
+      ? new IntersectionObserver(entries => {
+        inView = entries[entries.length - 1].isIntersecting
+        kick()
+      })
+      : null
+    io?.observe(gl.domElement)
+    document.addEventListener('visibilitychange', kick)
+    kick()
+    return () => {
+      clearTimeout(timer)
+      io?.disconnect()
+      document.removeEventListener('visibilitychange', kick)
+    }
+  }, [fps, gl, invalidate])
+  return null
+}
+
+/** 侧栏迷你 MOSS：小画布、免后处理，照样追鼠标；busy 时红瞳扫描。限 30fps、不可见不渲染 */
 export function MossMini({ busy = false }) {
   const mouse = useMouse()
   return (
-    <Canvas dpr={[1, 1.5]} camera={{ position: [0, 0, 5.6], fov: 40 }}
+    <Canvas frameloop="demand" dpr={[1, 1.5]} camera={{ position: [0, 0, 5.6], fov: 40 }}
       gl={{ antialias: true, alpha: true }}>
+      <FrameDriver fps={30} />
       <ambientLight intensity={0.95} />
       <pointLight position={[-4, 3, 5]} intensity={28} color="#53E8FF" />
       <pointLight position={[4, -2, 4]} intensity={42} color="#FFFFFF" />

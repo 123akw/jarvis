@@ -45,11 +45,14 @@
       DOMPurify.__jwsLinkHook = true
     }
 
-    return function render(text, opts) {
+    /** 不做任何补全的纯渲染：流式增量渲染里「已完结块」走这里（围栏天然成对） */
+    const renderBlock = s => DOMPurify.sanitize(parser.parse(s))
+
+    function render(text, opts) {
       const streaming = Boolean(opts && opts.streaming)
       let s = String(text == null ? '' : text)
       if (((s.match(/```/g) || []).length) % 2 === 1) s += '\n```'  // 流式中未闭合的代码块
-      let html = DOMPurify.sanitize(parser.parse(s))
+      let html = renderBlock(s)
       if (streaming) {
         html = html.endsWith('</p>\n')
           ? `${html.slice(0, -5)}<span class="caret"></span></p>\n`
@@ -57,7 +60,86 @@
       }
       return html
     }
+    render.block = renderBlock
+    return render
   }
 
-  return { createMarkdownRenderer }
+  /* ---------- 流式增量渲染（与 web-src/src/markdown.js 同逻辑） ----------
+   * 旧做法每个 token 都把整篇回答重新 marked → hljs → DOMPurify，长回答是 O(n²)。
+   * 空行之后、顶格且不是列表项的新行（且不在围栏代码块里）是安全切点：CommonMark 里这样的行
+   * 必然结束前面的段落/列表/引用/表格。已完结块只渲染一次，每次更新只重渲染尾巴。 */
+  const FENCE_OPEN = /^(\s*)(`{3,}|~{3,})/
+  const FENCE_CLOSE = /^(\s*)(`{3,}|~{3,})\s*$/
+  const LIST_ITEM = /^(?:[*+-]|\d{1,9}[.)])(?:[ \t]|$)/
+
+  function createStreamingMarkdown(render) {
+    const renderBlock = render.block || render
+    let src = ''
+    let done = 0
+    let scan = 0
+    let fence = ''
+    let fenceIndent = 0
+    let blank = false
+    let doneHtml = ''
+
+    return {
+      /** 返回 { reset, appendHtml（本次新完结块）, tailHtml（尾巴）, html（全文） } */
+      update(text, opts) {
+        const final = Boolean(opts && opts.final)
+        text = String(text == null ? '' : text)
+        let reset = false
+        if (!text.startsWith(src)) {
+          done = 0; scan = 0; fence = ''; fenceIndent = 0; blank = false; doneHtml = ''
+          reset = true
+        }
+        src = text
+        let appendHtml = ''
+        let nl
+        while ((nl = text.indexOf('\n', scan)) !== -1) {
+          const start = scan
+          const line = text.slice(start, nl)
+          scan = nl + 1
+          if (fence) {
+            const m = FENCE_CLOSE.exec(line)
+            if (m && m[2][0] === fence[0] && m[2].length >= fence.length && m[1].length <= fenceIndent + 3) fence = ''
+            blank = false
+            continue
+          }
+          if (!line.trim()) { blank = true; continue }
+          if (blank && start > done && !/^\s/.test(line) && !LIST_ITEM.test(line)) {
+            const html = renderBlock(text.slice(done, start))
+            doneHtml += html
+            appendHtml += html
+            done = start
+          }
+          blank = false
+          const open = FENCE_OPEN.exec(line)
+          if (open) { fence = open[2]; fenceIndent = open[1].length }
+        }
+        const tailHtml = render(text.slice(done), { streaming: !final })
+        return { reset, appendHtml, tailHtml, html: doneHtml + tailHtml }
+      },
+    }
+  }
+
+  /** 把流式增量结果打到 DOM：已完结块只追加一次，每次只替换尾巴节点 */
+  function createStreamingView(el, render) {
+    const stream = createStreamingMarkdown(render)
+    let kept = 0
+    el.textContent = ''
+    return {
+      update(text) {
+        const r = stream.update(text)
+        if (r.reset) { el.textContent = ''; kept = 0 }
+        while (el.childNodes.length > kept) el.lastChild.remove()
+        if (r.appendHtml) {
+          el.insertAdjacentHTML('beforeend', r.appendHtml)
+          kept = el.childNodes.length
+        }
+        if (r.tailHtml) el.insertAdjacentHTML('beforeend', r.tailHtml)
+      },
+    }
+  }
+
+  return { createMarkdownRenderer, createStreamingMarkdown, createStreamingView }
 }))

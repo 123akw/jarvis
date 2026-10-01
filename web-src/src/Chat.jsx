@@ -1,8 +1,16 @@
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { chatStream, getHistory, uploadDocument } from './api.js'
-import { handleCodeCopyClick, renderMarkdown } from './markdown.js'
+import {
+  createStreamingView, handleCodeCopyClick, highlighterVersion, renderMarkdown, subscribeHighlighter,
+} from './markdown.js'
 import { toolLabel } from './toolInfo.js'
 import VoiceCall from './VoiceCall.jsx'
+
+/* 帧调度：token 先进缓冲，一帧最多刷一次（无 rAF 的环境退回 16ms 定时器） */
+const hasRaf = typeof requestAnimationFrame === 'function'
+const nextFrame = cb => (hasRaf ? requestAnimationFrame(cb) : setTimeout(cb, 16))
+const cancelFrame = id => (hasRaf ? cancelAnimationFrame(id) : clearTimeout(id))
+const STICK_PX = 80   // 距底部这么近才自动跟随；用户往上翻看时不再被拽回底部
 
 /** 工具调用 chip：中文名 + 成败 + 耗时，点击展开结果摘要 */
 function ToolChip({ chip }) {
@@ -21,12 +29,70 @@ function ToolChip({ chip }) {
   )
 }
 
-/** 回答正文单独成组件并 memo：流式时只重渲染正在生成的那条，不拖累整个历史 */
+/** 回答正文：流式时走增量视图（已完结块只渲染/挂载一次，每帧只替换尾巴），
+ *  定稿后整条渲染一次（带缓存）。React 不管理其子节点，DOM 由这里直接维护。 */
 const JarvisBody = memo(function JarvisBody({ raw, streaming }) {
+  const ref = useRef(null)
+  const viewRef = useRef(null)
+  // 代码高亮器懒加载完成后，含代码块的消息重渲染一次（其余消息不受影响）
+  const hlv = useSyncExternalStore(subscribeHighlighter, highlighterVersion)
+  const hlDep = raw.includes('```') ? hlv : 0
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (streaming) {
+      if (!viewRef.current) viewRef.current = createStreamingView(el)
+      viewRef.current.update(raw)
+    } else {
+      viewRef.current = null
+      el.innerHTML = renderMarkdown(raw)
+    }
+  }, [raw, streaming, hlDep])
+  return <div className="jbody" ref={ref} onClick={handleCodeCopyClick} />
+})
+
+function copyText(raw) {
+  navigator.clipboard?.writeText(raw)
+}
+
+/** 单条消息行：memo 后流式刷新只重渲染正在生成的那一行，长对话不再整表重算 */
+const MsgRow = memo(function MsgRow({ m, prevUser, busy, onSend, onEdit }) {
+  if (m.kind === 'user') {
+    return (
+      <div className="row-user">
+        <div className="uactions">
+          <button className="abtn" onClick={() => copyText(m.raw)} title="复制这条消息">复制</button>
+          <button className="abtn" title="编辑后重新发送" onClick={() => onEdit(m.raw)}>编辑</button>
+        </div>
+        <div className="ubox">{m.raw}</div>
+      </div>
+    )
+  }
   return (
-    <div className="jbody" onClick={handleCodeCopyClick} dangerouslySetInnerHTML={{
-      __html: renderMarkdown(raw, { streaming })
-    }} />
+    <div className="row-jarvis">
+      <div className="jtag">{m.streaming && <span className="jdot" />}J.A.R.V.I.S.</div>
+      {m.chips.length > 0 && (
+        <div className="chips">
+          {m.chips.map((c, i) => <ToolChip key={c.id || i} chip={c} />)}
+        </div>
+      )}
+      <JarvisBody raw={m.raw} streaming={m.streaming} />
+      {m.error && (
+        <div className="msg-err">⚠ {m.error}
+          {!busy && prevUser && (
+            <button className="retrybtn" onClick={() => onSend(prevUser)}>重试</button>
+          )}
+        </div>
+      )}
+      {!m.streaming && m.raw && (
+        <div className="msg-actions">
+          <button className="abtn" onClick={() => copyText(m.raw)} title="复制回答原文">复制</button>
+          {prevUser && (
+            <button className="abtn" disabled={busy} title="就同一个问题再答一次"
+              onClick={() => onSend(prevUser)}>重新回答</button>
+          )}
+        </div>
+      )}
+    </div>
   )
 })
 
@@ -34,7 +100,7 @@ const SUGGESTIONS = ['给我今日晨报', '我在做什么任务？', '今天�
 
 let nextId = 1
 
-export default function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = null }) {
+function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = null }) {
   const [msgs, setMsgs] = useState([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -46,9 +112,13 @@ export default function Chat({ threadId, location, onBusy, onTurnDone, onExpired
   const fileRef = useRef()
   const [uploading, setUploading] = useState(false)
   const [uploadErr, setUploadErr] = useState('')
+  const stickRef = useRef(true)     // 视口是否贴底（贴底才自动跟随）
+  const tokBuf = useRef('')         // 尚未刷到界面的 token
+  const tokFrame = useRef(0)
 
   useEffect(() => {  // 切换会话/挂断通话：从服务端记忆库回放历史
     setMsgs([])
+    stickRef.current = true
     let alive = true
     getHistory(threadId).then(h => {
       if (!alive) return
@@ -60,8 +130,26 @@ export default function Chat({ threadId, location, onBusy, onTurnDone, onExpired
     return () => { alive = false }
   }, [threadId, histSeq])
 
-  useEffect(() => { logRef.current.scrollTop = logRef.current.scrollHeight }, [msgs])
+  /* 自动滚动：只在贴底时跟随，且在绘制前同步完成（旧版每个 token 都无条件 scrollTop=scrollHeight，
+   * 叠加 CSS smooth 滚动反复重启动画，既抖又会把正在往上翻的用户拽回底部） */
+  const stickToBottom = useCallback(() => {
+    const el = logRef.current
+    if (el && stickRef.current) el.scrollTop = el.scrollHeight
+  }, [])
+  useLayoutEffect(stickToBottom, [msgs])
+  useEffect(() => {   // 内容高度的异步变化（图片、代码块换行、content-visibility 估高落地）也跟随
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(stickToBottom)
+    ro.observe(logRef.current.firstElementChild)
+    return () => ro.disconnect()
+  }, [stickToBottom])
+  function onLogScroll() {
+    const el = logRef.current
+    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX
+  }
+
   useEffect(() => { onBusy?.(busy); if (!busy) boxRef.current?.focus() }, [busy])
+  useEffect(() => () => { if (tokFrame.current) cancelFrame(tokFrame.current) }, [])
 
   useEffect(() => {  // 外部注入的消息（会议纪要「追问」）：整条自动发出，后续可连续追问
     if (injected?.text) void send(injected.text)
@@ -73,6 +161,20 @@ export default function Chat({ threadId, location, onBusy, onTurnDone, onExpired
       out[out.length - 1] = fn({ ...out[out.length - 1] })
       return out
     })
+  }
+
+  /** 把缓冲的 token 一次性并入最后一条回答（每帧至多一次 setState） */
+  function flushTokens() {
+    if (tokFrame.current) { cancelFrame(tokFrame.current); tokFrame.current = 0 }
+    const text = tokBuf.current
+    if (!text) return
+    tokBuf.current = ''
+    patchLast(m => ({ ...m, raw: m.raw + text }))
+  }
+
+  function queueToken(text) {
+    tokBuf.current += text
+    if (!tokFrame.current) tokFrame.current = nextFrame(() => { tokFrame.current = 0; flushTokens() })
   }
 
   function autoGrow() {
@@ -88,6 +190,8 @@ export default function Chat({ threadId, location, onBusy, onTurnDone, onExpired
     setInput('')
     if (boxRef.current) boxRef.current.style.height = 'auto'
     setBusy(true)
+    stickRef.current = true   // 自己发的消息总是滚到底
+    tokBuf.current = ''
     setMsgs(ms => [...ms,
       { id: nextId++, kind: 'user', raw: text, chips: [], streaming: false },
       { id: nextId++, kind: 'jarvis', raw: '', chips: [], streaming: true },
@@ -96,8 +200,11 @@ export default function Chat({ threadId, location, onBusy, onTurnDone, onExpired
     try {
       for await (const ev of chatStream(text, location, threadId, abortRef.current.signal)) {
         if (ev.type === 'token') {
-          patchLast(m => ({ ...m, raw: m.raw + ev.text }))
-        } else if (ev.type === 'tool_start') {
+          queueToken(ev.text)
+          continue
+        }
+        flushTokens()   // 工具/错误事件前先把已到的正文落地，保持先后顺序
+        if (ev.type === 'tool_start') {
           patchLast(m => ({ ...m, chips: [...m.chips, { id: ev.id, name: ev.name, done: false }] }))
         } else if (ev.type === 'tool_result') {
           patchLast(m => {
@@ -114,12 +221,14 @@ export default function Chat({ threadId, location, onBusy, onTurnDone, onExpired
         }
       }
     } catch (err) {
+      flushTokens()
       if (err.message === '401') { onExpired?.(); return }
       if (err.name !== 'AbortError') {
         patchLast(m => ({ ...m, error: `链路中断：${err.message}` }))
       }
     } finally {
       abortRef.current = null
+      flushTokens()
       patchLast(m => ({ ...m, streaming: false }))
       setBusy(false)
       onTurnDone?.()
@@ -162,19 +271,18 @@ export default function Chat({ threadId, location, onBusy, onTurnDone, onExpired
     }
   }
 
-  function copyText(raw) {
-    navigator.clipboard?.writeText(raw)
-  }
+  /* 行组件拿到的回调保持引用稳定（memo 才生效），内部总是调用最新一版 send */
+  const sendRef = useRef(send)
+  sendRef.current = send
+  const onRowSend = useCallback(text => { void sendRef.current(text) }, [])
+  const onRowEdit = useCallback(raw => {
+    setInput(raw); boxRef.current?.focus(); requestAnimationFrame(autoGrow)
+  }, [])
 
-  /** 该条回答对应的上一条用户提问（重新回答 / 失败重试用） */
-  function userTextBefore(idx) {
-    for (let i = idx - 1; i >= 0; i--) if (msgs[i].kind === 'user') return msgs[i].raw
-    return ''
-  }
-
+  let lastUser = ''   // 每条回答对应的上一条用户提问（重新回答 / 失败重试用）
   return (
     <section className="center">
-      <div className="log" ref={logRef}>
+      <div className="log" ref={logRef} onScroll={onLogScroll}>
         <div className="logcol">
           {msgs.length === 0 && !busy && (
             <div className="chat-empty">
@@ -189,42 +297,14 @@ export default function Chat({ threadId, location, onBusy, onTurnDone, onExpired
               </div>
             </div>
           )}
-          {msgs.map((m, idx) => m.kind === 'user' ? (
-            <div key={m.id} className="row-user">
-              <div className="uactions">
-                <button className="abtn" onClick={() => copyText(m.raw)} title="复制这条消息">复制</button>
-                <button className="abtn" title="编辑后重新发送"
-                  onClick={() => { setInput(m.raw); boxRef.current?.focus(); requestAnimationFrame(autoGrow) }}>编辑</button>
-              </div>
-              <div className="ubox">{m.raw}</div>
-            </div>
-          ) : (
-            <div key={m.id} className="row-jarvis">
-              <div className="jtag">{m.streaming && <span className="jdot" />}J.A.R.V.I.S.</div>
-              {m.chips.length > 0 && (
-                <div className="chips">
-                  {m.chips.map((c, i) => <ToolChip key={c.id || i} chip={c} />)}
-                </div>
-              )}
-              <JarvisBody raw={m.raw} streaming={m.streaming} />
-              {m.error && (
-                <div className="msg-err">⚠ {m.error}
-                  {!busy && userTextBefore(idx) && (
-                    <button className="retrybtn" onClick={() => send(userTextBefore(idx))}>重试</button>
-                  )}
-                </div>
-              )}
-              {!m.streaming && m.raw && (
-                <div className="msg-actions">
-                  <button className="abtn" onClick={() => copyText(m.raw)} title="复制回答原文">复制</button>
-                  {userTextBefore(idx) && (
-                    <button className="abtn" disabled={busy} title="就同一个问题再答一次"
-                      onClick={() => send(userTextBefore(idx))}>重新回答</button>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
+          {msgs.map(m => {
+            const prevUser = m.kind === 'user' ? '' : lastUser
+            if (m.kind === 'user') lastUser = m.raw
+            return (
+              <MsgRow key={m.id} m={m} prevUser={prevUser} busy={m.kind === 'user' ? false : busy}
+                onSend={onRowSend} onEdit={onRowEdit} />
+            )
+          })}
         </div>
       </div>
       <div className="inputwrap">
@@ -253,3 +333,6 @@ export default function Chat({ threadId, location, onBusy, onTurnDone, onExpired
     </section>
   )
 }
+
+/* 顶栏时钟、任务台轮询等父组件刷新不再连带整个对话区重渲染 */
+export default memo(Chat)

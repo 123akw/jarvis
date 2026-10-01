@@ -10,6 +10,9 @@ import Chat from './Chat.jsx'
 async function* streamOk() {
   yield { type: 'token', text: '好的。' }
 }
+async function* streamPieces() {
+  for (const t of ['第一段', '。\n\n**加', '粗**收', '尾']) yield { type: 'token', text: t }
+}
 async function* streamBoom() {
   yield { type: 'token', text: '' }
   throw new Error('boom')
@@ -77,5 +80,17 @@ describe('消息级操作', () => {
     getHistory.mockResolvedValue([{ role: 'user', content: '记一条备忘' }])
     render(<Chat threadId="t1" />)
     expect(await screen.findByTitle('复制这条消息')).toBeTruthy()
+  })
+
+  it('逐 token 到达的回答按帧合并后完整渲染为 Markdown（跨 token 的粗体不丢）', async () => {
+    getHistory.mockResolvedValue([])
+    chatStream.mockImplementation(() => streamPieces())
+    const { container } = render(<Chat threadId="t1" />)
+    const box = await screen.findByPlaceholderText(/吩咐一句/)
+    fireEvent.change(box, { target: { value: '写两段' } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+    await waitFor(() => expect(container.querySelector('.jbody strong')?.textContent).toBe('加粗'))
+    await waitFor(() => expect(container.querySelector('.jbody .caret')).toBeNull())
+    expect(container.querySelector('.jbody').textContent.trim()).toBe('第一段。\n加粗收尾')
   })
 })

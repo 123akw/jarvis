@@ -22,17 +22,19 @@ const md = (t, streaming) => {
   return esc(String(t ?? '')).replace(/\n/g, '<br>') + (streaming ? '<span class="caret"></span>' : '')
 }
 
-function addUser(text) {
+/* 贴底才自动跟随：用户往上翻看历史时不再被每个 token 拽回底部 */
+const nearBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight < 80
+function addUser(text, scroll = true) {
   const el = document.createElement('div')
   el.className = 'm-user'; el.textContent = text
-  log.append(el); log.scrollTop = log.scrollHeight
+  log.append(el); if (scroll) log.scrollTop = log.scrollHeight
   return el
 }
-function addAI(raw = '', streaming = false) {
+function addAI(raw = '', streaming = false, scroll = true) {
   const el = document.createElement('div')
   el.className = 'm-ai'
   el.innerHTML = md(raw, streaming)
-  log.append(el); log.scrollTop = log.scrollHeight
+  log.append(el); if (scroll) log.scrollTop = log.scrollHeight
   return el
 }
 function sys(text) {
@@ -118,10 +120,11 @@ async function loadHistory() {
       log.innerHTML = EMPTY_HTML
       return
     }
-    for (const m of h.slice(-24)) {
-      if (m.role === 'user') addUser(m.content)
-      else addAI(m.content)
+    for (const m of h.slice(-24)) {   // 逐条追加不滚动（每次滚动都强制一次同步布局），最后滚一次
+      if (m.role === 'user') addUser(m.content, false)
+      else addAI(m.content, false, false)
     }
+    log.scrollTop = log.scrollHeight
   } catch (error) {
     if (!isAuthenticationRequired(error)) sys('无法读取历史记录')
   }
@@ -142,12 +145,28 @@ async function ask() {
   const el = addAI('', true)
   let raw = ''
   let toolLine = null
+  /* 流式渲染：token 只进缓冲，每帧至多重绘一次；且走增量视图——已完结的段落只渲染/挂载一次，
+   * 每帧只重渲染尾巴（旧版每个 token 都对全文 marked+hljs+DOMPurify+innerHTML+强制布局，O(n²)） */
+  let view = null
+  if (renderMd) {
+    try { view = window.JWSMarkdown.createStreamingView(el, renderMd); view.update('') } catch { view = null }
+  }
+  let frame = 0
+  const paint = () => {
+    frame = 0
+    const stick = nearBottom()
+    try {
+      if (view) view.update(raw)
+      else el.innerHTML = md(raw, true)
+    } catch { view = null; el.innerHTML = md(raw, true) }
+    if (stick) log.scrollTop = log.scrollHeight
+  }
+  const stopPaint = () => { if (frame) { cancelAnimationFrame(frame); frame = 0 } }
   try {
     currentStream = window.JWSChatStream.startChatStream(window.jws.api, { message: text, thread_id: THREAD }, { onUnauthorized: requireLogin, onEvent: ev => {
       if (ev.type === 'token') {
         raw += ev.text
-        el.innerHTML = md(raw, true)
-        log.scrollTop = log.scrollHeight
+        if (!frame) frame = requestAnimationFrame(paint)
       } else if (ev.type === 'tool_start') {
         if (!toolLine) {
           toolLine = document.createElement('div')
@@ -163,9 +182,13 @@ async function ask() {
       } else if (ev.type === 'error') sys(ev.message)
     } })
     const r = await currentStream.done
+    stopPaint()
     if (!r.ok && !r.cancelled) throw new Error('链路中断')
+    const stick = nearBottom()
     el.innerHTML = md(raw) || '<span style="color:var(--dim)">（无回复）</span>'
+    if (stick) log.scrollTop = log.scrollHeight
   } catch (e) {
+    stopPaint()
     el.innerHTML = md(raw)
     sys(e.message)
   } finally {
