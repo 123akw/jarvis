@@ -17,6 +17,7 @@ const { createWakeServer, parseHandoffUrl } = require('./wake-server.js')
 const { buildAppInfo, restartApp } = require('./app-info.js')
 const { buildTrayMenuTemplate, wireTray } = require('./tray-setup.js')
 const { hotkeyFailureNotice, quickAskPayload } = require('./quick-ask.js')
+const { claimSingleInstance, registerProtocol, releaseShortcuts } = require('./app-lifecycle.js')
 
 /* macOS 系统回环音频（会议纪要录「对方」声音）需显式开 Chromium 特性；
  * 三个开关分别覆盖 macOS 13/14/15+ 的三代实现，未知特性名会被静默忽略。 */
@@ -543,12 +544,14 @@ function handleProtocolUrl(url) {
   summonForHandoff()
   void handleHandoffTicket(parsed.ticket).catch(() => {})
 }
-try { app.setAsDefaultProtocolClient('jws') } catch {}
-try { app.requestSingleInstanceLock() } catch {}
+const isPrimaryInstance = claimSingleInstance(app)
+if (!isPrimaryInstance) app.quit()   // 已有实例在跑：它会在 second-instance 里把悬浮球叫出来
+else registerProtocol(app)
 app.on('open-url', (event, url) => { event.preventDefault(); handleProtocolUrl(url) })
 app.on('second-instance', (_event, argv) => {
   const link = (argv || []).find(item => typeof item === 'string' && item.startsWith('jws://'))
   if (link) handleProtocolUrl(link)
+  else if (win) { setBallVisible(true); win.focus() }   // 重复启动＝「把贾维斯叫出来」
 })
 
 /* ---------- 系统托盘：悬浮球之外的常驻入口（含唯一的显式退出） ---------- */
@@ -635,6 +638,7 @@ function startReminderPolling() {
 }
 
 app.whenReady().then(() => {
+  if (!isPrimaryInstance) return
   createWindow()
   createTray()
   const s = loadSettings()
@@ -735,5 +739,5 @@ app.whenReady().then(() => {
   }
 })
 
-app.on('will-quit', () => globalShortcut.unregisterAll())
+app.on('will-quit', () => releaseShortcuts(app, globalShortcut))
 app.on('window-all-closed', () => app.quit())
