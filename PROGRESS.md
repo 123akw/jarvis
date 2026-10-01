@@ -588,4 +588,4 @@
 - 真网络佐证：伪造凭据打真飞书，token 接口回 10014、长连接取址回 1000040345，路径与错误分类均正确。反向验证：关掉去重/@过滤/token 重试/ack/绑定校验/卡片降级任一项，对应用例均变红。
 
 ## 待办
-- 凭证到位后跑 `scripts/feishu_smoke.py --live`（后台操作清单见 README「飞书机器人」与 BLOCKED.md）。后续项：飞书语音（opus 转码接百炼 ASR）、提醒/Heartbeat 推送到飞书、网页/桌面飞书设置面板。
+- 凭证到位后跑 `scripts/feishu_smoke.py --live`（后台操作清单见 docs/channels.md「飞书机器人」与 BLOCKED.md）。后续项：飞书语音（opus 转码接百炼 ASR）、提醒/Heartbeat 推送到飞书、网页/桌面飞书设置面板。
