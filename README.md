@@ -1,269 +1,99 @@
-<div align="center">
+<div align="center"><a name="readme-top"></a>
 
-# J.A.R.V.I.S. / JWS-Agent
+<img src="docs/assets/readme/logo-orb.png" width="96" alt="J.A.R.V.I.S. 悬浮球">
 
-### 一个真正记得住、随时叫得到、能够采取行动的私人 AI 管家
+# J.A.R.V.I.S.
 
-[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+**一个真正记得住、随时叫得到、能够采取行动的私人 AI 管家**
+
+贾维斯（JWS-Agent）把聊天、语音通话、长期记忆、日程待办和带来源的实时搜索放进同一个 Agent<br>
+网页 · macOS 悬浮球 · 终端 · 个人微信 · 飞书，共用一套能力与记忆
+
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![LangGraph](https://img.shields.io/badge/LangGraph-Agent-1C3C3C)](https://github.com/langchain-ai/langgraph)
 [![FastAPI](https://img.shields.io/badge/FastAPI-SSE-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![Electron](https://img.shields.io/badge/Electron-Desktop-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
-[![macOS](https://img.shields.io/badge/macOS-Desktop-000000?logo=apple&logoColor=white)](https://www.apple.com/macos/)
-![Non-Commercial](https://img.shields.io/badge/License-Non--Commercial-E5484D)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
+[![Electron](https://img.shields.io/badge/Electron-38-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
+[![macOS](https://img.shields.io/badge/macOS-%E6%A1%8C%E9%9D%A2%E7%AB%AF-000000?logo=apple&logoColor=white)](https://www.apple.com/macos/)
+[![License](https://img.shields.io/badge/License-%E9%9D%9E%E5%95%86%E7%94%A8-E5484D)](#声明)
 
-把聊天、语音通话、持久记忆、日程待办和可追溯的实时搜索放进同一个 Agent：既能在网页和终端里使用，也能常驻为 macOS 悬浮球，还可以桥接个人微信。
+**[快速开始](#快速开始)** · [功能详解](docs/features.md) · [部署](docs/deployment.md) · [配置](docs/configuration.md) · [微信与飞书](docs/channels.md) · [架构](docs/architecture.md) · [FAQ](docs/faq.md)
 
-**私有部署 / 演示入口：[`https://jws.gkgeek-set.cn`](https://jws.gkgeek-set.cn)**
+<br>
 
-**[快速开始](#快速开始)**
+<img src="docs/assets/readme/web-dashboard.png" alt="JWS-Agent 网页端：Markdown 渲染与可交互任务台" width="100%">
 
-这是项目维护者的私有部署或演示入口，不是公共 SaaS，也不承诺持续在线；桌面端可在设置中改为你自己的服务器地址。截至 **2026-08-25**，多用户隔离、Owner 用户管理、每用户 Provider / API 设置、网页语音通话（📞）、日程主动提醒、记忆与人设面板、文档上传解析、亮色主题、第三轮升级（Heartbeat 主动唤醒、夜间记忆蒸馏、技能热加载、划词工具条）、第四轮升级（语音唤醒「贾维斯」、会议纪要自动邮件、网页控悬浮窗）与第五轮升级（通话场景模式、语气情绪感知、图片/短视频识别、会议说话人分离）均已合并主干并部署到上述演示入口，全量回归全绿；会议纪要与语音唤醒已经过真机验收（真实飞书会议 → 纪要自动送达邮箱）。微信语音消息的真机联调仍在进行中。SearXNG 仅监听服务器 loopback `127.0.0.1:18888`，不可从公网直接访问，搜索失败时可回退 DDGS。这里的状态说明不代表维护者已经替访问者执行过实时娱乐搜索或验证过任何具体结果。
-
-> **非商用项目：仅供学习、研究与个人非商业用途。禁止未经授权的商业部署、商业集成、付费分发或收费服务。**
-
-> 本声明只描述 JWS-Agent 自身的使用范围。可选部署中的第三方 SearXNG 采用独立的 AGPL-3.0；二者不能互相替代。详见 [`deploy/searxng/README.md`](deploy/searxng/README.md)。
+<sub>网页端：流式 Markdown 对话，右侧是可勾选、可增删的日程 / 待办 / 备忘任务台</sub>
 
 </div>
 
-## 产品介绍
+> [!NOTE]
+> **演示入口：[jws.gkgeek-set.cn](https://jws.gkgeek-set.cn)**。这是维护者的私有部署 / 演示入口，不是公共 SaaS，也不承诺持续在线；桌面端可在设置里改成你自己的服务器地址。上线状态见 [部署指南](docs/deployment.md#演示入口与上线状态)；这些状态说明不代表维护者已经替访问者执行过实时娱乐搜索或验证过任何具体结果。
 
-贾维斯（JWS-Agent）是一个可私有部署的中文 AI 管家：记得住你说过的话，管得了日程待办，查得到带来源的实时信息；网页、桌面、终端、微信，随时叫得到。
+> [!IMPORTANT]
+> **非商用项目**：仅供学习、研究与个人非商业用途，禁止未经授权的商业部署、商业集成、付费分发或收费服务。本声明只描述 JWS-Agent 自身的使用范围；可选部署中的第三方 SearXNG 采用独立的 AGPL-3.0，二者不能互相替代，详见 [`deploy/searxng`](deploy/searxng/README.md)。
 
-- **网页对话**：流式聊天（完整 Markdown 渲染：可点来源链接 / 表格 / 代码高亮），消息可重答、编辑重发、失败重试；配可勾选、可增删的今日日程 / 待办 / 备忘任务台，支持上传 PDF / Word / TXT 文档解析追问。
-- **语音通话**：网页端点 📞 直接开口说话，贾维斯用语音回答；音色与语速每用户可选。
-- **主动提醒**：日程到点自动推送——微信（对贾维斯说「提醒发给我」绑定）、桌面系统通知、网页弹条三通道；可选每天定时的「晨报电台」语音条。
-- **Heartbeat 主动唤醒**：在 `data/HEARTBEAT.md` 写下关注事项，贾维斯每 30 分钟看一眼清单，判断该开口时主动找你（微信+桌面双通道）；不该说话时保持沉默，`JARVIS_HEARTBEAT_ENABLED=0` 一键关闭。
-- **记忆与人设**：长期记忆画像可查可删（「记住我…/忘记…」），称呼、语气可自定义，J.A.R.V.I.S. ↔ MOSS 双人格切换；每天凌晨自动把最近一天的对话蒸馏成长期画像（夜间记忆蒸馏，内容级去重）。
-- **技能热加载**：`skills/` 目录放一个 `SKILL.md` 就长出新技能，改文件下一轮对话生效、无需重启（格式见 [`skills/README.md`](skills/README.md)）。
-- **微信桥**：扫码接入个人微信即可对话；发链接即总结，群聊被 @ 才应答；语音消息开发中。
-- **飞书机器人**：企业自建应用走长连接（无需公网回调），单聊或群里 @机器人 即可对话；流式卡片「思考中…」打字机输出，支持图片识别；每人用一次性绑定码把飞书账号绑到自己的贾维斯账号。
-- **多用户与租户隔离**：Owner 邀请制开号，各账号对话、记忆、日程完全隔离。
-- **每用户 API 设置**：各自选择模型 Provider 与 Key，密钥加密存储、永不回显。
-- **桌面端**：macOS 常驻悬浮球，⌥Space 一键唤出快捷聊天，右键悬浮球直接接通语音通话；通话中收起面板，球随 听（青）/想（琥珀）/说（绿）三态变色。系统托盘左键切窗、右键弹菜单（含会议纪要、悬浮球显隐、显示当前版本的一键重启）；任意 App 选中文字按 ⌥Q 弹出「翻译 / 解释 / 改写」划词条（授予辅助功能权限可自动取词，未授权走剪贴板降级）。
-- **语音唤醒**（默认开启）：直接喊「贾维斯」即亮球接通语音通话——本地 VAD 圈出人声段才送云端识别（静音零请求零上传），命中唤醒词（含同音兜底，`JARVIS_WAKE_WORDS` 可改）立即应答；通话与会议期间自动暂停判定。
-- **会议纪要**：对贾维斯说「监控会议」（或点桌面 🎙 / 托盘菜单），桌面端同时采集你的麦克风与系统回环声音（飞书等会议里对方的发言），双路实时转写标注「我 / 对方」，开会过程中面板顶部滚动「⚡ 实时要点」（每积累若干发言增量小结一次，对标飞书妙记）；会后自动跑离线**说话人分离**把「对方」细分为 对方1/对方2（paraformer-v2 diarization，分不出就保持原样），整理成含「气氛与情绪」小节的 Markdown 纪要，存档并**自动发送到指定邮箱**；网页任务台可回看、重发邮件、**一键把属于我的待办导入任务台**、**就这场会议继续追问**、以及把「对方N」**改名成真实称呼**（全局替换转写与纪要）。因为走系统回环采集，**不挑会议软件**：飞书、腾讯会议、Zoom、钉钉、微信（Mac 端语音通话）等任何出声的软件都能录——这是市面六大纪要产品（腾讯会议/妙记/听悟/讯飞/Zoom/钉钉）都未产品化的空白。
-- **通话场景模式**：语音通话面板一键切换 9 种情景——管家模式、故事时间、晚安电台、解忧树洞、面试陪练、辩论擂台、英语陪练、口语翻译、玄学茶话；切换即换说话风格并带开场白，选择记为个人偏好。
-- **语气情绪感知**：通话中把你刚说的话旁路送情绪识别（qwen3-asr-flash 固定附带的 7 类情绪，零额外配置），面板显示「😢 低落」等徽标，贾维斯下一句自然照应你的情绪。
-- **图片 / 短视频识别**：聊天 📎 直接发图片（≤10MB）或短视频（≤7MB），qwen3-vl 转成详细描述注入对话，可连续追问画面细节；截图里的文字、表格会被逐字转录。
-- **网页控悬浮窗**：网页「⚙ API → 桌面与会议」可一键显示 / 隐藏桌面悬浮球（同机秒级生效，跨机 10 秒内下发），还有二次确认的「彻底关闭桌面端」。
-- **工具调用透明**：每次工具调用以中文名+图标展示，带耗时与成败，点开可看结果摘要。
-- **暗色 / 亮色双主题**：默认赛博 HUD 暗色，一键切换亮色办公风；会话可一键导出为 Markdown。
-- **免费搜索链**：SearXNG → DDGS 免费降级，结果带时间与来源；Tavily 可选。
+## 它能做什么
 
-![JWS-Agent 网页端：Markdown 渲染与可交互任务台](docs/assets/readme/web-dashboard.png)
+一个 LangGraph Agent 驱动 26 项工具，能聊、能记，也能动手：增删日程待办、查天气、搜实时信息、开会记纪要。完整清单见 [功能详解](docs/features.md)。
 
 <table>
-  <tr>
-    <td align="center"><strong>日程到点主动提醒（微信 / 桌面 / 网页三通道）</strong></td>
-    <td align="center"><strong>亮色主题一键切换</strong></td>
-  </tr>
-  <tr>
-    <td><img src="docs/assets/readme/web-reminder.png" alt="JWS-Agent 日程主动提醒弹条" width="100%"></td>
-    <td><img src="docs/assets/readme/web-light-theme.png" alt="JWS-Agent 亮色主题" width="100%"></td>
-  </tr>
-  <tr>
-    <td align="center"><strong>记忆与人设：画像可查可删、MOSS 人格切换</strong></td>
-    <td align="center"><strong>语音音色 / 语速 / 晨报电台</strong></td>
-  </tr>
-  <tr>
-    <td><img src="docs/assets/readme/web-memory.png" alt="JWS-Agent 记忆与人设面板" width="100%"></td>
-    <td><img src="docs/assets/readme/web-voice-settings.png" alt="JWS-Agent 语音设置页签" width="100%"></td>
-  </tr>
-  <tr>
-    <td align="center"><strong>每个账号独立的 Provider / API 设置</strong></td>
-    <td align="center"><strong>Owner 用户管理与角色控制</strong></td>
-  </tr>
-  <tr>
-    <td><img src="docs/assets/readme/web-provider-settings.png" alt="JWS-Agent 每用户 Provider 与 API 设置" width="100%"></td>
-    <td><img src="docs/assets/readme/web-account-settings.png" alt="JWS-Agent Owner 用户管理" width="100%"></td>
-  </tr>
+<tr>
+<td width="33%" valign="top"><b>💬 流式对话</b><br>完整 Markdown（来源链接、表格、代码高亮），可重答、编辑重发、导出；上传 PDF / Word / TXT 解析追问</td>
+<td width="33%" valign="top"><b>🧠 长期记忆</b><br>画像可查可删，每晚把当天对话蒸馏进长期画像；称呼语气可调，J.A.R.V.I.S. ↔ MOSS 双人格</td>
+<td width="33%" valign="top"><b>⏰ 主动找你</b><br>日程到点推送微信 / 桌面 / 网页，晨报电台语音条；Heartbeat 巡检关注清单，该开口才开口</td>
+</tr>
+<tr>
+<td valign="top"><b>📞 语音通话</b><br>边说边答带字幕，开口即可打断；9 种场景模式切换，还能感知你的语气情绪</td>
+<td valign="top"><b>🎙️ 会议纪要</b><br>麦克风 + 系统回环双路转写、说话人分离，纪要自动发邮箱；飞书、腾讯会议、Zoom 都能录</td>
+<td valign="top"><b>🗣️ 语音唤醒</b><br>喊一声「贾维斯」就接通；本地 VAD 圈出人声才送云端识别，静音零上传</td>
+</tr>
+<tr>
+<td valign="top"><b>🖥️ 桌面悬浮球</b><br>⌥Space 唤出快捷聊天，⌥Q 划词翻译 / 解释 / 改写，通话时随听、想、说三态变色</td>
+<td valign="top"><b>🔎 可追溯搜索</b><br>SearXNG → DDGS 免费降级，结果带时间与来源；评分分平台列出，票务只给公开入口</td>
+<td valign="top"><b>🖼️ 看图识视频</b><br>发图片或短视频，qwen3-vl 转成描述后可连续追问，截图里的文字表格逐字转录</td>
+</tr>
+<tr>
+<td valign="top"><b>📱 微信 · 飞书</b><br>扫码接入个人微信，发链接即总结；飞书机器人走长连接免公网回调，流式卡片回复</td>
+<td valign="top"><b>👥 多用户隔离</b><br>Owner 邀请制开号，对话、记忆、日程与模型 Provider 各自独立，Key 加密存储、永不回显</td>
+<td valign="top"><b>🧩 技能热加载</b><br>在 <code>skills/</code> 放一个 <code>SKILL.md</code> 就多一项技能，下一轮对话生效，无需重启</td>
+</tr>
 </table>
+
+## 界面一览
 
 <table>
-  <tr>
-    <td align="center"><strong>会议纪要：任务台回看、一键重发邮件</strong></td>
-    <td align="center"><strong>「桌面与会议」：控悬浮球 + 纪要收件邮箱</strong></td>
-  </tr>
-  <tr>
-    <td><img src="docs/assets/readme/web-meetings-card.png" alt="JWS-Agent 会议纪要卡片与纪要回看" width="100%"></td>
-    <td><img src="docs/assets/readme/web-desktop-meeting-settings.png" alt="JWS-Agent 桌面与会议设置页签" width="100%"></td>
-  </tr>
-  <tr>
-    <td align="center"><strong>语音通话 9 种场景模式一键切换</strong></td>
-    <td align="center"><strong>桌面端会议监控：我 / 对方双路实时字幕</strong></td>
-  </tr>
-  <tr>
-    <td><img src="docs/assets/readme/web-voice-scenes.png" alt="JWS-Agent 语音通话场景模式" width="100%"></td>
-    <td align="center"><img src="docs/assets/readme/desktop-meeting.png" alt="JWS-Agent 桌面会议纪要面板" width="52%"></td>
-  </tr>
+<tr>
+<td align="center" width="33%"><img src="docs/assets/readme/web-reminder.png" alt="日程到点主动提醒" width="100%"><br><sub>日程到点主动提醒</sub></td>
+<td align="center" width="33%"><img src="docs/assets/readme/web-memory.png" alt="记忆与人设面板" width="100%"><br><sub>记忆与人设：画像可查可删</sub></td>
+<td align="center" width="33%"><img src="docs/assets/readme/web-voice-scenes.png" alt="语音通话场景模式" width="100%"><br><sub>语音通话 9 种场景模式</sub></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/assets/readme/web-meetings-card.png" alt="会议纪要卡片" width="100%"><br><sub>会议纪要回看与重发</sub></td>
+<td align="center"><img src="docs/assets/readme/web-provider-settings.png" alt="每用户 Provider 与 API 设置" width="100%"><br><sub>每个账号独立的模型 API</sub></td>
+<td align="center"><img src="docs/assets/readme/web-light-theme.png" alt="亮色主题" width="100%"><br><sub>暗色 / 亮色一键切换</sub></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/assets/readme/desktop-chat.png" alt="桌面快捷聊天窗" width="66%"><br><sub>桌面端：原地展开的快捷聊天</sub></td>
+<td align="center"><img src="docs/assets/readme/desktop-meeting.png" alt="桌面会议纪要面板" width="66%"><br><sub>会议监控：我 / 对方双路实时字幕</sub></td>
+<td align="center"><img src="docs/assets/readme/desktop-settings.png" alt="桌面设置页" width="66%"><br><sub>快捷键、音色与晨报设置</sub></td>
+</tr>
+<tr>
+<td align="center" colspan="3">
+<img src="docs/assets/readme/desktop-orb.png" alt="悬浮球待命" width="56">&emsp;<img src="docs/assets/readme/desktop-ball-listening.png" alt="听" width="56">&emsp;<img src="docs/assets/readme/desktop-ball-thinking.png" alt="想" width="56">&emsp;<img src="docs/assets/readme/desktop-ball-speaking.png" alt="说" width="56"><br>
+<sub>悬浮球：待命 · 听（青）· 想（琥珀）· 说（绿）</sub>
+</td>
+</tr>
 </table>
 
-以上网页截图为 2026-08-14 与 2026-08-25 在隔离演示环境实拍：日程、待办、备忘、记忆画像、会议纪要与对话内容均为虚构演示数据，API Key、口令、二维码与真实对话均未进入图片（账户管理图沿用 2026-08-13 生产演示实拍；「桌面与会议」图中的桌面探活状态为本机真实探测结果）。
-
-<table>
-  <tr>
-    <td align="center"><strong>随时叫得到的桌面悬浮球</strong></td>
-    <td align="center"><strong>原地展开的流式聊天窗</strong></td>
-    <td align="center"><strong>快捷键、语音音色与晨报设置</strong></td>
-  </tr>
-  <tr>
-    <td><img src="docs/assets/readme/desktop-orb.png" alt="JWS-Agent macOS 桌面悬浮球" width="100%"></td>
-    <td><img src="docs/assets/readme/desktop-chat.png" alt="JWS-Agent 桌面快捷聊天窗" width="100%"></td>
-    <td><img src="docs/assets/readme/desktop-settings.png" alt="JWS-Agent 桌面设置页（含语音与晨报）" width="100%"></td>
-  </tr>
-</table>
-
-<table>
-  <tr>
-    <td align="center" colspan="3"><strong>语音通话三态外显：收起面板后悬浮球随状态变色</strong></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/assets/readme/desktop-ball-listening.png" alt="听：青色描边呼吸" width="88"><br>听（青色呼吸）</td>
-    <td align="center"><img src="docs/assets/readme/desktop-ball-thinking.png" alt="想：琥珀描边" width="88"><br>想（琥珀）</td>
-    <td align="center"><img src="docs/assets/readme/desktop-ball-speaking.png" alt="说：绿色脉冲" width="88"><br>说（绿色脉冲）</td>
-  </tr>
-</table>
-
-桌面截图为 JWS_SHOT 自检模式实拍（三态图为 2026-08-19 新增）；无真实对话与凭据入图。
-
-## 为什么是 JWS-Agent
-
-- **持久记忆**：LangGraph 的 SQLite checkpointer 把对话状态落到本地数据库，进程重启后仍可沿同一线程继续。
-- **多入口，同一套能力**：网页端、macOS 桌面悬浮窗、终端 CLI 和个人微信都连接同一个 Agent 与 26 项工具。
-- **不仅回答，也能行动**：可增删备忘和日程、维护待办、查询天气与系统状态，并按需调用实时搜索工具。
-- **实时信息可追溯**：搜索结果保留查询时间、摘要和 HTTP(S) 来源；电影评分分平台呈现，票务只提供公开信息与深链接。
-- **多用户与个人模型配置**：每个账号拥有独立对话、记忆、日程、待办和模型 Provider；Owner 统一管理全局联网数据源。
-- **面向私有部署**：模型地址、模型名、数据目录和服务端口均可配置；记忆、备忘、日程、待办和微信 Token 留在你的运行环境中。
-
-> 搜索默认按 `SearXNG → DDGS → 可选 Tavily` 降级，正文提取默认按 `Trafilatura → 可选 Playwright` 降级。私有演示入口已启用本机 SearXNG，并在不可用时回退无需付费 key 的 DDGS；不保证 Tavily 或 PandaScore 已配置。自建 SearXNG、Tavily key 和 PandaScore token 都是可选增强，不是上线前置条件。
-
-## 一个 Agent，四种入口
-
-| 能力 | 网页端 | 桌面悬浮窗 | 终端 CLI | 个人微信 |
-| --- | --- | --- | --- | --- |
-| 中文自然语言对话与 26 项工具 | ✅ | ✅ | ✅ | ✅（文本消息） |
-| 流式展示 | ✅ SSE 逐字输出并展示工具调用 | ✅ SSE 逐字输出并展示工具调用 | — 单次完整返回 | — 消息式回复 |
-| 语音通话 | ✅ 📞 实时语音问答，可降级打字通话 | — | — | 🚧 语音消息开发中 |
-| 记忆线程 | 每个会话独立 `thread_id` | 固定 `desktop` 线程 | 默认 `main`，可用 `--thread` 指定 | 每个联系人独立 `wx-<联系人>` 线程 |
-| 日程、待办、备忘 | 对话操作 + 任务台展示 | 对话操作 + 日程 / 待办任务台展示 | 对话操作 | 对话操作 |
-| 实时搜索 | ✅ 免费默认可用 | ✅ 免费默认可用 | ✅ 免费默认可用 | ✅ 免费默认可用 |
-| 天气定位 | 浏览器定位优先，公网 IP 兜底 | 使用服务端已有定位；也可直接说城市 | 使用服务端已有定位；也可直接说城市 | 使用服务端已有定位；也可直接说城市 |
-| 会话历史管理 | 新建、回放、删除 | 最近历史、清空快捷线程 | 由线程持久化 | 由联系人线程持久化 |
-| 个人微信扫码管理 | 顶栏“微信” | 设置 → 个人微信 | — | 自身即消息入口 |
-| Provider / API 设置 | 每个账号独立设置模型 | 设置中独立设置模型 | 使用当前 Owner 配置 | 使用唯一 Owner 配置 |
-
-四种入口共享服务端同一套 `SearchService` 后端与降级链。默认 DDGS 无需付费 key；希望优先控制搜索实例时可选自建 SearXNG，但它不是使用实时搜索的必要条件。
-
-## 它可以怎样帮你
-
-下面是调用方式示例，回答中的实时内容以实际查询结果为准，不预填会过期的价格、比分或评分。
-
-**1. 晨报**
-
-> 你：给我今日晨报，带上天气、今天的安排、待办、编程进度和 Git 情况。
->
-> J.A.R.V.I.S.：读取当前定位、三日天气、本地日程、未完成待办与桌面端同步的编程进度和 Git 情况，整理成一份晨间摘要。
-
-**2. 日程与待办**
-
-> 你：明天下午 3 点提醒我做项目复盘，再加一条待办：整理会议材料。
->
-> J.A.R.V.I.S.：分别写入日程和待办；之后可继续询问、勾选完成或删除。
-
-**3. 持久记忆**
-
-> 你：记住我周三要交电费。
->
-> 你（重启程序后）：我让你记过什么？
->
-> J.A.R.V.I.S.：在同一线程中读取 SQLite 检查点并接续上下文。
-
-**4. 娱乐新闻**
-
-> 你：查一下最近一周的娱乐新闻，列出重点、查询时间和来源。
->
-> J.A.R.V.I.S.：调用 `web_search`，基于带时间戳和链接的公开搜索资料整理回答。
-
-**5. 分平台电影评分**
-
-> 你：查这部电影在豆瓣、IMDb、Rotten Tomatoes 和 Metacritic 的评分。
->
-> J.A.R.V.I.S.：分别给出各平台量表、评价人数和来源，不把不同分制合并成“综合分”。
-
-**6. 电竞比分 / 票务查询**（PandaScore 与 Tavily 均为可选增强）
-
-> 你：查某战队最近一场比赛的比分、赛事和来源。
->
-> 你：再找一下某场演出的正规购票入口。
->
-> J.A.R.V.I.S.：比分优先使用已配置的 PandaScore 结构化数据，失败或未配置时回退网页搜索；票务只列公开展示价或明确无可靠公开价，并给出平台深链接，不登录、不占座、不下单。
-
-### 上线后可这样测试
-
-- “查最近一周的娱乐新闻，列出来源，并注明资料截至时间。”
-- “查这部电影在豆瓣、IMDb、Rotten Tomatoes 和 Metacritic 的评分，分平台列出量表、评价人数、来源和查询时间。”
-- “查某俱乐部最近一场比赛的比分、赛事、比赛时间和来源。”
-- “查某场演出的正规票务平台入口和公开报价，注明查询时间。”
-
-这些问题用于检查实时搜索、来源与时间信息是否正常返回。公开网页、评分、比分和票价都可能变化，应打开原始来源复核；票务工具只查询和提供链接，不登录、不占座、不下单。
-
-## 工作原理
-
-```mermaid
-flowchart LR
-  U[用户] --> W[网页端]
-  U --> D[桌面悬浮窗]
-  U --> C[终端 CLI]
-  U --> X[个人微信]
-  W & D & C & X --> A[FastAPI + LangGraph Agent]
-  A --> M[DeepSeek / OpenAI 兼容模型]
-  A --> T[26 项工具]
-  A --> S[(SQLite 持久记忆)]
-  T --> L[本地日程·待办·备忘]
-  T --> Q[SearchService]
-  Q --> P[SearXNG → DDGS → 可选 Tavily]
-  Q --> R[Trafilatura → 可选 Playwright]
-  T --> E[天气·可选 PandaScore]
-```
-
-### 26 项工具如何分层
-
-| 层级 | 工具 | 作用与数据边界 |
-| --- | --- | --- |
-| 基础与上下文（6） | `now`、`calc`、`weather`、`weather_here`、`my_location`、`coding_status` | 时间与白名单计算；Open-Meteo 天气无需 key；定位和编程状态保存在本地数据目录 |
-| 个人信息管理（12） | `memo_add/list/del`、`schedule_add/list/del`、`todo_add/list/done`、`profile_remember/list/forget` | 备忘、日程、待办与长期记忆画像在 `JARVIS_DATA_DIR` 下持久化；画像条目注入每轮系统提示词，网页「记忆」面板可查可删 |
-| 系统查询（1） | `sys_query` | 只执行代码允许的白名单系统查询 |
-| 会议纪要（2） | `meeting_start`、`meeting_stop` | 对话里说「监控会议」即可远程开始/结束；音频由 macOS 桌面端采集，纪要生成与邮件发送在服务端完成 |
-| 实时信息（5） | `web_search`、`web_extract`、`movie_ratings`、`esports_scores`、`ticket_search` | SearchService 统一调度免费优先搜索与有界正文提取；Tavily、PandaScore 和 Playwright 都是可选增强；工具不会代替用户完成交易 |
-
-### 流式、线程与记忆
-
-- 网页和桌面端调用 FastAPI `/api/chat`，服务端以 `text/event-stream` 返回 `token`、`tool_start`、`tool_result`、`done` 或 `error` 事件。
-- 每次 Agent 调用都带 `thread_id`。网页会话、桌面固定线程、CLI 自定义线程和微信联系人线程相互隔离，避免不同入口的上下文串线。
-- `JARVIS_DATA_DIR/jarvis.db` 保存 LangGraph 检查点；`accounts.sqlite3` 保存账号、会话、审计以及按 Owner 隔离的线程/备忘/待办/日程/位置元数据。两个 SQLite 文件都是完整备份的一部分。
-- 服务还提供带 Bearer 鉴权的 `/v1/chat/completions` OpenAI 兼容接口，供微信备用网关等客户端接入；它不是完整的 OpenAI API 实现。
-
-### 实时搜索与正文提取的来源边界
-
-- `SearchService` 默认依次尝试本地 SearXNG、DDGS 和显式配置的可选 Tavily。仓库提供的 SearXNG Compose 只监听 `127.0.0.1:18888`；生产审计发现 8888 已被 BT-Panel 占用，因此改用确认空闲的 18888。未启动或未配置时会自动继续 DDGS。
-- 截至 2026-08-13，私有演示部署的 `jarvis-web`、多用户与 Provider 设置接口、SearXNG 已通过最小线上验收和 HTTP 可达性验证；这只确认服务链路健康，不代表已经替用户运行 `search_smoke.py --live` 或执行上述娱乐搜索示例。
-- 静态正文优先由 Trafilatura 有界提取；只有安装 browser extra 和 Chromium 后，动态页面才可回退 Playwright。提取器限制响应体与输出长度，并拒绝 loopback、私网和其他不安全目标。
-- 每次搜索输出记录查询时间、provider、标题、摘要与有效 HTTP(S) 来源。网页文本被标记为外部资料而不是 Agent 指令，但公开网页仍可能过时或有误；重要信息应打开原始链接复核。
-- `TAVILY_API_KEY` 与 `PANDASCORE_TOKEN` 都可选。PandaScore 配置后可优先提供结构化电竞数据，缺失或失败时回退默认网页搜索链。
-- 电影评分按平台和分制分开；票务价格只代表公开展示价、起价或票面价，库存、手续费和最终成交价以平台结算页为准。
+<sub>网页截图在隔离演示环境实拍，桌面截图为 JWS_SHOT 自检模式实拍；数据均为虚构演示数据，无真实对话与凭据入图。全部 17 张截图与拍摄说明见 [截图画廊](docs/features.md#截图画廊)。</sub>
 
 ## 快速开始
 
-### 运行要求
+> [!TIP]
+> 需要 Python 3.10+ 和一个 OpenAI 兼容模型的 API Key（默认 DeepSeek，也可用 OpenAI、百炼、SiliconFlow 或自定义 HTTPS 中转）；桌面端另需 macOS 与 Node.js。
 
-- Python 3.10 或更高版本。
-- Node.js 与 npm：仅桌面端需要。
-- macOS：当前 Electron 悬浮窗使用 LaunchAgent、全局快捷键和 macOS 窗口行为，桌面端按 macOS 设计；Web 与 CLI 后端本身是 Python 应用。
-- 一个 OpenAI 兼容模型的 API key；默认配置面向 DeepSeek，也可使用 OpenAI、百炼、SiliconFlow 或自定义 HTTPS 中转。
-
-### 1. 安装 Python 环境
-
-在项目根目录执行：
+**① 安装**
 
 ```bash
 python3 -m venv .venv
@@ -271,287 +101,84 @@ python3 -m venv .venv
 cp .env.example .env
 ```
 
-然后至少填写 `JARVIS_API_KEY` 或与 `JARVIS_PROVIDER` 对应的兼容密钥；同时必须填好 `JARVIS_ADMIN_USERNAME`、`JARVIS_ADMIN_PASSWORD` 与 `JARVIS_SESSION_SECRET`（可用 `openssl rand -hex 32` 生成）——这三项留空时首次启动不会创建 Owner，网页端会 fail closed 无法登录。请勿提交 `.env`。实时网页查询默认可使用 DDGS，无需付费搜索 key。若已启动仓库提供的本地 SearXNG，可按下文配置其 loopback 地址；Tavily 仅在你主动选择该可选增强时才需要 key。
+**② 配置**：在 `.env` 中至少填好下面四项。后三项留空时不会创建 Owner，网页端会 fail closed 无法登录；`.env` 切勿提交。
 
-默认静态提取不需要浏览器。需要处理动态页面时，改用 browser extra 并单独安装 Chromium：
+```ini
+JARVIS_API_KEY=<模型 API Key>
+JARVIS_ADMIN_USERNAME=<首位 Owner 用户名>
+JARVIS_ADMIN_PASSWORD=<强口令>
+JARVIS_SESSION_SECRET=<openssl rand -hex 32 的输出>
+```
+
+**③ 启动**
 
 ```bash
-.venv/bin/pip install -e ".[dev,browser]"
-.venv/bin/python -m playwright install chromium
-.venv/bin/python -c "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.launch(); b.close(); p.stop()"
+.venv/bin/jarvis-web                       # 网页端 → http://127.0.0.1:7789
+.venv/bin/jarvis                           # 终端对话（可选）
+cd desktop && npm install && npm start     # macOS 桌面悬浮球（可选，需已有运行中的 Web 服务）
 ```
 
-最后一条只启动并关闭本机 Chromium，不访问任何 URL。未安装 Playwright 或 Chromium 时，静态提取仍可用，动态回退会明确跳过。
+用 Owner 登录后，可在「账户设置 → 用户管理」邀请成员。动态网页提取、桌面端登录与服务器地址、自建 SearXNG、备份与回滚见 [部署指南](docs/deployment.md)，全部环境变量见 [配置参考](docs/configuration.md)。
 
-### 2. 启动网页端
+## 工作原理
 
-```bash
-.venv/bin/jarvis-web
+```mermaid
+flowchart LR
+  U[用户] --> W[网页端] & D[桌面悬浮窗] & C[终端 CLI] & X[个人微信] & F[飞书机器人]
+  W & D & C & X & F --> A[FastAPI + LangGraph Agent]
+  A --> M[DeepSeek / OpenAI 兼容模型]
+  A --> T[26 项工具]
+  A --> S[(SQLite 持久记忆)]
+  T --> L[本地日程·待办·备忘]
+  T --> Q[SearchService]
+  Q --> P[SearXNG → DDGS → 可选 Tavily]
+  Q --> R[Trafilatura → 可选 Playwright]
 ```
 
-默认监听 `http://127.0.0.1:7789`。首位 Owner 在首次启动时由 `.env` 中的 `JARVIS_ADMIN_USERNAME`/`JARVIS_ADMIN_PASSWORD` 自动创建；用它登录后，在顶栏「账户设置」的「用户管理」里可邀请 Member（没有公开注册入口），Member 用被分配的用户名口令登录即可，各自的数据完全隔离。登录后可创建和删除会话、查看历史、停止生成、复制回复，并在任务台查看日程、待办和备忘；后端每轮对话后继续使用同一条线程记忆。
+网页与桌面端经 SSE 流式输出；每个入口使用独立的 `thread_id`，LangGraph 检查点落在 SQLite，重启后仍能接着聊。工具分层与搜索来源边界见 [架构说明](docs/architecture.md)。
 
-**语音通话怎么用**：点输入框旁的 **📞** 进入通话，浏览器会申请麦克风授权；同意后直接开口说话，说话停顿自动断句，贾维斯边生成边用语音回答并同步文字字幕。拒绝授权或浏览器不支持语音识别时，自动降级为「打字通话」——输入文字，贾维斯照样用语音回答；关闭通话面板后，文字聊天完全不受影响。答复的音色与语速在顶栏「⚙ API → 语音」按用户设置（网页与桌面通话共用），同页可开启每天定时的「晨报电台」。微信语音消息支持仍在开发中。
-
-**会议纪要怎么用**：开会前对贾维斯说「帮我监控会议」（网页 / 桌面 / 语音通话里都行），或直接点桌面端面板的 **🎙**、托盘菜单「会议纪要」。macOS 桌面端会同时采集你的麦克风（标「我」）与系统回环声音（飞书等会议里对方的发言，标「对方」），面板实时滚动双路字幕；说「停止监控会议」或点「⏹ 结束并生成纪要」后，服务端先做离线说话人分离（把「对方」细分为 对方1/对方2；分不出自动保持原样），再整理成含「气氛与情绪」小节的 Markdown 纪要，发送到「⚙ API → 桌面与会议」里配置的邮箱（默认见 `JARVIS_MEETING_MAIL_TO`），网页右侧任务台可回看与重发；点开一场会议还可以「⇩ 导入待办」（只导负责人是我的，去重）、「💬 就这场会议追问」（纪要+转写整包进对话，可连续追问细节）、「✎ 改名」（把对方1 改成张总，转写纪要全局替换）。三人以上会议同样支持：离线声纹分离按 speaker 自动编号 对方1/对方2/对方3…，纪要还会从上下文推断称呼（如「对方2（张总）」，推不出保持编号绝不瞎猜）。面板上的双条电平柱（青=我 / 金=对方）用来自检声道：对方柱不动说明会议软件没出声或屏幕录制权限没给。首次使用需在 系统设置 → 隐私与安全性 → 屏幕录制 里勾选本应用；服务端 `.env` 需配好 `JARVIS_SMTP_*` 才能发信。
-
-**语音唤醒怎么用**：默认开启（桌面设置可关）。只要喊一声「贾维斯」，悬浮球就会亮出并直接接通语音通话。检测在本机完成（静音零上传、零费用），只有圈出的人声片段会送云端做一次性识别；通话与会议监控期间自动暂停唤醒判定。
-
-**通话场景与情绪**：语音通话面板顶部是场景芯片——点「晚安电台」它会放慢放软、点「辩论擂台」它站你对立面、点「口语翻译」变成中英互译机，共 9 种，切换立即生效并存为你的默认；通话中它还会旁路感知你说话的语气（开心/低落/生气等 7 类），面板显示徽标、回答自然照应你的情绪。
-
-**发图片 / 视频**：聊天输入框 📎 现在也接受图片（jpg/png/webp/bmp，≤10MB）与短视频（mp4/mov，≤7MB）：识别成详细描述后自动进入对话，你可以继续追问「图里第二行写的什么」。
-
-### 私有部署的运行时 secret
-
-仓库提供的 SearXNG Compose 从仓库外的 root-only 运行时文件读取随机 secret，不把实际 secret 写入仓库、README 或命令参数。生产环境应限制该文件及 Docker socket 仅由 root 管理；Docker 管理员仍处在运行时 secret 的信任边界内。文件位置、权限、生成方式和 Compose 启动检查详见 [`deploy/searxng/README.md`](deploy/searxng/README.md)，请勿打印或提交实际值。
-
-### 3. 使用终端
-
-```bash
-.venv/bin/jarvis
-.venv/bin/jarvis --once "现在几点了"
-.venv/bin/jarvis --thread work
-```
-
-交互模式输入 `quit` 或 `exit` 退出。`--once` 单发一句后结束；`--thread` 可将工作、生活等上下文拆为不同记忆线程。
-
-### 4. 启动 macOS 桌面悬浮窗
-
-先确保可访问一个正在运行的 JWS-Agent Web 服务，再执行：
-
-```bash
-cd desktop
-npm install
-npm start
-```
-
-首次启动会自动展开登录面板，可在登录面板或设置页把服务器地址改为 HTTPS 私有部署地址；只在设置 `JWS_DESKTOP_DEV=1` 时允许本机 `http://127.0.0.1` / `[::1]` 开发地址。桌面端会要求输入用户名和口令，认证 Token 只由 Electron 主进程保存于系统加密存储，渲染界面无法读取。悬浮球置顶并跨工作区显示，点击后向左展开快捷聊天；默认全局唤醒键为 `⌥Space`，也可修改或停用。开机自启通过 `~/Library/LaunchAgents/com.jws.jarvis.desktop.plist` 实现。
-
-## 环境变量
-
-把 `.env.example` 复制为 `.env` 后不要直接启动。首先填入真实的模型 API key、唯一 Owner 的 `JARVIS_ADMIN_USERNAME`、强且唯一的 `JARVIS_ADMIN_PASSWORD`，并用密码学安全随机源生成至少 32 字节的 `JARVIS_SESSION_SECRET`（例如 `openssl rand -hex 32`）。留空、示例占位符或过短 secret 都会 fail closed，不会创建 Owner。
-
-| 变量 | 必需 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `JARVIS_PROVIDER` | 否 | `deepseek` | 环境回退模型 Provider：`openai`、`deepseek`、`bailian`、`siliconflow` 或 `custom` |
-| `JARVIS_API_KEY` | 启动模型必需 | 无 | 当前环境回退 Provider 的通用 API key；不会返回前端 |
-| `DEEPSEEK_API_KEY` | 否 | 无 | DeepSeek 兼容旧配置；`JARVIS_API_KEY` 为空且 Provider 为 DeepSeek 时使用 |
-| `JARVIS_BASE_URL` | 否 | `https://api.deepseek.com` | OpenAI 兼容接口基址 |
-| `JARVIS_MODEL` | 否 | 代码回退为 `deepseek-chat` | 模型名；仓库 `.env.example` 当前示例为 `deepseek-v4-flash` |
-| `JARVIS_DATA_DIR` | 否 | `<项目根>/data` | SQLite 记忆、本地日程/待办/备忘、会话元数据和微信 Token 的目录 |
-| `JARVIS_PORT` | 否 | `7789` | Web 服务监听端口 |
-| `JARVIS_ADMIN_USERNAME` | 首次启动必需 | 无 | 首次数据库初始化时创建的唯一 Owner 用户名 |
-| `JARVIS_ADMIN_PASSWORD` | 首次启动必需 | 无 | 首次数据库初始化时创建的 Owner 口令；只存 Argon2id 哈希 |
-| `JARVIS_SESSION_SECRET` | 是 | 无 | 至少 32 字节随机值，用于会话与 CSRF；缺失时网页登录会 fail closed |
-| `JARVIS_SETTINGS_WRITE_ENABLED` | 否 | `false` | 设为 `true` 才允许网页/桌面写入 Provider 设置 |
-| `JARVIS_SECRETS_KEY` | 设置写入必需 | 无 | URL-safe Base64 编码的随机 32 字节主密钥；仅在服务器保存，不得轮换或丢失 |
-| `JARVIS_SEARCH_BACKENDS` | 否 | `searxng,ddgs,tavily` | 搜索 provider 降级顺序；名称不能重复 |
-| `SEARXNG_BASE_URL` | 否 | 无 | 本地 Compose 可设为 `http://127.0.0.1:18888`；未配置或不健康时继续 DDGS |
-| `JARVIS_EXTRACT_BACKENDS` | 否 | `trafilatura,playwright` | 正文提取降级顺序；Playwright 未安装时明确跳过 |
-| `TAVILY_API_KEY` | 否 | 无 | 可选 Tavily 搜索密钥；未配置不影响 SearXNG/DDGS 免费链，仓库与演示入口均不保证已配置 |
-| `PANDASCORE_TOKEN` | 否 | 无 | 可选 PandaScore 结构化电竞数据 Token；缺失或失败时回退默认网页搜索链 |
-| `JARVIS_REMINDERS_ENABLED` | 否 | `1` | 设为 `0` 关闭日程提醒、晨报电台与夜间记忆蒸馏的后台线程 |
-| `JARVIS_HEARTBEAT_ENABLED` | 否 | `1` | 设为 `0` 关闭 Heartbeat 主动唤醒（线程根本不启动） |
-| `JARVIS_HEARTBEAT_INTERVAL` | 否 | `1800` | Heartbeat 扫描周期（秒） |
-| `JARVIS_DISTILL_TIME` | 否 | `03:00` | 夜间记忆蒸馏触发时刻（HH:MM，过点 2 小时窗口内可补跑） |
-| `JARVIS_SKILLS_DIR` | 否 | `<项目根>/skills` | 技能热加载目录，放 `<名>/SKILL.md` 即生效 |
-| `JARVIS_SMTP_HOST` / `JARVIS_SMTP_PORT` | 发邮件必需 / 否 | 无 / `465` | 会议纪要发信的 SMTP 服务器；465 走 SSL，其他端口走 STARTTLS。未配置时纪要仍生成保存，只是不发邮件 |
-| `JARVIS_SMTP_USER` / `JARVIS_SMTP_PASSWORD` | 发邮件必需 | 无 | 发信账号与授权码（QQ 邮箱用「设置→账户」生成的授权码，不是登录密码） |
-| `JARVIS_SMTP_FROM` | 否 | 同 `JARVIS_SMTP_USER` | 发件人地址 |
-| `JARVIS_MEETING_MAIL_TO` | 否 | `1539598168@qq.com` | 会议纪要默认收件邮箱；每用户可在网页「⚙ API → 桌面与会议」覆盖 |
-| `JARVIS_WAKE_WORDS` | 否 | `贾维斯,佳维斯,…,jarvis` | 语音唤醒词匹配表（逗号分隔，含同音兜底） |
-| `JARVIS_DASHSCOPE_VL_MODEL` | 否 | `qwen3-vl-flash` | 聊天发图/短视频的视觉理解模型（同用 `DASHSCOPE_API_KEY`） |
-| `JARVIS_LOG_LEVEL` | 否 | `WARNING` | 设为 `INFO` 可看到心跳/提醒/蒸馏等后台线程的推送日志 |
-| `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | 启用飞书必需 | 无 | 飞书企业自建应用凭证；两项都填才建立长连接，缺任一项飞书渠道保持 disabled |
-| `FEISHU_DOMAIN` | 否 | `https://open.feishu.cn` | 国际版 Lark 填 `https://open.larksuite.com` |
-| `FEISHU_STREAMING_CARD` | 否 | `1` | 设为 `0` 关闭流式卡片，改用普通 Markdown 消息回复 |
-
-## 多用户 Provider / API 设置
-
-- 网页顶栏 **⚙ API** 与桌面端 **设置 → 模型 API** 都可以选择 OpenAI、DeepSeek、阿里云百炼、SiliconFlow 或自定义 OpenAI 兼容 HTTPS 地址。官方 Provider 只接受其官方 API 主机；自定义中转禁止 HTTP、URL 凭据、查询参数和片段。
-- 每个用户只管理自己的模型 Provider、Base URL、模型名和 Key；Owner 额外管理全局 SearXNG、Tavily 与 PandaScore。Member 无法读取或修改其他账号配置，也不能管理全局联网数据源。
-- API Key 永不回显到网页或桌面端。托管设置使用 AES-GCM 加密并按用户、Provider、Origin 与 generation 绑定；每次测试、保存或恢复都要求当前账号口令，修改采用 generation 冲突保护。
-- Provider 设置保存后只影响当前账号的新 Agent 会话；已经打开的网页、桌面窗口或旧登录会话应退出并重新登录，再新建对话验证模型切换。
-- 测试连接会真实发送极少量非流式工具调用、流式文本和流式工具调用，可能产生少量模型费用。第三方中转可读取问题、上下文、工具调用和输出，建议只使用独立、低额度、可吊销的 Key。
-- “恢复环境配置”会切回 `.env` 中的回退 Provider。未同时配置写入开关和主密钥时，设置中心保持只读，原环境配置仍可正常使用。
-
-如需开启设置写入，先在服务器生成一次主密钥并只写入 `.env`：
-
-```bash
-python -c "import base64,secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
-# 把输出填入 JARVIS_SECRETS_KEY，并设置：
-JARVIS_SETTINGS_WRITE_ENABLED=true
-```
-
-主密钥不得提交、打印到日志或发送到前端；丢失后既有托管 Key 无法解密。正式变更前应连同 `JARVIS_DATA_DIR/provider-active.json`、`provider-generations/` 和 `provider-audit.jsonl` 一起备份。
-
-## 多用户、备份与回滚
-
-- Owner 可在网页账户设置中修改自己的口令，并创建、停用、改角色或重置 Member/Owner 口令；没有公开注册入口。Member 不会看到用户管理入口，服务端仍会强制 Owner 权限。
-- 从旧版单账号部署升级时，已有网页登录会话会被撤销；请使用迁移后的唯一 Owner 重新登录，并立即把迁移或运维阶段使用的临时兼容口令改成独立强口令。不要在 README、截图、工单或聊天中记录真实账号与口令。
-- 每个账号的 Agent 运行时、对话线程、检查点命名空间、备忘、待办、日程、定位和模型 Provider 都按用户隔离；CLI 与个人微信固定使用唯一 active Owner 的配置。
-- 升级前必须先停止所有 Web、Desktop、CLI 和微信桥进程，再完整复制 `JARVIS_DATA_DIR`。若不能停服，必须对 `jarvis.db` 和 `accounts.sqlite3` 分别使用 SQLite backup API/等价的一致性快照，不得在运行中直接 `cp` SQLite 文件。
-- `jarvis.db` 是 Agent 检查点；`accounts.sqlite3` 是账号/会话/租户元数据。升级前的 `threads.json`、`memos.json`、`todos.json`、`schedule.json`、`location.json`、`local_status.json` 是仅归属 Owner 的 legacy 输入：迁移不改写原文件，并为每个实际存在的文件创建同目录 `0600` 快照 `<原文件名>.tenant-v1.bak`。
-- `wechat_token` 只是唯一 active Owner 的微信桥登录态；它不在 SQLite 中，不参与 legacy 导入，升级/回滚时都不得删除、改名或覆盖。
-- 若升级失败：先停服并保留失败现场，恢复旧程序；用升级前快照恢复 `jarvis.db`；将每个 `<name>.tenant-v1.bak` 复制回对应 `<name>`（如 `memos.json.tenant-v1.bak` → `memos.json`）；若升级前已有 `accounts.sqlite3` 则恢复其快照，否则把新文件移到隔离目录保留而不要删除；`wechat_token` 原样保留。恢复或重试升级后，预期 Web/Desktop/OpenAI 会话全部重新登录；微信 Token 若未失效可自动恢复，否则再扫码。
-- 个人微信固定属于唯一 active Owner。即使网页端误显示入口，后端也会在没有唯一 Owner 时拒绝连接、状态与写入。
-
-## 个人微信桥接
-
-从你自己的 Web 部署登录后，可点击顶栏 **微信** 生成二维码，并用本人手机上的微信扫码确认；桌面端也可在 **设置 → 个人微信** 管理同一桥接状态。仍建议先使用专用或测试账号评估兼容性与账号风险，再由部署者决定是否使用常用账号。连接由服务器进程维持，关闭浏览器或桌面窗口不会主动断开；服务重启会尝试恢复。
-
-- Token 仅保存在 `JARVIS_DATA_DIR/wechat_token`，权限为 `0600`，不会返回前端；二维码、Token、`.env` 都不得入库或公开分享。
-- 每个联系人使用独立的 `wx-<联系人>` 线程；群聊和非文本消息默认忽略。
-- 个人号第三方桥接存在登录态失效、协议变化和账号风险。建议优先使用专用或测试账号，不要高频发送；是否使用常用账号及相关风险由部署者自行评估，**禁止群发营销**。
-- 登录态失效时，在网页或桌面设置中重新生成二维码并扫码。
-- 命令行备用桥位于 `wechat/ilink_gateway.py`；不要让备用桥和网页内置桥同时连接同一微信账号，否则可能重复拉取或回复消息。
-
-备用方式的具体变量和白名单配置见 [`wechat/README.md`](wechat/README.md)。
-
-## 飞书机器人
-
-服务进程内置飞书桥（`jarvis/channels/feishu/`）：用**长连接（WebSocket）**接收 `im.message.receive_v1` 事件，服务器只需能访问公网，**不需要公网回调地址、域名或内网穿透**，适合宝塔等直接部署。未配置 `FEISHU_APP_ID` / `FEISHU_APP_SECRET` 时整条渠道不启动。
-
-- **对话**：单聊直接发；群聊只响应 @机器人 的消息（机器人发的消息一律忽略，防止互相回复成环）。单聊、群聊、群话题分别使用 `fs-p-*` / `fs-g-*` / `fs-t-*` 独立线程，并且都落在**发信人绑定的贾维斯账号**的租户里（同一个群里每个人各自一条记忆线）。
-- **回复**：优先用流式卡片——先出「思考中…」，调用工具时显示「正在调用工具：…」，答案以打字机效果写出；缺卡片权限时自动降级为 Markdown 富文本（期间给原消息加「敲键盘」表情），再不行降级纯文本；超长回复卡片放第一段、其余按 6000 字分条续发，代码块不截断。发一条链接即自动读文总结；发图片（或图文）会先用 `DASHSCOPE_API_KEY` 的 qwen3-vl 识别再回答。语音消息暂未支持（会回复提示）。
-- **可靠性**：收到事件后只解析入队并立即 ack（官方要求 3 秒内）；按官方建议以 `message_id` 去重（`event_id` 也记），丢弃 15 分钟前的旧消息；`tenant_access_token` 缓存、提前 10 分钟刷新、失效自动重取；断线按平台下发的参数抖动重连。
-- **绑定**（飞书机器人对整个企业可见，所以未绑定的人只会收到绑定指引）：先为贾维斯账号领 6 位绑定码（10 分钟有效、一次性），再在飞书**私聊**机器人发送 `绑定 123456`；发 `解绑` 可解除。同一飞书账号每小时最多输错 5 次。
-  ```bash
-  # 管理员在服务器上为某个用户发码
-  .venv/bin/python -m jarvis.channels.feishu bind-code <用户名>
-  .venv/bin/python -m jarvis.channels.feishu bindings          # 查看已绑定
-  # 或任何用户自己用接口领码（桌面令牌免 CSRF）
-  TOKEN=$(curl -s -X POST https://<你的域名>/api/desktop/login -H 'Content-Type: application/json' \
-    -d '{"username":"<用户名>","password":"<口令>"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
-  curl -s -X POST https://<你的域名>/api/feishu/bind-code -H "X-JWS-Token: $TOKEN"
-  ```
-  接口：`GET /api/feishu/status`（连接状态 + 本人是否已绑定）、`POST /api/feishu/bind-code`、`POST /api/feishu/unbind`，鉴权与微信接口一致。
-
-### 飞书开发者后台需要做的操作（清单）
-
-1. 打开 [飞书开发者后台](https://open.feishu.cn/app) → **创建企业自建应用**（名称如「贾维斯」，上传头像）。
-2. **凭证与基础信息** → 复制 App ID / App Secret，写入服务器 `.env` 的 `FEISHU_APP_ID` / `FEISHU_APP_SECRET`（不要提交到 Git）。
-3. **添加应用能力** → 添加 **机器人**。
-4. **权限管理** → 开通以下权限：
-
-   | 权限 | 用途 | 是否必需 |
-   | --- | --- | --- |
-   | `im:message.p2p_msg:readonly` 读取用户发给机器人的单聊消息 | 收单聊 | 必需 |
-   | `im:message.group_at_msg:readonly` 接收群聊中 @机器人消息事件 | 收群聊 @ | 群聊必需 |
-   | `im:message:send_as_bot` 以应用的身份发消息 | 回复 | 必需 |
-   | `im:message:readonly` 获取单聊、群组消息 | 下载用户发来的图片 | 图片识别需要 |
-   | `cardkit:card:write` 创建与更新卡片 | 流式卡片 | 推荐（缺失自动降级） |
-   | `im:message.reactions:write_only` 发送、删除消息表情回复 | 降级模式的「打字中」表情 | 可选 |
-
-   也可以用一个 `im:message`（获取与发送单聊、群组消息）覆盖后四项中的消息类权限。**不需要**「获取群组中所有消息」这类敏感权限。
-5. 在服务器上先让长连接在线：启动贾维斯服务，或运行 `.venv/bin/python scripts/feishu_smoke.py --live`（后台规定：保存长连接订阅方式时必须有在线连接）。
-6. **事件与回调 → 事件配置** → 订阅方式选 **使用长连接接收事件** 并保存 → **添加事件**：消息与群组 → **接收消息 v2.0**（`im.message.receive_v1`）。
-7. **版本管理与发布** → 创建版本，设置**可用范围**（哪些人能私聊机器人）→ 申请发布，企业管理员审核通过后生效。之后每次增改权限都要**重新发布版本**才生效。
-8. 跑 `scripts/feishu_smoke.py --live`，按提示在飞书里私聊机器人发一句话，应收到卡片回声；然后按上面的「绑定」步骤绑定账号，单聊对话、拉进群 @它 验证。
-
-注意：长连接是**集群模式**——同一个应用若同时有多个进程在连（例如本机冒烟脚本和线上服务），每条消息只会随机推给其中一个；冒烟时先停线上服务或用测试应用。每个应用最多 50 条长连接。
-
-## 验收与测试
-
-确定性单元测试不调用真实大模型或外部搜索服务。`search_smoke.py` 默认也使用内置 stub，验证四类问题的路由、来源和脱敏，且无需任何付费 key；只有显式传入 `--live` 才使用当前配置的模型与 provider。`check_memory.py` 会重建默认 `data/jarvis.db` 以验证跨进程记忆。
-
-```bash
-.venv/bin/python -m pytest -q
-.venv/bin/python scripts/check_smoke.py
-.venv/bin/python scripts/check_memory.py
-.venv/bin/python scripts/search_smoke.py
-# 可选：显式进行真实模型/provider 验收
-.venv/bin/python scripts/search_smoke.py --live
-# 可选：多用户并发验收（自起本地服务并调用真实模型，产生少量模型费用）
-.venv/bin/python scripts/concurrency_smoke.py
-# 飞书：默认离线自检；--live 真连（需 FEISHU_APP_ID/SECRET，见「飞书机器人」小节）
-.venv/bin/python scripts/feishu_smoke.py
-```
-
-验收含义：
-
-1. `pytest -q`：全量确定性单元测试应为 0 失败。
-2. `check_smoke.py`：真实模型回答“现在几点了”，且必须产生实际工具调用。
-3. `check_memory.py`：两个独立 CLI 进程先后对话，验证第二次能读取第一次写入的 SQLite 历史。
-4. `search_smoke.py`：默认由离线 stub 覆盖 SearXNG/DDGS 风格的免费链结果，JSON 应为 4/4，并包含查询时间与可追溯来源；`--live` 才进行真实模型/provider 验收，Tavily 与 PandaScore 仍为可选项。
-5. `concurrency_smoke.py`：自动起一个隔离数据目录的本地服务并引导 Owner，3 路真实聊天并发时 20 次 `/api/dashboard` 的 P95 必须小于 2 秒，且聊天全部真实完成才退出 0。
-
-## 项目结构
-
-```text
-JWS-Agent/
-├── jarvis/
-│   ├── config.py          # 环境变量、模型与数据路径
-│   ├── graph.py           # LangGraph ReAct Agent + SQLite checkpointer
-│   ├── heartbeat.py       # Heartbeat 主动唤醒（关注清单巡检+双通道推送）
-│   ├── distill.py         # 夜间记忆蒸馏（最近一天对话 → 长期画像）
-│   ├── server.py          # FastAPI、登录、SSE、仪表盘与兼容接口
-│   ├── cli.py             # 交互式与单发 CLI
-│   ├── wechat.py          # Web 服务内置个人微信桥
-│   ├── channels/feishu/   # 飞书机器人（长连接收事件、流式卡片回复、账号绑定）
-│   ├── web/               # 零构建的网页端
-│   └── tools/             # 26 项工具及注册表
-├── desktop/               # macOS Electron 悬浮球与设置页
-├── skills/                # 技能热加载目录（放 SKILL.md 即生效）
-├── wechat/                # 命令行备用网关
-├── tests/                 # 确定性单元测试
-├── scripts/               # 真模型、记忆与实时搜索验收脚本
-├── docs/assets/readme/    # README 产品截图
-├── pyproject.toml
-└── .env.example
-```
-
-## FAQ
+## 最新动态
 
 <details>
-<summary><strong>为什么搜索没有使用本地 SearXNG？</strong></summary>
+<summary><b>第八轮 · 2026-10-02</b>　后端卡顿修复 · 流式渲染优化 · 语音延迟优化 · 飞书机器人接入</summary>
 
-先按 [`deploy/searxng/README.md`](deploy/searxng/README.md) 静态检查并启动本地服务，再把 `SEARXNG_BASE_URL` 设为 `http://127.0.0.1:18888` 后重启 Python 服务。未配置或健康检查失败时，SearchService 会按顺序继续 DDGS，而不是把 SearXNG 声称为在线；需要时可另行配置可选 Tavily。天气使用 Open-Meteo，不依赖这些搜索 provider。
+- **后端**：有界历史、checkpoint 旧版本清理、模型超时与连接池重配、客户端断开即停（实测真实首 token 2889ms → 1023ms）。
+- **前端 / 桌面**：流式 Markdown 增量渲染（修复 O(n²)）、token 按帧合并、three.js 懒加载修复、桌面主进程去同步。
+- **语音**：通话判停 800 → 500ms、首句逗号即送 TTS、续说不抢答、回声抑制、开口预热。
+- **飞书**：长连接收事件、流式卡片回复、一次性绑定码绑定账号，无需公网回调。
+- 测试基线 **pytest 657 / vitest 100 / desktop 117**，全部通过。
 
 </details>
 
 <details>
-<summary><strong>npm install 后提示缺少 Electron 二进制怎么办？</strong></summary>
+<summary><b>更早</b>　第三至第七轮</summary>
 
-某些 npm 配置会阻止 Electron 安装脚本。先在 `desktop/` 下执行：
+- **第七轮**：三人以上说话人自动编号，纪要三件套（导入待办 / 就会议追问 / 说话人改名），双路电平柱自检。
+- **第六轮**：会议「⚡ 实时要点」、服务线程成本泄漏修复、15 项代码审查修复。
+- **第五轮**：通话场景模式、语气情绪感知、图片 / 短视频识别、会议说话人分离。
+- **第四轮**：语音唤醒「贾维斯」、会议纪要自动邮件、网页控悬浮窗。
+- **第三轮**：Heartbeat 主动唤醒、夜间记忆蒸馏、技能热加载、划词工具条。
 
-```bash
-npm rebuild electron
-```
-
-仍失败再执行：
-
-```bash
-node node_modules/electron/install.js
-```
+完整记录见 [`PROGRESS.md`](PROGRESS.md)，演示入口的上线状态见 [部署指南](docs/deployment.md#演示入口与上线状态)。
 
 </details>
 
-<details>
-<summary><strong>询问“这里的天气”却提示没有定位怎么办？</strong></summary>
+## 文档
 
-在网页端允许浏览器定位；服务端只在尚无定位时尝试公网 IP 城市级兜底，内网地址或外部定位服务失败时可能拿不到位置。也可以在问题中直接写城市名，例如“深圳未来三天天气”。
+| 文档 | 你会找到 |
+| --- | --- |
+| 📖 [功能详解](docs/features.md) | 完整功能清单、语音 / 会议 / 唤醒用法、多入口对比、对话示例、全部截图 |
+| 🚀 [部署指南](docs/deployment.md) | 安装、网页 / 终端 / 桌面端启动、运行时 secret、多用户备份与回滚、演示入口状态 |
+| ⚙️ [配置参考](docs/configuration.md) | 环境变量全表、每用户 Provider 与 API 密钥、搜索与正文提取链 |
+| 💬 [微信与飞书](docs/channels.md) | 个人微信桥接、飞书机器人、开发者后台清单与权限表 |
+| 🧭 [架构说明](docs/architecture.md) | 工作原理、26 项工具分层、流式线程与记忆、搜索来源边界 |
+| 🧪 [开发与测试](docs/development.md) | 验收脚本、测试基线、项目结构 |
+| ❓ [常见问题](docs/faq.md) | SearXNG、Electron 二进制、天气定位、微信恢复、公网暴露 |
 
-</details>
+## 声明
 
-<details>
-<summary><strong>个人微信失效后怎样恢复？</strong></summary>
-
-打开网页顶栏“微信”或桌面端“设置 → 个人微信”，重新生成二维码并扫码。若使用命令行备用桥，先确认它没有与内置桥同时连接同一账号，再按 `wechat/README.md` 重新认证。
-
-</details>
-
-<details>
-<summary><strong>可以把默认 Web 服务直接暴露到公网吗？</strong></summary>
-
-不建议直接暴露。当前 `jarvis-web` 默认只监听 `127.0.0.1`，首次启动必须通过环境变量创建唯一 Owner，并使用 Argon2id、可撤销会话、CSRF 和登录限流；仓库不再提供固定账号或开发口令。公网部署仍应使用 HTTPS 反向代理、限制网络入口、配置强随机 `JARVIS_SESSION_SECRET` 与 Owner 口令、定期备份 `JARVIS_DATA_DIR`，并按组织要求补充日志审计、依赖更新和边界防护。
-
-</details>
-
-## 共同开发与使用声明
-
-本项目由陈文杰、钟俊琅共同开发。
-
-本项目仅供学习、研究与个人非商业用途。未经两位开发者书面授权，禁止任何形式的商业使用、付费分发、商业部署、商业集成或以本项目为基础提供收费服务。
+本项目由陈文杰、钟俊琅共同开发，仅供学习、研究与个人非商业用途。未经两位开发者书面授权，禁止任何形式的商业使用、付费分发、商业部署、商业集成或以本项目为基础提供收费服务。
 
 项目引用的第三方依赖与服务仍分别适用其各自的许可证、服务条款与品牌规则；上述声明不改变第三方组件的授权范围，也不授予本项目除第三方组件既有权利之外的任何商业使用权。
+
+<div align="center"><sub><a href="#readme-top">回到顶部 ↑</a></sub></div>
