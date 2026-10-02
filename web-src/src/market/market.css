@@ -451,3 +451,76 @@ body.light .jvm-tray-icons i{background:#F0F0F4;box-shadow:0 0 0 2px #fff}
   .jvm-main>*,.jvm-dock-inner,.jvm-forging,.jvm-rec-wait-text,.jvm-result-icon,.jvm-tray-icons i,.jvm-add.is-on .jv-icon{animation:jvm-fade .2s ease both}
   .jvm-card,.jvm-icon-opt,.jvm-swatch,.jvm-add,.jvm-prof-chip{transition:none}
 }
+
+/* ---------- 第十四轮：插件来源、不可用灰显、页签与插件管理（仅 Owner） ---------- */
+.jvm-card.is-off{opacity:.58;filter:saturate(.4)}
+.jvm-card.is-off .jvm-add:disabled{cursor:not-allowed}
+.jvm-card-req.is-off{color:var(--jv-text-3)}
+.jvm-card-source{margin-top:6px;font-size:12px;color:var(--jv-text-3);overflow-wrap:anywhere}
+.jvm-card-source a,.jvm-src a,.jvm-trust-links a{color:var(--m-accent);text-decoration:none}
+.jvm-card-source a:hover,.jvm-src a:hover,.jvm-trust-links a:hover{text-decoration:underline}
+.jvm-badge.is-community{color:var(--m-accent);background:color-mix(in srgb,var(--m-accent) 14%,transparent)}
+.jvm-admin-entry{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:12px}
+.jvm-btn--ghost{background:var(--m-card);color:var(--jv-text);border:1px solid var(--m-line)}
+.jvm-import-btn{height:38px;padding:0 16px;font-size:14px}
+.jvm-link-btn{border:0;background:none;padding:6px 4px;font:inherit;font-size:14px;color:var(--jv-text-2);
+  text-decoration:underline;text-decoration-color:var(--m-line);text-underline-offset:4px}
+.jvm-tabs{display:flex;gap:4px;margin:14px 0 4px;padding:4px;border-radius:14px;background:var(--m-tile);overflow-x:auto;scrollbar-width:none}
+.jvm-tabs::-webkit-scrollbar{display:none}
+.jvm-tabs button{flex:none;display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 14px;border:0;border-radius:10px;
+  background:none;color:var(--jv-text-2);font:inherit;font-size:14px;font-weight:600}
+.jvm-tabs button[aria-selected=true]{background:var(--m-card);color:var(--jv-text);box-shadow:0 1px 3px rgba(0,0,0,.18)}
+.jvm-tabs button span{font-size:12px;font-weight:500;color:var(--jv-text-3)}
+.jvm-admin .jvm-cats{position:static;margin:0 0 14px;padding:0}
+.jvm-import{display:flex;flex-direction:column;gap:14px}
+.jvm-import input[type=file]{height:auto;padding:12px}
+.jvm-form-error{font-size:13px;color:var(--jv-danger,#FF453A)}
+.jvm-notice{margin-top:14px;font-size:13.5px;line-height:1.5}
+.jvm-notice.is-ok{color:var(--m-ok)}
+.jvm-notice.is-error{color:var(--jv-danger,#FF453A)}
+.jvm-notice small{color:var(--jv-text-2)}
+.jvm-admin-sec h4{display:flex;align-items:baseline;gap:8px;margin:6px 0 8px;font-size:14.5px}
+.jvm-admin-sec h4 span{font-size:12px;color:var(--jv-text-3);font-weight:500}
+.jvm-admin-list{list-style:none;margin:0 0 16px;padding:0;display:flex;flex-direction:column;gap:8px}
+.jvm-admin-list li{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 12px;border-radius:12px;
+  border:1px solid var(--m-line);background:var(--m-card);font-size:14px;min-width:0}
+.jvm-admin-list li>span:first-child{min-width:0;overflow-wrap:anywhere}
+.jvm-admin-list li.is-off{opacity:.7}
+.jvm-admin-list small{color:var(--jv-text-3)}
+.jvm-reason{color:var(--m-warn)!important}
+.jvm-admin-actions{display:flex;flex:none;gap:6px}
+.jvm-admin-actions button,.jvm-admin-list li>button{height:30px;padding:0 10px;border-radius:9px;border:1px solid var(--m-line);
+  background:var(--m-tile);color:var(--jv-text);font:inherit;font-size:12.5px}
+.jvm-admin-actions button:disabled,.jvm-admin-list li>button:disabled{opacity:.45}
+.jvm-inline{display:flex;gap:8px;margin:8px 0 14px}
+.jvm-inline input{flex:1;min-width:0;height:40px;padding:0 12px;border-radius:12px;border:1px solid var(--m-line);background:var(--m-card);color:var(--jv-text);font:inherit}
+.jvm-inline .jvm-btn{height:40px}
+.jvm-source{margin-bottom:14px}
+.jvm-source-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:8px;font-size:14px}
+.jvm-source-head .jvm-admin-actions{margin-left:auto}
+.jvm-src{display:inline-flex;flex-wrap:wrap;align-items:baseline;gap:4px;font-size:12.5px;color:var(--jv-text-2);overflow-wrap:anywhere}
+.jvm-src code{font-size:11.5px;color:var(--jv-text-3)}
+.jvm-trust{display:flex;flex-direction:column;gap:14px}
+.jvm-trust-head{display:grid;grid-template-columns:48px minmax(0,1fr);gap:14px;align-items:start}
+.jvm-trust-head h4{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:17px}
+.jvm-trust-meta{margin-top:2px;font-size:12.5px;color:var(--jv-text-3)}
+.jvm-trust-list{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px 14px;margin:0;font-size:13.5px}
+.jvm-trust-list dt{color:var(--jv-text-3);font-weight:600}
+.jvm-trust-list dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.jvm-perms,.jvm-tools{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px}
+.jvm-perms li{padding-left:16px;position:relative}
+.jvm-perms li::before{content:"";position:absolute;left:2px;top:.6em;width:6px;height:6px;border-radius:50%;background:var(--m-ok)}
+.jvm-perms li.is-warn::before{background:var(--m-warn)}
+.jvm-tools code{font-size:12px;color:var(--jv-text)}
+.jvm-tools li{color:var(--jv-text-2)}
+.jvm-pkg{display:inline-block;margin:0 8px 4px 0;color:var(--m-ok)}
+.jvm-pkg.is-missing{color:var(--m-warn)}
+.jvm-trust-links{display:flex;flex-wrap:wrap;gap:12px}
+.jvm-warns{margin:0;padding:10px 12px 10px 28px;border-radius:12px;background:color-mix(in srgb,var(--m-warn) 12%,transparent);
+  color:var(--jv-text);font-size:13px;line-height:1.55}
+.jvm-trust-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+@media (max-width:560px){
+  .jvm-admin-list li{flex-direction:column;align-items:stretch}
+  .jvm-admin-actions{flex-wrap:wrap}
+  .jvm-trust-actions .jvm-btn{flex:1}
+}

@@ -4,10 +4,11 @@ import Icon from '../Icon.jsx'
 import Presence from '../Presence.jsx'
 import { navigate } from '../routes.js'
 import { applyTheme, currentTheme } from '../theme.js'
-import { getCatalog, marketSignup, recommend } from './api.js'
+import { getCatalog, marketSignup, previewSourcePlugin, recommend } from './api.js'
 import Brand from './Brand.jsx'
 import Gate from './Gate.jsx'
 import Hero from './Hero.jsx'
+import PluginAdmin from './PluginAdmin.jsx'
 import { clearDraft, emptyDraft, loadDraft, loginPath, normalizeCatalog, normalizeRecommendation, saveDraft } from './model.js'
 import Recommend from './Recommend.jsx'
 import Result from './Result.jsx'
@@ -79,6 +80,8 @@ export default function Market({ session, onAuthed }) {
   const [busy, setBusy] = useState(false)
   const [genError, setGenError] = useState('')
   const [adminSession, setAdminSession] = useState(null)   // 拦路口里管理员登录后的会话（不改 App 的会话）
+  const [sources, setSources] = useState([])               // 插件源（仅 Owner 拉得到）：市场里每个源一个页签
+  const [sourcePreview, setSourcePreview] = useState(null) // 插件源页签上点「安装」→ 交给插件管理弹窗出预览
   const scrollRef = useRef(null)
   const recSeq = useRef(0)
   const firstStep = useRef(true)
@@ -86,12 +89,13 @@ export default function Market({ session, onAuthed }) {
   const me = adminSession || appSession
   const step = draft.step
   const data = catalog.data
+  const isOwner = me?.role === 'Owner'
 
   useEffect(() => { try { applyTheme(currentTheme()) } catch { /* 存储不可读：保持默认暗色 */ } }, [])
   useEffect(() => { saveDraft(draft) }, [draft])
 
-  const loadCatalog = useCallback(() => {
-    setCatalog(c => ({ ...c, status: 'loading', error: '' }))
+  const loadCatalog = useCallback(({ quiet = false } = {}) => {
+    if (!quiet) setCatalog(c => ({ ...c, status: 'loading', error: '' }))
     getCatalog()
       .then(raw => setCatalog({ status: 'ok', data: normalizeCatalog(raw), error: '' }))
       .catch(e => setCatalog({ status: 'error', data: null, error: e.message }))
@@ -257,7 +261,12 @@ export default function Market({ session, onAuthed }) {
                 <Recommend catalog={data} draft={draft} recState={rec} onPickProfession={pickProfession}
                   onDescription={description => setDraft(d => ({ ...d, description }))} onDescribe={describe}
                   onToggle={toggle} onAddAll={addAll} />
-                <Skills catalog={data} picked={draft.picked} onToggle={toggle} authed={!!me} />
+                <Skills catalog={data} picked={draft.picked} onToggle={toggle} authed={!!me}
+                  admin={isOwner ? (
+                    <PluginAdmin onChanged={() => loadCatalog({ quiet: true })} onSources={setSources} external={sourcePreview} />
+                  ) : null}
+                  sources={isOwner ? sources : []}
+                  onInstallFromSource={(sid, name) => setSourcePreview({ load: () => previewSourcePlugin(sid, name) })} />
               </div>
             ) : <CatalogPending state={catalog} onRetry={loadCatalog} />}
           </>

@@ -22,7 +22,7 @@ export const NAME_MAX = 20
 export const TAGLINE_MAX = 40
 export const DESC_MAX = 300
 
-const REQUIRE_TEXT = { feishu_bound: '需绑定飞书', wechat_owner: '需管理员开通微信', desktop: '需电脑端' }
+const REQUIRE_TEXT = { feishu_bound: '需绑定飞书', wechat_owner: '需管理员开通微信', desktop: '需电脑端', files: '用到文件空间' }
 export const requireText = id => REQUIRE_TEXT[id] || '需要额外设置'
 
 const str = (v, fallback = '') => (typeof v === 'string' ? v : fallback)
@@ -37,13 +37,38 @@ function normPlugin(p) {
     icon: str(p.icon) || '🧩',
     category: str(p.category, 'other'),
     summary: str(p.summary),
-    kind: ['tool', 'channel', 'step'].includes(p.kind) ? p.kind : 'tool',
+    kind: ['tool', 'channel', 'step', 'skill'].includes(p.kind) ? p.kind : 'tool',
     requires: strList(p.requires),
     tier: p.tier === 'pro' ? 'pro' : 'free',
     price: Number.isFinite(p.price) ? p.price : 0,
     examples: strList(p.examples),
     available: p.available !== false,
+    // 第十四轮插件包：来源 / 版本 / 加载状态（老后端没有这些字段时按内置、可用处理）
+    builtin: p.builtin !== false,
+    status: p.status === 'unavailable' ? 'unavailable' : 'ok',
+    reason: str(p.reason),
+    version: str(p.version),
+    author: str(p.author),
+    homepage: str(p.homepage),
+    source: p.source && typeof p.source === 'object' ? p.source : { type: 'builtin' },
   }
+}
+
+const SHA = /^[0-9a-f]{40}$/
+
+/** 来源 commit 的短写：40 位 sha 取前 7 位 */
+export const shortRef = ref => (SHA.test(str(ref)) ? ref.slice(0, 7) : str(ref))
+
+/** 插件来源的网页地址：GitHub / Gitee 指到固定的 commit 与子目录；其余用主页（只认 http(s)） */
+export function sourceLink(plugin) {
+  const s = plugin?.source || {}
+  const hosts = { github: 'https://github.com', gitee: 'https://gitee.com' }
+  if (hosts[s.type] && /^[\w.-]+\/[\w.-]+$/.test(str(s.repo))) {
+    const ref = str(s.ref)
+    return `${hosts[s.type]}/${s.repo}${ref ? `/tree/${encodeURIComponent(ref)}${s.path ? `/${s.path}` : ''}` : ''}`
+  }
+  const home = str(plugin?.homepage)
+  return /^https?:\/\//.test(home) ? home : ''
 }
 
 export function normFlow(f) {
