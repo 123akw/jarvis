@@ -1,0 +1,38 @@
+{
+  "id": "amap",
+  "name": "高德地图",
+  "version": "1.0.0",
+  "icon": "🗺️",
+  "category": "life",
+  "summary": "查地点、算路线、搜周边、看天气，填好高德 Key 就能用",
+  "kind": "tool",
+  "tier": "free",
+  "price": 0,
+  "professions": [
+    "shop_owner",
+    "sales",
+    "freelancer"
+  ],
+  "examples": [
+    "从火车站开车到机场要多久",
+    "查一下这个地址附近有没有停车场",
+    "坐公交从这里到市中心怎么走"
+  ],
+  "entry": null,
+  "tools": [],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "config": [
+    {
+      "key": "AMAP_KEY",
+      "label": "高德 Web 服务 Key",
+      "secret": true,
+      "required": true,
+      "help": "在 lbs.amap.com 控制台「应用管理」里创建应用、添加 Key，服务平台选「Web 服务」"
+    }
+  ],
+  "license": "MIT-0",
+  "author": "JWS-Agent",
+  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/amap"
+}

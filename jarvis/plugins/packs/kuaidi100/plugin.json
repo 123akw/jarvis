@@ -1,0 +1,37 @@
+{
+  "id": "kuaidi100",
+  "name": "快递查询",
+  "version": "1.0.0",
+  "icon": "📦",
+  "category": "life",
+  "summary": "输单号查物流，寄件前估运费和到货时间，需填快递100 Key",
+  "kind": "tool",
+  "tier": "free",
+  "price": 0,
+  "professions": [
+    "shop_owner",
+    "office"
+  ],
+  "examples": [
+    "帮我查一下这个快递单号到哪了",
+    "寄 2 公斤的包裹到外省大概多少钱",
+    "这个快递今天发，大概几天能到"
+  ],
+  "entry": null,
+  "tools": [],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "config": [
+    {
+      "key": "KUAIDI100_KEY",
+      "label": "快递100 授权 Key",
+      "secret": true,
+      "required": true,
+      "help": "在 api.kuaidi100.com 注册快递100 API 开放平台（新账号可免费试用 100 单），登录后在账号信息里查看授权 key"
+    }
+  ],
+  "license": "MIT-0",
+  "author": "JWS-Agent",
+  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/kuaidi100"
+}
