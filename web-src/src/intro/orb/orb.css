@@ -1,0 +1,62 @@
+/* 进场「唤醒」：层级自下而上 = 登录页背景光 → 光球 → 光晕环 → 粒子 → 字标
+ * DOM 层只动 transform / opacity（字标多一个短暂的 filter 模糊）；时间零点 = 根节点挂上 is-run 的那一刻。
+ * 几何由 Intro.jsx 写入：--cx/--cy 光球中心，--sz 光球直径，--wy 字标（= 登录页问候语）中线。 */
+.jvo{position:fixed;inset:0;overflow:hidden;pointer-events:none;
+  --jvo-out:cubic-bezier(.16,1,.3,1);   /* expo-out：长尾减速，落位不回弹 */
+  --jvo-io:cubic-bezier(.65,0,.35,1)}
+.jvo>*{position:absolute}
+.jvo i,.jvo b{display:block;font-style:normal}
+
+.jvo-amb{inset:0;opacity:0}
+.jvo-orb{left:calc(var(--cx) - var(--sz) * .9);top:calc(var(--cy) - var(--sz) * .9);
+  width:calc(var(--sz) * 1.8);height:calc(var(--sz) * 1.8);opacity:0}
+.jvo-orbcss{left:calc(var(--cx) - var(--sz) / 2);top:calc(var(--cy) - var(--sz) / 2);opacity:0}
+.jvo-ring{left:calc(var(--cx) - var(--sz) / 2);top:calc(var(--cy) - var(--sz) / 2);width:var(--sz);height:var(--sz);
+  border-radius:50%;opacity:0;will-change:transform,opacity;
+  background:radial-gradient(circle,transparent 61%,rgb(167 139 250 / .34) 67%,rgb(99 102 241 / .16) 73%,rgb(59 130 246 / .05) 81%,transparent 88%)}
+body.light .jvo-ring{background:radial-gradient(circle,transparent 60%,rgb(139 92 246 / .3) 67%,rgb(59 130 246 / .12) 75%,transparent 86%)}
+.jvo-dust{inset:0;width:100%;height:100%}
+
+.jvo-word{left:0;right:0;top:var(--wy);transform:translateY(-50%);text-align:center;white-space:nowrap;
+  font:700 clamp(17px,1.75vw,24px)/1 Orbitron,var(--jv-font,system-ui),sans-serif;
+  letter-spacing:.56em;padding-left:.56em;   /* 补上末字后面的字距，视觉居中 */
+  color:var(--jv-text,#F5F5F7)}
+.jvo-word span{display:inline-block;opacity:0}
+
+/* ---------- 时间线 ---------- */
+.jvo.is-run .jvo-orb{animation:jvo-in .5s var(--jvo-out) 1.42s both}
+.jvo.is-run .jvo-orbcss{animation:jvo-orb-in .7s var(--jvo-out) 1.42s both}
+.jvo.is-run .jvo-ring{animation:jvo-ring 1.1s cubic-bezier(.2,.8,.2,1) 1.5s both}
+.jvo.is-run .jvo-word span{animation:jvo-glyph .72s var(--jvo-out) calc(1.72s + var(--i) * 50ms) both}
+/* 字标在 IntroGate 淡出之前先让位：避免与问候语交叉叠字 */
+.jvo.is-run .jvo-word{animation:jvo-word-out .32s ease 2.72s both}
+.jvo.is-run .jvo-amb{animation:jvo-in 1.1s ease 1.9s both}
+/* 提前结束（点击跳过 / 上下文丢失）时字标也立刻让位 */
+.jvo.is-leaving .jvo-word{opacity:0;transform:translateY(calc(-50% - 10px));filter:blur(6px);
+  transition:opacity .25s ease,transform .4s var(--jvo-out),filter .25s ease}
+
+@keyframes jvo-in{from{opacity:0}to{opacity:1}}
+@keyframes jvo-word-out{to{opacity:0;transform:translateY(calc(-50% - 10px));filter:blur(6px)}}
+@keyframes jvo-orb-in{from{opacity:0;transform:scale(.84)}to{opacity:1;transform:none}}
+@keyframes jvo-ring{0%{opacity:0;transform:scale(.96)}16%{opacity:.5}100%{opacity:0;transform:scale(2.5)}}
+@keyframes jvo-glyph{from{opacity:0;transform:translate3d(0,8px,0);filter:blur(8px)}to{opacity:1;transform:none;filter:blur(0)}}
+
+/* ---------- CSS 降级：光点螺旋汇聚（外层转角度、内层收半径 = 弧线） ---------- */
+.jvo-dots{left:var(--cx);top:var(--cy)}
+.jvo-dots i{position:absolute;left:0;top:0;width:0;height:0;transform:rotate(var(--a))}
+.jvo-dots b{position:absolute;left:0;top:0;width:var(--s);height:var(--s);margin:calc(var(--s) / -2) 0 0 calc(var(--s) / -2);
+  border-radius:50%;background:var(--c);box-shadow:0 0 calc(var(--s) * 2.5) var(--c);opacity:0;
+  transform:translateX(var(--r))}
+.jvo.is-run .jvo-dots i{animation:jvo-swirl 1.25s var(--jvo-io) var(--d) both}
+.jvo.is-run .jvo-dots b{animation:jvo-pull 1.25s var(--jvo-io) var(--d) both}
+@keyframes jvo-swirl{from{transform:rotate(calc(var(--a) - 75deg))}to{transform:rotate(var(--a))}}
+@keyframes jvo-pull{
+  0%{opacity:0;transform:translateX(var(--r)) scale(1.3)}
+  22%{opacity:1}
+  82%{opacity:.9}
+  100%{opacity:0;transform:translateX(calc(var(--sz) * .45)) scale(.5)}}
+
+/* ---------- 减弱动态：静态终帧 600ms 淡入 ---------- */
+.jvo.is-reduced{animation:jvo-in .6s ease both}
+.jvo.is-reduced .jvo-orbcss,.jvo.is-reduced .jvo-amb,.jvo.is-reduced .jvo-word span{opacity:1}
+.jvo.is-reduced.is-leaving .jvo-word{transition:none}
