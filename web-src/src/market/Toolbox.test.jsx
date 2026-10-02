@@ -177,6 +177,41 @@ describe('工具箱抽屉：拖出移除与撤销', () => {
   })
 })
 
+describe('Dock 上的小图标往上拖出 = 移除（macOS Dock）', () => {
+  it('拖出不到 56px 放回；超过 56px 标「松手移除」，松手移除并给撤销；拖完不误开抽屉', () => {
+    const spy = { onRemove: vi.fn(), onAdd: vi.fn() }
+    render(<Box spy={spy} />)
+    const dock = screen.getByRole('region', { name: '工具箱' })
+    setRect(document.getElementById('jvm-dock-drop'), { left: 192, top: 680, width: 640, height: 64 })
+    const icon = () => [...dock.querySelectorAll('.jvm-tray-icons i')].find(i => i.textContent === '✅')
+    down(icon(), 230, 712)
+    move(232, 700)
+    expect(ghost()).toHaveTextContent('待办清单')
+    expect(icon()).toHaveAttribute('data-pull', 'lifted')
+    move(240, 650)                                  // 只高出 30px
+    expect(ghost()).not.toHaveClass('is-removing')
+    up(240, 650)
+    fireEvent.click(dock.querySelector('.jvm-tray'))
+    expect(screen.queryByRole('dialog')).toBeNull()  // 拖完那一下 click 被吞掉
+    expect(spy.onRemove).not.toHaveBeenCalled()
+    expect(icon()).not.toHaveAttribute('data-pull')
+
+    down(icon(), 230, 712)
+    move(232, 700)
+    move(260, 600)
+    expect(ghost()).toHaveClass('is-removing')
+    expect(ghost()).toHaveTextContent('松手移除')
+    up(260, 600)
+    expect(spy.onRemove).toHaveBeenCalledWith('todo')
+    expect(dock).toHaveTextContent('已移除「待办清单」，5 秒内可以撤销。')
+    expect(dock).toHaveTextContent('已选 2 个')
+    fireEvent.click(within(dock).getByRole('button', { name: '撤销' }))
+    expect(spy.onAdd).toHaveBeenCalledWith(['todo'], expect.objectContaining({ restore: true, index: 1 }))
+    expect(dock).toHaveTextContent('已选 3 个')
+    expect(dock).toHaveTextContent('已撤销，「待办清单」回到第 2 位。')
+  })
+})
+
 describe('键盘 / 读屏替代', () => {
   it('上移 / 下移 / 移除按钮照常可用，并播报；焦点不丢', async () => {
     render(<Box />)

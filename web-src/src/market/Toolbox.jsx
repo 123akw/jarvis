@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import Icon from '../Icon.jsx'
 import Modal, { ModalHead } from '../Modal.jsx'
-import { useDndActions, useDockDrop, useSortableList } from './dnd/index.jsx'
+import { DOCK_ID, useDndActions, useDockDrop, useDockPull, useSortableList } from './dnd/index.jsx'
 import { say } from './dnd/engine.js'
 import { KIND_LABEL, kindCounts } from './model.js'
 
@@ -252,6 +252,18 @@ export default function Toolbox({ plugins, onRemove, onMove, onReorder, onAdd, o
     ;(open ? tell : announce)(say.restored(u.name, (pos >= 0 ? pos : to) + 1))
   }
 
+  // Dock 上的小图标往上拖出 = 移除（macOS Dock），同样给 5 秒撤销
+  const pull = useDockPull({
+    getDock: () => document.getElementById(DOCK_ID),
+    onRemove: id => {
+      const i = latest.current.findIndex(p => p.id === id)
+      const p = latest.current[i]
+      if (!p) return
+      remove(id, i)
+      announce(say.removed(p.name))
+    },
+  })
+
   const slot = (isOver && dragging?.tone === 'ok') || landing ? (dragging?.icon || landing?.icon || '') : null
   const cue = cueOf(dragging, isOver, n)
   const showTip = !dragging && tipOn
@@ -264,7 +276,7 @@ export default function Toolbox({ plugins, onRemove, onMove, onReorder, onAdd, o
           <button type="button" className="jvm-tray" onClick={() => setOpen(true)} aria-haspopup="dialog"
             aria-label={n ? `工具箱：已选 ${n} 个插件，点开查看` : '工具箱：还没选插件'}>
             <span className={`jvm-tray-icons${n || slot !== null ? '' : ' is-empty'}`} aria-hidden="true" data-dock-target="" data-dock-bump="">
-              {n ? plugins.slice(-4).map(p => <i key={p.id}>{p.icon}</i>) : slot !== null ? null : <i><Icon name="plus" size={14} /></i>}
+              {n ? plugins.slice(-4).map(p => <i key={p.id} {...pull.iconProps(p)}>{p.icon}</i>) : slot !== null ? null : <i><Icon name="plus" size={14} /></i>}
               {slot !== null ? <i className={`jvd-slot${landing ? ' is-landing' : ''}`} data-dock-slot="">{landing ? '' : slot}</i> : null}
             </span>
             <span className="jvm-tray-text">

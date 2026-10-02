@@ -103,6 +103,10 @@ body.light .jvd-fly-icon{background:#fff}
 .jvm-tray-icons.is-empty i.jvd-slot,.jvm-tray-icons i.jvd-slot:first-child{margin-left:-8px}
 .jvm-tray-icons i.jvd-slot.is-landing{outline-style:solid;background:color-mix(in srgb,var(--jv-accent) 18%,transparent);animation:none}
 
+/* Dock 上的小图标可以往上拖出移除：拎起时原位半透明 */
+@media (hover:hover) and (pointer:fine){ .jvm-tray-icons i:not(.jvd-slot){cursor:grab} }
+.jvm-tray-icons i[data-pull]{opacity:.35}
+
 /* Dock 上方的短提示（拒绝原因 / 第一次的用法提示） */
 .jvd-tip{animation:jvd-rise .24s var(--jv-ease,ease) both}
 
