@@ -53,7 +53,7 @@ git init && git add . && git commit -m "first plugin"         # 5. 推到 GitHub
   SKILL.md           # kind=skill 的提示词正文
   README.md          # 给人看的说明（建议写；导入预览时展示）
   tests/             # 插件自带测试（建议写）
-  LICENSE            # 许可证（发布到 GitHub 时必须有）
+  LICENSE            # 许可证（发布到 GitHub 时必须有；本仓库的 examples/plugin-template 以 MIT-0 授权，可放心复制）
 ```
 
 测试文件名建议带上插件 id（如 `tests/test_lottery.py`），几个插件放一起测试时不会撞名。

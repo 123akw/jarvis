@@ -27,7 +27,7 @@ tests/test_tools.py
 1. `plugin.json`：改 `id`（小写字母开头，只含小写字母 / 数字 / 下划线）、`name`、`icon`、`summary`、`examples`、`tools`、`steps`、`author`、`homepage`。
 2. `tools.py`：把 `my_plugin_` 前缀换成你的 id，写你自己的工具；docstring 用大白话写清「什么时候用」。
 3. `tests/test_tools.py`：改成测你的工具。
-4. 加一个 `LICENSE`，写清别人能不能用、怎么用（自己写的插件代码可选 MIT 或 Apache-2.0）；没有许可证的仓库，管理员不该导入。
+4. 本模板以 **MIT-0**（MIT No Attribution）授权，见同目录 `LICENSE`：可以随意复制、修改、商用，不需要署名，也不受贾维斯主仓库「非商业用途」声明的限制。复制后把 `LICENSE` 换成你自己插件的许可证（MIT、Apache-2.0 或继续用 MIT-0），并同步改 plugin.json 的 `license` 字段；没有许可证的仓库，管理员不该导入。
 
 ## 本地测试
 
