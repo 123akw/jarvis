@@ -19,7 +19,7 @@ dependencies = [
     "ddgs==9.14.4",
     "trafilatura==2.1.0",
     "pwdlib[argon2]>=0.3",
-    "cryptography==45.0.7",
+    "cryptography==50.0.2",
     "pypdf>=6.0",
     "pilk>=0.2",
     # 飞书长连接（同步客户端）。原为 langgraph-sdk/langsmith 的传递依赖、已在锁文件中，此处显式声明。

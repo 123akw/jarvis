@@ -1,0 +1,20 @@
+{
+  "generated_with": {
+    "cryptography": "45.0.7",
+    "python": "3.14.6"
+  },
+  "master_key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+  "owner": "fixture-owner-0001",
+  "expected": {
+    "llm_api_key": "sk-fixture-llm-key-generated-by-cryptography-45.0.7",
+    "llm_provider": "deepseek",
+    "llm_model": "deepseek-fixture",
+    "tavily_api_key": "tvly-fixture-integration-key-45.0.7"
+  },
+  "aesgcm_vector": {
+    "nonce": "ZGVmZ2hpamtsbW5v",
+    "aad": "andzLXNlY3JldC12MQBmaXh0dXJlLW93bmVyLTAwMDEAZGVlcHNlZWsAZGVlcHNlZWt8aHR0cHM6Ly9hcGkuZGVlcHNlZWsuY29tOjQ0MwE=",
+    "plaintext": "cHJpbWl0aXZlLXZlY3Rvci1wbGFpbnRleHQ=",
+    "ciphertext": "OGm3CxCdP-hbTymNuREFj2-yamviAocX36UYv_MKIZRcOwaYXV71ctox"
+  }
+}
