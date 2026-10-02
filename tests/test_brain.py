@@ -27,7 +27,7 @@ FRIDAY_NIGHT = datetime.datetime(2026, 10, 2, 21, 12)
 @pytest.fixture(autouse=True)
 def tenant():
     accounts = AccountStore(); accounts._ensure_bootstrap()
-    prompts._digest_cache.clear()
+    prompts._digest_cache.clear(); prompts._digest_inflight.clear(); prompts._digest_epoch.clear()
     with tenant_scope(accounts.list_users()[0]["id"]):
         yield
 
@@ -136,6 +136,28 @@ def test_digest_never_blocks_first_token(monkeypatch):
     started = time.monotonic()
     assert prompts.today_digest(FRIDAY_NIGHT) == ""
     assert time.monotonic() - started < prompts.DIGEST_WAIT_SECONDS + 0.3
+
+
+def test_digest_invalidated_mid_flight_does_not_cache_stale_result(monkeypatch):
+    """算到一半日程变了（forget_digest）：旧结果不能写进缓存，否则 30 秒内都报旧概况。"""
+    import threading
+    gate = threading.Event()
+    real = prompts.compute_digest
+
+    def gated(store, now):
+        gate.wait(2)
+        return real(store, now)
+    monkeypatch.setattr(prompts, "compute_digest", gated)
+    assert prompts.today_digest(FRIDAY_NIGHT) == ""                 # 超时：本轮不带概况
+    assert prompts.today_digest(FRIDAY_NIGHT) == ""                 # 仍在算：不重复提交
+    key = prompts._digest_key()
+    assert key in prompts._digest_inflight
+    prompts.forget_digest()
+    gate.set()
+    time.sleep(0.2)
+    assert key not in prompts._digest_cache and key not in prompts._digest_inflight
+    monkeypatch.setattr(prompts, "compute_digest", real)
+    assert "待办已清空" in prompts.today_digest(FRIDAY_NIGHT)
 
 
 def test_digest_without_tenant_scope_is_empty():

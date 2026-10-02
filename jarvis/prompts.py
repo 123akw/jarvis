@@ -10,7 +10,7 @@ import datetime
 import os
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
 from pathlib import Path
 
@@ -222,6 +222,8 @@ DIGEST_TTL_SECONDS = 30.0   # 今日概况缓存：同一用户 30 秒内复用�
 DIGEST_WAIT_SECONDS = 0.3   # 现算最多等这么久；超时本轮就不带概况，绝不拖慢首字
 DIGEST_TITLE_CHARS = 20
 _digest_cache: dict[tuple[str, str], tuple[float, str]] = {}
+_digest_inflight: dict[tuple[str, str], tuple[int, Future]] = {}   # 同一用户同时只算一份，库被锁时不越堆越多
+_digest_epoch: dict[tuple[str, str], int] = {}         # 作废计数：算到一半被作废的结果不写缓存
 _digest_lock = threading.Lock()
 _digest_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="jarvis-digest")
 
@@ -265,13 +267,19 @@ def _digest_key() -> tuple[str, str] | None:
         return None
 
 
-def _digest_job(key: tuple[str, str], now: datetime.datetime) -> str:
+def _digest_job(key: tuple[str, str], now: datetime.datetime, epoch: int) -> str:
     from jarvis.tenancy import TenantStore, tenant_scope
-    with tenant_scope(key[1]):
-        text = compute_digest(TenantStore(Path(key[0]) / "accounts.sqlite3"), now)
-    with _digest_lock:
-        _digest_cache[key] = (time.monotonic(), text)
-    return text
+    try:
+        with tenant_scope(key[1]):
+            text = compute_digest(TenantStore(Path(key[0]) / "accounts.sqlite3"), now)
+        with _digest_lock:
+            if _digest_epoch.get(key, 0) == epoch:
+                _digest_cache[key] = (time.monotonic(), text)
+        return text
+    finally:
+        with _digest_lock:   # 只摘自己那份：作废后新提交的同 key 任务不能被旧任务摘掉
+            if _digest_inflight.get(key, (None,))[0] == epoch:
+                del _digest_inflight[key]
 
 
 def today_digest(now: datetime.datetime) -> str:
@@ -285,10 +293,15 @@ def today_digest(now: datetime.datetime) -> str:
         return ""
     with _digest_lock:
         cached = _digest_cache.get(key)
-    if cached and time.monotonic() - cached[0] < DIGEST_TTL_SECONDS:
-        return cached[1]
+        if cached and time.monotonic() - cached[0] < DIGEST_TTL_SECONDS:
+            return cached[1]
+        entry = _digest_inflight.get(key)
+        if entry is None:   # 持锁提交并登记：任务收尾要拿同一把锁，不会在登记前把自己摘掉
+            epoch = _digest_epoch.get(key, 0)
+            entry = _digest_inflight[key] = (epoch, _digest_pool.submit(_digest_job, key, now, epoch))
+        future = entry[1]
     try:
-        return _digest_pool.submit(_digest_job, key, now).result(timeout=DIGEST_WAIT_SECONDS)
+        return future.result(timeout=DIGEST_WAIT_SECONDS)
     except FutureTimeout:
         return cached[1] if cached else ""
     except Exception:
@@ -296,11 +309,13 @@ def today_digest(now: datetime.datetime) -> str:
 
 
 def forget_digest() -> None:
-    """当前用户的日程/待办变了：作废今日概况缓存，下一轮重新算。"""
+    """当前用户的日程/待办变了：作废今日概况缓存（含正在算的那份），下一轮重新算。"""
     key = _digest_key()
     if key is not None:
         with _digest_lock:
             _digest_cache.pop(key, None)
+            _digest_inflight.pop(key, None)
+            _digest_epoch[key] = _digest_epoch.get(key, 0) + 1
 
 
 def runtime_context(now: datetime.datetime | None = None, *, digest: bool = True) -> str:
