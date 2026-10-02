@@ -1777,6 +1777,23 @@ briefing.register(app, request_principal=_request_principal, panel_write=_panel_
                   chunk_text=_chunk_text, deny=_deny)
 
 
+# ---- 积木流程（第十三轮平台工坊）：/api/flows*、公开结果页 /r/<token>，逻辑在 jarvis/flows/ ----
+from jarvis import flows, vision  # noqa: E402
+
+flows.install(app, request_principal=_request_principal, panel_write=_panel_write, deny=_deny,
+              deps=flows.FlowDeps(
+                  tenant_store=lambda: _tenant_store(),
+                  compose=lambda uid, prompt: flows.model_compose(lambda u: _bundle_for(u), _chunk_text, uid, prompt),
+                  describe_image=lambda data, ext: vision.describe_image(data, ext),
+                  feishu_ready=feishu.push_ready,
+                  push_feishu=feishu.push_text,
+                  feishu_doc_target=feishu.doc_target,
+                  wechat_owner=lambda uid: _wechat_user() == uid,
+                  wechat_ready=wechat.push_available,
+                  push_wechat=wechat.push_text,
+              ))
+
+
 if __name__ == "__main__":
     run()
 
