@@ -52,7 +52,8 @@ flowchart LR
 
 ## 智能体工坊与路由
 
-- **路由**（`web-src/src/routes.js`）：`/` 智能体市场（公开）、`/login` 登录、`/app` 主应用、`/flows` 积木流程、`/p/<slug>` 智能体品牌入口；服务端对这些路径回 index.html，`/market` 与旧的 `/?u=` 302 到新地址。登录后的 `next` 只接受站内路径。
+- **路由**（`web-src/src/routes.js`）：`/` 智能体市场（公开）、`/login` 登录、`/app` 主应用、`/flows` 积木流程、`/p/<slug>` 智能体品牌入口；服务端对这些路径回 index.html，`/market` 与旧的 `/?u=` 302 到新地址。登录后的 `next` 只接受站内路径。进场动画（`web-src/src/intro/`）挂在根节点，每次整页打开或刷新都播，`introAllowed()` 只排除 `/p/<slug>`。
+- **市场前端**（`web-src/src/market/`）：`Market.jsx` 管草稿（所选插件、顺序、品牌）与步骤；`Hero` / `Featured` / `Catalog` / `PluginCard` 是首页版面，`PluginDetail` / `Brand` / `Result` 是详情、起名与结果页；拖拽在 `market/dnd/`——自写 Pointer Events 引擎（零依赖），`DndRoot({onAdd, canAdd, onReorder, onRemove})` 包整页，卡片用 `useDragSource`，底部工具箱 `Toolbox.jsx` 用 `useDockDrop` / `useSortableList` / `useDockPull` 接收、排序和拖出移除；点「+」走 `flyToDock` 动画。草稿只在浏览器里，点「生成」时才调 `/api/market/signup`。
 - **专属账号即智能体**（`jarvis/platforms.py`）：市场开号时建一个 Member 账号 + `tenant_platforms` 记录（所选插件、名称、主题色）。该账号的 Agent 只绑定这些插件的工具（外加 now / calc），系统提示词加「智能体身份」段；插件或名称变了就按 `plugins_gen` / `platform_rev` 重建这个账号的 Agent。Owner 与没有智能体的账号不受影响。
 - **主页问候与快捷问题**（`jarvis/platform_home.py`）：按名称、介绍、职业和已装插件由模型生成，存 `tenant_prefs`，模型不可用时按规则兜底。
 - **积木流程**（`jarvis/flows/`）：`tenant_flows` / `tenant_flow_runs`（租户 schema v6），9 个核心积木 + 插件包提供的积木（如 `excel_out`、`word_out`），运行进度经 SSE 推送，结果页 `/r/<token>` 服务端渲染、全转义、CSP 禁脚本。
