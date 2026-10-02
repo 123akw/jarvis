@@ -1613,9 +1613,9 @@ feishu.register(
 def run() -> None:
     import uvicorn
 
+    config.load_env()   # 先读 .env：此前 basicConfig 在它之前，写在 .env 里的 JARVIS_LOG_LEVEL 不生效
     # JARVIS_LOG_LEVEL=INFO 可看到心跳/提醒等后台线程的推送记录；默认维持 WARNING
     logging.basicConfig(level=config.log_level())
-    config.load_env()
     _initialize_runtime()
     port = config.env_int("JARVIS_PORT", 7789, minimum=1, maximum=65535)
     print(f"J.A.R.V.I.S. 网页端已上线：http://127.0.0.1:{port}")

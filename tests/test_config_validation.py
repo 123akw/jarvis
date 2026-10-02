@@ -111,3 +111,20 @@ def test_configured_bootstrap_is_silent(caplog):
     with caplog.at_level(logging.WARNING):
         assert AccountStore().unique_active_owner() is not None
     assert not [m for m in _warnings(caplog) if "JARVIS_ADMIN" in m or "SESSION_SECRET" in m]
+
+
+def test_run_reads_dotenv_before_choosing_log_level(monkeypatch):
+    """实测：run() 先 basicConfig 后 load_env，写在 .env 里的 JARVIS_LOG_LEVEL=INFO 从不生效。"""
+    import uvicorn
+
+    import jarvis.server as server_mod
+
+    seen = {}
+    monkeypatch.delenv("JARVIS_LOG_LEVEL", raising=False)
+    monkeypatch.setenv("JARVIS_PORT", "18972")
+    monkeypatch.setattr(server_mod.config, "load_env", lambda: monkeypatch.setenv("JARVIS_LOG_LEVEL", "info"))
+    monkeypatch.setattr(logging, "basicConfig", lambda **kwargs: seen.update(kwargs))
+    monkeypatch.setattr(server_mod, "_initialize_runtime", lambda: None)
+    monkeypatch.setattr(uvicorn, "run", lambda *_args, **kwargs: seen.update(port=kwargs.get("port")))
+    server_mod.run()
+    assert seen == {"level": "INFO", "port": 18972}
