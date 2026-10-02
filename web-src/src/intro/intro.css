@@ -1,0 +1,8 @@
+/* 进场动画外壳：铺满视口压在应用之上，结束时整体淡出露出登录页 */
+.jv-intro-gate{position:fixed;inset:0;z-index:1000;background:var(--jv-bg,#0B0B0F);cursor:pointer;
+  transition:opacity 420ms var(--jv-ease,cubic-bezier(.2,.8,.2,1))}
+.jv-intro-gate.leaving{opacity:0;pointer-events:none}
+.jv-intro-skip{position:absolute;right:20px;bottom:18px;font-size:12px;letter-spacing:.04em;
+  color:var(--jv-text-3,rgba(235,235,245,.4));opacity:0;animation:jv-intro-hint .4s 1.2s forwards}
+@keyframes jv-intro-hint{to{opacity:1}}
+@media (prefers-reduced-motion:reduce){.jv-intro-gate{transition:none}.jv-intro-skip{animation:none;opacity:1}}
