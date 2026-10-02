@@ -24,7 +24,9 @@ from pydantic import BaseModel, SecretStr
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from jarvis import __version__, config, distill, heartbeat, mailer, meeting, reminders, wechat
-from jarvis.accounts import AccountStore, Principal, csrf_token, session_secret_configured
+from jarvis.accounts import (
+    AccountError, AccountStore, Principal, SessionJanitor, csrf_token, session_secret_configured,
+)
 from jarvis.channels import feishu
 from jarvis.graph import ThreadBusyError, build_agent, heal_dangling_tool_calls, thread_turn
 from jarvis.provider_runtime import AgentRuntimeManager, probe_integration
@@ -55,6 +57,8 @@ async def lifespan(_app: FastAPI):
     scanner = None
     radio = None
     distiller = None
+    janitor = SessionJanitor(_accounts)  # 定期删掉过期/早已吊销的会话行
+    janitor.start()
     hb = heartbeat.maybe_create(
         owner_getter=_accounts.unique_active_owner,
         compose=_heartbeat_compose,
@@ -86,6 +90,7 @@ async def lifespan(_app: FastAPI):
     try:
         yield
     finally:
+        janitor.stop()
         if hb is not None:
             hb.stop()
         if scanner is not None:
@@ -303,6 +308,13 @@ async def unhandled_error(request: Request, error: Exception):
     （Starlette 发完响应会继续上抛，uvicorn 照常打印完整堆栈，这里只补一行定位信息。）"""
     log.error("unhandled error on %s %s: %s", request.method, request.url.path, type(error).__name__)
     return JSONResponse({"error": "服务器开小差了，请稍后再试"}, status_code=500,
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.exception_handler(AccountError)
+async def account_error(_request: Request, error: AccountError):
+    """账户写操作的人话原因（口令太弱、用户名已被占用、当前口令不对…）原样回给前端。"""
+    return JSONResponse({"error": error.message}, status_code=error.status,
                         headers={"Cache-Control": "no-store"})
 
 
@@ -532,9 +544,7 @@ def create_user(request: Request, body: UserCreateIn):
     allowed = _owner_for_write(request)
     if isinstance(allowed, JSONResponse):
         return allowed
-    created = _accounts.create_user(body.username, body.password, body.role)
-    if not created:
-        return _sensitive_json({"error": "无法创建用户"}, 400)
+    created = _accounts.create_user_checked(body.username, body.password, body.role)  # 失败抛 AccountError
     return _sensitive_json(created, 201)
 
 
@@ -543,9 +553,7 @@ def update_user(user_id: str, request: Request, body: UserPatchIn):
     allowed = _owner_for_write(request)
     if isinstance(allowed, JSONResponse):
         return allowed
-    updated = _accounts.update_user(user_id, **body.model_dump(exclude_unset=True))
-    if not updated:
-        return _sensitive_json({"error": "无法更新用户"}, 409)
+    updated = _accounts.update_user_checked(user_id, **body.model_dump(exclude_unset=True))
     return _sensitive_json(updated)
 
 
@@ -554,8 +562,13 @@ def change_password(request: Request, body: PasswordChangeIn):
     principal = _write_authorized(request)
     if not principal:
         return _csrf_deny() if _authed(request) else _deny()
-    if not _accounts.change_password(principal, body.current_password, body.new_password):
-        return _sensitive_json({"error": "当前口令不对或新口令无效"}, 400)
+    # 拿到会话的人不能无限次猜当前口令：与设置页的二次验证共用限速
+    source = _client_address(request)
+    if retry := _settings_limiter.check(source, principal.username):
+        return JSONResponse({"error": "尝试过多，请稍后再试"}, status_code=429,
+                            headers={"Retry-After": str(retry), "Cache-Control": "no-store"})
+    _accounts.change_password_checked(principal, body.current_password, body.new_password)
+    _settings_limiter.success(source, principal.username)
     resp = _sensitive_json({"ok": True})
     resp.delete_cookie(_COOKIE, path="/")
     return resp

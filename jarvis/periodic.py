@@ -1,4 +1,4 @@
-"""后台定时线程的共用生命周期（日程提醒 / 晨报电台 / Heartbeat / 夜间蒸馏）。
+"""后台定时线程的共用生命周期（日程提醒 / 晨报电台 / Heartbeat / 夜间蒸馏 / 会话清理）。
 
 此前四个类各抄一份一模一样的 _loop/start/stop，并且共有三个缺陷：
 - _loop 没有兜底：scan_once 里 try 之外的一行抛错，线程就静默死亡（只在 stderr 留堆栈）；
@@ -34,6 +34,7 @@ class PeriodicWorker:
     """子类实现 scan_once()，并设置 thread_name。"""
 
     thread_name = "jarvis-periodic"
+    first_delay: float | None = None   # 子类可设：启动后先等这么久跑第一轮；None = 等满一个周期
 
     def __init__(self, interval: float) -> None:
         self._interval = interval
@@ -57,7 +58,9 @@ class PeriodicWorker:
         return owner
 
     def _run(self, stop: threading.Event) -> None:
-        while not stop.wait(self._interval):
+        delay = self._interval if self.first_delay is None else self.first_delay
+        while not stop.wait(delay):
+            delay = self._interval
             try:
                 self.scan_once()
             except Exception:
