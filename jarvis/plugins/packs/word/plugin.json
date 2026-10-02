@@ -1,0 +1,21 @@
+{
+  "id": "word",
+  "name": "Word 文档",
+  "version": "1.0.0",
+  "icon": "📝",
+  "category": "documents",
+  "summary": "读出 Word 里的正文和表格，也能把整理好的内容一键生成 Word 文档",
+  "kind": "tool",
+  "tier": "free",
+  "price": 0,
+  "professions": ["office", "teacher", "student", "project_manager", "freelancer"],
+  "examples": ["这份 Word 文档讲了什么", "把刚才的总结生成一份 Word", "把这份方案整理成带标题和表格的文档"],
+  "entry": "tools.py",
+  "tools": ["word_read", "word_create"],
+  "steps": ["word_out"],
+  "requires": ["files"],
+  "python_packages": ["python-docx"],
+  "author": "JWS-Agent",
+  "homepage": "",
+  "source": {"type": "builtin"}
+}

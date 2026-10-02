@@ -53,9 +53,16 @@ const parser = new Marked({
   },
 })
 
-/* 外链一律新窗口打开且不携带 opener（模型回答里要求附来源链接，必须可点且安全） */
+/* 外链一律新窗口打开且不携带 opener（模型回答里要求附来源链接，必须可点且安全）；
+ * 文件空间的下载链接（同源 /api/files/<id>，服务端按账号鉴权、以附件下发）原地下载，不开空白新窗口 */
+const FILE_LINK = /^\/api\/files\/[A-Za-z0-9_-]{8,64}$/
 DOMPurify.addHook('afterSanitizeAttributes', node => {
   if (node.tagName === 'A' && node.hasAttribute('href')) {
+    if (FILE_LINK.test(node.getAttribute('href'))) {
+      node.setAttribute('download', '')
+      node.removeAttribute('target')
+      return
+    }
     node.setAttribute('target', '_blank')
     node.setAttribute('rel', 'noopener noreferrer')
   }

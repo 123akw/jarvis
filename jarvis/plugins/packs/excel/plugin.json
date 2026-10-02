@@ -1,0 +1,21 @@
+{
+  "id": "excel",
+  "name": "Excel 工具箱",
+  "version": "1.0.0",
+  "icon": "📊",
+  "category": "documents",
+  "summary": "读表、分组汇总、按条件筛选、生成 Excel、CSV 互转，表格活交给它",
+  "kind": "tool",
+  "tier": "free",
+  "price": 0,
+  "professions": ["office", "sales", "shop_owner", "project_manager", "teacher"],
+  "examples": ["这张表按类别汇总一下金额", "把金额大于 1000 的行筛出来另存一份", "把这个表格做成 Excel 给我"],
+  "entry": "tools.py",
+  "tools": ["excel_read", "excel_summary", "excel_filter", "excel_create", "csv_to_excel", "excel_to_csv"],
+  "steps": ["excel_out"],
+  "requires": ["files"],
+  "python_packages": ["openpyxl"],
+  "author": "JWS-Agent",
+  "homepage": "",
+  "source": {"type": "builtin"}
+}
