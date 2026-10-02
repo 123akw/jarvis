@@ -58,7 +58,7 @@ export function useDesktopHandoff({ summon = summonDesktop, openProtocol = tryPr
         setGuide({ kind: 'blocked', reason: result.reason, browser: result.browser })
       } else if (result.status === 'not-running') {
         setNote('')
-        setGuide({ kind: 'not-running' })
+        setGuide({ kind: 'not-running', permission: result.permission })
       } else if (result.status === 'ticket-failed') {
         flash('没能生成接管票据：登录状态可能已过期，请刷新页面重新登录后再试')
       } else {
@@ -107,11 +107,12 @@ function BlockedBody({ reason, browser }) {
   )
 }
 
-function NotRunningBody() {
+function NotRunningBody({ permission }) {
   return (
     <>
       <p className="wx-lead">刚才已尝试自动启动桌面端，但几秒内没等到它。请按下面任一方式打开：</p>
       <ol className="wx-steps">
+        {permission === 'prompt' ? <li><b>浏览器询问过</b>是否允许访问「此设备上的应用」？请点<b>允许</b>（关掉了的话：点地址栏左侧的网站设置图标改为允许），再点一次「桌面悬浮窗」。</li> : null}
         <li><b>已安装</b>：打开「应用程序」里的<b>贾维斯</b>，悬浮球出现后回到这里再点一次「桌面悬浮窗」，会自动接管当前登录，无需再输密码。</li>
         <li><b>首次使用</b>：请先<a href={INSTALL_URL} target="_blank" rel="noreferrer">安装桌面端</a>。浏览器问是否打开「贾维斯」时点<b>打开</b>（可勾选始终允许）。</li>
         <li><b>开机自启</b>：悬浮窗「设置」里勾选开机自启，之后网页这边点一下就能唤起。</li>
@@ -121,14 +122,14 @@ function NotRunningBody() {
 }
 
 /** 自动唤起失败时的指引：kind=blocked（浏览器拦截）/ not-running（没启动或没安装） */
-export function DesktopGuide({ onClose, kind = 'not-running', reason, browser }) {
+export function DesktopGuide({ onClose, kind = 'not-running', reason, browser, permission }) {
   const blocked = kind === 'blocked'
   return (
     <Modal label="桌面悬浮窗启动指引" onClose={onClose} size="sm">
       <ModalHead title={blocked ? '浏览器拦住了与桌面悬浮窗的连接' : '没能自动打开桌面悬浮窗'}
         subtitle="把贾维斯以悬浮球留在桌面，关掉网页也在" onClose={onClose} closeLabel="关闭启动指引" />
       <div className="jv-modal-body">
-        {blocked ? <BlockedBody reason={reason} browser={browser} /> : <NotRunningBody />}
+        {blocked ? <BlockedBody reason={reason} browser={browser} /> : <NotRunningBody permission={permission} />}
         <DeveloperWay />
       </div>
     </Modal>

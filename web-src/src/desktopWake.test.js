@@ -172,6 +172,13 @@ describe('桌面悬浮窗联动', () => {
     expect(result).toMatchObject({ status: 'blocked', reason: 'denied' })
   })
 
+  it('授权一直是「待询问」（弹窗被关掉）：not-running 带上 permission=prompt 供指引补一句', async () => {
+    const clock = fakeClock()
+    const result = await summonDesktop({ fetchTicket: async () => ({ ticket: 'tk' }), fetchImpl: vi.fn().mockRejectedValue(refused()),
+      openProtocol: vi.fn(), permissions: permissionsWith('prompt'), userAgent: CHROME_UA, secure: true, ...clock })
+    expect(result).toEqual({ status: 'not-running', protocolUrl: `${PROTOCOL_URL}?ticket=tk`, permission: 'prompt' })
+  })
+
   it('领票失败：明确报 ticket-failed 且绝不发 /wake', async () => {
     const fetchImpl = vi.fn().mockResolvedValueOnce(ping(false))
     const fetchTicket = vi.fn().mockRejectedValue(new Error('401'))

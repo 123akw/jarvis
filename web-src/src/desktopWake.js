@@ -185,5 +185,6 @@ export async function summonDesktop({
   if (await queryLoopbackPermission(permissions) === 'denied') {
     return { status: 'blocked', reason: 'denied', browser: browserFamily(userAgent), protocolUrl }
   }
-  return { status: 'not-running', protocolUrl }
+  // 一直是「待询问」：可能是用户关掉了授权弹窗，指引里补一句
+  return access === 'prompt' ? { status: 'not-running', protocolUrl, permission: 'prompt' } : { status: 'not-running', protocolUrl }
 }

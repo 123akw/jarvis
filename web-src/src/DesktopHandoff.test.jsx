@@ -55,6 +55,11 @@ describe('网页「桌面悬浮窗」入口', () => {
     expect(plain).not.toContain('npm')
   })
 
+  it('授权弹窗被关掉（仍待询问）：没启动的指引里补一句去点「允许」', async () => {
+    await click(vi.fn(async () => ({ status: 'not-running', protocolUrl: 'jws://handoff', permission: 'prompt' })))
+    expect(screen.getByRole('dialog').textContent).toContain('是否允许访问「此设备上的应用」')
+  })
+
   it('Chrome 拒绝过授权：说明是浏览器拦截，并给出放行「此设备上的应用」的方法', async () => {
     await click(vi.fn(async () => ({ status: 'blocked', reason: 'denied', browser: 'chrome', protocolUrl: 'jws://handoff?ticket=t' })))
     const dialog = screen.getByRole('dialog')
