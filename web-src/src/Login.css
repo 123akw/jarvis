@@ -160,3 +160,11 @@ body.light .jvl-switch{color:var(--_text2)}
   .stage-bloom .jvl-orb{animation:jvl-fade-out .2s ease both !important}
   .jvl-card.shake{animation:none}
 }
+
+/* 回市场的两个入口：字标可点，右上角一行小字（与字标同一级的克制，不抢登录卡） */
+a.jvl-brand{text-decoration:none;cursor:pointer}
+a.jvl-brand:hover{color:var(--_text,#fff)}
+.jvl-market{font-size:13px;color:var(--_text2);text-decoration:none;padding:8px 12px;margin-right:-12px;border-radius:999px;
+  transition:color .2s ease,background-color .2s ease}
+.jvl-market:hover{color:var(--_text,#fff);background:rgba(255,255,255,.06)}
+.jvl-market:focus-visible,a.jvl-brand:focus-visible{outline:2px solid currentColor;outline-offset:3px;border-radius:8px}

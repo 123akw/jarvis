@@ -836,3 +836,23 @@ body.light .jvm-phone-glow{background:radial-gradient(closest-side,color-mix(in 
   .jvm-card,.jvm-icon-opt,.jvm-swatch,.jvm-add,.jvm-prof-chip,.jvm-bundle article,.jvm-bundle-item,.jvm-toast,.jvm-chip{transition:none}
   .jvm-card:hover,.jvm-bundle article:hover,.jvm-bundle-item:hover{transform:none}
 }
+
+/* 已登录头像菜单（市场顶栏）：账号名、进入我的智能体、我的流程、退出登录 */
+.jvm-account-wrap{position:relative;display:inline-flex}
+button.jvm-account{padding:0;border:0;background:none;border-radius:50%;cursor:pointer;color:inherit}
+button.jvm-account:focus-visible{outline:2px solid var(--jv-accent);outline-offset:2px}
+.jvm-account-menu{position:absolute;top:calc(100% + 8px);right:0;z-index:60;min-width:208px;padding:6px;border-radius:14px;
+  /* 不透明底：顶栏自带 backdrop-filter，会成为菜单的模糊边界，伸出顶栏的部分模糊不到，半透明底会透出首屏图标 */
+  background:#24242a;border:1px solid var(--jv-border);box-shadow:var(--jv-shadow-float);
+  display:flex;flex-direction:column;animation:jv-fade .16s var(--jv-ease)}
+body.light .jvm-account-menu{background:#fff}
+.jvm-account-head{display:flex;flex-direction:column;gap:2px;padding:8px 10px 10px}
+.jvm-account-head b{font-size:14px;font-weight:600;color:var(--jv-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.jvm-account-head span{font-size:12px;color:var(--jv-text-3)}
+.jvm-account-menu [role="menuitem"]{display:flex;align-items:center;gap:10px;min-height:40px;padding:0 10px;border:0;border-radius:10px;
+  background:none;color:var(--jv-text);font:inherit;font-size:14px;text-align:left;cursor:pointer}
+.jvm-account-menu [role="menuitem"]:hover,.jvm-account-menu [role="menuitem"]:focus-visible{background:var(--jv-hover);outline:none}
+.jvm-account-menu [role="menuitem"].is-danger{color:var(--jv-danger)}
+.jvm-account-menu [role="menuitem"]:disabled{opacity:.6;cursor:default}
+.jvm-account-sep{height:1px;margin:6px 4px;background:var(--jv-border)}
+@media (prefers-reduced-motion:reduce){.jvm-account-menu{animation:none}}

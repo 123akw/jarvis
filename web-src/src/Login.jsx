@@ -3,6 +3,7 @@ import { login } from './api.js'
 import { clearPrefillParam, readPrefillUser } from './loginParam.js'
 import Presence, { prefersReducedMotion } from './Presence.jsx'
 import { INTRO_DONE_EVENT, introPlaying } from './intro/registry.js'
+import { MARKET_PATH, navigate } from './routes.js'
 import { applyTheme, currentTheme } from './theme.js'
 import './Login.css'
 
@@ -166,7 +167,13 @@ export default function Login({ onAuthed, notice = '', switchFrom = '', onKeep }
       <Ambient />
 
       <div className="jvl-top">
-        <span className="jvl-brand">J.A.R.V.I.S.</span>
+        {/* 回市场：左上字标与右上「逛逛智能体市场」都能回首页（登录页本身不再是死胡同） */}
+        <a className="jvl-brand" href={MARKET_PATH} aria-label="J.A.R.V.I.S. 智能体市场首页"
+          onClick={e => { if (e.metaKey || e.ctrlKey || e.shiftKey) return; e.preventDefault(); navigate(MARKET_PATH) }}>J.A.R.V.I.S.</a>
+        <a className="jvl-market" href={MARKET_PATH}
+          onClick={e => { if (e.metaKey || e.ctrlKey || e.shiftKey) return; e.preventDefault(); navigate(MARKET_PATH) }}>
+          <span aria-hidden="true">←</span> 逛逛智能体市场
+        </a>
       </div>
 
       <main className="jvl-main">

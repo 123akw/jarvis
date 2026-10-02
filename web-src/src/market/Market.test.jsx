@@ -201,7 +201,7 @@ describe('智能体市场', () => {
     expect(called(calls, 'POST', '/api/login')[0].body).toEqual({ username: 'owner', password: 'pw' })
     expect(called(calls, 'POST', '/api/market/signup')[0].headers['X-JWS-CSRF']).toBe('t0k')
     expect(onAuthed).not.toHaveBeenCalled()
-    expect(screen.getByLabelText('已登录：owner')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '账号：owner' })).toBeInTheDocument()
   })
 
   it('注册关闭时管理员口令错了：留在拦路口并提示', async () => {
@@ -252,7 +252,7 @@ describe('智能体市场', () => {
     const onAuthed = vi.fn()
     const user = userEvent.setup()
     render(<Market session={{ authed: true, username: 'owner', role: 'Owner' }} onAuthed={onAuthed} />)
-    expect(screen.getByLabelText('已登录：owner')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '账号：owner' })).toBeInTheDocument()
     await pickAndName(user)
     await user.click(screen.getByRole('button', { name: '生成我的智能体' }))
     expect(await screen.findByText('Qe7v-X2pL-m9dK')).toBeInTheDocument()

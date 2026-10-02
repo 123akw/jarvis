@@ -308,6 +308,12 @@ export default function Market({ session, onAuthed }) {
     setSecret(null)
     navigate(APP_PATH)
   }
+  // 头像菜单「退出登录」：留在市场，以游客身份继续逛（草稿保留，口令不留）
+  async function signOut() {
+    setSecret(null)
+    try { await logout() } catch { /* 会话已失效也照样当作退出 */ }
+    onAuthed?.(false)
+  }
   function reset() {
     setSecret(null)
     setGenError('')
@@ -334,7 +340,7 @@ export default function Market({ session, onAuthed }) {
 
   const account = (
     <AccountArea me={me} checking={checking} compact={step !== 'market'}
-      onLogin={() => navigate(loginHref())} onEnter={goApp} />
+      onLogin={() => navigate(loginHref())} onEnter={goApp} onFlows={() => navigate('/flows')} onLogout={signOut} />
   )
   let topCenter = null
   if (step === 'brand') topCenter = <Progress step={step} onGo={go} />

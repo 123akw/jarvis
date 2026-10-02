@@ -903,3 +903,6 @@ body.light .provider-tabs button.on{background:#fff;box-shadow:0 1px 3px rgba(0,
 
 /* 用户气泡里的附件标签（替代原始的 ［附件：… · file_id=…］ 标记） */
 .ubox-att{display:inline-flex;align-items:center;gap:4px;max-width:100%;padding:2px 10px;margin:0 2px 4px 0;border-radius:999px;background:var(--jv-hover);border:1px solid var(--jv-border);font-size:13px;line-height:1.6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
+
+/* 顶栏「智能体市场」入口：很窄的手机上让位给标题（头像菜单里仍有） */
+@media (max-width:380px){.tb-market{display:none}}

@@ -301,6 +301,11 @@ export default function Hud({ session, onLogout }) {
             <span className="tb-search-text">搜索与命令</span>
             <kbd>⌘K</kbd>
           </button>
+          {/* 回市场：原来只藏在头像菜单和 ⌘K 里，顶栏放一个常驻入口 */}
+          <button type="button" className="jv-icon-btn tb-market" onClick={() => navigate(MARKET_PATH)}
+            aria-label="智能体市场" title="智能体市场：挑插件、换工具箱">
+            <Icon name="store" />
+          </button>
           <button ref={todayBtnRef} type="button" className={`jv-icon-btn${todayOpen ? ' on' : ''}`} onClick={() => setToday(!todayOpen)}
             aria-label="今日" aria-expanded={todayOpen} aria-controls="jv-today"
             title={pending ? `今日：${pending} 项待办` : '今日：日程 / 待办 / 备忘'}>
