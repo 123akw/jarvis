@@ -56,7 +56,7 @@ JWS-Agent/
 │   ├── voice/             # 语音通话、会议转写、场景与情绪、说话人分离
 │   ├── search/            # SearchService 与搜索 provider
 │   ├── web/               # 零构建的网页端（web-src 构建产物）
-│   └── tools/             # 26 项工具及注册表
+│   └── tools/             # 27 项工具及注册表
 ├── web-src/               # 网页端 React + Vite 源码
 ├── desktop/               # macOS Electron 悬浮球与设置页
 ├── skills/                # 技能热加载目录（放 SKILL.md 即生效）

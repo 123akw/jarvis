@@ -2,7 +2,7 @@
 
 [← 返回 README](../README.md) · [功能](features.md) · [部署](deployment.md) · [配置](configuration.md) · [微信与飞书](channels.md) · [开发与测试](development.md) · [FAQ](faq.md)
 
-**目录**：[工作原理](#工作原理) · [26 项工具如何分层](#26-项工具如何分层) · [流式、线程与记忆](#流式线程与记忆) · [实时搜索与正文提取的来源边界](#实时搜索与正文提取的来源边界)
+**目录**：[工作原理](#工作原理) · [27 项工具如何分层](#27-项工具如何分层) · [流式、线程与记忆](#流式线程与记忆) · [实时搜索与正文提取的来源边界](#实时搜索与正文提取的来源边界)
 
 ## 工作原理
 
@@ -15,7 +15,7 @@ flowchart LR
   U --> F[飞书机器人]
   W & D & C & X & F --> A[FastAPI + LangGraph Agent]
   A --> M[DeepSeek / OpenAI 兼容模型]
-  A --> T[26 项工具]
+  A --> T[27 项工具]
   A --> S[(SQLite 持久记忆)]
   T --> L[本地日程·待办·备忘]
   T --> Q[SearchService]
@@ -24,17 +24,18 @@ flowchart LR
   T --> E[天气·可选 PandaScore]
 ```
 
-## 26 项工具如何分层
+## 27 项工具如何分层
 
 | 层级 | 工具 | 作用与数据边界 |
 | --- | --- | --- |
 | 基础与上下文（6） | `now`、`calc`、`weather`、`weather_here`、`my_location`、`coding_status` | 时间与白名单计算；Open-Meteo 天气无需 key；定位和编程状态保存在本地数据目录 |
 | 个人信息管理（12） | `memo_add/list/del`、`schedule_add/list/del`、`todo_add/list/done`、`profile_remember/list/forget` | 备忘、日程、待办与长期记忆画像在 `JARVIS_DATA_DIR` 下持久化；画像条目注入每轮系统提示词，网页「记忆」面板可查可删 |
 | 系统查询（1） | `sys_query` | 只执行代码允许的白名单系统查询 |
+| 翻旧账（1） | `recall_history` | 跨会话全文检索本账号的历史消息（SQLite FTS5 trigram，短词退回 LIKE），回答注明出处；索引是 checkpoint 的镜像，删会话同步删除 |
 | 会议纪要（2） | `meeting_start`、`meeting_stop` | 对话里说「监控会议」即可远程开始/结束；音频由 macOS 桌面端采集，纪要生成与邮件发送在服务端完成 |
 | 实时信息（5） | `web_search`、`web_extract`、`movie_ratings`、`esports_scores`、`ticket_search` | SearchService 统一调度免费优先搜索与有界正文提取；Tavily、PandaScore 和 Playwright 都是可选增强；工具不会代替用户完成交易 |
 
-工具注册见 `jarvis/tools/__init__.py`（21 项本地工具 + 5 项共享同一 SearchService 的联网工具）。
+工具注册见 `jarvis/tools/__init__.py`（22 项本地工具 + 5 项共享同一 SearchService 的联网工具）。
 
 ## 流式、线程与记忆
 

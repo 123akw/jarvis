@@ -28,16 +28,16 @@
 
 ## 它能做什么
 
-一个 LangGraph Agent 驱动 26 项工具，能聊、能记，也能动手：增删日程待办、查天气、搜实时信息、开会记纪要。完整清单见 [功能详解](docs/features.md)。
+一个 LangGraph Agent 驱动 27 项工具，能聊、能记，也能动手：增删日程待办、查天气、搜实时信息、开会记纪要。完整清单见 [功能详解](docs/features.md)。
 
 <table>
 <tr>
 <td width="33%" valign="top"><b>💬 流式对话</b><br>完整 Markdown（来源链接、表格、代码高亮），可重答、编辑重发、导出；上传 PDF / Word / TXT 解析追问</td>
 <td width="33%" valign="top"><b>🧠 长期记忆</b><br>画像可查可删，每晚把当天对话蒸馏进长期画像；称呼语气可调，J.A.R.V.I.S. ↔ MOSS 双人格</td>
-<td width="33%" valign="top"><b>⏰ 主动找你</b><br>日程到点推送微信 / 桌面 / 网页，晨报电台语音条；Heartbeat 巡检关注清单，该开口才开口</td>
+<td width="33%" valign="top"><b>⏰ 主动找你</b><br>日程到点推送微信 / 飞书 / 桌面 / 网页，一键「稍后 10 分 / 完成」；渠道与免打扰自己定，该开口才开口</td>
 </tr>
 <tr>
-<td valign="top"><b>📞 语音通话</b><br>边说边答带字幕，开口即可打断；9 种场景模式切换，还能感知你的语气情绪</td>
+<td valign="top"><b>📞 语音通话</b><br>边说边答带字幕，开口即打断、查得慢先垫一句；时间数字按口语念，语气随你的情绪变；9 种场景模式</td>
 <td valign="top"><b>🎙️ 会议纪要</b><br>麦克风 + 系统回环双路转写、说话人分离，纪要自动发邮箱；飞书、腾讯会议、Zoom 都能录</td>
 <td valign="top"><b>🗣️ 语音唤醒</b><br>喊一声「贾维斯」就接通；本地 VAD 圈出人声才送云端识别，静音零上传</td>
 </tr>
@@ -130,7 +130,7 @@ flowchart LR
   U[用户] --> W[网页端] & D[桌面悬浮窗] & C[终端 CLI] & X[个人微信] & F[飞书机器人]
   W & D & C & X & F --> A[FastAPI + LangGraph Agent]
   A --> M[DeepSeek / OpenAI 兼容模型]
-  A --> T[26 项工具]
+  A --> T[27 项工具]
   A --> S[(SQLite 持久记忆)]
   T --> L[本地日程·待办·备忘]
   T --> Q[SearchService]
@@ -143,6 +143,21 @@ flowchart LR
 ## 最新动态
 
 <details open>
+<summary><b>第十二轮 · 2026-10-02</b>　手机端修抖 · 语音更像人 · 回答拟人化 · ⌘K 翻旧账 · 可操作提醒</summary>
+
+<img src="docs/assets/readme/web-palette-recall.png" alt="⌘K：让贾维斯去办，以及「历史对话」翻旧账" width="420" align="right">
+
+- **手机端上滑不再抖**：根因是流式输出时「离底 80px 内就贴底」把手指拽回，以及消息行估高在 Safari 上回填跳动；改为按手势判断跟随，实测上滑 0 跳动、0 次被拽回（Chromium + WebKit）。键盘弹起不遮输入栏，点击区 ≥44px，手机端去掉大面积毛玻璃。
+- **语音更像人**：开口即打断并标出「⋯ 已打断」，下一句接着你的话说；工具慢时先垫一句「好，我查一下」；时间、温度、日期按中文口语念，不念网址和 Markdown；语气随情绪调整；TTS 升级 speech-2.8-turbo。
+- **回答拟人化**：人设提示词重写（先接住情绪、结论先行、不说套话、缺信息只问一个问题）；每轮注入「此刻」时间与今日概况，换算日期不再调工具；评测中工具调用 35 → 27、列表行 37 → 11。
+- **⌘K 直接吩咐 + 翻旧账**：⌘K 里一句话直接交给贾维斯或加到日程 / 待办；跨会话全文检索历史，跳转并定位到那条消息；问「上次你推荐的那家店」会带出处回答。
+- **可操作的提醒**：网页、桌面、微信、飞书里都能「稍后 10 分 / 完成」，一处处理其余不再催；新增「主动找你」设置（送达渠道 + 免打扰），提醒可推送到飞书。
+- 测试基线 **pytest 1069 / vitest 347 / desktop 149**，全部通过。
+
+<br clear="right">
+</details>
+
+<details>
 <summary><b>第十一轮 · 2026-10-02</b>　进场动画 · 一句话速记 · 记忆回执 · 今日简报 · 桌面端改版 · 安全加固</summary>
 
 <img src="docs/assets/readme/web-today-features.png" alt="「今日」板：AI 简报卡、记忆整理提示与一句话速记预览" width="300" align="right">
@@ -212,7 +227,7 @@ flowchart LR
 | 🚀 [部署指南](docs/deployment.md) | 安装、网页 / 终端 / 桌面端启动、运行时 secret、多用户备份与回滚、演示入口状态 |
 | ⚙️ [配置参考](docs/configuration.md) | 环境变量全表、每用户 Provider 与 API 密钥、搜索与正文提取链 |
 | 💬 [微信与飞书](docs/channels.md) | 个人微信桥接、飞书机器人、开发者后台清单与权限表 |
-| 🧭 [架构说明](docs/architecture.md) | 工作原理、26 项工具分层、流式线程与记忆、搜索来源边界 |
+| 🧭 [架构说明](docs/architecture.md) | 工作原理、27 项工具分层、流式线程与记忆、搜索来源边界 |
 | 🧪 [开发与测试](docs/development.md) | 验收脚本、测试基线、项目结构 |
 | ❓ [常见问题](docs/faq.md) | SearXNG、Electron 二进制、天气定位、微信恢复、公网暴露 |
 

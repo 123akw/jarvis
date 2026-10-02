@@ -621,3 +621,13 @@
 - 桌面端改版：与网页同一套 token，悬浮光球三态，设置新增主题项；空闲 CPU 13.9% → 6.1%。
 - 安全：cryptography 45.0.7 → 50.0.2（旧密文兼容回归测试，pip-audit 0 条）；建号 / 改口令弱口令 400、重名 409；SessionJanitor 每 6 小时清过期会话；Heartbeat 静默时段 `JARVIS_HEARTBEAT_QUIET_HOURS` 与 24 小时去重。
 - 基线 pytest 898 / vitest 304 / desktop 137。
+
+# 第十二轮（2026-10-02）：手机端修抖 + 语音拟人化 + 回答拟人化 + ⌘K 翻旧账 + 可操作提醒
+
+- 手机端上滑抖动（实测定位两处根因）：流式输出时「离底 <80px 即贴底」每帧把手指拽回；`content-visibility:auto` 估高 160px 在 WebKit 上回填跳动（实测 7 跳 542px）。新 `followScroll.js` 按手势判断跟随（下拖 / 滚轮上 / PageUp 立即松手，手指在屏或惯性中不写 scrollTop），content-visibility 仅保留给桌面非 Safari；修后 Chromium（模拟 Safari）与 WebKit 均 0 跳动、0 次程序写入。另：`viewport.js` 让 `.hud` 贴合 visualViewport（键盘不遮输入栏）、触屏输入 16px、点击区 44px、安全区、底部抽屉手柄、手机去 backdrop-filter、长用户消息折叠。
+- 语音（`jarvis/voice/spoken.py`）：口语化规则 + TTS 前文本规整（时间 / 温度 / 日期 / 百分比读法，去 Markdown 与网址）；打断回报 `played_ms`，网关下发 `cut` 截断字幕并在下一回合告知「说到哪被打断」；工具慢 0.7s 先发 `filler` 垫话；情绪 / 场景影响 TTS 语气与语速；默认 TTS speech-2.8-turbo（首包 183–265ms）；延迟打点。网页、桌面端通话都已跟进新帧。
+- 回答拟人化（`jarvis/prompts.py`、`graph.py`、`tools/*`）：提示词按六区重写；每轮在用户消息前注入「此刻」（日期星期时段时区 + 本地今日概况，30s 缓存、0.3s 超时、不写 checkpoint）；递归上限 24 + 剩余 ≤6 步提醒收尾；`guard_tool_call` 兜底联网预算与重复查询；天气临时错误退避重试一次；工具说明与回执改写；芯片文案说人话。评测（`scripts/eval_persona.py`，21 条）：工具调用 35 → 27、调 now 9 → 0、列表行 37 → 11、加粗 43 → 6。
+- ⌘K 直接吩咐（F1）+ 翻旧账（F10）：`jarvis/history_index.py` 租户 schema v4（消息索引 + 同步水位，FTS5 trigram，短词退回 LIKE，后台回填 `JARVIS_HISTORY_BACKFILL`），`GET /api/history/search`，新工具 `recall_history`（第 27 项），⌘K「历史对话」分组跳转并定位消息；`UndoToast.jsx` 抽出共用。
+- 可操作的提醒（F5）+ 送达与免打扰（F6）：`jarvis/delivery.py`，`POST /api/reminders/{id}/snooze|done`（幂等，完成优先），网页弹条 / 桌面通知 / 微信 / 飞书回复均可「稍后 / 完成」且跨渠道去重；设置中心「主动找你」；提醒、晨报、巡检可推送飞书；免打扰只拦巡检、结束后合并。复用 `tenant_reminders_sent` 与 tenant_prefs，无表结构变更。
+- 调研：`docs/proposals/2026-10-round12-roadmap.md`（下一轮建议「手机上的贾维斯」PWA + 推送、「有人味的管家」惦记回访与接通先开口）。
+- 基线 pytest 1069 / vitest 347 / desktop 149。

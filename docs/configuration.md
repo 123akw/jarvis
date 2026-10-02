@@ -58,6 +58,7 @@
 | `JARVIS_DASHSCOPE_ASR_MODEL` | `qwen3-asr-flash` | 微信语音消息识别模型（同用 `DASHSCOPE_API_KEY`） |
 | `JARVIS_WECHAT_GROUP_NAME` | `贾维斯` | 群聊里 @ 贾维斯的名字，被 @ 才会在群里应答 |
 | `JARVIS_HISTORY_CHAR_BUDGET` | `30000` | 每轮送模型的历史字符预算（按轮次边界裁剪，checkpoint 全量历史不动）；`0` 关闭裁剪 |
+| `JARVIS_HISTORY_BACKFILL` | `1` | 启动 5 秒后在后台把存量对话回填进「翻旧账」全文索引（每个账号串行、不阻塞启动）；`0` 关闭回填，新对话仍会实时入索引 |
 | `DASHSCOPE_ASR_MAX_SILENCE_MS` | `500` | 语音通话判停静音阈值（毫秒，有效范围 200–6000） |
 
 ## 搜索与正文提取链
