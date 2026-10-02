@@ -1,0 +1,48 @@
+/* 「光幕」：只动 transform / opacity / filter。分镜见 ./timeline.js */
+.jvi{position:fixed;inset:0;overflow:hidden;color:#f5f5f7;-webkit-font-smoothing:antialiased;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang SC","HarmonyOS Sans SC","Microsoft YaHei",sans-serif}
+.jvi i{position:absolute;inset:0;display:block}
+.jvi-bg{background:#000;animation:jvi-in .3s ease both}
+/* is-light 在 t≈1.9s 才由 JS 加上（那时主题已确定），延迟按加上的时刻算：.9s 后即 t≈2.8s 开始退场 */
+.jvi.is-light .jvi-bg{animation:jvi-out-o .55s ease .9s forwards}
+/* 收尾时渐显的登录页暗场（与 Login.css 的 .jvl-ambient + .jvl-key-light 同参数），交接时两层光场重合 */
+.jvi-amb{opacity:0;animation:jvi-in-o .55s ease 2.8s forwards;background:
+  radial-gradient(67.9vmin circle at 50% 30%,rgb(124 58 237/.24),rgb(79 70 229/.13) 28%,rgb(59 130 246/.05) 48%,transparent 66%),
+  radial-gradient(60vmax 46vmax at 6% 108%,rgb(59 130 246/.14),transparent 70%),
+  radial-gradient(52vmax 40vmax at 98% 104%,rgb(236 72 153/.1),transparent 70%),
+  radial-gradient(40vmax 28vmax at 100% 0%,rgb(245 158 11/.045),transparent 70%),#0b0b0f}
+.jvi.is-light .jvi-amb{display:none}
+.jvi-gl{position:absolute;inset:0;width:100%;height:100%}
+
+/* 大字：照 apple.com 的规律，字号越大字距越紧（76px 收 -.01em，手机 34px 放到 +.02em）；
+ * 全角标点挤压半格，「你好，」不再留一个大空。字重固定 600：动画字重会触发重排 */
+.jvi-line{--ls:-.01em;position:absolute;left:0;right:0;top:50%;margin-top:-.62em;text-align:center;white-space:nowrap;
+  font-size:clamp(32px,5.2vw,76px);font-weight:600;line-height:1.24;letter-spacing:var(--ls);
+  animation:jvi-exit .5s cubic-bezier(.66,0,.1,1) 2.15s forwards}
+.jvi-ch{display:inline-block;opacity:0;will-change:transform,opacity,filter;
+  animation:jvi-char 1s cubic-bezier(.165,.84,.44,1) calc(.38s + var(--i) * 60ms) forwards}
+.jvi-ch.is-punc{margin-right:-.4em}
+.jvi-ch.is-name{color:transparent;-webkit-background-clip:text;background-clip:text;
+  background-image:linear-gradient(90deg,#6ea6ff,#a084ff 38%,#f472b6 70%,#fbbf4d);
+  background-size:calc(3 * (1em + var(--ls))) 100%;background-position:calc(var(--k) * -1 * (1em + var(--ls))) 0}
+@keyframes jvi-char{
+  from{opacity:0;filter:blur(.17em);transform:translate3d(calc((var(--i) - 4) * .14em),.2em,0) scale(1.06)}
+  to{opacity:1;filter:blur(0);transform:none}}
+@keyframes jvi-exit{to{opacity:0;filter:blur(.12em);transform:translate3d(0,-.45em,0) scale(.96)}}
+@keyframes jvi-in{from{opacity:0}}
+@keyframes jvi-in-o{to{opacity:1}}
+@keyframes jvi-out-o{to{opacity:0}}
+
+/* 没有 WebGL：四边一圈 CSS 内发光，收拢时缩向中心淡出 */
+.jvi .jvi-fb{display:none;opacity:0;box-shadow:inset 0 0 64px -8px #8b5cf6,inset 0 0 22px -4px #3b82f6,inset 0 -30px 60px -30px #ec4899}
+.jvi.no-gl .jvi-fb{display:block;animation:jvi-fb 3.2s cubic-bezier(.4,0,.2,1) forwards}
+@keyframes jvi-fb{12%,62%{opacity:1;transform:none}90%,to{opacity:0;transform:scale(.4)}}
+
+/* 手机：字号单独定、字距放松一点 */
+@media (max-width:520px){.jvi-line{--ls:.02em;font-size:34px}}
+
+/* 减弱动态：静态画面，整行只做 600ms 淡入 */
+.jvi.is-reduced .jvi-bg{animation:none}
+.jvi.is-reduced .jvi-amb{opacity:1;animation:none}
+.jvi.is-reduced .jvi-line{animation:jvi-in .6s ease both}
+.jvi.is-reduced .jvi-ch{opacity:1;animation:none;will-change:auto}
