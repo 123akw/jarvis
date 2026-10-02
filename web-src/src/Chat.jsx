@@ -217,7 +217,7 @@ const compactInput = () => typeof window !== 'undefined' && window.innerWidth <=
 /** 触屏设备不自动聚焦输入框：否则每次回答结束都会把软键盘弹出来挡住回答 */
 const touchFirst = () => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
 
-function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = null, userName = '', fresh = false }) {
+function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = null, locate = null, userName = '', fresh = false }) {
   const [msgs, setMsgs] = useState([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -236,14 +236,17 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
 
   const freshRef = useRef(fresh)
   freshRef.current = fresh
+  const loadedRef = useRef(null)    // 历史已回放到界面上的会话（⌘K 翻旧账定位要等它）
   useEffect(() => {  // 切换会话/挂断通话：从服务端记忆库回放历史
     setMsgs([])
+    loadedRef.current = null
     stickRef.current = true
     // 本地刚建的新会话服务端还没有记录：不去拉（否则每次「新对话」都换来一个 404）；挂断通话后照常回放
     if (freshRef.current && histSeq === 0) return undefined
     let alive = true
     getHistory(threadId).then(h => {
       if (!alive) return
+      loadedRef.current = threadId
       setMsgs(h.map(m => ({
         id: nextId++, kind: m.role === 'user' ? 'user' : 'jarvis',
         raw: m.content, chips: [], streaming: false,
@@ -270,6 +273,21 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
     stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX
   }
 
+  /* ⌘K「历史对话」跳转：历史回放到位后滚到命中的那条（pos 与 /api/history 下标一致），短暂描边；
+   * 之后不再贴底跟随，免得被拽回底部 */
+  const locatedSeq = useRef(null)
+  useLayoutEffect(() => {
+    if (!locate || locatedSeq.current === locate.seq) return
+    if (locate.threadId !== threadId || loadedRef.current !== threadId) return
+    locatedSeq.current = locate.seq   // 每次跳转只定位一次；索引过期找不到那条就算了，停在会话里
+    const row = logRef.current?.firstElementChild?.children[locate.pos]
+    if (!row) return
+    stickRef.current = false
+    row.scrollIntoView?.({ block: 'center' })
+    row.classList.add('msg-located')
+    setTimeout(() => row.classList.remove('msg-located'), 2400)   // 不随重渲染清掉：描边总会按时退场
+  }, [msgs, locate, threadId])
+
   useEffect(() => {
     onBusy?.(busy)
     if (busy || touchFirst()) return
@@ -280,9 +298,10 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
   }, [busy])
   useEffect(() => () => { if (tokFrame.current) cancelFrame(tokFrame.current) }, [])
 
-  useEffect(() => {  // 外部注入的消息（会议纪要「追问」）：整条自动发出，后续可连续追问
+  useEffect(() => {  // 外部注入的消息（会议纪要「追问」、⌘K 吩咐）：整条自动发出，后续可连续追问
     if (!injected?.text) return
     if (!touchFirst()) boxRef.current?.focus()   // 光标就位，读完回答直接接着问
+    if (busy) { setInput(injected.text); return }  // 上一条还在答：放进输入框等答完再发，不丢
     void send(injected.text)
   }, [injected?.seq])
 

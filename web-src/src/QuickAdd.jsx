@@ -1,10 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
-import { addSchedule, addTodo, deleteSchedule, deleteTodo } from './api.js'
 import Icon from './Icon.jsx'
 import { parseQuickAdd } from './quickAdd.js'
-
-const TOAST_MS = 6000
+import { createQuick, useUndoToast } from './UndoToast.jsx'
 
 /** 一句话速记：「今日」板待办输入框。写上时间就是日程（输入时实时预览），否则照旧是待办；
  *  提交后顶部给一个可撤销的 toast。Esc 或「改成待办」可以推翻解析结果。
@@ -13,16 +10,14 @@ export default function QuickAdd({ seed = null, onChanged, onExpired }) {
   const [draft, setDraft] = useState('')
   const [asTodo, setAsTodo] = useState(false)     // 用户推翻了解析：本次按待办
   const [err, setErr] = useState('')
-  const [toast, setToast] = useState(null)        // { text, undo, state: ''|'busy'|'undone'|'fail' }
   const inputRef = useRef(null)
-  const toastTimer = useRef(0)
   const hintId = useId()
+  const toast = useUndoToast({ onChanged, onExpired })
 
   const parsed = useMemo(() => parseQuickAdd(draft, new Date()), [draft])
   const timed = parsed.kind === 'schedule' || parsed.kind === 'empty'
   const plan = asTodo && draft.trim() ? { kind: 'todo', title: draft.trim() } : parsed
 
-  useEffect(() => () => clearTimeout(toastTimer.current), [])
   useEffect(() => {
     if (!seed) return undefined
     setDraft(seed.text || '')
@@ -33,12 +28,6 @@ export default function QuickAdd({ seed = null, onChanged, onExpired }) {
     return () => clearTimeout(t)
   }, [seed?.seq])
 
-  function showToast(next, ms = TOAST_MS) {
-    clearTimeout(toastTimer.current)
-    setToast(next)
-    toastTimer.current = setTimeout(() => setToast(null), ms)
-  }
-
   async function submit() {
     const text = draft.trim()
     if (!text) return
@@ -47,14 +36,7 @@ export default function QuickAdd({ seed = null, onChanged, onExpired }) {
     setDraft('')        // 乐观清空：失败时放回
     setAsTodo(false)
     try {
-      if (plan.kind === 'schedule') {
-        const r = await addSchedule(plan.title, plan.when)
-        const day = plan.rel || plan.label.split(' ').slice(0, 2).join(' ')
-        showToast({ text: `已添加日程：${day} ${plan.when.slice(11)} ${plan.title}`, undo: () => deleteSchedule(r.id), state: '' })
-      } else {
-        const r = await addTodo(text)
-        showToast({ text: `已添加待办：${text}`, undo: () => deleteTodo(r.id), state: '' })
-      }
+      toast.show(await createQuick(plan, text))
       onChanged?.()
     } catch (e) {
       if (e.message === '401') { onExpired?.(); return }
@@ -62,21 +44,6 @@ export default function QuickAdd({ seed = null, onChanged, onExpired }) {
       setAsTodo(plan.kind === 'todo' && timed)
       // 422 是服务端的格式校验：原文照登（「时间需要 YYYY-MM-DD HH:MM 格式」之类）
       setErr(e.status === 422 && e.message ? e.message : `没能添加这条${plan.kind === 'schedule' ? '日程' : '待办'}，请稍后再试`)
-    }
-  }
-
-  async function undo() {
-    if (!toast || toast.state === 'busy') return
-    clearTimeout(toastTimer.current)
-    setToast(t => ({ ...t, state: 'busy' }))
-    try {
-      await toast.undo()
-      showToast({ ...toast, text: '已撤销', state: 'undone' }, 1800)
-      onChanged?.()
-    } catch (e) {
-      if (e.message === '401') { onExpired?.(); return }
-      if (e.status === 404) { showToast({ ...toast, text: '已撤销', state: 'undone' }, 1800); onChanged?.(); return }
-      showToast({ ...toast, state: 'fail' })
     }
   }
 
@@ -102,16 +69,7 @@ export default function QuickAdd({ seed = null, onChanged, onExpired }) {
         {err ? <div className="qa-err" role="alert">{err}</div> : showPlan ? <Preview plan={plan} asTodo={asTodo}
           onToggle={() => { setAsTodo(v => !v); inputRef.current?.focus() }} /> : null}
       </div>
-      {toast && typeof document !== 'undefined' ? createPortal(
-        <div className="jv-toast jv-toast--action" role="status">
-          <Icon name={toast.state === 'undone' ? 'check' : toast.text.startsWith('已添加日程') ? 'today' : 'list'} size={15} />
-          <span className="jt-text">{toast.state === 'fail' ? '没能撤销，请稍后再试' : toast.text}</span>
-          {toast.state === 'undone' ? null : (
-            <button type="button" className="jt-act" onClick={() => void undo()} disabled={toast.state === 'busy'}>
-              {toast.state === 'fail' ? '重试' : '撤销'}
-            </button>
-          )}
-        </div>, document.body) : null}
+      {toast.node}
     </div>
   )
 }
