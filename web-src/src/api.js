@@ -201,6 +201,18 @@ export async function desktopHandoffTicket() {
   return parse(await fetch('/api/desktop/handoff', { method: 'POST', headers: csrfHeaders() }))
 }
 
+/* ---- 飞书机器人绑定（鉴权与 CSRF 规则与微信接口一致） ---- */
+export async function getFeishuStatus() {
+  return parse(await fetch('/api/feishu/status'))
+}
+/** 领 6 位一次性绑定码：{ code, expires_in(秒), command: '绑定 123456' } */
+export async function createFeishuBindCode() {
+  return parse(await fetch('/api/feishu/bind-code', { method: 'POST', headers: csrfHeaders() }))
+}
+export async function unbindFeishu() {
+  return parse(await fetch('/api/feishu/unbind', { method: 'POST', headers: csrfHeaders() }))
+}
+
 /** 语音通话 WebSocket 地址；连接后第一条 init 消息带 currentCsrf() */
 export function voiceSocketUrl() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'

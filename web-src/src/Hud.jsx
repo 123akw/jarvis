@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { logout } from './api.js'
+import { getFeishuStatus, logout } from './api.js'
 import AccountMenu from './AccountMenu.jsx'
 import AccountSettings from './AccountSettings.jsx'
 import Chat from './Chat.jsx'
 import CommandPalette from './CommandPalette.jsx'
 import { DesktopGuide, useDesktopHandoff } from './DesktopHandoff.jsx'
+import FeishuConnect from './FeishuConnect.jsx'
 import Icon from './Icon.jsx'
 import MemoryPanel from './MemoryPanel.jsx'
 import Modal, { useEscape } from './Modal.jsx'
@@ -81,6 +82,8 @@ export default function Hud({ session, onLogout }) {
   const [todayOpen, setTodayOpen] = useState(() => mode === 'wide' && readPref('jws_today', true))
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [wxOpen, setWxOpen] = useState(false)
+  const [feishu, setFeishu] = useState(null)       // 飞书渠道状态：只有服务端配置了飞书才出现入口
+  const [fsOpen, setFsOpen] = useState(false)
   const [injected, setInjected] = useState(null)   // 会议纪要「追问」注入对话的消息
   const [accountOpen, setAccountOpen] = useState(false)
   const [providerOpen, setProviderOpen] = useState(false)
@@ -105,6 +108,12 @@ export default function Hud({ session, onLogout }) {
   }, [mode])
 
   const onTurnDone = useCallback(() => setRefreshKey(k => k + 1), [])
+
+  useEffect(() => {  // 飞书入口：GET /api/feishu/status 报 configured=true 才显示（旧服务端没有该接口就当未配置）
+    let alive = true
+    getFeishuStatus().then(s => { if (alive) setFeishu(s) }).catch(() => {})
+    return () => { alive = false }
+  }, [])
 
   useEffect(() => {  // 浏览器定位：拿到就随对话上报，拒绝则服务端按 IP 兜底
     navigator.geolocation?.getCurrentPosition(
@@ -167,6 +176,7 @@ export default function Hud({ session, onLogout }) {
     { id: 'memory', label: '记忆与人设', icon: 'sparkles', keywords: '画像 称呼 人格 persona', run: () => setMemoryOpen(true) },
     { id: 'settings', label: '设置中心', hint: '模型 API · 语音 · 桌面', icon: 'sliders', keywords: 'api 模型 provider key 语音 音色 语速 晨报 电台 桌面 会议 邮箱 联网 搜索', run: () => setProviderOpen(true) },
     ...(isOwner ? [{ id: 'wechat', label: '接入个人微信', icon: 'bubble', keywords: 'wechat 扫码', run: () => setWxOpen(true) }] : []),
+    ...(feishu?.configured ? [{ id: 'feishu', label: '接入飞书', hint: feishu.bound ? '已绑定' : '', icon: 'feishu', keywords: 'feishu lark 飞书 绑定 机器人', run: () => setFsOpen(true) }] : []),
     { id: 'desktop', label: '桌面悬浮窗', hint: desktop.busy ? '联系中…' : '', icon: 'desktop', keywords: '悬浮球 桌面端', run: () => void desktop.activate() },
     { id: 'theme', label: theme === 'light' ? '切换到暗色' : '切换到亮色', icon: theme === 'light' ? 'moon' : 'sun', keywords: '主题 外观 theme', run: () => setTheme(toggleTheme()) },
   ]
@@ -263,6 +273,7 @@ export default function Hud({ session, onLogout }) {
           onPickThread={selectThread} onClose={() => setPaletteOpen(false)} />
       ) : null}
       {wxOpen ? <WeChatConnect onClose={() => setWxOpen(false)} onExpired={onLogout} /> : null}
+      {fsOpen ? <FeishuConnect onClose={() => setFsOpen(false)} onExpired={onLogout} onChange={setFeishu} /> : null}
       {memoryOpen ? <MemoryPanel onClose={() => setMemoryOpen(false)} onExpired={onLogout} /> : null}
       {accountOpen ? (
         <Modal label="账户设置" onClose={() => setAccountOpen(false)} dismissOnBackdrop={false}>
