@@ -213,8 +213,8 @@ export default function Toolbox({ plugins, onRemove, onMove, onReorder, onAdd, o
 
   // Dock 上方的短提示（拒绝原因 / 第一次的用法提示）：2.6 秒
   useEffect(() => {
+    setTipOn(tip)                // 拖动开始会清掉提示：这里跟着清，松手后不再冒出旧提示
     if (!tip) return undefined
-    setTipOn(tip)
     const t = setTimeout(() => setTipOn(v => (v === tip ? null : v)), TIP_MS)
     return () => clearTimeout(t)
   }, [tip])

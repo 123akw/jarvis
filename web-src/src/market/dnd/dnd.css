@@ -81,7 +81,7 @@ body.light .jvd-fly-icon{background:#fff}
 .jvm-dock-inner[data-dock=ready][data-dock-tone=same]{border-color:color-mix(in srgb,var(--jv-text) 25%,transparent)}
 /* 越过（能加入）：14% 强调色底 + 实线 + 放大 1.03 */
 .jvm-dock-inner[data-dock=over]{border-style:solid;border-color:var(--jv-accent);transform:scale(1.03);
-  background-color:color-mix(in srgb,var(--jv-accent) 14%,var(--m-glass,var(--jv-elevated)))}
+  background-color:color-mix(in srgb,var(--jv-accent) 14%,var(--jv-bg))}
 /* 越过（不能加入）：不加强调色，警示色描边 */
 .jvm-dock-inner[data-dock=reject]{border-style:solid;border-color:color-mix(in srgb,var(--jv-warn) 70%,transparent)}
 .jvm-dock-inner[data-dock=reject][data-dock-tone=same]{border-color:color-mix(in srgb,var(--jv-text) 35%,transparent)}
