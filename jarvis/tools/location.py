@@ -141,6 +141,8 @@ def coding_status() -> str:
     if not d:
         return "桌面端还没同步过编程状态。请领导确认桌面悬浮窗在运行。"
     coding = d.get("coding", [])
+    # 桌面端同步来的数据不可全信：非 dict 条目直接跳过，字段类型不对也不能让工具抛异常
+    coding = [c for c in coding if isinstance(c, dict)] if isinstance(coding, list) else []
     if not coding:
         return f"最近 48 小时没有 Claude Code 编程活动（同步于 {d.get('updated','?')}）。"
     lines = []
@@ -151,7 +153,8 @@ def coding_status() -> str:
         if c.get("step"):
             lines.append(f"  当前动作：{c['step']}")
         if c.get("files"):
-            lines.append(f"  最近改动：{'、'.join(c['files'])}")
+            files = c["files"] if isinstance(c["files"], list) else [c["files"]]
+            lines.append(f"  最近改动：{'、'.join(str(name) for name in files)}")
         if c.get("branch"):
             git = f"  Git：分支 {c['branch']}"
             if c.get("dirty"):

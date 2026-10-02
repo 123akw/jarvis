@@ -1,7 +1,9 @@
 """待办类工具：增、列表、勾完成，落盘 data/todos.json。"""
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
-from jarvis.tenancy import TenantStore
+from jarvis.tenancy import MAX_ITEM_ID, TenantStore
+
+MAX_CONTENT_CHARS = 2000
 
 
 class TodoAddArgs(BaseModel):
@@ -9,7 +11,7 @@ class TodoAddArgs(BaseModel):
 
 
 class TodoDoneArgs(BaseModel):
-    todo_id: int = Field(ge=1, description="要勾掉的待办编号（todo_list 返回的行首数字）")
+    todo_id: int = Field(ge=1, le=MAX_ITEM_ID, description="要勾掉的待办编号（todo_list 返回的行首数字）")
 
 
 def all_todos() -> list[dict]:
@@ -20,6 +22,9 @@ def all_todos() -> list[dict]:
 @tool(args_schema=TodoAddArgs)
 def todo_add(content: str) -> str:
     """新增一条要办的事项（无具体时间点）。有明确时间点的用 schedule_add。"""
+    content = content.strip()[:MAX_CONTENT_CHARS]
+    if not content:
+        return "待办内容不能为空，请告诉我要办什么。"
     tid = TenantStore().add_todo(content)["id"]
     return f"待办已加入（编号 {tid}）：{content}"
 

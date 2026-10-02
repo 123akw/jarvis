@@ -2,7 +2,7 @@
 import datetime
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
-from jarvis.tenancy import TenantStore, canonical_when
+from jarvis.tenancy import MAX_ITEM_ID, TenantStore, canonical_when
 
 _FMT = "%Y-%m-%d %H:%M"
 
@@ -15,7 +15,7 @@ class ScheduleAddArgs(BaseModel):
 
 
 class ScheduleDelArgs(BaseModel):
-    schedule_id: int = Field(ge=1, description="要删除的日程编号（schedule_list 返回的行首数字）")
+    schedule_id: int = Field(ge=1, le=MAX_ITEM_ID, description="要删除的日程编号（schedule_list 返回的行首数字）")
 
 
 def all_schedule() -> list[dict]:

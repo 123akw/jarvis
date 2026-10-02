@@ -55,6 +55,7 @@ def _now() -> str:
 
 
 WHEN_FORMAT = "%Y-%m-%d %H:%M"
+MAX_ITEM_ID = 2**63 - 1   # SQLite INTEGER 上限；超界 id 会 OverflowError
 
 
 def canonical_when(value: str) -> str:

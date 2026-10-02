@@ -233,6 +233,8 @@ def test_no_argument_build_agent_constructs_runtime_tools_instead_of_using_modul
     monkeypatch.setattr(graph_mod, "ChatOpenAI", lambda **kwargs: ("model", kwargs))
     monkeypatch.setattr(graph_mod.sqlite3, "connect", lambda *args, **kwargs: "connection")
     monkeypatch.setattr(graph_mod, "SqliteSaver", lambda connection: ("checkpointer", connection))
+    # 工具外包一层带错误兜底的 ToolNode；这里只关心传进去的是运行时工具
+    monkeypatch.setattr(graph_mod, "ToolNode", lambda tools, **kwargs: tools)
     monkeypatch.setattr(
         graph_mod,
         "create_react_agent",

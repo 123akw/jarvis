@@ -32,7 +32,7 @@ from jarvis.provider_settings import (
     ProviderSettingsError, ResolvedLLM, SecretStore, credential_scope,
     normalize_base_url, normalize_searxng_url,
 )
-from jarvis.tenancy import TenantMigrationError, TenantStore, canonical_when, tenant_scope
+from jarvis.tenancy import MAX_ITEM_ID, TenantMigrationError, TenantStore, canonical_when, tenant_scope
 from jarvis.tools import TOOLS
 from jarvis.tools.location import get_location, refresh_location
 from jarvis.voice.gateway import register_voice
@@ -244,7 +244,7 @@ def _start_weak_password_scan() -> None:
 
 
 # 路径里的条目编号：SQLite INTEGER 是 64 位，超界数字此前直接 OverflowError → 500
-ItemId = Annotated[int, PathParam(ge=1, le=2**63 - 1)]
+ItemId = Annotated[int, PathParam(ge=1, le=MAX_ITEM_ID)]
 
 # 聊天入口护栏：会议追问会把纪要+6000 字转写注入一条消息，上限要留足余量
 MAX_CHAT_CHARS = 50_000

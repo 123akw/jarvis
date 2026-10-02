@@ -1,7 +1,9 @@
 """备忘类工具：增、查、删，落盘 data/memos.json。"""
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
-from jarvis.tenancy import TenantStore
+from jarvis.tenancy import MAX_ITEM_ID, TenantStore
+
+MAX_CONTENT_CHARS = 2000
 
 
 class MemoAddArgs(BaseModel):
@@ -9,7 +11,7 @@ class MemoAddArgs(BaseModel):
 
 
 class MemoDelArgs(BaseModel):
-    memo_id: int = Field(ge=1, description="要删除的备忘编号（memo_list 返回的行首数字）")
+    memo_id: int = Field(ge=1, le=MAX_ITEM_ID, description="要删除的备忘编号（memo_list 返回的行首数字）")
 
 
 def all_memos() -> list[dict]:
@@ -21,6 +23,9 @@ def all_memos() -> list[dict]:
 def memo_add(content: str) -> str:
     """记下一条备忘信息。适用于「记住/记一下」这类无时间点的随手记；
     有明确时间点的安排用 schedule_add，要办的事项用 todo_add。"""
+    content = content.strip()[:MAX_CONTENT_CHARS]
+    if not content:
+        return "备忘内容不能为空，请告诉我要记什么。"
     memo_id = TenantStore().add_memo(content)["id"]
     return f"已记下（编号 {memo_id}）：{content}"
 
