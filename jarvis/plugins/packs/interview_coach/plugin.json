@@ -1,0 +1,29 @@
+{
+  "id": "interview_coach",
+  "name": "面试陪练",
+  "version": "1.0.0",
+  "icon": "🎤",
+  "category": "efficiency",
+  "summary": "按岗位一题一题模拟面试，答完就点评、给改进版",
+  "kind": "skill",
+  "tier": "free",
+  "price": 0,
+  "professions": [
+    "student",
+    "office",
+    "sales"
+  ],
+  "examples": [
+    "陪我练一场销售岗的面试",
+    "自我介绍怎么说才不像背稿",
+    "被问期望薪资该怎么回答"
+  ],
+  "entry": null,
+  "tools": [],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "license": "MIT-0",
+  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/interview_coach"
+}

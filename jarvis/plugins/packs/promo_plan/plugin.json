@@ -1,0 +1,21 @@
+{
+  "id": "promo_plan",
+  "name": "店铺活动方案",
+  "version": "1.0.0",
+  "icon": "🎉",
+  "category": "efficiency",
+  "summary": "满减、第二件半价、会员日，玩法和账一起算清楚",
+  "kind": "skill",
+  "tier": "free",
+  "price": 0,
+  "professions": ["shop_owner", "sales"],
+  "examples": ["店里想搞个周末促销，帮我出个方案", "满 200 减 30 和打 85 折哪个划算", "节日活动怎么做，预算不多"],
+  "entry": null,
+  "tools": [],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "license": "MIT-0",
+  "author": "JWS-Agent",
+  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/promo_plan"
+}

@@ -1,0 +1,21 @@
+{
+  "id": "meeting_notes",
+  "name": "会议纪要整理",
+  "version": "1.0.0",
+  "icon": "🗒️",
+  "category": "documents",
+  "summary": "录音转写、零散笔记理成纪要，结论和待办一目了然",
+  "kind": "skill",
+  "tier": "free",
+  "price": 0,
+  "professions": ["office", "project_manager", "teacher", "sales"],
+  "examples": ["把这段会议录音的文字整理成纪要", "这是我开会随手记的，帮我理一下", "从纪要里把待办事项单独列出来"],
+  "entry": null,
+  "tools": [],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "license": "MIT-0",
+  "author": "JWS-Agent",
+  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/meeting_notes"
+}

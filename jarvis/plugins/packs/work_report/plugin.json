@@ -1,0 +1,21 @@
+{
+  "id": "work_report",
+  "name": "周报月报",
+  "version": "1.0.0",
+  "icon": "📈",
+  "category": "efficiency",
+  "summary": "把一周的流水账理成成果、数据、问题和下步计划",
+  "kind": "skill",
+  "tier": "free",
+  "price": 0,
+  "professions": ["office", "project_manager", "sales", "freelancer"],
+  "examples": ["帮我把这周干的活整理成周报", "这个月的工作记录写成月报", "下周要述职，帮我理个提纲"],
+  "entry": null,
+  "tools": [],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "license": "MIT-0",
+  "author": "JWS-Agent",
+  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/work_report"
+}
