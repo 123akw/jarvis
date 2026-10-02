@@ -17,7 +17,6 @@ vi.mock('./Threads.jsx', () => ({
     return <nav aria-label="threads" />
   },
 }))
-vi.mock('./Moss.jsx', () => ({ MossMini: () => <div aria-label="moss" /> }))
 
 import Hud from './Hud.jsx'
 
