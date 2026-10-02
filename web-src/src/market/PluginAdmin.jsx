@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { csrfHeaders } from '../api.js'
 import Modal, { ModalHead } from '../Modal.jsx'
 import {
-  addSource, checkUpdate, confirmImport, fileToBase64, listPlugins, previewImport, previewSourcePlugin,
+  addSource, checkUpdate, confirmImport, fileToBase64, humanError, listPlugins, previewImport, previewSourcePlugin,
   removeSource, setPluginEnabled, syncSource, uninstallPlugin,
 } from './api.js'
 import { shortRef, sourceLink } from './model.js'
@@ -13,10 +14,43 @@ import { shortRef, sourceLink } from './model.js'
  *    主页与隐私政策）→「确认安装」；
  *  - 已装：启用 / 停用（内置也能停）、卸载（只限导入的）、检查更新（有新版先看预览再确认升级）；
  *  - 插件源：添加一个含 .agents/plugins/marketplace.json 的仓库或 zip，同步后逐个预览安装。
+ *  - MCP 服务（第十五轮，契约见 docs/proposals/2026-10-round15-market.md 第 2 节）：MCP 插件的配置
+ *    （密钥用密码框、永不回显）、测试连接、确认工具清单变化；「直接添加 MCP 服务」→ 测试连接 → 预览工具 → 确认安装。
  */
 
 const MAX_ZIP = 10 * 1024 * 1024
-const SOURCE_TYPE = { github: 'GitHub', gitee: 'Gitee', zip: '上传的 zip', builtin: '内置' }
+const SOURCE_TYPE = { github: 'GitHub', gitee: 'Gitee', zip: '上传的 zip', builtin: '内置', mcp: 'MCP 服务' }
+
+/* MCP 接口（市场的 api.js 归市场前端维护，这几个只有插件管理用，就近放在这里） */
+async function mcpPost(path, body = {}) {
+  let response
+  try {
+    response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...csrfHeaders() }, body: JSON.stringify(body) })
+  } catch {
+    const error = new Error(humanError(0))
+    error.status = 0
+    throw error
+  }
+  let data = null
+  try { data = await response.json() } catch { data = null }
+  if (!response.ok) {
+    const error = new Error(humanError(response.status, data?.error, 200))
+    error.status = response.status
+    error.code = data?.code || ''
+    error.hint = typeof data?.hint === 'string' ? data.hint : ''
+    throw error
+  }
+  return data || {}
+}
+const enc = encodeURIComponent
+export const saveMcpConfig = (id, values, clear = []) => mcpPost(`/api/plugins/${enc(id)}/config`, { values, clear })
+export const testMcp = id => mcpPost(`/api/plugins/${enc(id)}/test`)
+export const approveMcp = (id, fingerprint) => mcpPost(`/api/plugins/${enc(id)}/approve`, { fingerprint })
+export const previewMcp = body => mcpPost('/api/plugins/mcp/preview', body)
+
+const MCP_STATUS = {
+  ok: '正常', needs_config: '需要配置', needs_review: '工具有变化待确认', unavailable: '暂不可用', disabled: '已停用',
+}
 
 function SourceLine({ source }) {
   if (!source) return null
@@ -53,6 +87,28 @@ export function TrustPreview({ preview, busy, onConfirm, onCancel }) {
       <dl className="jvm-trust-list">
         <dt>来源</dt>
         <dd><SourceLine source={preview.source} /></dd>
+        {preview.mcp?.length ? (
+          <>
+            <dt>MCP 服务</dt>
+            <dd>
+              <ul className="jvm-tools">
+                {preview.mcp.map(s => (
+                  <li key={s.name}>
+                    <code>{s.host || s.url || s.name}</code> {s.type}
+                    {s.headers?.length ? <small> · 请求头 {s.headers.join('、')}</small> : null}
+                    {s.problem ? <small className="jvm-reason"> · {s.problem}</small> : null}
+                  </li>
+                ))}
+              </ul>
+            </dd>
+          </>
+        ) : null}
+        {preview.config?.length ? (
+          <>
+            <dt>需要配置</dt>
+            <dd>{preview.config.map(c => `${c.label}${c.secret ? '（密钥）' : ''}${c.required ? '' : '（可选）'}`).join('、')}</dd>
+          </>
+        ) : null}
         <dt>权限</dt>
         <dd>
           <ul className="jvm-perms">
@@ -235,6 +291,199 @@ function ManageList({ plugins, busy, run, onPreview }) {
   )
 }
 
+/* ---------- MCP 服务 ---------- */
+
+function ToolList({ tools }) {
+  if (!tools?.length) return <p className="jvm-step-sub">还没有工具清单：点「测试连接」拉一次。</p>
+  return (
+    <ul className="jvm-tools">
+      {tools.map(t => <li key={t.name}><code>{t.name}</code>{t.description ? ` ${t.description}` : ''}</li>)}
+    </ul>
+  )
+}
+
+/** 工具清单变化：新增 / 移除 / 说明或参数变了，管理员看过再确认 */
+export function ToolDiff({ pending }) {
+  const diff = pending?.diff || {}
+  const block = (title, items, render) => (items?.length ? (
+    <>
+      <dt>{title}</dt>
+      <dd><ul className="jvm-tools">{items.map(render)}</ul></dd>
+    </>
+  ) : null)
+  return (
+    <dl className="jvm-trust-list" aria-label="工具清单变化">
+      {block('新增', diff.added, t => <li key={t.name}><code>{t.name}</code> {t.description}</li>)}
+      {block('移除', diff.removed, t => <li key={t.name}><code>{t.name}</code> {t.description}</li>)}
+      {block('有改动', diff.changed, t => (
+        <li key={t.name}>
+          <code>{t.name}</code> {t.fields?.join('、')}变了
+          {t.before !== t.after ? <><br /><small>原来：{t.before || '（空）'}</small><br /><small>现在：{t.after || '（空）'}</small></> : null}
+        </li>
+      ))}
+    </dl>
+  )
+}
+
+function ConfigForm({ plugin, busy, onSaved }) {
+  const items = plugin.mcp?.config || []
+  const [values, setValues] = useState({})
+  const [clear, setClear] = useState([])
+  const [error, setError] = useState('')
+  async function submit(e) {
+    e.preventDefault()
+    setError('')
+    const missing = items.filter(c => c.required && !c.configured && !(values[c.key] || '').trim())
+    if (missing.length) { setError(`还没填：${missing.map(c => c.label).join('、')}`); return }
+    onSaved(() => saveMcpConfig(plugin.id, values, clear))
+  }
+  return (
+    <form className="jvm-import" onSubmit={submit} aria-label={`配置「${plugin.name}」`}>
+      {items.map(c => (
+        <label key={c.key} className="jvm-field">
+          <span>{c.label}{c.required ? '' : '（可选）'}{c.help ? <small> · {c.help}</small> : null}</span>
+          <input
+            type={c.secret ? 'password' : 'text'} autoComplete={c.secret ? 'new-password' : 'off'} name={c.key}
+            value={values[c.key] ?? (c.secret ? '' : c.value || '')}
+            placeholder={c.configured ? `${c.hint || '已配置'} · 留空不改` : c.placeholder || ''}
+            onChange={e => setValues(v => ({ ...v, [c.key]: e.target.value }))}
+          />
+          {c.configured && !c.required ? (
+            <button type="button" className="jvm-link-btn" onClick={() => setClear(list => [...new Set([...list, c.key])])}>
+              {clear.includes(c.key) ? '保存后清除' : '清除已保存的值'}
+            </button>
+          ) : null}
+        </label>
+      ))}
+      {plugin.mcp?.key_source === 'local' ? (
+        <p className="jvm-step-sub">密钥会加密保存。服务器还没配 JARVIS_SECRETS_KEY，目前用数据目录里自动生成的密钥文件加密，建议配上主密钥。</p>
+      ) : null}
+      {error ? <p className="jvm-form-error" role="alert">{error}</p> : null}
+      <button type="submit" className="jvm-btn" disabled={busy}>{busy ? '正在保存…' : '保存并测试连接'}</button>
+    </form>
+  )
+}
+
+function McpCard({ plugin, busy, run }) {
+  const [open, setOpen] = useState('')
+  const [result, setResult] = useState(null)
+  const info = plugin.mcp || {}
+  const toggle = name => setOpen(v => (v === name ? '' : name))
+  const status = MCP_STATUS[plugin.status] || plugin.status
+  async function act(fn, done) {
+    await run(async () => { const r = await fn(); setResult(r); return r }, done)
+  }
+  return (
+    <li className={`jvm-source${plugin.status === 'ok' ? '' : ' is-off'}`} aria-label={`MCP 插件：${plugin.name}`}>
+      <div className="jvm-source-head">
+        <b>{plugin.icon} {plugin.name}</b>
+        <span className="jvm-badge">MCP</span>
+        <span className="jvm-badge">{status}</span>
+        <span className="jvm-admin-actions">
+          {info.config?.length ? <button type="button" disabled={busy} onClick={() => toggle('config')}>配置</button> : null}
+          <button type="button" disabled={busy || plugin.status === 'needs_config' || !plugin.enabled}
+            onClick={() => act(() => testMcp(plugin.id), r => (r.outcome === 'changed' ? `「${plugin.name}」的工具清单有变化，等你确认`
+              : `连接正常，发现 ${r.tools?.length || 0} 个工具`))}>测试连接</button>
+          {info.pending ? <button type="button" disabled={busy} onClick={() => toggle('diff')}>确认工具变更</button> : null}
+          <button type="button" disabled={busy} onClick={() => toggle('tools')}>工具 {info.tools?.length || 0}</button>
+        </span>
+      </div>
+      <p className="jvm-step-sub">
+        联网：{(info.hosts || []).join('、') || '—'}
+        {plugin.status !== 'ok' && plugin.reason ? <span className="jvm-reason"> · {plugin.reason}</span> : null}
+        {info.last_error ? <span className="jvm-reason"> · 上次连接：{info.last_error}</span> : null}
+      </p>
+      {(info.servers || []).filter(s => s.problem).map(s => <p key={s.name} className="jvm-reason">{s.name}：{s.problem}</p>)}
+      {open === 'config' ? <ConfigForm plugin={plugin} busy={busy} onSaved={fn => act(fn, r => (
+        r.test ? `已保存，连接正常，发现 ${r.test.tools?.length || 0} 个工具`
+          : r.missing?.length ? `已保存，还差：${r.missing.join('、')}` : `已保存，但连接失败：${r.error}`))} /> : null}
+      {open === 'tools' ? <ToolList tools={info.tools} /> : null}
+      {open === 'diff' && info.pending ? (
+        <div className="jvm-trust">
+          <p className="jvm-step-sub">MCP 服务改了工具清单（{info.pending.detected_at || '刚才'}发现），插件已自动停用。看过下面的变化，确认没问题再启用：</p>
+          <ToolDiff pending={info.pending} />
+          <div className="jvm-trust-actions">
+            <button type="button" className="jvm-btn" disabled={busy}
+              onClick={() => act(() => approveMcp(plugin.id, info.pending.fingerprint), `已确认新的工具清单，「${plugin.name}」恢复可用`)}>
+              确认新清单并启用
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {result?.tools?.length && open !== 'tools' ? (
+        <details><summary>这次发现的工具（{result.tools.length}）</summary><ToolList tools={result.tools} /></details>
+      ) : null}
+    </li>
+  )
+}
+
+const KEY_MODES = [['bearer', '请求头 Authorization: Bearer'], ['header', '自定义请求头'], ['query', '地址参数']]
+
+export function McpAddForm({ busy, onPreview }) {
+  const [form, setForm] = useState({ name: '', icon: '🔌', summary: '', url: '', transport: '', keyValue: '', keyMode: 'bearer', keyName: '', headers: '' })
+  const [error, setError] = useState('')
+  const set = key => e => setForm(f => ({ ...f, [key]: e.target.value }))
+  function submit(e) {
+    e.preventDefault()
+    setError('')
+    if (!form.name.trim()) { setError('先起个名字'); return }
+    if (!/^https?:\/\//.test(form.url.trim())) { setError('服务地址要以 https:// 开头（本地 stdio 服务不支持）'); return }
+    const headers = []
+    for (const line of form.headers.split('\n').map(l => l.trim()).filter(Boolean)) {
+      const at = line.indexOf(':')
+      if (at < 1) { setError(`请求头「${line.slice(0, 20)}」要写成「名称: 值」`); return }
+      headers.push({ name: line.slice(0, at).trim(), value: line.slice(at + 1).trim() })
+    }
+    const body = { name: form.name.trim(), icon: form.icon.trim(), summary: form.summary.trim(), url: form.url.trim(), transport: form.transport, headers }
+    if (form.keyValue.trim()) body.key = { value: form.keyValue.trim(), mode: form.keyMode, name: form.keyName.trim() }
+    onPreview(() => previewMcp(body))
+  }
+  return (
+    <form className="jvm-import" onSubmit={submit} aria-label="直接添加 MCP 服务">
+      <p className="jvm-step-sub">填一个远程 MCP 服务地址（streamable-http，常见以 /mcp 结尾），先测试连接、看过工具清单再安装；装好的插件可以卸载。Key 加密保存，不会回显。</p>
+      <label className="jvm-field"><span>名称</span><input value={form.name} onChange={set('name')} maxLength={20} placeholder="例如 DeepWiki" /></label>
+      <label className="jvm-field"><span>图标</span><input value={form.icon} onChange={set('icon')} maxLength={4} /></label>
+      <label className="jvm-field"><span>一句话说明（可选）</span><input value={form.summary} onChange={set('summary')} maxLength={60} /></label>
+      <label className="jvm-field"><span>服务地址</span><input type="url" value={form.url} onChange={set('url')} placeholder="https://mcp.example.com/mcp" /></label>
+      <label className="jvm-field"><span>传输方式</span>
+        <select value={form.transport} onChange={set('transport')}>
+          <option value="">自动（/sse 结尾按 sse，其余按 streamable-http）</option>
+          <option value="streamable-http">streamable-http</option>
+          <option value="sse">sse（老式）</option>
+        </select>
+      </label>
+      <label className="jvm-field"><span>Key（可选）</span><input type="password" autoComplete="new-password" value={form.keyValue} onChange={set('keyValue')} /></label>
+      {form.keyValue ? (
+        <label className="jvm-field"><span>Key 放在哪里</span>
+          <select value={form.keyMode} onChange={set('keyMode')}>{KEY_MODES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+          {form.keyMode !== 'bearer' ? <input value={form.keyName} onChange={set('keyName')} placeholder={form.keyMode === 'query' ? '参数名，例如 key' : '请求头名，例如 X-Api-Key'} aria-label="Key 的名字" /> : null}
+        </label>
+      ) : null}
+      <label className="jvm-field"><span>其他请求头（可选，每行「名称: 值」，值按密钥保存）</span>
+        <textarea rows={2} value={form.headers} onChange={set('headers')} />
+      </label>
+      {error ? <p className="jvm-form-error" role="alert">{error}</p> : null}
+      <button type="submit" className="jvm-btn" disabled={busy}>{busy ? '正在连接…' : '测试连接并预览'}</button>
+    </form>
+  )
+}
+
+function McpPanel({ plugins, busy, run, onPreview }) {
+  const list = plugins.filter(p => p.mcp)
+  const [adding, setAdding] = useState(false)
+  return (
+    <section className="jvm-admin-sec" aria-label="MCP 服务">
+      <h4>MCP 服务<span>{list.length}</span></h4>
+      {list.length ? <ul className="jvm-admin-list">{list.map(p => <McpCard key={p.id} plugin={p} busy={busy} run={run} />)}</ul>
+        : <p className="jvm-step-sub">还没有 MCP 插件。</p>}
+      <button type="button" className="jvm-btn jvm-btn--ghost" onClick={() => setAdding(v => !v)} aria-expanded={adding}>
+        {adding ? '收起' : '直接添加 MCP 服务'}
+      </button>
+      {adding ? <McpAddForm busy={busy} onPreview={onPreview} /> : null}
+    </section>
+  )
+}
+
 /** Owner 在市场顶部看到的「导入插件」入口 + 管理弹窗 */
 export default function PluginAdmin({ onChanged, initialTab = 'import', onSources, external = null }) {
   const [open, setOpen] = useState(false)
@@ -299,12 +548,13 @@ export default function PluginAdmin({ onChanged, initialTab = 'import', onSource
             ) : (
               <>
                 <div className="jvm-cats" role="tablist" aria-label="插件管理">
-                  {[['import', '导入'], ['manage', '已装'], ['sources', '插件源']].map(([id, label]) => (
+                  {[['import', '导入'], ['manage', '已装'], ['mcp', 'MCP 服务'], ['sources', '插件源']].map(([id, label]) => (
                     <button key={id} type="button" role="tab" aria-selected={tab === id} aria-pressed={tab === id} onClick={() => setTab(id)}>{label}</button>
                   ))}
                 </div>
                 {tab === 'import' ? <ImportForm busy={busy} onPreview={body => loadPreview(() => previewImport(body))} /> : null}
                 {tab === 'manage' ? <ManageList plugins={data.plugins} busy={busy} run={run} onPreview={loadPreview} /> : null}
+                {tab === 'mcp' ? <McpPanel plugins={data.plugins} busy={busy} run={run} onPreview={loadPreview} /> : null}
                 {tab === 'sources' ? <SourcesPanel sources={data.sources} busy={busy} run={run} onPreview={loadPreview} /> : null}
               </>
             )}
