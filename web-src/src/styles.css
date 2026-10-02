@@ -41,21 +41,6 @@
   --jv-shadow:0 10px 30px rgba(0,0,0,.35);
   --jv-shadow-float:0 1px 0 rgba(255,255,255,.05) inset,0 24px 60px rgba(0,0,0,.5),0 2px 8px rgba(0,0,0,.3);
   --jv-read:720px;                        /* 对话阅读宽度 */
-
-  /* —— 旧 HUD 变量：仅供尚未迁移的登录页 / 语音通话样式使用，新代码请用 --jv-* —— */
-  --void:#030A12;
-  --panel:rgba(13,28,44,.55);
-  --arc:#53E8FF;
-  --arc-soft:rgba(83,232,255,.14);
-  --line:rgba(83,232,255,.22);
-  --gold:#F0B45A;
-  --gold-soft:rgba(240,180,90,.16);
-  --alert:#FF5C5C;
-  --text:#C9E6F2;
-  --dim:#5E7E93;
-  --disp:'Orbitron','PingFang SC',sans-serif;
-  --body:'Rajdhani','PingFang SC','Microsoft YaHei',sans-serif;
-  --mono:'Share Tech Mono','PingFang SC',monospace;
 }
 body.light{
   color-scheme:light;
@@ -79,10 +64,6 @@ body.light{
   --jv-scroll:rgba(0,0,0,.16);
   --jv-shadow:0 10px 30px rgba(0,0,0,.08);
   --jv-shadow-float:0 1px 0 rgba(255,255,255,.7) inset,0 24px 60px rgba(0,0,0,.12),0 2px 8px rgba(0,0,0,.06);
-  /* 旧变量（语音通话界面在亮色下仍引用） */
-  --void:#EEF4F7;--panel:rgba(255,255,255,.78);--arc:#0B7A99;--arc-soft:rgba(11,122,153,.10);
-  --line:rgba(11,122,153,.30);--gold:#8A5E1A;--gold-soft:rgba(154,107,31,.12);
-  --alert:#C4423C;--text:#1B2B33;--dim:#5A6E77;
 }
 
 *{margin:0;padding:0;box-sizing:border-box}
@@ -96,79 +77,8 @@ button:disabled{cursor:default}
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
 .mono{font-family:var(--jv-mono);font-variant-numeric:tabular-nums}
 
-/* 登录页共用：颗粒层与闪烁关键帧 */
-.grain{position:fixed;inset:0;pointer-events:none;z-index:4;
-  background:repeating-linear-gradient(0deg,rgba(0,0,0,.12) 0 1px,transparent 1px 3px);opacity:.35}
-@keyframes pulse{50%{opacity:.35}}
+/* 流式光标 / 工具执行中的闪烁 */
 @keyframes blink{50%{opacity:0}}
-
-/* ================= 登录页（电影化构图）================= */
-.shaderbg{position:fixed;inset:0;animation:kenburns 36s ease-in-out infinite alternate}
-@keyframes kenburns{from{transform:scale(1)}to{transform:scale(1.07)}}
-.login{position:fixed;inset:0;overflow:hidden;display:flex;align-items:center;
-  justify-content:flex-end;transition:opacity .5s .45s,filter .5s .45s}
-.login-out{opacity:0;filter:brightness(2.2) blur(3px);pointer-events:none}
-.mossbg{position:fixed;inset:0;z-index:1}
-
-/* MOSS 台词弹窗 */
-.moss-bubble{position:fixed;left:57%;top:14%;z-index:3;max-width:320px;
-  background:rgba(6,10,16,.92);border:1px solid rgba(255,80,60,.45);
-  border-left:3px solid #FF5C4A;padding:10px 16px 12px;
-  font-family:var(--mono);font-size:13.5px;color:#FFD9D4;letter-spacing:.06em;line-height:1.75;
-  clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px);
-  animation:bubblein .22s ease-out;pointer-events:none}
-.mb-tag{display:block;color:#FF5C4A;font-size:10px;letter-spacing:.3em;margin-bottom:5px}
-.mb-caret{display:inline-block;width:7px;height:13px;background:#FF5C4A;margin-left:3px;
-  vertical-align:-2px;animation:blink .8s steps(1) infinite}
-@keyframes bubblein{from{opacity:0;transform:translateY(8px)}}
-.voice-toggle{background:none;border:none;color:var(--dim);font-family:var(--mono);
-  font-size:11px;letter-spacing:.14em;cursor:pointer;margin-top:2px;transition:color .2s}
-.voice-toggle:hover{color:var(--arc)}
-
-.login-type{position:fixed;left:6vw;top:50%;transform:translateY(-50%);z-index:2;
-  display:flex;flex-direction:column;gap:10px;pointer-events:none}
-.login-eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.32em;color:var(--arc);
-  text-shadow:0 0 14px rgba(83,232,255,.5)}
-.login-h1{font-family:var(--body);font-weight:600;font-size:clamp(38px,5.2vw,74px);
-  color:#EAF7FC;letter-spacing:.04em;line-height:1.1;text-shadow:0 2px 34px rgba(0,0,0,.55)}
-.login-date{font-family:var(--mono);font-size:13px;color:var(--dim);letter-spacing:.18em}
-.telemetry{margin-top:16px;display:flex;flex-direction:column;gap:4px}
-.tl{font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:var(--dim);
-  opacity:.35;transition:opacity .6s,color .6s}
-.tl.on{opacity:1;color:var(--arc)}
-.login-card{position:relative;z-index:2;width:min(360px,88vw);margin-right:7vw;
-  padding:30px 34px 26px;display:flex;flex-direction:column;gap:15px;
-  background:rgba(4,10,17,.88);border:1px solid rgba(83,232,255,.16);
-  box-shadow:0 30px 80px rgba(0,0,0,.55)}
-.login-sub{font-family:var(--mono);font-size:11px;letter-spacing:.2em;color:var(--dim);
-  text-align:center}
-.field{display:flex;flex-direction:column;gap:6px}
-.field span{font-family:var(--mono);font-size:11px;letter-spacing:.22em;color:var(--dim)}
-.field input{background:rgba(13,28,44,.85);border:1px solid transparent;color:var(--text);
-  font-size:16px;padding:12px;letter-spacing:.06em;outline:none;
-  transition:border-color .2s,box-shadow .2s}
-.field input:focus{border-color:rgba(83,232,255,.6);box-shadow:0 0 18px rgba(83,232,255,.14)}
-.login-btn{margin-top:4px;font-family:var(--disp);font-weight:700;font-size:13px;letter-spacing:.3em;
-  color:var(--void);background:var(--arc);border:none;padding:13px 0;
-  transition:box-shadow .2s,opacity .2s}
-.login-btn:hover{box-shadow:0 0 26px rgba(83,232,255,.55)}
-.login-btn:disabled{opacity:.55}
-.login-hint{font-family:var(--mono);font-size:12px;letter-spacing:.1em;color:var(--alert);
-  opacity:0;transition:opacity .2s;min-height:15px;text-align:center}
-.login-hint.show{opacity:1}
-.login-notice{padding:8px 10px;border-left:2px solid #7CF5B2;background:rgba(124,245,178,.08);color:#7CF5B2;font-family:var(--mono);font-size:12px;line-height:1.5}
-.shake{animation:shake .45s}
-@keyframes shake{
-  10%,90%{transform:translateX(-2px)}20%,80%{transform:translateX(4px)}
-  30%,50%,70%{transform:translateX(-7px)}40%,60%{transform:translateX(7px)}}
-@media (max-width:900px){
-  .login{justify-content:center}
-  .login-card{margin-right:0}
-  .login-type{left:5vw;top:6vh;bottom:auto}
-  .login-h1{font-size:clamp(28px,7vw,44px)}
-  .telemetry{display:none}
-  .moss-bubble{left:6vw;right:6vw;top:auto;bottom:12vh;max-width:none}
-}
 
 /* =====================================================================
  * 登录后主界面：对话为中心

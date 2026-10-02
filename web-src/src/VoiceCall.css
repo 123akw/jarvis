@@ -1,12 +1,6 @@
 /* 语音通话：全屏玻璃遮罩 + 中央 Presence 光球 + 屏幕边缘流光（.jv-edge 在 Presence.css）
  * token 全部带 fallback，暗色默认、body.light 亮色各有兜底。 */
 
-/* Chat 输入栏里的通话/上传按钮（Chat.jsx 引用，保持原样） */
-.callbtn{width:36px;height:36px;flex:none;border:1px solid var(--line);font-size:16px;
-  background:var(--arc-soft);color:var(--arc);border-radius:8px}
-.callbtn:hover{box-shadow:0 0 18px rgba(83,232,255,.45)}
-.callbtn:disabled{opacity:.3;box-shadow:none}
-
 .voice-overlay{
   --_text:var(--jv-text,#e8ecf3);--_text2:var(--jv-text-2,#a4acbc);--_text3:var(--jv-text-3,#6c7486);
   --_surface:var(--jv-surface,#12141b);--_border:var(--jv-border,rgb(255 255 255 / .09));

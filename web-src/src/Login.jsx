@@ -1,12 +1,22 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { login } from './api.js'
 import Presence, { prefersReducedMotion } from './Presence.jsx'
-import ShaderBg from './ShaderBg.jsx'
 import { applyTheme, currentTheme } from './theme.js'
 import './Login.css'
 
 // MOSS 3D 机头（three.js）只在 MOSS 形态下懒加载：默认的光球形态首屏不碰 three
 const Moss = lazy(() => import('./Moss.jsx'))
+
+/** 登录页柔和背景光：零依赖 CSS 光场（两团静态光 + 光球身后缓慢漂移的主光 + 细颗粒），样式在 Login.css。
+ *  MOSS 形态在 3D 场景加载出来之前用它的暗色版（is-moss）垫底。 */
+function Ambient({ moss = false }) {
+  return (
+    <div className={`jvl-ambient${moss ? ' is-moss' : ''}`} aria-hidden="true">
+      <i className="jvl-key-light" />
+      <i className="jvl-grain" />
+    </div>
+  )
+}
 
 /**
  * 登录页两种形态：
@@ -252,7 +262,7 @@ export default function Login({ onAuthed, notice = '' }) {
     <div className={`jv-login form-${form} stage-${stage}`}>
       {moss ? (
         <>
-          <Suspense fallback={<ShaderBg className="is-moss" />}>
+          <Suspense fallback={<Ambient moss />}>
             <Moss busy={busy} fail={fail} spinup={spinup}
               onPick={() => say(pick(LINES_PICK), { voice: true })} />
           </Suspense>
@@ -264,7 +274,7 @@ export default function Login({ onAuthed, notice = '' }) {
             </div>
           )}
         </>
-      ) : <ShaderBg />}
+      ) : <Ambient />}
 
       <div className="jvl-top">
         <span className="jvl-brand">J.A.R.V.I.S.</span>
