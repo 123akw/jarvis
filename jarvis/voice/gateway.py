@@ -478,7 +478,15 @@ class _Turn:
                 seen_calls.add(cid)
                 self._mark("tool_start")
                 self._arm_filler()
-                await self.call.send_json({"type": "tool_start", "name": name})
+                event = {"type": "tool_start", "name": name}
+                try:   # 插件工具（含第三方）：附所属插件的图标与名字，前端没收录时显示它
+                    from jarvis.plugins import tool_display
+                    label = tool_display(name)
+                except Exception:
+                    label = None
+                if label:
+                    event["label"] = label
+                await self.call.send_json(event)
         text = self.call.chunk_text(chunk.content)
         if text:
             self._mark("llm_first_token")

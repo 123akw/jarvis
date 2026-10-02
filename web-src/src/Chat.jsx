@@ -147,12 +147,27 @@ function documentMessage(doc) {
   return `请通读这份文档《${doc.name}》${notice}，先用不超过 5 条要点总结主要内容；之后我会就它继续提问。${marker}\n\n【文档开始】\n${doc.text}\n【文档结束】`
 }
 
+/** 附件标记「［附件：x.xlsx · file_id=…］」只给模型看：气泡里换成「📎 x.xlsx」小标签，不露 file_id */
+const ATTACH_MARK = /［附件：(.+?) · file_id=[A-Za-z0-9_-]+］/g
+export function withAttachmentChips(text) {
+  const out = []
+  let last = 0
+  for (const m of text.matchAll(ATTACH_MARK)) {
+    if (m.index > last) out.push(text.slice(last, m.index))
+    out.push(<span key={`att-${m.index}`} className="ubox-att" title={m[1]}>📎 {m[1]}</span>)
+    last = m.index + m[0].length
+  }
+  if (!out.length) return text
+  if (last < text.length) out.push(text.slice(last))
+  return out
+}
+
 function UserBubble({ text }) {
   const [open, setOpen] = useState(false)
   const long = text.length > LONG_CHARS || text.split('\n').length > LONG_LINES
   return (
     <div className="ucol">
-      <div className={`ubox${long && !open ? ' clamped' : ''}`}>{text}</div>
+      <div className={`ubox${long && !open ? ' clamped' : ''}`}>{withAttachmentChips(text)}</div>
       {long ? (
         <button type="button" className="ubox-more" aria-expanded={open} onClick={() => setOpen(v => !v)}>
           {open ? '收起' : '展开全文'}
@@ -384,7 +399,7 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
         }
         flushTokens()   // 工具/错误事件前先把已到的正文落地，保持先后顺序
         if (ev.type === 'tool_start') {
-          patchLast(m => ({ ...m, chips: [...m.chips, { id: ev.id, name: ev.name, done: false }] }))
+          patchLast(m => ({ ...m, chips: [...m.chips, { id: ev.id, name: ev.name, label: ev.label, done: false }] }))
         } else if (ev.type === 'tool_result') {
           patchLast(m => {
             const chips = [...m.chips]

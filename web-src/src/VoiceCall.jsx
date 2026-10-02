@@ -357,7 +357,7 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
       setReply(replyTextRef.current)
       setCut(!!text)
     } else if (ev.type === 'tool_start') {
-      setTools(ts => [...ts, { name: ev.name, done: false }])
+      setTools(ts => [...ts, { name: ev.name, label: ev.label, done: false }])
     } else if (ev.type === 'tool_result') {
       setTools(ts => {
         const out = [...ts]
@@ -614,7 +614,7 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
         {tools.length > 0 && (
           <div className="voice-tools">
             {tools.map((t, i) => (
-              <span key={i} className={`voice-tool${t.done ? ' done' : ''}`}>{toolLabel(t.name)}{t.done ? ' ✓' : '…'}</span>
+              <span key={i} className={`voice-tool${t.done ? ' done' : ''}`}>{toolLabel(t.name, t.label)}{t.done ? ' ✓' : '…'}</span>
             ))}
           </div>
         )}

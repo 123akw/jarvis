@@ -312,7 +312,14 @@ TOOL_LABELS = {
 
 
 def tool_label(name: str) -> str:
-    return TOOL_LABELS.get(name, "处理")
+    if name in TOOL_LABELS:
+        return TOOL_LABELS[name]
+    try:   # 插件提供的工具（含导入的第三方插件）：用插件名
+        from jarvis.plugins import tool_display
+        label = tool_display(name)
+    except Exception:
+        label = None
+    return f"用「{label['name']}」" if label else "处理"
 
 
 def humanize_failure(exc: Exception) -> str:

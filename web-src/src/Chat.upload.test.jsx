@@ -167,3 +167,15 @@ describe('图片 / 视频上传', () => {
     expect(chatStream.mock.calls[0][0]).toContain('无声音')
   })
 })
+
+describe('附件标记显示', () => {
+  it('用户气泡里把附件标记换成文件名小标签，不露 file_id', async () => {
+    const { withAttachmentChips } = await import('./Chat.jsx')
+    const { render } = await import('@testing-library/react')
+    const { container } = render(<div>{withAttachmentChips('［附件：九月报销.xlsx · file_id=wlYszla5MF_1］ 按部门汇总')}</div>)
+    expect(container.textContent).toContain('📎 九月报销.xlsx')
+    expect(container.textContent).toContain('按部门汇总')
+    expect(container.textContent).not.toContain('file_id')
+    expect(withAttachmentChips('普通消息')).toBe('普通消息')
+  })
+})

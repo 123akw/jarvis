@@ -71,3 +71,16 @@ describe('工具芯片文案', () => {
     expect(toolChipText({ name: 'mystery_tool', done: false })).toBe('⚙ mystery_tool')
   })
 })
+
+describe('插件工具芯片', () => {
+  it('前端没收录的工具用服务端附带的插件名，不露英文工具名', async () => {
+    const { toolChipText, toolLabel } = await import('./toolInfo.js')
+    const label = { icon: '📏', name: '单位换算' }
+    expect(toolLabel('unit_convert', label)).toBe('📏 单位换算')
+    expect(toolChipText({ name: 'unit_convert', label, done: false })).toBe('📏 正在用单位换算')
+    expect(toolChipText({ name: 'unit_convert', label, done: true, ok: true })).toBe('📏 用了单位换算')
+    expect(toolChipText({ name: 'unit_convert', label, done: true, ok: false })).toBe('📏 单位换算没成功')
+    expect(toolLabel('unit_convert')).toBe('⚙ unit_convert')
+    expect(toolChipText({ name: 'excel_summary', label: { icon: '📊', name: 'Excel 工具箱' }, done: true, ok: true })).toBe('📊 用了 Excel 工具箱')
+  })
+})

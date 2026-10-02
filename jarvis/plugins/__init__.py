@@ -218,6 +218,16 @@ def tools_for(plugin_ids) -> set[str]:
     return names
 
 
+def tool_display(tool_name: str) -> dict | None:
+    """工具名 → 它所属插件的 {icon, name}（给对话里的工具芯片、飞书进度提示用）；找不到返回 None。"""
+    if not isinstance(tool_name, str) or not tool_name:
+        return None
+    for entry in registry().entry_by_id.values():
+        if tool_name in (entry.get("tools") or ()):
+            return {"icon": entry.get("icon") or "🧩", "name": entry.get("name") or tool_name}
+    return None
+
+
 def pack_tools() -> list:
     """插件包自带的工具（已包好隔离层）：build_agent 把它们并进核心工具注册表。"""
     return list(registry().pack_tools)

@@ -29,9 +29,11 @@ const TOOL_INFO = {
   recall_history: ['🗂', '翻聊天记录'],
 }
 
-export function toolLabel(name) {
+/** label：服务端为插件提供的工具（含导入的第三方插件）附带的 {icon, name}，前端没收录时用它 */
+export function toolLabel(name, label) {
   const info = TOOL_INFO[name]
-  return info ? `${info[0]} ${info[1]}` : `⚙ ${name}`
+  if (info) return `${info[0]} ${info[1]}`
+  return label?.name ? `${label.icon || '🧩'} ${label.name}` : `⚙ ${name}`
 }
 
 /** 芯片上的人话：[进行中, 完成]。克制：一句动作，不带感叹、不报流水账 */
@@ -71,6 +73,12 @@ const SEARCHY = new Set(['web_search', 'movie_ratings', 'esports_scores', 'ticke
 export function toolChipText(chip) {
   const info = TOOL_INFO[chip.name]
   const phrase = TOOL_PHRASES[chip.name]
+  if ((!info || !phrase) && chip.label?.name) {   // 插件工具：「🧾 正在用 Excel 工具箱」→「🧾 用了 Excel 工具箱」
+    const { icon = '🧩', name } = chip.label
+    const gap = /^[A-Za-z0-9]/.test(name) ? ' ' : ''   // 「用了 Excel 工具箱」：中文接英文名时补空格
+    if (!chip.done) return `${icon} 正在用${gap}${name}`
+    return chip.ok === false ? `${icon} ${name}没成功` : `${icon} 用了${gap}${name}`
+  }
   if (!info || !phrase) return toolLabel(chip.name)
   if (!chip.done) return `${info[0]} ${phrase[0]}`
   if (chip.ok === false) return `${info[0]} ${info[1]}没成功`

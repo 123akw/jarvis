@@ -415,3 +415,12 @@ def test_office_packs_are_discovered_and_filtered_per_agent():
     model = ToolRecordingModel()
     build_agent(search_service=SearchService([]), model=model, checkpointer=False)
     assert plugins.tools_for(usable) <= set(model.bound[-1])
+
+
+def test_tool_display_names_the_owning_plugin():
+    """对话芯片 / 飞书进度提示用：插件工具能查到所属插件的图标与名字，未知工具返回 None。"""
+    from jarvis.plugins import tool_display
+    assert tool_display("excel_summary") == {"icon": tool_display("excel_summary")["icon"], "name": "Excel 工具箱"}
+    assert tool_display("schedule_add")["name"]
+    assert tool_display("no_such_tool") is None
+    assert tool_display("") is None

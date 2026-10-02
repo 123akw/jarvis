@@ -1039,6 +1039,16 @@ def voice_settings_put(request: Request, body: VoiceSettingsIn):
 
 # ---------- 文档上传解析：PDF / docx / TXT / MD → 纯文本注入对话 ----------
 
+def _tool_label(name) -> dict:
+    """工具芯片的显示名：插件提供的工具（含导入的第三方插件）带上所属插件的图标和名字，前端认不出时用它。"""
+    try:
+        from jarvis.plugins import tool_display
+        label = tool_display(name)
+    except Exception:
+        label = None
+    return {"label": label} if label else {}
+
+
 class UploadIn(BaseModel):
     name: str
     content_b64: str
@@ -1406,7 +1416,7 @@ def chat(request: Request, body: ChatIn):
                             cid = getattr(chunk, "tool_call_id", "") or ""
                             started = call_started.pop(cid, None)
                             yield _sse({
-                                "type": "tool_result", "name": chunk.name, "id": cid,
+                                "type": "tool_result", "name": chunk.name, "id": cid, **_tool_label(chunk.name),
                                 "ok": getattr(chunk, "status", "success") != "error",
                                 "ms": int((time.monotonic() - started) * 1000) if started is not None else None,
                                 "detail": _chunk_text(chunk.content)[:400],
@@ -1418,7 +1428,7 @@ def chat(request: Request, body: ChatIn):
                                 if name and cid and cid not in seen_calls:
                                     seen_calls.add(cid)
                                     call_started[cid] = time.monotonic()
-                                    yield _sse({"type": "tool_start", "name": name, "id": cid})
+                                    yield _sse({"type": "tool_start", "name": name, "id": cid, **_tool_label(name)})
                             text = _chunk_text(chunk.content)
                             if text:
                                 yield _sse({"type": "token", "text": text})
