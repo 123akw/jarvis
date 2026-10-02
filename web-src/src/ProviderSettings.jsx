@@ -34,7 +34,8 @@ export default function ProviderSettings({ session, onClose, onExpired, onApplie
   return <section className="jv-sheet provider-sheet" aria-label="设置中心">
     <ModalHead title="设置中心" subtitle={`${session.username} · 密钥不会回显`} onClose={onClose} closeLabel="关闭 API 设置" />
     <div className="jv-modal-body">
-    <div className="provider-tabs" role="tablist"><button className={tab === 'llm' ? 'on' : ''} onClick={() => setTab('llm')}>模型 API</button><button className={tab === 'voice' ? 'on' : ''} onClick={() => setTab('voice')}>语音</button><button className={tab === 'desktop' ? 'on' : ''} onClick={() => setTab('desktop')}>桌面与会议</button>{session.role === 'Owner' ? <button className={tab === 'search' ? 'on' : ''} onClick={() => setTab('search')}>联网数据源</button> : null}</div>
+    <SettingsTabs tab={tab} onChange={next => { setTab(next); setMessage('') }} owner={session.role === 'Owner'} />
+    <div role="tabpanel" id={`settings-panel-${tab}`} aria-labelledby={`settings-tab-${tab}`}>
     {tab === 'voice' ? <VoiceSettingsPane onMessage={setMessage} onExpired={onExpired} /> : null}
     {tab === 'desktop' ? <DesktopMeetingPane onMessage={setMessage} onExpired={onExpired} /> : null}
     {tab === 'llm' ? <div className="provider-pane">
@@ -49,9 +50,38 @@ export default function ProviderSettings({ session, onClose, onExpired, onApplie
       <div className="provider-actions"><button disabled={busy || !password} onClick={() => action('test')}>测试连接</button><button className="primary" disabled={busy || !settings.writable || !password} onClick={() => action('save')}>保存并应用</button><button disabled={busy || !settings.writable || !password} onClick={restore}>恢复服务器配置</button></div>
     </div> : null}
     {tab === 'search' ? <IntegrationSettings settings={settings} password={password} setPassword={setPassword} onMessage={setMessage} onRefresh={refresh} onExpired={onExpired} /> : null}
+    </div>
     {message ? <p className="provider-message" role="status">{message}</p> : null}
     </div>
   </section>
+}
+
+const TABS = [['llm', '模型 API'], ['voice', '语音'], ['desktop', '桌面与会议'], ['search', '联网数据源']]
+
+/** 页签：WAI-ARIA tabs 模式（role=tab + aria-selected，←/→/Home/End 切换并移焦点，只有当前页签在 Tab 序列里） */
+function SettingsTabs({ tab, onChange, owner }) {
+  const tabs = TABS.filter(([id]) => owner || id !== 'search')
+  function onKey(e) {
+    const i = tabs.findIndex(([id]) => id === tab)
+    let next = -1
+    if (e.key === 'ArrowRight') next = (i + 1) % tabs.length
+    else if (e.key === 'ArrowLeft') next = (i - 1 + tabs.length) % tabs.length
+    else if (e.key === 'Home') next = 0
+    else if (e.key === 'End') next = tabs.length - 1
+    if (next < 0) return
+    e.preventDefault()
+    onChange(tabs[next][0])
+    e.currentTarget.parentElement.querySelectorAll('[role=tab]')[next]?.focus()
+  }
+  return (
+    <div className="provider-tabs" role="tablist" aria-label="设置分类">
+      {tabs.map(([id, label]) => (
+        <button key={id} type="button" role="tab" id={`settings-tab-${id}`} aria-selected={tab === id}
+          aria-controls={`settings-panel-${id}`} tabIndex={tab === id ? 0 : -1}
+          className={tab === id ? 'on' : ''} onClick={() => onChange(id)} onKeyDown={onKey}>{label}</button>
+      ))}
+    </div>
+  )
 }
 
 function IntegrationSettings({ settings, password, setPassword, onMessage, onRefresh, onExpired }) {

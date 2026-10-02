@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { chatStream, getHistory, uploadDocument } from './api.js'
+import { copyText } from './clipboard.js'
 import {
   createStreamingView, handleCodeCopyClick, highlighterVersion, renderMarkdown, subscribeHighlighter,
 } from './markdown.js'
@@ -20,7 +21,8 @@ function ToolChip({ chip }) {
   const status = !chip.done ? '…' : chip.ok === false ? '✗' : '✓'
   return (
     <span className={`tchip${chip.done ? (chip.ok === false ? ' fail' : ' done') : ''}`}>
-      <button className="tchip-btn" disabled={!chip.detail}
+      <button type="button" className="tchip-btn" disabled={!chip.detail}
+        aria-expanded={chip.detail ? open : undefined}
         onClick={() => setOpen(v => !v)}
         title={chip.detail ? (open ? '收起结果' : '查看结果') : undefined}>
         {toolLabel(chip.name)} <span className="st">{status}</span>
@@ -52,8 +54,32 @@ const JarvisBody = memo(function JarvisBody({ raw, streaming }) {
   return <div className="jbody" ref={ref} onClick={handleCodeCopyClick} />
 })
 
-function copyText(raw) {
-  navigator.clipboard?.writeText(raw)
+/** 复制按钮：点完 1.5 秒内显示「已复制」（失败显示「复制失败」），给出明确反馈 */
+function CopyButton({ text, title }) {
+  const [state, setState] = useState('')
+  const timer = useRef(0)
+  useEffect(() => () => clearTimeout(timer.current), [])
+  async function onClick() {
+    const ok = await copyText(text)
+    setState(ok ? 'ok' : 'fail')
+    clearTimeout(timer.current)
+    timer.current = setTimeout(() => setState(''), 1500)
+  }
+  return (
+    <button type="button" className={`abtn${state === 'ok' ? ' done' : ''}`} onClick={onClick} title={title}>
+      {state === 'ok' ? '已复制' : state === 'fail' ? '复制失败' : '复制'}
+    </button>
+  )
+}
+
+/** 等首个 token 时的「思考中」：AI 光球小尺寸版 + 文字（光球纯装饰，状态由文字和 role=status 传达） */
+function Thinking() {
+  return (
+    <div className="jv-thinking" role="status">
+      <Presence state="thinking" size={20} decorative />
+      <span className="jv-thinking-text">思考中…</span>
+    </div>
+  )
 }
 
 /** 单条消息行：memo 后流式刷新只重渲染正在生成的那一行，长对话不再整表重算 */
@@ -62,34 +88,37 @@ const MsgRow = memo(function MsgRow({ m, prevUser, busy, onSend, onEdit }) {
     return (
       <div className="row-user">
         <div className="uactions">
-          <button className="abtn" onClick={() => copyText(m.raw)} title="复制这条消息">复制</button>
-          <button className="abtn" title="编辑后重新发送" onClick={() => onEdit(m.raw)}>编辑</button>
+          <CopyButton text={m.raw} title="复制这条消息" />
+          <button type="button" className="abtn" title="编辑后重新发送" onClick={() => onEdit(m.raw)}>编辑</button>
         </div>
         <div className="ubox">{m.raw}</div>
       </div>
     )
   }
+  // 还没有任何输出（正文、工具、错误都没有）时显示思考占位；工具 chip 出现后由 chip 表达进度
+  const thinking = m.streaming && !m.raw && m.chips.length === 0 && !m.error
   return (
     <div className="row-jarvis">
-      <div className="jtag"><span className={`jdot${m.streaming ? ' live' : ''}`} aria-hidden="true" />J.A.R.V.I.S.</div>
+      <div className="jtag"><span className={`jdot${m.streaming && !thinking ? ' live' : ''}`} aria-hidden="true" />J.A.R.V.I.S.</div>
       {m.chips.length > 0 && (
         <div className="chips">
           {m.chips.map((c, i) => <ToolChip key={c.id || i} chip={c} />)}
         </div>
       )}
-      <JarvisBody raw={m.raw} streaming={m.streaming} />
+      {thinking ? <Thinking /> : <JarvisBody raw={m.raw} streaming={m.streaming} />}
+      {m.stopped && !m.error && <div className="msg-stopped">已停止</div>}
       {m.error && (
-        <div className="msg-err">⚠ {m.error}
+        <div className="msg-err" role="alert">⚠ {m.error}
           {!busy && prevUser && (
-            <button className="retrybtn" onClick={() => onSend(prevUser)}>重试</button>
+            <button type="button" className="retrybtn" onClick={() => onSend(prevUser)}>重试</button>
           )}
         </div>
       )}
-      {!m.streaming && m.raw && (
+      {!m.streaming && (m.raw || m.stopped) && (
         <div className="msg-actions">
-          <button className="abtn" onClick={() => copyText(m.raw)} title="复制回答原文">复制</button>
+          {m.raw ? <CopyButton text={m.raw} title="复制回答原文" /> : null}
           {prevUser && (
-            <button className="abtn" disabled={busy} title="就同一个问题再答一次"
+            <button type="button" className="abtn" disabled={busy} title="就同一个问题再答一次"
               onClick={() => onSend(prevUser)}>重新回答</button>
           )}
         </div>
@@ -139,8 +168,10 @@ function EmptyState({ userName, onPick }) {
 let nextId = 1
 /** 手机宽度只留短提示：长提示会折成两行被单行输入框截断，触屏也没有 Shift+Enter */
 const compactInput = () => typeof window !== 'undefined' && window.innerWidth <= 640
+/** 触屏设备不自动聚焦输入框：否则每次回答结束都会把软键盘弹出来挡住回答 */
+const touchFirst = () => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
 
-function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = null, userName = '' }) {
+function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = null, userName = '', fresh = false }) {
   const [msgs, setMsgs] = useState([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -148,6 +179,7 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
   const [histSeq, setHistSeq] = useState(0) // 通话挂断后 +1，回放通话期间的对话
   const logRef = useRef()
   const boxRef = useRef()
+  const rootRef = useRef(null)
   const abortRef = useRef(null)
   const fileRef = useRef()
   const [uploading, setUploading] = useState(false)
@@ -156,9 +188,13 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
   const tokBuf = useRef('')         // 尚未刷到界面的 token
   const tokFrame = useRef(0)
 
+  const freshRef = useRef(fresh)
+  freshRef.current = fresh
   useEffect(() => {  // 切换会话/挂断通话：从服务端记忆库回放历史
     setMsgs([])
     stickRef.current = true
+    // 本地刚建的新会话服务端还没有记录：不去拉（否则每次「新对话」都换来一个 404）；挂断通话后照常回放
+    if (freshRef.current && histSeq === 0) return undefined
     let alive = true
     getHistory(threadId).then(h => {
       if (!alive) return
@@ -188,11 +224,20 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
     stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX
   }
 
-  useEffect(() => { onBusy?.(busy); if (!busy) boxRef.current?.focus() }, [busy])
+  useEffect(() => {
+    onBusy?.(busy)
+    if (busy || touchFirst()) return
+    // 回答结束把光标还给输入框——但只在焦点本来就在对话区（或无处可去）时；
+    // 用户已经去弹窗/今日板里打字了就别抢（原来会把正在输口令的光标拽回输入框）
+    const a = document.activeElement
+    if (!a || a === document.body || rootRef.current?.contains(a)) boxRef.current?.focus()
+  }, [busy])
   useEffect(() => () => { if (tokFrame.current) cancelFrame(tokFrame.current) }, [])
 
   useEffect(() => {  // 外部注入的消息（会议纪要「追问」）：整条自动发出，后续可连续追问
-    if (injected?.text) void send(injected.text)
+    if (!injected?.text) return
+    if (!touchFirst()) boxRef.current?.focus()   // 光标就位，读完回答直接接着问
+    void send(injected.text)
   }, [injected?.seq])
 
   function patchLast(fn) {
@@ -236,9 +281,10 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
       { id: nextId++, kind: 'user', raw: text, chips: [], streaming: false },
       { id: nextId++, kind: 'jarvis', raw: '', chips: [], streaming: true },
     ])
-    abortRef.current = new AbortController()
+    const ctrl = new AbortController()
+    abortRef.current = ctrl
     try {
-      for await (const ev of chatStream(text, location, threadId, abortRef.current.signal)) {
+      for await (const ev of chatStream(text, location, threadId, ctrl.signal)) {
         if (ev.type === 'token') {
           queueToken(ev.text)
           continue
@@ -263,13 +309,14 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
     } catch (err) {
       flushTokens()
       if (err.message === '401') { onExpired?.(); return }
-      if (err.name !== 'AbortError') {
+      if (err.name !== 'AbortError' && !ctrl.signal.aborted) {
         patchLast(m => ({ ...m, error: `链路中断：${err.message}` }))
       }
     } finally {
       abortRef.current = null
       flushTokens()
-      patchLast(m => ({ ...m, streaming: false }))
+      // 用户点了停止：标「已停止」，让半截回答一眼可辨（原来看起来像模型自己说到一半）
+      patchLast(m => ({ ...m, streaming: false, stopped: ctrl.signal.aborted }))
       setBusy(false)
       onTurnDone?.()
     }
@@ -321,7 +368,7 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
 
   let lastUser = ''   // 每条回答对应的上一条用户提问（重新回答 / 失败重试用）
   return (
-    <section className="center">
+    <section className="center" ref={rootRef}>
       <div className="log" ref={logRef} onScroll={onLogScroll}>
         <div className="logcol">
           {msgs.length === 0 && !busy && (
@@ -349,7 +396,8 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
           <textarea ref={boxRef} value={input} rows={1}
             onChange={e => { setInput(e.target.value); autoGrow() }}
             onKeyDown={onKey}
-            placeholder={compactInput() ? '吩咐一句…' : '吩咐一句…（Enter 发送，Shift+Enter 换行）'} autoFocus />
+            aria-label="输入消息"
+            placeholder={compactInput() ? '吩咐一句…' : '吩咐一句…（Enter 发送，Shift+Enter 换行）'} autoFocus={!touchFirst()} />
           <button className="jv-icon-btn round" onClick={() => setCalling(true)} disabled={busy}
             title="语音通话" aria-label="语音通话"><Icon name="wave" /></button>
           {busy

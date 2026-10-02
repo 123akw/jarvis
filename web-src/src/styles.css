@@ -74,6 +74,8 @@ button{font-family:inherit;cursor:pointer;color:inherit}
 input,textarea,select{font-family:inherit}
 button:disabled{cursor:default}
 :focus-visible{outline:2px solid var(--jv-accent);outline-offset:2px}
+/* 对话框容器本身只是焦点落点（读屏读出标题），不画焦点环 */
+[role=dialog][tabindex="-1"]:focus,.jv-sidebar:focus,.jv-today:focus{outline:none}
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
 .mono{font-family:var(--jv-mono);font-variant-numeric:tabular-nums}
 
@@ -200,11 +202,14 @@ body.light .hud{background:radial-gradient(1100px 560px at 50% -20%,rgba(0,122,2
 .tsearch-wrap:focus-within{box-shadow:0 0 0 3px var(--jv-accent-soft)}
 .threadlist{flex:1;overflow-y:auto;margin:2px -6px 0;padding:0 6px}
 .tgroup{font-size:12px;font-weight:600;color:var(--jv-text-3);padding:16px 10px 6px}
-.titem{display:flex;align-items:center;gap:4px;height:36px;padding:0 4px 0 10px;border-radius:10px;
-  cursor:pointer;font-size:14px;color:var(--jv-text-2)}
+.titem{display:flex;align-items:center;gap:4px;height:36px;padding:0 4px 0 0;border-radius:10px;
+  font-size:14px;color:var(--jv-text-2)}
 .titem:hover{background:var(--jv-hover);color:var(--jv-text)}
+.titem:active{background:var(--jv-pressed)}
 .titem.on{background:var(--jv-surface-2);color:var(--jv-text);font-weight:500}
-.ttitle{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ttitle{flex:1;min-width:0;height:100%;padding:0 0 0 10px;border:none;border-radius:10px;background:none;color:inherit;
+  font:inherit;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ttitle:focus-visible{outline-offset:-2px}
 .tactions{display:flex;align-items:center;opacity:0;transition:opacity .2s var(--jv-ease)}
 .titem:hover .tactions,.titem:focus-within .tactions,.tactions:has(.confirm){opacity:1}
 .tdel{width:26px;height:26px;display:grid;place-items:center;border:none;border-radius:7px;background:none;color:var(--jv-text-3)}
@@ -212,7 +217,7 @@ body.light .hud{background:radial-gradient(1100px 560px at 50% -20%,rgba(0,122,2
 .tdel:not(.trn):hover{color:var(--jv-danger)}
 .tdel.confirm{width:auto;padding:0 8px;font-size:12px;font-weight:600;color:#fff;background:var(--jv-danger)}
 .tdel.confirm:hover{color:#fff}
-.trename{flex:1;min-width:0;height:28px;padding:0 8px;border-radius:7px;border:1px solid var(--jv-accent);
+.trename{flex:1;min-width:0;height:28px;margin-left:4px;padding:0 8px;border-radius:7px;border:1px solid var(--jv-accent);
   background:var(--jv-bg);color:var(--jv-text);font-size:14px;outline:none}
 .sb-brand{display:none}
 .empty{color:var(--jv-text-3);font-size:13.5px;padding:8px 10px;line-height:1.6}
@@ -299,11 +304,20 @@ body.light .jbody .hljs-built_in,body.light .jbody .hljs-type,body.light .jbody 
 .msg-err{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:10px;padding:8px 12px;border-radius:10px;
   font-size:13px;color:var(--jv-danger);background:color-mix(in srgb,var(--jv-danger) 10%,transparent)}
 .retrybtn{height:26px;padding:0 10px;border:none;border-radius:7px;background:var(--jv-danger);color:#fff;font-size:12px;font-weight:600}
+/* 等首个 token：小光球 + 「思考中…」（文字呼吸，只动 opacity） */
+.jv-thinking{display:flex;align-items:center;gap:10px;min-height:27px;animation:jv-fade .3s var(--jv-ease)}
+.jv-thinking .jv-presence{margin-left:1px}
+.jv-thinking-text{font-size:14.5px;color:var(--jv-text-2);animation:jv-think-text 1.6s ease-in-out infinite}
+@keyframes jv-think-text{50%{opacity:.45}}
+/* 用户停止生成 */
+.msg-stopped{display:inline-flex;align-items:center;gap:6px;margin-top:8px;font-size:12.5px;color:var(--jv-text-3)}
+.msg-stopped::before{content:'';width:7px;height:7px;border-radius:2px;background:currentColor}
+.abtn.done{color:var(--jv-success)}
 .caret{display:inline-block;width:7px;height:1.05em;border-radius:2px;background:var(--jv-text-2);vertical-align:-3px;
   margin-left:2px;animation:blink 1s steps(1) infinite}
 
 /* 工具调用 chip */
-.chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
+.chips{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px;margin:0 0 10px}   /* 展开一个 chip 时不把同排的拉成空框 */
 .tchip{display:inline-flex;flex-direction:column;max-width:100%;border-radius:14px;background:var(--jv-surface-2);
   color:var(--jv-text-2);font-size:12.5px}
 .tchip-btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;border:none;background:none;

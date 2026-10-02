@@ -28,7 +28,7 @@ const settings = {
 
 async function openDesktopTab() {
   render(<ProviderSettings session={{ username: 'member', role: 'Member' }} />)
-  fireEvent.click(await screen.findByRole('button', { name: '桌面与会议' }))
+  fireEvent.click(await screen.findByRole('tab', { name: '桌面与会议' }))
 }
 
 describe('「桌面与会议」页签', () => {

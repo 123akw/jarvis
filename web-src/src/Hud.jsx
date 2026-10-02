@@ -46,6 +46,24 @@ const writePref = (key, on) => localStorage.setItem(key, on ? '1' : '0')
 
 const todayText = () => new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })
 
+/** 浮层/抽屉的焦点：打开时把焦点移进面板（键盘与读屏用户不用再摸过去），
+ *  关闭时若焦点还在面板里（或已随 inert 掉回 body），交还给开关按钮。 */
+function useOverlayFocus(shown, panelRef, toggleRef) {
+  const prev = useRef(shown)
+  useEffect(() => {
+    if (prev.current === shown) return
+    prev.current = shown
+    const panel = panelRef.current
+    if (!panel) return
+    if (shown) {
+      panel.focus({ preventScroll: true })
+    } else {
+      const a = document.activeElement
+      if (!a || a === document.body || panel.contains(a)) toggleRef.current?.focus({ preventScroll: true })
+    }
+  }, [shown]) // eslint-disable-line react-hooks/exhaustive-deps
+}
+
 export default function Hud({ session, onLogout }) {
   const mode = useLayoutMode()
   const leftOverlay = mode === 'narrow'
@@ -54,6 +72,9 @@ export default function Hud({ session, onLogout }) {
   const [refreshKey, setRefreshKey] = useState(0)
   const [dash, setDash] = useState(null)
   const [geo, setGeo] = useState(null)
+  // 本地新建、服务端还没有记录的会话：对话区据此跳过拉历史（否则每次「新对话」都换来一个 404）
+  const freshRef = useRef(null)
+  if (!freshRef.current) freshRef.current = new Set()
   const [thread, setThread] = useState(() => localStorage.getItem('jws_thread') || 'web')
   const [threadList, setThreadList] = useState([])
   const [leftOpen, setLeftOpen] = useState(() => mode !== 'narrow' && readPref('jws_sidebar', true))
@@ -121,7 +142,11 @@ export default function Hud({ session, onLogout }) {
     setThread(id)
     if (leftOverlay) setLeftOpen(false)  // 抽屉模式选完会话自动收起
   }
-  const newChat = () => selectThread(newThreadId())
+  const newChat = () => {
+    const id = newThreadId()
+    freshRef.current.add(id)
+    selectThread(id)
+  }
 
   const overlayShown = (leftOverlay && leftOpen) || (todayOverlay && todayOpen)
   const closeOverlays = useCallback(() => {
@@ -129,6 +154,12 @@ export default function Hud({ session, onLogout }) {
     if (todayOverlay) setTodayOpen(false)
   }, [leftOverlay, todayOverlay])
   useEscape(closeOverlays, overlayShown)
+  const sideRef = useRef(null)
+  const sideBtnRef = useRef(null)
+  const todayRef = useRef(null)
+  const todayBtnRef = useRef(null)
+  useOverlayFocus(leftOverlay && leftOpen, sideRef, sideBtnRef)
+  useOverlayFocus(todayOverlay && todayOpen, todayRef, todayBtnRef)
 
   const isOwner = session?.role === 'Owner'
   const settingsCommands = [
@@ -163,7 +194,7 @@ export default function Hud({ session, onLogout }) {
     <div className={`hud mode-${mode}`}>
       <header className="jv-topbar">
         <div className="tb-left">
-          <button type="button" className={`jv-icon-btn${leftOpen ? ' on' : ''}`} onClick={toggleLeft}
+          <button ref={sideBtnRef} type="button" className={`jv-icon-btn${leftOpen ? ' on' : ''}`} onClick={toggleLeft}
             aria-label={leftOpen ? '收起会话栏' : '展开会话栏'} aria-expanded={leftOpen}
             aria-controls="jv-sidebar" title="会话历史">
             <Icon name="sidebar" />
@@ -184,7 +215,7 @@ export default function Hud({ session, onLogout }) {
             <span className="tb-search-text">搜索与命令</span>
             <kbd>⌘K</kbd>
           </button>
-          <button type="button" className={`jv-icon-btn${todayOpen ? ' on' : ''}`} onClick={() => setToday(!todayOpen)}
+          <button ref={todayBtnRef} type="button" className={`jv-icon-btn${todayOpen ? ' on' : ''}`} onClick={() => setToday(!todayOpen)}
             aria-label="今日" aria-expanded={todayOpen} aria-controls="jv-today"
             title={pending ? `今日：${pending} 项待办` : '今日：日程 / 待办 / 备忘'}>
             <Icon name="today" />
@@ -196,7 +227,7 @@ export default function Hud({ session, onLogout }) {
       <Reminders onExpired={onLogout} />
       {desktop.note ? <div className="jv-toast" role="status">{desktop.note}</div> : null}
       <main className="jv-main">
-        <aside id="jv-sidebar" className={`jv-sidebar${leftOpen ? ' open' : ''}`} aria-label="会话历史"
+        <aside id="jv-sidebar" ref={sideRef} tabIndex={-1} className={`jv-sidebar${leftOpen ? ' open' : ''}`} aria-label="会话历史"
           inert={!leftOpen || undefined}>
           <div className="sb-brand" aria-hidden="true">J.A.R.V.I.S.</div>
           <Threads current={thread} refreshKey={refreshKey}
@@ -204,8 +235,9 @@ export default function Hud({ session, onLogout }) {
             onExpired={onLogout} onLoaded={setThreadList} />
         </aside>
         <Chat threadId={thread} location={geo} onBusy={setBusy} injected={injected}
+          fresh={freshRef.current.has(thread) && !threadList.some(t => t.id === thread)}
           onTurnDone={onTurnDone} onExpired={onLogout} userName={session?.username || ''} />
-        <aside id="jv-today" className={`jv-today${todayOpen ? ' open' : ''}`} aria-label="今日"
+        <aside id="jv-today" ref={todayRef} tabIndex={-1} className={`jv-today${todayOpen ? ' open' : ''}`} aria-label="今日"
           inert={!todayOpen || undefined}>
           <div className="today-card">
             <div className="today-head">

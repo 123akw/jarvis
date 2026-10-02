@@ -2,6 +2,7 @@
  *  桌面端 desktop/md-render.js 是本模块的注入版改写，两边逻辑保持一致。 */
 import DOMPurify from 'dompurify'
 import { Marked } from 'marked'
+import { copyText } from './clipboard.js'
 
 const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
@@ -181,7 +182,8 @@ export function handleCodeCopyClick(e) {
   if (!btn) return
   const code = btn.closest('.codeblock')?.querySelector('code')
   if (!code) return
-  navigator.clipboard?.writeText(code.textContent)
-  btn.textContent = '已复制'
-  setTimeout(() => { btn.textContent = '复制' }, 1200)
+  void copyText(code.textContent).then(ok => {
+    btn.textContent = ok ? '已复制' : '复制失败'
+    setTimeout(() => { btn.textContent = '复制' }, 1200)
+  })
 }
