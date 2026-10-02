@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 import ipaddress
 import json
+import logging
 import socket
 import sqlite3
 import threading
@@ -23,6 +24,8 @@ from jarvis.provider_settings import ProviderSettingsError, ResolvedLLM, SecretS
 from jarvis.search.fetcher import _SystemResolver, _is_public_address, _parse_ip
 from jarvis.search.providers import DDGSProvider, SearXNGProvider, TavilyProvider
 from jarvis.search.service import SearchService
+
+log = logging.getLogger(__name__)
 
 
 class _PinnedSyncBackend(httpcore.NetworkBackend):
@@ -237,6 +240,7 @@ class RuntimeBundle:
     leases: int = 0
     retired: bool = False
     closed: bool = False
+    platform_rev: int = 0   # 建 bundle 时该账号智能平台的版本号；平台改了就重建（工具子集随之变）
 
     def close(self) -> None:
         if self.closed: return
@@ -247,6 +251,30 @@ class RuntimeBundle:
                 try: close()
                 except Exception: pass
         close_async_client(self.async_client)
+
+
+def _platform_revision(user_id: str) -> int:
+    try:
+        from jarvis.platforms import revision
+        return revision(user_id)
+    except Exception:
+        return 0
+
+
+_PLATFORM_LOOKUP_FAILED: set[str] = set()
+
+
+def _platform_tool_names(user_id: str):
+    """该账号智能平台允许的工具名；没有平台返回 None，绑定完整工具集。
+
+    读库失败（如库被锁）时这一次先按完整工具集建，并记下来让下次 acquire 重建再查。"""
+    try:
+        from jarvis.platforms import agent_tool_names
+        return agent_tool_names(user_id)
+    except Exception as exc:
+        log.warning("platform tools lookup failed: %s", type(exc).__name__)
+        _PLATFORM_LOOKUP_FAILED.add(user_id)
+        return None
 
 
 class AgentRuntimeManager:
@@ -277,19 +305,25 @@ class AgentRuntimeManager:
         service.generation = llm.generation
         pandascore = integrations["pandascore"]
         agent = build_agent(search_service=service, model=model, checkpointer=self._checkpointer,
-                            pandascore_token_getter=lambda: pandascore["api_key"] if pandascore["enabled"] else "")
+                            pandascore_token_getter=lambda: pandascore["api_key"] if pandascore["enabled"] else "",
+                            tool_names=_platform_tool_names(user_id))
         return RuntimeBundle(user_id, llm.generation, agent, service, model, sync_client, async_client)
 
     def _new(self, user_id: str, llm: ResolvedLLM | None = None) -> RuntimeBundle:
         resolved = llm or self.store.resolved_llm(user_id)
-        return self._factory(user_id, resolved, self.store.integration_values())
+        revision = _platform_revision(user_id)   # 先取版本再建：建的途中平台又改了，下次 acquire 会再重建
+        bundle = self._factory(user_id, resolved, self.store.integration_values())
+        bundle.platform_rev = -1 if user_id in _PLATFORM_LOOKUP_FAILED else revision
+        _PLATFORM_LOOKUP_FAILED.discard(user_id)
+        return bundle
 
     @contextmanager
     def acquire(self, user_id: str) -> Iterator[RuntimeBundle]:
         resolved = self.store.resolved_llm(user_id)
         with self._lock:
             bundle = self._bundles.get(user_id)
-            if bundle is None or bundle.generation != resolved.generation:
+            if (bundle is None or bundle.generation != resolved.generation
+                    or bundle.platform_rev != _platform_revision(user_id)):
                 candidate = self._new(user_id, resolved)
                 old = self._bundles.get(user_id)
                 self._bundles[user_id] = candidate
