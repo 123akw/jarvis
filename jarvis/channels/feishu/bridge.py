@@ -307,7 +307,7 @@ TOOL_LABELS = {
     "schedule_del": "删日程", "todo_add": "加待办", "todo_list": "查待办", "todo_done": "完成待办",
     "sys_query": "系统查询", "web_search": "联网搜索", "web_extract": "读取网页",
     "movie_ratings": "查电影评分", "esports_scores": "查电竞比分", "ticket_search": "查票务",
-    "meeting_start": "开始会议纪要", "meeting_stop": "结束会议纪要",
+    "meeting_start": "开始会议纪要", "meeting_stop": "结束会议纪要", "recall_history": "翻聊天记录",
 }
 
 
