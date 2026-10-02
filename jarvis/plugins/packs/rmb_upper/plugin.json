@@ -1,0 +1,21 @@
+{
+  "id": "rmb_upper",
+  "name": "金额大写",
+  "version": "1.0.0",
+  "icon": "💴",
+  "category": "documents",
+  "summary": "报销单、合同、收据上的金额，一秒转成规范大写",
+  "kind": "tool",
+  "tier": "free",
+  "price": 0,
+  "professions": ["office", "shop_owner", "freelancer", "sales"],
+  "examples": ["1680.32 的大写怎么写", "帮我把 12 万 5 千元写成大写", "报销单上 3,050 元大写是多少"],
+  "entry": "tools.py",
+  "tools": ["rmb_upper"],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "license": "MIT-0",
+  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/rmb_upper"
+}
