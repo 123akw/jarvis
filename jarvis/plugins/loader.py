@@ -471,8 +471,11 @@ class Registry:
             "version": m["version"], "author": m["author"], "homepage": m["homepage"],
             "source": copy.deepcopy(m["source"]), "builtin": pack.builtin,
             "status": pack.status if pack.status in ("ok", "needs_config") else "unavailable", "reason": pack.reason,
-            # 第十五轮：MCP 插件带「MCP」徽标，权限写「联网：<主机名>」
-            "mcp": is_mcp, "hosts": hosts, "permissions": [f"联网：{host}" for host in hosts],
+            # 第十五轮：MCP 插件带「MCP」徽标（mcp: true），权限写「联网：<主机名>」；详情页用的说明、许可证、隐私政策
+            "mcp": is_mcp, "hosts": hosts,
+            "permissions": [{"key": "network", "label": f"联网：{host}", "level": "warn"} for host in hosts],
+            "license": m.get("license") or "", "description": (m.get("extras") or {}).get("long_description", ""),
+            "privacy_url": (m.get("extras") or {}).get("privacy_url", ""),
         }
         return entry
 

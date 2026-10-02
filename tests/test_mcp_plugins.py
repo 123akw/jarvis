@@ -176,7 +176,9 @@ def test_discovery_archives_tools_and_binds_them(tmp_path, fake, owner):
     assert result["outcome"] == "archived" and result["status"] == "ok"
     entry = plugins.get_plugin(plugin_id)
     assert entry["tools"] == [f"fake_srv__{n}" for n in ("echo", "boom", "slow", "big", "inject")]
-    assert entry["hosts"] == ["127.0.0.1"] and entry["permissions"] == ["联网：127.0.0.1"]
+    assert entry["hosts"] == ["127.0.0.1"]
+    assert entry["permissions"] == [{"key": "network", "label": "联网：127.0.0.1", "level": "warn"}]
+    assert entry["license"] == "MIT"
     assert plugins.tools_for([plugin_id]) == set(entry["tools"])                      # 智能体账号装了就绑定
     from jarvis.graph import plugin_tools
     assert "fake_srv__echo" in {t.name for t in plugin_tools()}                         # Owner 默认全绑
