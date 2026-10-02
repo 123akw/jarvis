@@ -280,7 +280,12 @@ export default function Hud({ session, onLogout }) {
           ) : <span className="wordmark">J.A.R.V.I.S.</span>}
         </div>
         <div className="tb-center">
-          <span className="tb-title" title={title}>{title}</span>
+          <span className="tb-title" title={title}>
+            {/* 手机上左侧只剩智能体图标：新对话时标题位显示智能体名字 */}
+            {platform && !threadList.some(t => t.id === thread)
+              ? <><span className="pf-title-name">{platform.name}</span><span className="pf-title-new">{title}</span></>
+              : title}
+          </span>
           <span className="tb-meta" title={`${status.label}${status.place ? ` · ${status.place}` : ''}`}>
             <span className={`status-dot ${status.state}`} aria-hidden="true" />
             <span className="tb-model">{dash?.model || status.label}</span>

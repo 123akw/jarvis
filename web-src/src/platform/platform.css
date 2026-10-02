@@ -29,10 +29,12 @@ body.jv-pf.light .hud{background:radial-gradient(1100px 560px at 50% -20%,color-
 .pf-wordmark{display:inline-flex;align-items:center;gap:8px;min-width:0;margin-left:4px;font-size:14px;font-weight:600;color:var(--jv-text)}
 .pf-wordmark-name{min-width:0;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mode-narrow .sb-brand.pf-sb-brand{display:flex;align-items:center;gap:8px;font-family:var(--jv-font);font-size:14px;font-weight:600;letter-spacing:0}
+.pf-title-name{display:none}
 .menu-foot{padding:8px 10px 4px;font-size:11.5px;color:var(--jv-text-3);text-align:center;letter-spacing:.04em}
 @media (max-width:640px){
   .pf-wordmark{margin-left:0}
-  .pf-wordmark-name{display:none}
+  .pf-wordmark-name,.pf-title-new{display:none}
+  .pf-title-name{display:inline}
 }
 
 /* ---------- 平台主页（新对话空态）：版式沿用 .chat-empty，只多工具箱 / 流程两行 ---------- */

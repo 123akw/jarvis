@@ -167,6 +167,37 @@ describe('主应用按平台定制', () => {
     expect(await screen.findByRole('dialog', { name: '分享我的智能体' })).toBeInTheDocument()
   })
 
+  it('⌘K「智能体设置」：换色实时预览，保存后顶栏跟着变；取消则撤销预览', async () => {
+    routeFetch({
+      'GET /api/platform': [200, { platform: PLATFORM }],
+      'PUT /api/platform': init => [200, { platform: { ...PLATFORM, ...JSON.parse(init.body) } }],
+    })
+    const user = userEvent.setup()
+    render(<Hud session={{ username: 'xiaowang', role: 'Member' }} onLogout={() => {}} />)
+    await screen.findByTitle('小王的项目台')
+    fireEvent.keyDown(window, { key: 'k', metaKey: true })
+    await user.type(screen.getByRole('combobox', { name: '搜索命令' }), '智能体设置')
+    await user.keyboard('{Enter}')
+    const dialog = await screen.findByRole('dialog', { name: '智能体设置' })
+    await user.click(within(dialog).getByRole('radio', { name: '玫红' }))
+    expect(document.body.style.getPropertyValue('--pf-accent-d')).toBe('#FF375F')   // 预览
+    await user.click(within(dialog).getByRole('button', { name: '取消' }))
+    expect(document.body.style.getPropertyValue('--pf-accent-d')).toBe('#30B0C7')   // 撤销预览
+
+    fireEvent.keyDown(window, { key: 'k', metaKey: true })
+    await user.type(screen.getByRole('combobox', { name: '搜索命令' }), '智能体设置')
+    await user.keyboard('{Enter}')
+    const again = await screen.findByRole('dialog', { name: '智能体设置' })
+    const name = within(again).getByRole('textbox', { name: /名称/ })
+    await user.clear(name)
+    await user.type(name, '项目指挥部')
+    await user.click(within(again).getByRole('radio', { name: '薄荷绿' }))
+    await user.click(within(again).getByRole('button', { name: '保存' }))
+    expect(await screen.findByTitle('项目指挥部')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: '智能体设置' })).toBeNull()
+    expect(document.body.style.getPropertyValue('--pf-accent-d')).toBe('#34C759')
+  })
+
   it('卸载后还原：主题色、manifest、标题都撤掉', async () => {
     routeFetch({ 'GET /api/platform': [200, { platform: PLATFORM }] })
     document.title = '贾维斯'
