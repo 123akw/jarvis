@@ -1,7 +1,7 @@
 import { useCallback, useRef } from 'react'
 import Icon from '../Icon.jsx'
 import { flyToDock, useDragSource } from './dnd/index.jsx'
-import { SOURCE_LABEL, badgesFor, blockReason, sourceOf } from './model.js'
+import { SOURCE_LABEL, blockReason, sourceOf } from './model.js'
 
 /** 插件详情的地址：当前路径 + ?plugin=<id>（不新增顶层路由；可分享、可后退） */
 export function detailHref(id) {
@@ -18,16 +18,6 @@ export function linkClick(e, fn) {
   fn()
 }
 
-/** 详情页用的完整徽标组（官方 / 社区 / MCP / 技能 / 专业版 / 需要配置） */
-export function Badges({ plugin, className = '' }) {
-  const list = badgesFor(plugin)
-  return (
-    <span className={`jvm-badges ${className}`.trim()}>
-      {list.map(b => <span key={b.id} className={`jvm-badge is-${b.tone}`}>{b.label}</span>)}
-    </span>
-  )
-}
-
 /**
  * 卡片上最多一个徽标（ChatGPT / Claude 目录的行卡几乎不放徽标），按优先级取第一个：
  * 需要配置 > 暂不可用 > 专业版 > MCP > 社区 / 插件源。「官方」不再显示（线上全是官方，是噪音）；
@@ -41,18 +31,6 @@ export function keyBadge(p) {
   const src = sourceOf(p)
   if (src !== 'official') return { id: src, label: SOURCE_LABEL[src], tone: 'community' }
   return null
-}
-
-/** 详情页底部的「加入工具箱」大按钮：已加入的可以移出；不可用 / 需要配置时禁用（已在工具箱里的仍可移出） */
-export function AddButton({ plugin, picked, onToggle, size = '', label = '加入' }) {
-  const blocked = blockReason(plugin)
-  return (
-    <button type="button" className={`jvm-add${picked ? ' is-on' : ''}${size ? ` is-${size}` : ''}`} aria-pressed={picked}
-      disabled={!!blocked && !picked} title={blocked && !picked ? blocked : undefined}
-      aria-label={picked ? `移出工具箱：${plugin.name}` : `加入工具箱：${plugin.name}`} onClick={() => onToggle(plugin.id)}>
-      {picked ? <><Icon name="check" size={15} /><span>已加入</span></> : <><Icon name="plus" size={15} /><span>{label}</span></>}
-    </button>
-  )
 }
 
 /** 卡片右侧的轻量「＋」（32 圆，热区用伪元素扩到 44）：加入时从卡片「飞」进底部工具箱；已加入变成实心对勾，再点移出。

@@ -389,7 +389,7 @@ body.light .jvm-bundle article{background:radial-gradient(90% 80% at 0% 0%,color
   outline:1.5px dashed color-mix(in srgb,var(--jv-text) 40%,transparent);outline-offset:-1.5px;border-radius:16px}
 
 /* 徽标（卡片上最多 1 个）：12/16/500，高 20，圆角 8 */
-.jvm-card-name .jvm-badge{flex:none;height:20px;margin:0;padding:0 8px;border-radius:8px;font-size:12px;line-height:16px;font-weight:500;letter-spacing:0}
+.jvm-card-name .jvm-badge{flex:none}
 
 /* 轻量「＋」：32 圆，伪元素把热区扩到 44；已加入变实心强调色 + ✓（160ms 交叉淡化） */
 .jvm-plus{position:relative;flex:none;width:32px;height:32px;display:grid;place-items:center;border:0;border-radius:999px;
@@ -409,9 +409,8 @@ body.light .jvm-bundle article{background:radial-gradient(90% 80% at 0% 0%,color
   color:var(--jv-text);font:inherit;font-size:13px;font-weight:600;white-space:nowrap}
 .jvm-install:disabled{opacity:.45}
 
-.jvm-badges{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
-.jvm-badge{display:inline-flex;align-items:center;height:19px;padding:0 7px;border-radius:6px;font-size:10.5px;font-weight:650;
-  letter-spacing:.04em;color:var(--jv-text-3);background:var(--m-tile);white-space:nowrap}
+.jvm-badge{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:8px;font-size:12px;line-height:16px;font-weight:500;
+  color:var(--jv-text-3);background:var(--m-tile);white-space:nowrap}
 .jvm-badge.is-official{color:var(--jv-text-2)}
 .jvm-badge.is-official::before{content:"";width:6px;height:6px;margin-right:4px;border-radius:50%;background:var(--jv-ai-gradient)}
 .jvm-badge.is-community{color:var(--m-accent);background:color-mix(in srgb,var(--m-accent) 14%,transparent)}
@@ -422,17 +421,6 @@ body.light .jvm-bundle article{background:radial-gradient(90% 80% at 0% 0%,color
 .jvm-badge.is-muted{color:var(--jv-text-3)}
 .jvm-badge.is-note{color:var(--jv-text-3);background:transparent;box-shadow:inset 0 0 0 1px var(--m-line-2)}
 
-.jvm-add{align-self:center;display:inline-flex;align-items:center;gap:4px;height:34px;padding:0 13px 0 10px;border:0;border-radius:999px;
-  background:var(--m-tile);color:var(--jv-text);font:inherit;font-size:13.5px;font-weight:650;white-space:nowrap;
-  transition:background-color .2s var(--m-ease),color .2s,transform .15s var(--m-ease)}
-.jvm-add:hover:not(:disabled){background:var(--jv-pressed)}
-.jvm-add:active:not(:disabled){transform:scale(.94)}
-.jvm-add:disabled{opacity:.45;cursor:not-allowed}
-.jvm-add.is-on{background:var(--m-accent);color:#fff}
-.jvm-add.is-on .jv-icon{animation:jvm-pop .3s var(--m-ease)}
-.jvm-add.is-mini{width:32px;height:32px;padding:0;justify-content:center}
-.jvm-add.is-lg{height:48px;padding:0 22px 0 18px;font-size:15.5px;background:var(--m-btn-bg);color:var(--m-btn-fg)}
-.jvm-add.is-lg.is-on{background:color-mix(in srgb,var(--m-accent) 16%,transparent);color:var(--m-accent)}
 
 /* ---------- 空状态 / 加载骨架 / 提示 ---------- */
 .jvm-none{display:flex;flex-direction:column;align-items:center;text-align:center;padding:44px 12px 36px}
@@ -723,9 +711,9 @@ legend.jvm-field-label{width:100%;margin-bottom:8px}
 /* 减少动态效果：去掉所有位移与缩放，只留 ≤120ms 的淡入淡出 */
 @media (prefers-reduced-motion:reduce){
   .jvm-skel i::after{animation:none}
-  .jvm-main>*,.jvm-dock-inner,.jvm-forging,.jvm-rec-wait-text,.jvm-tray-icons i,.jvm-add.is-on .jv-icon,.jvm-card-check,
+  .jvm-main>*,.jvm-dock-inner,.jvm-forging,.jvm-rec-wait-text,.jvm-tray-icons i,.jvm-card-check,
   .jvm-rec,.jvm-filter-pop,.jvm-filter-scrim,.jvm-suggest,.jvm-top-search,.jvm-top-icon{animation:jvm-fade .12s ease both}
-  .jvm-card,.jvm-add,.jvm-plus,.jvm-plus .jv-icon,.jvm-prof-chip,.jvm-bundle article,.jvm-bundle-add,.jvm-toast,.jvm-tab::after{transition:none}
+  .jvm-card,.jvm-plus,.jvm-plus .jv-icon,.jvm-prof-chip,.jvm-bundle article,.jvm-bundle-add,.jvm-toast,.jvm-tab::after{transition:none}
   .jvm-card[data-dnd=pressing],.jvm-bundle article[data-dnd=pressing],.jvm-plus:active,.jvm-bundle-add:active{transform:none}
 }
 
