@@ -12,17 +12,46 @@ const PHASE_LABEL = {
   listening: '请讲，我在听',
   thinking: '思考中…',
   speaking: '回答中…（开口即可打断）',
+  interrupted: '好，你说',
   closed: '通话已断开',
 }
 
 const VAD_RMS_THRESHOLD = 0.04 // 帧级 RMS 高于此视作人声（回声消除后的余量）
 const VAD_VOICE_FRAMES = 2     // 连续 2 帧（约 200ms）确认开口 → 打断，远小于 500ms 预算
+const VAD_FLOOR_RATIO = 3      // 环境噪声底的倍数：吵的屋子里抬高门槛，防风扇/键盘声误打断
+const VAD_ECHO_RATIO = 0.3     // 正在播放的音量 × 此比例：回声消除后的残留回声压不过它
+
+/**
+ * 播放中「算开口」的音量门槛：固定底线、环境噪声底 ×3、当前播放音量 ×0.3 三者取大。
+ * 回声消除（AEC）后残留回声通常比播放音量低 20dB 以上，真人近讲则明显更响。
+ */
+export function bargeThreshold(playRms = 0, floor = 0) {
+  return Math.max(VAD_RMS_THRESHOLD, floor * VAD_FLOOR_RATIO, playRms * VAD_ECHO_RATIO)
+}
+
+/**
+ * 被打断时字幕截断位置：服务端回报主人听到的前缀 heard（按句子边界 + 已播放时长算出），
+ * 在回答原文里找到对应位置（忽略空白）；对不上就按长度近似。
+ */
+export function cutIndex(reply, heard) {
+  const h = (heard || '').replace(/\s+/g, '')
+  if (!h) return 0
+  let j = 0
+  for (let i = 0; i < reply.length; i++) {
+    if (/\s/.test(reply[i])) continue
+    if (reply[i] !== h[j]) return Math.min(reply.length, heard.length)
+    j += 1
+    if (j === h.length) return i + 1
+  }
+  return reply.length
+}
 
 const speechCtor = () => window.SpeechRecognition || window.webkitSpeechRecognition
 
-// 通话阶段 → 光球状态（接通中也算「思考」：在忙，但还没在听）
+// 通话阶段 → 光球状态（接通中也算「思考」：在忙，但还没在听；被打断即转入聆听）
 const PHASE_PRESENCE = {
-  connecting: 'thinking', listening: 'listening', thinking: 'thinking', speaking: 'speaking', closed: 'idle',
+  connecting: 'thinking', listening: 'listening', thinking: 'thinking', speaking: 'speaking',
+  interrupted: 'listening', closed: 'idle',
 }
 const ENV_WINDOW = 512 // 播放音量包络：每 512 样本（24kHz 下约 21ms）一个 RMS 点
 
@@ -73,6 +102,8 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
   const [scenes, setScenes] = useState([])       // 场景目录（豆包式情景模式）
   const [scene, setScene] = useState('butler')
   const [emotion, setEmotion] = useState(null)   // {emotion, label} 语气感知
+  const [cut, setCut] = useState(false)          // 本回合被打断：字幕截在主人听到处并加标记
+  const [filler, setFiller] = useState('')       // 工具慢时的垫话（只在正文出来前显示）
 
   const wsRef = useRef(null)
   const recRef = useRef(null)
@@ -87,7 +118,10 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
   const replyTextRef = useRef('')     // 回答全文的唯一真相：token 先进这里，按帧刷上屏
   const replyFrameRef = useRef(null)  // 已排的刷新帧
   const replyShownRef = useRef(false) // 本回合是否已有字上屏（首字不等帧）
-  const audioRef = useRef({ ctx: null, nextTime: 0, sources: new Set(), sampleRate: 24000, env: [] })
+  const cutRef = useRef(false)        // 已打断：本回合迟到的 token 不再上屏
+  const floorRef = useRef(0)          // 麦克风环境噪声底（不在播放时慢速跟踪）
+  // turnSec：本回合已排播的音频总时长（秒），打断时据此回报「实际播到哪」
+  const audioRef = useRef({ ctx: null, nextTime: 0, sources: new Set(), sampleRate: 24000, env: [], turnSec: 0 })
   const micLevelRef = useRef({ rms: 0, at: 0 }) // 最近一帧麦克风 RMS（推流模式），只供光球读
 
   phaseRef.current = phase
@@ -125,6 +159,7 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
   }
 
   function appendReply(text) {
+    if (cutRef.current) return        // 打断后在途的 token：主人没听到，也不该再冒出来
     replyTextRef.current += text
     if (!replyShownRef.current) {     // 本回合首个 token 立即上屏，首字延迟不加一帧
       replyShownRef.current = true
@@ -151,6 +186,7 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
   }
 
   function playChunk(buf) {
+    if (cutRef.current) return  // 打断后还在路上的旧回合音频：丢掉，别再冒出半句
     const a = audioRef.current
     const ctx = ensureCtx()
     if (!ctx) return
@@ -165,6 +201,7 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
     const at = Math.max(ctx.currentTime + 0.02, a.nextTime || 0)
     src.start(at)
     a.nextTime = at + buffer.duration
+    a.turnSec += buffer.duration
     // 视觉：记下这一块的音量包络和开播时刻，光球按 ctx.currentTime 对齐读取
     a.env.push({ at, step: ENV_WINDOW / (a.sampleRate || 24000), vals: rmsEnvelope(f32) })
     a.sources.add(src)
@@ -219,18 +256,34 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
     wsSend({ type: 'user_text', text })
   }
 
+  /** 本回合音频实际已播放的毫秒数：已排播总时长 − 还没播完的部分。 */
+  function playedMs() {
+    const a = audioRef.current
+    if (!a.ctx) return 0
+    const left = Math.max(0, (a.nextTime || 0) - a.ctx.currentTime)
+    return Math.max(0, Math.round((a.turnSec - left) * 1000))
+  }
+
+  /** 打断：回报播到哪（服务端据此算主人听到哪句）→ 停播 → 字幕先截住 → 转入聆听。 */
   function bargeIn() {
     if (phaseRef.current === 'speaking' || audioRef.current.sources.size > 0) {
-      wsSend({ type: 'interrupt' })
+      wsSend({ type: 'interrupt', played_ms: playedMs() })
       stopPlayback()
-      setPhaseSafe('listening')
+      cutRef.current = true
+      flushReply()
+      if (replyTextRef.current) setCut(true)
+      setPhaseSafe('interrupted')
     }
   }
 
-  /** 本地音量 VAD：播放中连续两帧检测到人声（约 200ms）→ 立即停播 + 通知取消 TTS。 */
+  /** 本地音量 VAD：播放中连续两帧超过门槛（约 200ms）→ 立即停播 + 通知取消 TTS。
+   *  门槛随环境噪声底和当前播放音量自适应（bargeThreshold），防回声/底噪自己打断自己。 */
   function onMicLevel(rms) {
     const playing = phaseRef.current === 'speaking' || audioRef.current.sources.size > 0
-    if (!playing || rms < VAD_RMS_THRESHOLD) {
+    if (!playing && rms < VAD_RMS_THRESHOLD * 2) {   // 安静时慢速跟踪噪声底（人声不计入）
+      floorRef.current = floorRef.current ? floorRef.current * 0.95 + rms * 0.05 : rms
+    }
+    if (!playing || rms < bargeThreshold(playbackRms(), floorRef.current)) {
       vadRef.current = 0
       return
     }
@@ -283,11 +336,26 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
       degradeToSpeech(ev.message || '服务端语音识别暂不可用，已切换浏览器识别')
     } else if (ev.type === 'turn_start') {
       turnDoneRef.current = false
+      cutRef.current = false
+      audioRef.current.turnSec = 0
       resetReply('')
+      setCut(false)
+      setFiller('')
       setTools([])
       setPhaseSafe('thinking')
     } else if (ev.type === 'token') {
+      if (!cutRef.current) setFiller('')
       appendReply(ev.text || '')
+    } else if (ev.type === 'filler') {
+      setFiller(ev.text || '')
+    } else if (ev.type === 'cut') {
+      // 服务端算出主人实际听到的前缀：字幕截到那里，后面没念出来的不展示
+      const text = replyTextRef.current
+      cancelReplyFrame()
+      cutRef.current = true
+      replyTextRef.current = text.slice(0, cutIndex(text, ev.heard || ''))
+      setReply(replyTextRef.current)
+      setCut(!!text)
     } else if (ev.type === 'tool_start') {
       setTools(ts => [...ts, { name: ev.name, done: false }])
     } else if (ev.type === 'tool_result') {
@@ -304,6 +372,7 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
     } else if (ev.type === 'turn_end') {
       flushReply() // 回合结束：残留的合并帧立即上屏（后台标签页 rAF 暂停也不丢字）
       turnDoneRef.current = true
+      if (phaseRef.current === 'interrupted') return   // 「好，你说」留到用户说完为止
       if (ev.interrupted || audioRef.current.sources.size === 0) setPhaseSafe('listening')
     } else if (ev.type === 'error') {
       if (ev.code === 'unauthorized' || ev.code === 'csrf') { onExpired?.(); return }
@@ -531,7 +600,7 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
             </span>
           )}
         </div>
-        {micState === 'granted' && phase === 'listening' && (
+        {micState === 'granted' && (phase === 'listening' || phase === 'interrupted') && (
           <div className="voice-hint">
             {inputMode === 'stream' ? '实时识别中，直接说话即可' : '说话停顿后自动发送'}
           </div>
@@ -549,7 +618,15 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
             ))}
           </div>
         )}
-        {reply && <div className="voice-reply" ref={replyRef}>{reply}</div>}
+        {(reply || cut) && (
+          <div className="voice-reply" ref={replyRef}>
+            {reply}
+            {cut && <span className="voice-cut" data-testid="voice-cut" title="说到这里被你打断了">⋯ 已打断</span>}
+          </div>
+        )}
+        {!reply && !cut && filler && (
+          <div className="voice-reply voice-filler" data-testid="voice-filler">{filler}</div>
+        )}
         {notice && <div className="voice-notice" role="alert">⚠ {notice}</div>}
         {degraded && (
           <div className="voice-typebar">

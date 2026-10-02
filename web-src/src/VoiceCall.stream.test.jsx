@@ -2,7 +2,7 @@ import '@testing-library/jest-dom/vitest'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import VoiceCall, { pcm16ToFloat32, rmsEnvelope } from './VoiceCall.jsx'
+import VoiceCall, { bargeThreshold, cutIndex, pcm16ToFloat32, rmsEnvelope } from './VoiceCall.jsx'
 
 // 推流采集模块打桩：测试直接驱动 onFrame/onLevel，覆盖「推流+字幕+VAD 打断+降级」链路
 const audioMock = vi.hoisted(() => ({
@@ -139,7 +139,7 @@ describe('VoiceCall 推流模式', () => {
 
     expect(jsonUplinks(ws).map(x => x.type)).toContain('interrupt')
     expect(MockAudioContext.sources[0].stop).toHaveBeenCalled()
-    expect(screen.getByText('请讲，我在听')).toBeInTheDocument()
+    expect(screen.getByText('好，你说')).toBeInTheDocument() // 被打断态：明确告诉用户「我停了，你说」
   })
 
   it('VAD 静音或未在播放时不误触发打断', async () => {
@@ -243,5 +243,59 @@ describe('VoiceCall 推流模式', () => {
   it('PCM16 → Float32 换算正确（循环实现，替代逐样本回调）', () => {
     const out = pcm16ToFloat32(new Int16Array([0, 16384, -32768, 32767]))
     expect(Array.from(out)).toEqual([0, 0.5, -1, 32767 / 32768])
+  })
+
+  it('打断回报实际播放时长；迟到 token/音频丢弃；cut 帧把字幕截在听到处并加标记', async () => {
+    const ws = await startCall()
+    act(() => { ws.emit({ type: 'turn_start' }); ws.emit({ type: 'token', text: '你好，领导。今天要开三个会。' }) })
+    act(() => ws.emitBinary(new Int16Array(2400).buffer))        // 0.1s 音频，排在 0.02s 开播
+    MockAudioContext.instances[0].currentTime = 0.07              // 已播 50ms
+    act(() => { audioMock.handlers.onLevel(0.3); audioMock.handlers.onLevel(0.3) })
+
+    const interrupt = jsonUplinks(ws).find(x => x.type === 'interrupt')
+    expect(interrupt.played_ms).toBe(50)
+    expect(screen.getByTestId('voice-cut')).toBeInTheDocument()
+
+    act(() => ws.emit({ type: 'token', text: '第三个会在下午。' }))  // 打断后在途的 token
+    act(() => ws.emitBinary(new Int16Array(2400).buffer))         // 打断后在途的音频
+    expect(MockAudioContext.sources).toHaveLength(1)
+    act(() => ws.emit({ type: 'cut', heard: '你好，领导。今天要' }))
+    act(() => ws.emit({ type: 'turn_end', interrupted: true }))
+    const reply = screen.getByTestId('voice-cut').parentElement
+    expect(reply).toHaveTextContent('你好，领导。今天要⋯ 已打断')
+    expect(screen.getByText('好，你说')).toBeInTheDocument()       // turn_end 不冲掉被打断态
+
+    act(() => { ws.emit({ type: 'turn_start' }); ws.emit({ type: 'token', text: '第二个会三点。' }) })
+    expect(screen.queryByTestId('voice-cut')).not.toBeInTheDocument()
+    expect(screen.getByText('第二个会三点。')).toBeInTheDocument()
+  })
+
+  it('垫话：正文出来前显示，第一个 token 到达即被正文替换', async () => {
+    const ws = await startCall()
+    act(() => { ws.emit({ type: 'turn_start' }); ws.emit({ type: 'tool_start', name: 'weather' }) })
+    act(() => ws.emit({ type: 'filler', text: '好，我查一下。' }))
+    expect(screen.getByTestId('voice-filler')).toHaveTextContent('好，我查一下。')
+    act(() => ws.emit({ type: 'token', text: '明天晴。' }))
+    expect(screen.queryByTestId('voice-filler')).not.toBeInTheDocument()
+    expect(screen.getByText('明天晴。')).toBeInTheDocument()
+  })
+
+  it('吵的环境：噪声底抬高打断门槛，底噪不会自己打断回答', async () => {
+    const ws = await startCall()
+    act(() => { for (let i = 0; i < 80; i++) audioMock.handlers.onLevel(0.05) })  // 不在播放：学噪声底
+    act(() => ws.emitBinary(new Int16Array([1000, -1000]).buffer))
+    act(() => { audioMock.handlers.onLevel(0.08); audioMock.handlers.onLevel(0.08) })
+    expect(jsonUplinks(ws).map(x => x.type)).not.toContain('interrupt')
+    act(() => { audioMock.handlers.onLevel(0.3); audioMock.handlers.onLevel(0.3) })  // 真人开口
+    expect(jsonUplinks(ws).map(x => x.type)).toContain('interrupt')
+  })
+
+  it('打断门槛与字幕截断位置（纯函数）', () => {
+    expect(bargeThreshold(0, 0)).toBe(0.04)
+    expect(bargeThreshold(0, 0.03)).toBeCloseTo(0.09)
+    expect(bargeThreshold(0.4, 0)).toBeCloseTo(0.12)
+    expect(cutIndex('你好，领导。 今天要开会。', '你好，领导。今天')).toBe(9)
+    expect(cutIndex('你好', '')).toBe(0)
+    expect(cutIndex('abc', 'xyz')).toBe(3)
   })
 })

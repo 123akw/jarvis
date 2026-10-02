@@ -170,7 +170,7 @@ describe('VoiceCall', () => {
 
     expect(sentTypes(ws)).toContain('interrupt')
     expect(MockAudioContext.sources[0].stop).toHaveBeenCalled()
-    expect(screen.getByText('请讲，我在听')).toBeInTheDocument()
+    expect(screen.getByText('好，你说')).toBeInTheDocument()
   })
 
   it('TTS 失败降级提示可见，回合结束回到聆听态；挂断触发 onClose', async () => {
