@@ -1,0 +1,20 @@
+{
+  "id": "my_plugin",
+  "name": "倒数日（插件模板）",
+  "version": "0.1.0",
+  "icon": "⏳",
+  "category": "life",
+  "summary": "算一算离某个日子还有几天；复制本模板后改成你自己的插件",
+  "kind": "tool",
+  "tier": "free",
+  "price": 0,
+  "professions": ["student", "teacher", "office"],
+  "examples": ["离 2027 年春节还有几天", "我生日 3 月 8 号，还有多久"],
+  "entry": "tools.py",
+  "tools": ["my_plugin_countdown"],
+  "steps": ["my_plugin_stamp"],
+  "requires": [],
+  "python_packages": [],
+  "author": "你的名字或 GitHub 账号",
+  "homepage": "https://github.com/<你的账号>/<仓库名>"
+}

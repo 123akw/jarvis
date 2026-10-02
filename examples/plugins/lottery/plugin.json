@@ -1,0 +1,20 @@
+{
+  "id": "lottery",
+  "name": "抽签分组",
+  "version": "1.0.0",
+  "icon": "🎲",
+  "category": "efficiency",
+  "summary": "随机分组、抽签、排值日表，结果附抽签码，公平可复核",
+  "kind": "tool",
+  "tier": "free",
+  "price": 0,
+  "professions": ["teacher", "student", "shop_owner", "project_manager", "office"],
+  "examples": ["把这 12 个同学随机分成 3 组", "从这几个人里抽 2 个中奖", "下周一开始排 5 天值日"],
+  "entry": "tools.py",
+  "tools": ["lottery_groups", "lottery_draw", "lottery_rota"],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "homepage": "https://github.com/123akw/jarvis/tree/main/examples/plugins/lottery"
+}
