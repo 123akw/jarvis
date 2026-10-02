@@ -6,14 +6,14 @@ import sqlite3
 import threading
 
 import httpx
-from langchain_core.messages import RemoveMessage, SystemMessage
+from langchain_core.messages import RemoveMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.sqlite import SqliteSaver as _LangGraphSqliteSaver
 from langgraph.prebuilt import ToolNode, create_react_agent
 from langgraph.prebuilt.tool_node import ToolInvocationError
 
 from jarvis import config
-from jarvis.prompts import compose_system_prompt
+from jarvis.prompts import STEP_WRAP_UP_NOTE, compose_system_prompt, forget_digest, runtime_context
 from jarvis.search.service import SearchService
 from jarvis.tools import build_search_service, build_tools
 
@@ -47,10 +47,112 @@ def tool_error_text(error: Exception) -> str:
     本轮失败、checkpoint 停在「已声明 tool_calls、结果未写回」，线程随之中毒（历史事故）。
     这里只给模型类名级信息——异常正文可能带上游 URL 或凭据，不进上下文。"""
     if isinstance(error, ToolInvocationError):
-        return error.message
+        return (f"{error.message}\n参数不符合要求：对照工具说明里的格式和示例改正参数后再调用一次；"
+                "缺的信息无法推断时，直接问领导。")
     log.warning("tool failed: %s", type(error).__name__)
-    return (f"工具执行失败（{type(error).__name__}）。不要用相同参数重试；"
-            "请直接用人话告诉主人这一步没成功，并给出替代办法。")
+    if isinstance(error, (TimeoutError, httpx.TimeoutException)):
+        reason = "请求超时，多半是网络或上游服务慢"
+    elif isinstance(error, httpx.HTTPError):
+        reason = "网络或上游服务出错"
+    else:
+        reason = "内部错误"
+    return (f"工具执行失败：{reason}（{type(error).__name__}）。不要用相同参数重试；"
+            "请用人话告诉领导这一步没成功，并给出替代办法（稍后再试、换个说法或手动处理）。")
+
+
+# 每个用户问题的联网预算（与系统提示词「联网与来源」一致）。提示词约束模型、这里兜底：
+# 模型偶尔会换个措辞把同一问题再搜一遍，预算耗尽后工具直接回一句说明，不再真的发请求。
+SEARCH_BUDGET = 2
+EXTRACT_BUDGET = 3
+# 改动日程/待办的工具：执行后作废「此刻」里的今日概况缓存
+_DIGEST_WRITERS = frozenset({"schedule_add", "schedule_del", "todo_add", "todo_done"})
+# 每轮步数上限（一次「模型 → 工具」往返占 2 步，约 12 次模型调用）。LangGraph 1.x 的
+# 默认递归上限是 10007：模型若陷入「调工具 → 再调工具」的死循环，要烧掉几千次模型调用才停
+# （实测脚本模型 40 次调用仍不收手），所以在编译后的图上显式设上限，所有入口一并生效。
+# 必须是偶数：模型节点看到的剩余步数是 23、21…1，LangGraph 在剩 1 步时用兜底消息体面收尾；
+# 取奇数（如 25）时模型节点落在剩 0 步，兜底消息写完照样抛 GraphRecursionError，前端只见报错。
+RECURSION_LIMIT = 24
+# 剩余步数不多时提醒模型收尾：LangGraph 在最后一步仍要调工具时会硬塞一句英文
+# 「Sorry, need more steps…」，要赶在那之前让模型自己用人话交代进度（剩 5、3、1 步各提醒一次）。
+STEP_WRAP_UP_AT = 6
+
+
+def _current_turn(messages) -> list:
+    """本轮消息：最后一条人类消息之后的部分（不含人类消息本身）。"""
+    for index in range(len(messages) - 1, -1, -1):
+        if messages[index].type == "human":
+            return list(messages[index + 1:])
+    return list(messages)
+
+
+def _turn_calls(messages, name: str) -> list[dict]:
+    """本轮模型发起的某个工具的全部调用，按发起顺序。"""
+    return [call for message in _current_turn(messages) if message.type == "ai"
+            for call in (getattr(message, "tool_calls", None) or []) if call.get("name") == name]
+
+
+def _normalized(value) -> str:
+    return " ".join(str(value or "").split()).casefold()
+
+
+def _budget_refusal(name: str, call: dict, messages) -> str:
+    """超出本轮联网预算或重复搜索时的回执；在预算内返回空串（照常执行）。"""
+    calls = _turn_calls(messages, name)
+    ids = [item.get("id") for item in calls]
+    position = ids.index(call.get("id")) if call.get("id") in ids else len(calls)
+    earlier = calls[:position]
+    if name == "web_search":
+        searched: list[str] = []          # 按顺序重放：被拦下的重复/超额调用不占预算
+        for item in earlier:
+            text = _normalized((item.get("args") or {}).get("query"))
+            if text not in searched and len(searched) < SEARCH_BUDGET:
+                searched.append(text)
+        query = _normalized((call.get("args") or {}).get("query"))
+        if query in searched:
+            return "这个问题本轮已经搜过了，结果就在上面：直接基于已有结果回答，不要重复搜索。"
+        if len(searched) >= SEARCH_BUDGET:
+            return (f"本轮已联网搜索 {SEARCH_BUDGET} 次，达到上限，这次没有执行。请基于已有结果回答；"
+                    "仍不确定的部分如实说「未查到」，并告诉领导可以换个更具体的问法再查。")
+    if name == "web_extract":
+        url = _normalized((call.get("args") or {}).get("url"))
+        seen = {_normalized((item.get("args") or {}).get("url")) for item in earlier}
+        if url not in seen and len(seen) >= EXTRACT_BUDGET:
+            return (f"本轮已读取 {EXTRACT_BUDGET} 个网页，达到上限，这次没有执行。"
+                    "请基于已有资料回答，来源不足就如实说明。")
+    return ""
+
+
+def guard_tool_call(request, execute):
+    """ToolNode 拦截器：联网预算兜底 + 日程/待办改动后作废今日概况缓存。"""
+    call = request.tool_call
+    name = call.get("name", "")
+    state = request.state
+    messages = state.get("messages") if isinstance(state, dict) else getattr(state, "messages", None)
+    if messages and name in ("web_search", "web_extract"):
+        refusal = _budget_refusal(name, call, messages)
+        if refusal:
+            log.info("tool budget refused: %s", name)
+            return ToolMessage(content=refusal, name=name, tool_call_id=call.get("id", ""))
+    result = execute(request)
+    if name in _DIGEST_WRITERS:
+        forget_digest()
+    return result
+
+
+def with_runtime_context(history: list, *, context: str, remaining_steps=None) -> list:
+    """把「此刻」插在本轮用户消息（连同紧挨的 system 风格指令）之前；步数将尽时在末尾加收尾提醒。
+
+    位置按前缀缓存（DeepSeek context caching）实测取舍：放进系统提示词，每轮都变，其后全部
+    历史失去缓存；接在输入末尾，本轮第 2 次起的每次模型调用都要为「此刻」再付一次未命中
+    （21 条评估实测未命中 token 2.5 万 → 3.5 万）。插在本轮用户消息前，本轮内各次调用前缀
+    一致，代价只是上一轮的问答片段在下一轮首次调用时未命中一次；且「最后一条是用户消息 /
+    工具结果」的输入形状不变。「此刻」只进模型输入，不写 checkpoint。"""
+    starts = _turn_starts(history)
+    at = starts[-1] if starts else len(history)
+    shaped = history[:at] + [SystemMessage(content=context)] + history[at:]
+    if remaining_steps is not None and remaining_steps <= STEP_WRAP_UP_AT:
+        shaped.append(SystemMessage(content=STEP_WRAP_UP_NOTE))
+    return shaped
 
 
 def history_char_budget() -> int:
@@ -172,15 +274,23 @@ def build_agent(
             sqlite3.connect(str(config.db_path()), check_same_thread=False)
         )
     def dynamic_prompt(state):
-        # 每轮组装：基础人设 + 当前租户的长期画像（在 tenant_scope 内求值）+ 有界历史
-        return [SystemMessage(content=compose_system_prompt())] + bounded_history(state["messages"])
+        # 每轮组装（在 tenant_scope 内求值）：系统提示词（基础人设 + 人设偏好 + 长期画像 + 技能）
+        # + 有界历史，本轮用户消息前插入「此刻」。历史预算扣掉「此刻」的长度，总量仍不超预算。
+        context = runtime_context()
+        budget = history_char_budget()
+        history = bounded_history(state["messages"], max(1, budget - len(context)) if budget else 0)
+        return [SystemMessage(content=compose_system_prompt())] + with_runtime_context(
+            history, context=context, remaining_steps=state.get("remaining_steps"))
 
-    return create_react_agent(
+    agent = create_react_agent(
         model,
-        ToolNode(tools, handle_tool_errors=tool_error_text),
+        ToolNode(tools, handle_tool_errors=tool_error_text, wrap_tool_call=guard_tool_call),
         prompt=dynamic_prompt,
         checkpointer=checkpointer,
     )
+    # with_config 返回的仍是编译图（get_state/update_state/checkpointer 照常可用）；
+    # 调用方显式传 recursion_limit 时以调用方为准
+    return agent.with_config(recursion_limit=RECURSION_LIMIT) if hasattr(agent, "with_config") else agent
 
 
 class ThreadBusyError(RuntimeError):
