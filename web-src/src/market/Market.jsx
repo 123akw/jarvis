@@ -370,11 +370,13 @@ export default function Market({ session, onAuthed }) {
             onBrand={brand => setDraft(d => ({ ...d, brand }))} />
         ) : (
           <>
-            {q ? null : <Hero catalog={data} wide={wide} onBrowse={browse} onAsk={() => openHelper()} />}
+            {q ? null : <Hero catalog={data} wide={wide} onBrowse={browse}
+              asking={wide ? undefined : recOpen || rec.status !== 'idle'}
+              onAsk={() => (!wide && recOpen && rec.status === 'idle' ? setRecOpen(false) : openHelper())} />}
             {data ? (
               <div className="jvm-market">
                 <div className="jvm-market-main">
-                  {!q && !wide ? helper : null}
+                  {!q && !wide && (recOpen || rec.status !== 'idle') ? helper : null}
                   {!q ? <Featured bundles={bundles} picked={draft.picked} onAdd={addBundle} onOpen={openDetail} /> : null}
                   <Catalog catalog={data} picked={draft.picked} onToggle={toggle} onOpen={openDetail}
                     query={query} onClearQuery={() => { setQuery(''); searchRef.current?.focus() }} onAskAI={askAI}

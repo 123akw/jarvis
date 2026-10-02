@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../Icon.jsx'
 import PluginCard from './PluginCard.jsx'
 import { KIND_FILTERS, SOURCE_FILTERS, filterPlugins, searchPlugins } from './model.js'
@@ -46,8 +46,31 @@ function Chip({ on, onClick, children, count }) {
   )
 }
 
-/** 筛选条：分类（吸顶）+ 来源 + 类型；单选，再点一次取消 */
+/** 分类条吸住顶栏时才铺底色（没吸住时透明，不在页面中间留一条色带） */
+function useStuck(ref) {
+  const [stuck, setStuck] = useState(false)
+  useEffect(() => {
+    const el = ref.current
+    const scroller = el?.closest('.jvm')
+    if (!el || !scroller) return undefined
+    let frame = 0
+    const check = () => {
+      frame = 0
+      const top = parseFloat(getComputedStyle(el).top) || 0
+      setStuck(el.getBoundingClientRect().top <= top + 0.5 && scroller.scrollTop > 0)
+    }
+    const on = () => { if (!frame) frame = requestAnimationFrame(check) }
+    check()
+    scroller.addEventListener('scroll', on, { passive: true })
+    return () => { scroller.removeEventListener('scroll', on); cancelAnimationFrame(frame) }
+  }, [ref])
+  return stuck
+}
+
+/** 筛选条：分类（吸顶）+ 来源 + 类型；单选，再点一次取消。分类的数量随搜索与来源 / 类型筛选变化，0 个的收起 */
 function FilterBar({ catalog, filters, onFilters, sources, kinds, pool }) {
+  const catsRef = useRef(null)
+  const stuck = useStuck(catsRef)
   const set = patch => onFilters({ ...filters, ...patch })
   const toggle = (key, id) => set({ [key]: filters[key] === id ? 'all' : id })
   const catCount = id => pool.filter(p => p.category === id).length
@@ -56,9 +79,9 @@ function FilterBar({ catalog, filters, onFilters, sources, kinds, pool }) {
     ...sources.map(s => ({ id: `source:${s.id}`, name: s.display_name || s.name }))]
   return (
     <div className="jvm-filters">
-      <div className="jvm-cats" role="group" aria-label="按分类看">
+      <div className={`jvm-cats${stuck ? ' is-stuck' : ''}`} role="group" aria-label="按分类看" ref={catsRef}>
         <Chip on={filters.cat === 'all'} onClick={() => set({ cat: 'all' })}>全部</Chip>
-        {catalog.categories.map(c => (
+        {catalog.categories.filter(c => filters.cat === c.id || catCount(c.id) > 0).map(c => (
           <Chip key={c.id} on={filters.cat === c.id} onClick={() => toggle('cat', c.id)} count={catCount(c.id)}>{c.name}</Chip>
         ))}
       </div>
@@ -93,6 +116,8 @@ export default function Catalog({ catalog, picked, onToggle, onOpen, query = '',
   const kinds = useMemo(() => KIND_FILTERS.filter(k => catalog.plugins.some(p => (p.kind === 'channel' ? 'tool' : p.kind) === k.id)), [catalog])
   const searched = useMemo(() => searchPlugins(catalog.plugins, query, catalog.categories), [catalog, query])
   const results = useMemo(() => (source ? [] : filterPlugins(searched, filters)), [searched, filters, source])
+  // 分类上的数字：搜索 + 来源 + 类型都算上，只是不限分类
+  const catPool = useMemo(() => filterPlugins(searched, { ...filters, cat: 'all', source: source ? 'all' : filters.source }), [searched, filters, source])
   const q = query.trim()
   const overview = !q && filters.cat === 'all' && filters.source === 'all' && filters.kind === 'all'
   const filtered = filters.cat !== 'all' || filters.source !== 'all' || filters.kind !== 'all'
@@ -128,15 +153,16 @@ export default function Catalog({ catalog, picked, onToggle, onOpen, query = '',
       </section>
     )
   } else {
+    const onlyCommunity = filters.source === 'community' && filters.cat === 'all' && filters.kind === 'all'
     body = (
       <div className="jvm-none" role="status">
         <span className="jvm-none-icon" aria-hidden="true">{q ? '🔍' : '🗂️'}</span>
         <p className="jvm-none-title">
-          {q ? `没找到和「${q}」相关的插件` : filters.source === 'community' ? '还没有社区插件' : '这个组合下还没有插件'}
+          {q ? `没找到和「${q}」相关的插件` : onlyCommunity ? '还没有社区插件' : '这个组合下还没有插件'}
         </p>
         <p className="jvm-none-sub">
           {q ? '换个说法试试，或者让 AI 按这句话帮你挑一套。'
-            : filters.source === 'community' && admin ? '点「导入插件」，从 GitHub、Gitee 或 zip 装一个。' : '换个分类或类型看看。'}
+            : onlyCommunity && admin ? '点「导入插件」，从 GitHub、Gitee 或 zip 装一个。' : '换个分类或类型看看。'}
         </p>
         <div className="jvm-none-actions">
           {q && onAskAI ? (
@@ -163,7 +189,7 @@ export default function Catalog({ catalog, picked, onToggle, onOpen, query = '',
         ) : <p className="jvm-catalog-sub">点卡片看详情，点「加入」放进工具箱。</p>}
         {admin ? <div className="jvm-admin-entry" role="group" aria-label="插件管理（管理员）">{admin}</div> : null}
       </header>
-      <FilterBar catalog={catalog} filters={filters} onFilters={onFilters} sources={sources} kinds={kinds} pool={searched} />
+      <FilterBar catalog={catalog} filters={filters} onFilters={onFilters} sources={sources} kinds={kinds} pool={catPool} />
       {body}
     </section>
   )
