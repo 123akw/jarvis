@@ -40,6 +40,7 @@ EXPECTED_TOOL_NAMES = {
     "meeting_start",
     "meeting_stop",
     "sys_query",
+    "recall_history",
     "web_search",
     "web_extract",
     "movie_ratings",
@@ -91,13 +92,13 @@ def _build_tools():
     return tools_mod.build_tools
 
 
-def test_build_tools_registers_exactly_twenty_six_unique_tools():
+def test_build_tools_registers_exactly_twenty_seven_unique_tools():
     """Dropping, duplicating, or renaming a tool breaks the Agent's public capability set."""
     tools = _build_tools()(FakeSearchService(generation=7))
     names = [item.name for item in tools]
 
-    assert len(names) == 26
-    assert len(set(names)) == 26
+    assert len(names) == 27
+    assert len(set(names)) == 27
     assert set(names) == EXPECTED_TOOL_NAMES
 
 

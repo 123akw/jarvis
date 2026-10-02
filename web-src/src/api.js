@@ -158,6 +158,13 @@ export async function getHistory(threadId) {
   return parse(await fetch(`/api/history?thread_id=${encodeURIComponent(threadId)}`))
 }
 
+/** 翻旧账：跨会话检索历史消息 → { items: [{ thread_id, title, role, pos, at, snippet, marks }] }
+ *  signal 用来取消过期请求（⌘K 每次改输入都会中止上一个） */
+export async function searchHistory(q, limit = 6, signal = undefined) {
+  const params = new URLSearchParams({ q, limit: String(limit) })
+  return parse(await fetch(`/api/history/search?${params}`, { signal }))
+}
+
 export async function renameThread(threadId, title) {
   return parse(await fetch(`/api/thread?thread_id=${encodeURIComponent(threadId)}`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json', ...csrfHeaders() },

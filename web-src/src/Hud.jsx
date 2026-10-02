@@ -14,6 +14,7 @@ import Panels from './Panels.jsx'
 import ProviderSettings from './ProviderSettings.jsx'
 import Reminders from './Reminders.jsx'
 import Threads from './Threads.jsx'
+import { createQuick, useUndoToast } from './UndoToast.jsx'
 import WeChatConnect from './WeChatConnect.jsx'
 import { applyTheme, currentTheme, toggleTheme } from './theme.js'
 
@@ -85,7 +86,8 @@ export default function Hud({ session, onLogout }) {
   const [wxOpen, setWxOpen] = useState(false)
   const [feishu, setFeishu] = useState(null)       // 飞书渠道状态：只有服务端配置了飞书才出现入口
   const [fsOpen, setFsOpen] = useState(false)
-  const [injected, setInjected] = useState(null)   // 会议纪要「追问」注入对话的消息
+  const [injected, setInjected] = useState(null)   // 会议纪要「追问」、⌘K「让贾维斯去办」注入对话的消息
+  const [locate, setLocate] = useState(null)       // ⌘K「历史对话」跳转要定位的消息 { seq, threadId, pos }
   const [accountOpen, setAccountOpen] = useState(false)
   const [providerOpen, setProviderOpen] = useState(false)
   const [memoryOpen, setMemoryOpen] = useState(false)
@@ -111,6 +113,7 @@ export default function Hud({ session, onLogout }) {
   }, [mode])
 
   const onTurnDone = useCallback(() => setRefreshKey(k => k + 1), [])
+  const quickToast = useUndoToast({ onChanged: onTurnDone, onExpired: onLogout })
 
   useEffect(() => {  // 飞书入口：GET /api/feishu/status 报 configured=true 才显示（旧服务端没有该接口就当未配置）
     let alive = true
@@ -163,6 +166,27 @@ export default function Hud({ session, onLogout }) {
   function openQuick(text) {
     setToday(true)
     setQuickSeed({ seq: Date.now(), text: text || '' })
+  }
+  /** ⌘K「让贾维斯去办」：收起挡住对话的抽屉/浮层，把这句话发进当前对话 */
+  function askJarvis(text) {
+    closeOverlays()
+    setInjected({ seq: Date.now(), text })
+  }
+  /** ⌘K「加到日程 / 加到待办」：直接写入（不走模型），顶部 toast 可撤销 */
+  async function addDirect(plan, text) {
+    try {
+      quickToast.show(await createQuick(plan, text))
+      onTurnDone()
+    } catch (e) {
+      if (e.message === '401') { onLogout(); return }
+      const what = plan.kind === 'schedule' ? '日程' : '待办'
+      quickToast.show({ text: e.status === 422 && e.message ? e.message : `没能添加这条${what}，请稍后再试`, icon: 'close' })
+    }
+  }
+  /** ⌘K 跳会话；从「历史对话」来的带着命中位置，对话区回放后滚到那条 */
+  function pickThread(id, at) {
+    selectThread(id)
+    setLocate(at ? { seq: Date.now(), threadId: id, pos: at.pos } : null)
   }
   const openMemory = useCallback(ids => {
     setMemoryHighlight(Array.isArray(ids) ? ids : [])
@@ -250,6 +274,7 @@ export default function Hud({ session, onLogout }) {
       <Reminders onExpired={onLogout} />
       <WeakPasswordNotice weak={Boolean(session?.password_weak)} onFix={() => setAccountOpen(true)} />
       {desktop.note ? <div className="jv-toast" role="status">{desktop.note}</div> : null}
+      {quickToast.node}
       <main className="jv-main">
         <aside id="jv-sidebar" ref={sideRef} tabIndex={-1} className={`jv-sidebar${leftOpen ? ' open' : ''}`} aria-label="会话历史"
           inert={!leftOpen || undefined}>
@@ -258,7 +283,7 @@ export default function Hud({ session, onLogout }) {
             onSelect={selectThread} onNew={newChat}
             onExpired={onLogout} onLoaded={setThreadList} />
         </aside>
-        <Chat threadId={thread} location={geo} onBusy={setBusy} injected={injected}
+        <Chat threadId={thread} location={geo} onBusy={setBusy} injected={injected} locate={locate}
           fresh={freshRef.current.has(thread) && !threadList.some(t => t.id === thread)}
           onTurnDone={onTurnDone} onExpired={onLogout} userName={session?.username || ''} />
         <aside id="jv-today" ref={todayRef} tabIndex={-1} className={`jv-today${todayOpen ? ' open' : ''}`} aria-label="今日"
@@ -284,8 +309,8 @@ export default function Hud({ session, onLogout }) {
         {overlayShown ? <div className="drawer-backdrop" onClick={closeOverlays} /> : null}
       </main>
       {paletteOpen ? (
-        <CommandPalette commands={paletteCommands} threads={threadList} onQuick={openQuick}
-          onPickThread={selectThread} onClose={() => setPaletteOpen(false)} />
+        <CommandPalette commands={paletteCommands} threads={threadList} onAsk={askJarvis} onAdd={addDirect}
+          onPickThread={pickThread} onExpired={onLogout} onClose={() => setPaletteOpen(false)} />
       ) : null}
       {wxOpen ? <WeChatConnect onClose={() => setWxOpen(false)} onExpired={onLogout} /> : null}
       {fsOpen ? <FeishuConnect onClose={() => setFsOpen(false)} onExpired={onLogout} onChange={setFeishu} /> : null}

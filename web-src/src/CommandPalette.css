@@ -1,0 +1,18 @@
+/* ⌘K「历史对话」命中项：两行（片段 + 出处），关键词用强调色加粗，不用底色块 */
+.jv-palette-item.is-hit{height:auto;min-height:42px;padding:8px 10px;align-items:flex-start}
+.jv-palette-item.is-hit .pi-icon{margin-top:1px}
+.pi-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.pi-snippet{font-size:14px;line-height:1.45;color:var(--jv-text);overflow:hidden;overflow-wrap:anywhere;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.pi-snippet mark{background:none;color:var(--jv-accent);font-weight:600}
+.pi-meta{font-size:12px;line-height:1.4;color:var(--jv-text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* 从「历史对话」跳过来：命中的那条消息短暂铺一层强调色，再淡出。
+ * 选择器带上 .logcol：消息行自带入场动画（styles.css 后加载），同权重会被它盖掉 */
+.logcol>.msg-located{border-radius:16px;animation:jv-located 2.4s var(--jv-ease, ease) both}
+@keyframes jv-located{
+  0%,50%{background:var(--jv-accent-soft);box-shadow:0 0 0 8px var(--jv-accent-soft);
+    background:color-mix(in srgb,var(--jv-accent) 13%,transparent);box-shadow:0 0 0 8px color-mix(in srgb,var(--jv-accent) 13%,transparent)}
+  100%{background:transparent;box-shadow:0 0 0 8px transparent}
+}
+@media (prefers-reduced-motion:reduce){.logcol>.msg-located{animation:none;box-shadow:0 0 0 2px var(--jv-accent-soft)}}

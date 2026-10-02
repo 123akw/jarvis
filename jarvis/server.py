@@ -23,7 +23,7 @@ from langchain_core.messages import AIMessageChunk, ToolMessage
 from pydantic import BaseModel, SecretStr
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from jarvis import __version__, config, delivery, distill, heartbeat, mailer, meeting, reminders, wechat
+from jarvis import __version__, config, delivery, distill, heartbeat, history_index, mailer, meeting, reminders, wechat
 from jarvis.accounts import (
     AccountError, AccountStore, Principal, SessionJanitor, csrf_token, session_secret_configured,
 )
@@ -50,6 +50,8 @@ async def lifespan(_app: FastAPI):
     """恢复持久微信桥并启动日程提醒扫描；退出时停线程但不删除 Token。"""
     _start_weak_password_scan()
     _check_timezone()
+    history_stop = threading.Event()
+    _safe_start("history-backfill", lambda: _start_history_backfill(history_stop))
     # 渠道各自隔离启动：任何一个起不来（凭据文件不可读、配置错）都只记日志，
     # 不能让整个网页服务启动失败（此前 resume_on_boot 抛 PermissionError 即全站起不来）。
     _safe_start("wechat", wechat.resume_on_boot)
@@ -96,6 +98,7 @@ async def lifespan(_app: FastAPI):
     try:
         yield
     finally:
+        history_stop.set()
         janitor.stop()
         if hb is not None:
             hb.stop()
@@ -263,6 +266,15 @@ def _safe_start(name: str, starter) -> None:
         log.error("%s channel failed to start: %s", name, type(exc).__name__, exc_info=exc)
 
 
+def _start_history_backfill(stop: threading.Event) -> None:
+    """翻旧账：启动后稍等片刻，在后台把各用户的存量对话补进检索索引（不挡启动）。"""
+    if os.getenv("JARVIS_HISTORY_BACKFILL", "1") == "0":
+        return
+    for user in _accounts.list_users():
+        if user.get("active"):
+            history_index.backfill_async(user["id"], delay=5.0, stop=stop)
+
+
 def _start_weak_password_scan() -> None:
     """启动时后台核查默认/弱口令并打 WARNING（Argon2 逐个校验要几秒，不挡启动）。"""
     if os.getenv("JARVIS_WEAK_PASSWORD_SCAN", "1") == "0":
@@ -401,6 +413,19 @@ def _bundle_for(user_id: str):
         return
     with _runtime_manager.acquire(user_id) as bundle:
         yield bundle
+
+
+@contextmanager
+def _history_reader(owner_id: str):
+    """翻旧账同步用：借该用户的 runtime 按 checkpoint 线程读出完整消息列表。"""
+    with _bundle_for(owner_id) as bundle:
+        def read(checkpoint_thread_id: str) -> list:
+            state = bundle.agent.get_state({"configurable": {"thread_id": checkpoint_thread_id}})
+            return (state.values or {}).get("messages", [])
+        yield read
+
+
+history_index.configure(_history_reader, SERVICE_THREAD_ALIASES)
 
 
 def _initialize_runtime() -> None:
@@ -653,6 +678,45 @@ def history(request: Request, thread_id: str):
             if text.strip():
                 out.append({"role": "assistant", "content": text})
     return out
+
+
+HISTORY_SEARCH_MAX_LIMIT = 20
+HISTORY_SYNC_BUDGET = 0.4   # 检索前补同步最近活跃线程的时间预算（秒）；剩下的交给后台回填
+
+
+@app.get("/api/history/search")
+def history_search(request: Request, q: str = "", limit: int = 8):
+    """翻旧账：跨会话全文检索本人的历史消息，返回会话、时间、角色和带高亮区间的片段。"""
+    principal, _token = _request_principal(request)
+    if not principal:
+        return _deny()
+    query = q.strip()
+    if not query:
+        return _sensitive_json({"items": []})
+    if len(query) > history_index.MAX_QUERY_CHARS:
+        return JSONResponse({"error": "关键词太长了"}, status_code=422)
+    limit = max(1, min(limit, HISTORY_SEARCH_MAX_LIMIT))
+    try:
+        with tenant_scope(principal.user_id):
+            _tenant_store()
+            if history_index.refresh(principal.user_id, budget=HISTORY_SYNC_BUDGET):
+                history_index.backfill_async(principal.user_id)
+            items = history_index.HistoryIndex().search(query, limit=limit)
+    except TenantMigrationError:
+        return _sensitive_json({"error": "个人数据迁移失败"}, 503)
+    for item in items:
+        item.pop("content", None)   # 片段够用；整条原文不出接口
+    return _sensitive_json({"items": items})
+
+
+def _index_turn(owner_id: str, alias: str, thread, agent) -> None:
+    """一轮答完立即把本线程同步进翻旧账索引；任何失败都只留给后续补同步。"""
+    try:
+        state = agent.get_state({"configurable": {"thread_id": thread.checkpoint_thread_id}})
+        messages = (state.values or {}).get("messages", [])
+    except Exception:
+        return
+    history_index.sync_thread(owner_id, alias, messages, thread_updated_at=thread.updated)
 
 
 class ThreadRenameIn(BaseModel):
@@ -1331,6 +1395,7 @@ def chat(request: Request, body: ChatIn):
                             text = _chunk_text(chunk.content)
                             if text:
                                 yield _sse({"type": "token", "text": text})
+                    _index_turn(principal.user_id, body.thread_id, thread, bundle.agent)
             yield _sse({"type": "done"})
         except ThreadBusyError:
             yield _sse({"type": "error", "message": _BUSY_MESSAGE})

@@ -137,6 +137,19 @@ class TenantStore:
         )
 
     @staticmethod
+    def _schema_v4_statements() -> tuple[str, ...]:
+        """v4（2026-10 翻旧账）：历史消息检索副本 + 每个会话的同步水位。
+
+        消息本体仍在 LangGraph checkpoint 里；这里只存检索用的文本副本（按用户隔离、
+        随删会话一起删）。FTS5 trigram 索引是派生物，由 history_index.ensure_fts 幂等补建，
+        不占版本号：SQLite 不支持 trigram 时退回 LIKE，库结构照样完整。"""
+        return (
+            "CREATE TABLE IF NOT EXISTS tenant_message_index (id INTEGER PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, alias TEXT NOT NULL, msg_key TEXT NOT NULL, pos INTEGER NOT NULL, role TEXT NOT NULL CHECK(role IN ('user','assistant')), content TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(owner_id, alias, msg_key))",
+            "CREATE INDEX IF NOT EXISTS tenant_message_index_recent ON tenant_message_index(owner_id, created_at)",
+            "CREATE TABLE IF NOT EXISTS tenant_message_sync (owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, alias TEXT NOT NULL, thread_updated_at TEXT NOT NULL, synced_at TEXT NOT NULL, settled INTEGER NOT NULL DEFAULT 0 CHECK(settled IN (0,1)), PRIMARY KEY(owner_id, alias))",
+        )
+
+    @staticmethod
     def _apply_version(connection: sqlite3.Connection, version: int, statements: tuple[str, ...]) -> None:
         if connection.execute("SELECT 1 FROM tenant_schema_migrations WHERE version=?", (version,)).fetchone():
             return
@@ -163,6 +176,9 @@ class TenantStore:
         TenantStore._apply_version(connection, 1, TenantStore._schema_statements())
         TenantStore._apply_version(connection, 2, TenantStore._schema_v2_statements())
         TenantStore._apply_version(connection, 3, TenantStore._schema_v3_statements())
+        TenantStore._apply_version(connection, 4, TenantStore._schema_v4_statements())
+        from jarvis.history_index import ensure_fts   # 延迟导入：history_index 依赖本模块
+        ensure_fts(connection)
 
     @staticmethod
     def _owner(owner_id: str | None) -> str:
@@ -236,6 +252,11 @@ class TenantStore:
                 c.rollback()
                 return None
             c.execute("DELETE FROM tenant_threads WHERE owner_id=? AND alias=?", (owner, alias))
+            try:   # 翻旧账索引随会话一起删；索引坏了（如 SQLite 缺 trigram）也不能挡住删会话
+                c.execute("DELETE FROM tenant_message_index WHERE owner_id=? AND alias=?", (owner, alias))
+                c.execute("DELETE FROM tenant_message_sync WHERE owner_id=? AND alias=?", (owner, alias))
+            except sqlite3.OperationalError:
+                pass  # 检索结果另按 tenant_threads 关联过滤，残留行不会被搜出来
             c.commit()
         return TenantThread(row["alias"], row["title"], row["checkpoint_thread_id"], row["updated_at"])
 
