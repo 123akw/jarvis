@@ -103,8 +103,9 @@ body.light .jvm-ambient i{opacity:.6}
   transition:background-color .16s,border-color .16s,transform .1s var(--m-ease)}
 .jvm-top-btn:hover{background:var(--jv-hover)}
 .jvm-top-btn:active{transform:scale(.97)}
-.jvm-top-btn.is-primary{border-color:transparent;background:var(--m-btn-bg);color:var(--m-btn-fg)}
-.jvm-top-btn.is-primary:hover{opacity:.9}
+/* 「进入我的智能体」是导航不是主操作：次按钮样式（中性 8% 底），同屏唯一的实心主按钮留给工具箱的「下一步」 */
+.jvm-top-btn.is-primary{border-color:transparent;background:color-mix(in srgb,var(--jv-text) 8%,transparent);color:var(--jv-text)}
+.jvm-top-btn.is-primary:hover{background:color-mix(in srgb,var(--jv-text) 12%,transparent)}
 .jvm-top-enter-short{display:none}
 .jvm-top-me{display:inline-flex;align-items:center;gap:8px}
 .jvm-top-wait{width:64px;height:32px;border-radius:999px;background:var(--m-tile);opacity:.6}
