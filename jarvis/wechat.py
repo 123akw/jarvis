@@ -74,6 +74,9 @@ PUSH_UNBOUND_REPLY = "好的，日程到点我不再主动推送提醒。"
 # 僵死会话（连接活、心跳在发、但响应永不完成也不派消息）在更长的超时下
 # 永远不会被翻新，表现为「状态已连接却收不到任何消息」（2026-08-12 线上）。
 UPDATES_READ_TIMEOUT_SECONDS = 15
+RETRY_BASE_SECONDS = 2          # 出错后的首次退避；连续失败翻倍，成功一次即复位
+RETRY_MAX_SECONDS = 60
+MIN_EMPTY_POLL_SECONDS = 1.0    # 长轮询「秒回空结果」时的最小间隔，防止空转打爆 iLink
 
 log = logging.getLogger(__name__)
 
@@ -466,7 +469,7 @@ class WeChatBridge:
                 generation,
                 state="error",
                 qr_uri="",
-                error="取二维码失败：iLink 响应异常，请重试",
+                error="取二维码失败：微信接口响应异常，请稍后再点一次连接",
                 since="",
             )
             return self.status()
@@ -583,10 +586,10 @@ class WeChatBridge:
 
     def _reply(self, text: str, from_id: str) -> str:
         if not self._agent_getter or not self._chunk_text or not self._owner_getter:
-            return "贾维斯尚未就绪。"
+            return "（贾维斯还在启动，请稍后再发一次。）"
         owner = self._owner_getter()
         if owner is None:
-            return "贾维斯账号未就绪。"
+            return "（贾维斯账号未就绪：需要有且只有一个启用的管理员账号，请到网页端「账号管理」检查。）"
         contact = from_id.split("@", 1)[0]
         alias = "wx-" + contact[-12:]
         from jarvis.graph import heal_dangling_tool_calls
@@ -609,7 +612,7 @@ class WeChatBridge:
 
     @staticmethod
     def _text_of(message: dict) -> str:
-        for item in message.get("item_list", []):
+        for item in message.get("item_list") or []:
             if isinstance(item, dict) and item.get("type") == 1:
                 text_item = item.get("text_item", {})
                 if isinstance(text_item, dict):
@@ -766,7 +769,12 @@ class WeChatBridge:
         next_buf = payload.get("get_updates_buf", "")
         if not isinstance(next_buf, str):
             next_buf = ""
-        self._save_sync_buf(next_buf)
+        try:
+            self._save_sync_buf(next_buf)
+        except OSError as exc:
+            # 游标写盘失败（数据目录只读/满）不能让整批消息作废：内存游标照常前进，
+            # 只是重启后可能重收这一批。此前这里抛出会打死长轮询线程。
+            log.warning("WeChat cursor save failed: %s", type(exc).__name__)
         messages = payload.get("msgs", [])
         if not isinstance(messages, list):
             raise ValueError("invalid messages")
@@ -776,78 +784,88 @@ class WeChatBridge:
         for message in messages:
             if not isinstance(message, dict):
                 continue
-            _probe_non_text(message)
-            from_id = message.get("from_user_id", "")
-            if not isinstance(from_id, str) or not from_id:
-                continue
-            if "@im.chatroom" in from_id or "group" in from_id.lower():
-                # 群聊礼貌规则：只处理文本且被 @ 的消息，其余一律沉默
-                if message.get("message_type") != 1:
-                    continue
-                mention = group_mention_text(self._text_of(message).strip())
-                if mention is None:
-                    continue
-                group_ctx = message.get("context_token", "")
-                if dispatcher is None:
-                    self._deliver_reply(client, token, from_id, group_ctx, mention)
-                    continue
-                accepted = dispatcher.submit(
-                    from_id,
-                    lambda c=client, t=token, f=from_id, ctx=group_ctx, x=mention: (
-                        self._deliver_reply(c, t, f, ctx, x)
-                    ),
-                )
-                if not accepted:
-                    log.info("WeChat group reply skipped: dispatcher stopped")
-                continue
-            context_token = message.get("context_token", "")
-            self._refresh_push_context(from_id, context_token)
-            voice_item = wechat_voice.find_voice_item(message)
-            if voice_item is not None:
-                if dispatcher is None:
-                    self._deliver_voice_reply(
-                        client, token, from_id, context_token, voice_item
-                    )
-                    continue
-                accepted = dispatcher.submit(
-                    from_id,
-                    lambda c=client, t=token, f=from_id, ctx=context_token,
-                    v=voice_item: self._deliver_voice_reply(c, t, f, ctx, v),
-                )
-                if not accepted:
-                    log.info("WeChat voice reply skipped: dispatcher stopped")
-                continue
+            try:
+                self._route_message(client, token, message, dispatcher)
+            except Exception as exc:
+                # 单条畸形消息不能拖垮整批：此前整批抛错 → 内存游标不前进 → 下一轮整批重放，
+                # 同一人被重复回复（实测 6.5 秒 4 次）。
+                log.warning("WeChat message skipped: %s", type(exc).__name__)
+        return next_buf
+
+    def _route_message(self, client, token: str, message: dict, dispatcher) -> None:
+        """把一条消息分派到回复执行器（或在无执行器时内联处理）。"""
+        _probe_non_text(message)
+        from_id = message.get("from_user_id", "")
+        if not isinstance(from_id, str) or not from_id:
+            return
+        if "@im.chatroom" in from_id or "group" in from_id.lower():
+            # 群聊礼貌规则：只处理文本且被 @ 的消息，其余一律沉默
             if message.get("message_type") != 1:
-                continue
-            text = self._text_of(message).strip()
-            if not text:
-                continue
-            if text in PUSH_BIND_COMMANDS:   # 绑定提醒推送：确定性命令，不进大模型
-                self._save_push_target(from_id, context_token)
-                self._send_text_chunks(client, token, from_id, context_token, PUSH_BOUND_REPLY)
-                continue
-            if text in PUSH_UNBIND_COMMANDS:
-                self._clear_push_target()
-                self._send_text_chunks(client, token, from_id, context_token, PUSH_UNBOUND_REPLY)
-                continue
+                return
+            mention = group_mention_text(self._text_of(message).strip())
+            if mention is None:
+                return
+            group_ctx = message.get("context_token", "")
             if dispatcher is None:
-                self._deliver_reply(client, token, from_id, context_token, text)
-                continue
+                self._deliver_reply(client, token, from_id, group_ctx, mention)
+                return
             accepted = dispatcher.submit(
                 from_id,
-                lambda c=client, t=token, f=from_id, ctx=context_token, x=text: (
+                lambda c=client, t=token, f=from_id, ctx=group_ctx, x=mention: (
                     self._deliver_reply(c, t, f, ctx, x)
                 ),
             )
             if not accepted:
-                log.info("WeChat reply skipped: dispatcher stopped")
-        return next_buf
+                log.info("WeChat group reply skipped: dispatcher stopped")
+            return
+        context_token = message.get("context_token", "")
+        self._refresh_push_context(from_id, context_token)
+        voice_item = wechat_voice.find_voice_item(message)
+        if voice_item is not None:
+            if dispatcher is None:
+                self._deliver_voice_reply(
+                    client, token, from_id, context_token, voice_item
+                )
+                return
+            accepted = dispatcher.submit(
+                from_id,
+                lambda c=client, t=token, f=from_id, ctx=context_token,
+                v=voice_item: self._deliver_voice_reply(c, t, f, ctx, v),
+            )
+            if not accepted:
+                log.info("WeChat voice reply skipped: dispatcher stopped")
+            return
+        if message.get("message_type") != 1:
+            return
+        text = self._text_of(message).strip()
+        if not text:
+            return
+        if text in PUSH_BIND_COMMANDS:   # 绑定提醒推送：确定性命令，不进大模型
+            self._save_push_target(from_id, context_token)
+            self._send_text_chunks(client, token, from_id, context_token, PUSH_BOUND_REPLY)
+            return
+        if text in PUSH_UNBIND_COMMANDS:
+            self._clear_push_target()
+            self._send_text_chunks(client, token, from_id, context_token, PUSH_UNBOUND_REPLY)
+            return
+        if dispatcher is None:
+            self._deliver_reply(client, token, from_id, context_token, text)
+            return
+        accepted = dispatcher.submit(
+            from_id,
+            lambda c=client, t=token, f=from_id, ctx=context_token, x=text: (
+                self._deliver_reply(c, t, f, ctx, x)
+            ),
+        )
+        if not accepted:
+            log.info("WeChat reply skipped: dispatcher stopped")
 
     def _updates_loop(
         self, generation: int, token: str, stop: threading.Event
     ) -> None:
         client = self._client_factory()
         buffer = self._load_sync_buf()
+        failures = 0
         try:
             while not stop.is_set():
                 with self._lock:
@@ -856,6 +874,7 @@ class WeChatBridge:
                         or self._state["state"] != "connected"
                     ):
                         return
+                started = time.monotonic()
                 try:
                     response = client.post(
                         f"{ILINK}/getupdates",
@@ -886,12 +905,21 @@ class WeChatBridge:
                     buffer = self._handle_updates_response(
                         client, token, payload
                     )
+                    failures = 0
+                    if not payload.get("msgs") and time.monotonic() - started < MIN_EMPTY_POLL_SECONDS:
+                        stop.wait(MIN_EMPTY_POLL_SECONDS)
                 except httpx.TimeoutException:
                     # 空转长轮询到期是正常节奏：不告警、不退避，立即翻新请求。
                     continue
-                except (httpx.HTTPError, TypeError, ValueError) as exc:
-                    log.warning("iLink getupdates retry: %s", type(exc).__name__)
-                    stop.wait(2)
+                except Exception as exc:
+                    # 任何异常都不能让长轮询线程静默死亡（此前只接 HTTPError/TypeError/ValueError，
+                    # 写盘 PermissionError 等会打死线程，而状态仍显示 connected）。指数退避防刷屏。
+                    failures += 1
+                    delay = min(RETRY_MAX_SECONDS, RETRY_BASE_SECONDS * 2 ** (failures - 1))
+                    expected = isinstance(exc, (httpx.HTTPError, TypeError, ValueError))
+                    log.warning("iLink getupdates retry in %ss: %s", delay, type(exc).__name__,
+                                exc_info=None if expected else exc)
+                    stop.wait(delay)
         finally:
             client.close()
 
@@ -936,9 +964,15 @@ class WeChatBridge:
         if owner is None:
             return self.status()
         path = self._token_path()
-        if not path.exists():
+        try:
+            if not path.exists():
+                return self.status()
+            token = path.read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            # 凭据读不了（权限/磁盘）不能让整个服务起不来：记日志、状态里给人话
+            log.warning("WeChat token unreadable on boot: %s", type(exc).__name__)
+            self._set(state="error", error="微信凭据读取失败，请检查数据目录权限后重新连接")
             return self.status()
-        token = path.read_text(encoding="utf-8").strip()
         if not token:
             path.unlink(missing_ok=True)
             return self.status()

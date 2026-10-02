@@ -363,3 +363,37 @@ def test_feishu_unbound_reply_is_for_end_users():
         assert "/api/" not in text and "python -m" not in text and "POST" not in text
     assert "头像菜单" in bridge.UNBOUND_REPLY and "飞书" in bridge.UNBOUND_REPLY
     assert "绑定 123456" in bridge.UNBOUND_REPLY
+
+
+@pytest.mark.parametrize("code,message", [
+    ("READ_ONLY", "服务器主密钥未配置"),
+    ("PROVIDER_AUTH", "Provider 或地址变化后必须填写新 API Key"),
+    ("DNS_BLOCKED", "Provider 网络地址不可用"),
+])
+def test_feishu_provider_errors_are_not_admin_jargon(code, message):
+    """实测：配置类错误原文（主密钥、Provider、API Key）直接发给飞书里的普通用户。"""
+    from jarvis.channels.feishu.bridge import humanize_failure
+    from jarvis.provider_settings import ProviderSettingsError
+    text = humanize_failure(ProviderSettingsError(code, message))
+    assert message not in text and "Provider" not in text and "密钥" not in text
+    assert "管理员" in text
+
+
+def test_feishu_rate_limit_message_suggests_waiting():
+    from jarvis.channels.feishu.bridge import humanize_failure
+    from jarvis.provider_settings import ProviderSettingsError
+    assert "稍" in humanize_failure(ProviderSettingsError("RATE_LIMITED", "Provider 触发频率限制", status=429))
+
+
+def test_feishu_tool_progress_uses_friendly_names():
+    from jarvis.channels.feishu.bridge import tool_label
+    assert tool_label("web_search") == "联网搜索"
+    assert tool_label("some_new_tool") == "处理"
+
+
+def test_vision_missing_key_message_has_no_env_var_name(monkeypatch):
+    from jarvis import vision
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    with pytest.raises(vision.VisionError) as exc:
+        vision.describe_image(b"img", "png")
+    assert "DASHSCOPE" not in str(exc.value) and "管理员" in str(exc.value)

@@ -47,8 +47,10 @@ from jarvis.tools.todo import all_todos
 async def lifespan(_app: FastAPI):
     """恢复持久微信桥并启动日程提醒扫描；退出时停线程但不删除 Token。"""
     _start_weak_password_scan()
-    wechat.resume_on_boot()
-    feishu.start()  # 未配置 FEISHU_APP_ID/SECRET 时为 disabled，不起线程
+    # 渠道各自隔离启动：任何一个起不来（凭据文件不可读、配置错）都只记日志，
+    # 不能让整个网页服务启动失败（此前 resume_on_boot 抛 PermissionError 即全站起不来）。
+    _safe_start("wechat", wechat.resume_on_boot)
+    _safe_start("feishu", feishu.start)  # 未配置 FEISHU_APP_ID/SECRET 时为 disabled，不起线程
     scanner = None
     radio = None
     distiller = None
@@ -227,6 +229,13 @@ class LoginAttemptLimiter:
 
 _login_limiter = LoginAttemptLimiter()
 _settings_limiter = LoginAttemptLimiter(attempts=10, spray_attempts=50, window_seconds=60)
+
+
+def _safe_start(name: str, starter) -> None:
+    try:
+        starter()
+    except Exception as exc:
+        log.error("%s channel failed to start: %s", name, type(exc).__name__, exc_info=exc)
 
 
 def _start_weak_password_scan() -> None:
