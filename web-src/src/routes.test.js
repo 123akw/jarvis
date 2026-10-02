@@ -18,3 +18,15 @@ describe('parseRoute', () => {
     expect(introAllowed('/flows')).toBe(false)
   })
 })
+
+describe('第十五轮路径约定', () => {
+  it('loginHref 预填账号、只接受站内 next', async () => {
+    const { loginHref, LOGIN_PATH, APP_PATH, MARKET_PATH } = await import('./routes.js')
+    expect([MARKET_PATH, LOGIN_PATH, APP_PATH]).toEqual(['/', '/login', '/app'])
+    expect(loginHref()).toBe('/login')
+    expect(loginHref('jvabc123')).toBe('/login?u=jvabc123')
+    expect(loginHref('jvabc123', '/flows')).toBe('/login?u=jvabc123&next=%2Fflows')
+    expect(loginHref('', '//evil.example')).toBe('/login')
+    expect(loginHref('', 'https://evil.example')).toBe('/login')
+  })
+})

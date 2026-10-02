@@ -15,6 +15,24 @@ export function parseRoute(pathname = '/') {
   return { name: 'app', params: {} }
 }
 
+/* 第十五轮的路径约定（见 docs/proposals/2026-10-round15-market.md）：
+ *   /        智能体市场（主域名首页，未登录也能逛）
+ *   /login   登录页（?u=<用户名> 预填；?next= 登录后去哪）
+ *   /app     主应用（对话 / 今日板，需登录）
+ * 站内链接一律用下面的常量与函数，不要再手写 '/'、'/?u='。 */
+export const MARKET_PATH = '/'
+export const LOGIN_PATH = '/login'
+export const APP_PATH = '/app'
+
+/** 登录页地址：username 预填账号，next 登录成功后跳去哪（只接受站内路径） */
+export function loginHref(username = '', next = '') {
+  const q = new URLSearchParams()
+  if (username) q.set('u', String(username))
+  if (next && String(next).startsWith('/') && !String(next).startsWith('//')) q.set('next', String(next))
+  const qs = q.toString()
+  return qs ? `${LOGIN_PATH}?${qs}` : LOGIN_PATH
+}
+
 const ROUTE_EVENT = 'jv:route'
 
 /** 站内跳转：改地址栏并通知 useRoute 重渲染（不整页刷新） */
