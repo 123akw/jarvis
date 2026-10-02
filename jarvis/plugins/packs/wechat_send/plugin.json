@@ -1,0 +1,29 @@
+{
+  "id": "wechat_send",
+  "name": "发到微信",
+  "version": "1.0.0",
+  "icon": "📲",
+  "category": "output",
+  "summary": "把结果发到你的微信",
+  "kind": "step",
+  "tier": "pro",
+  "price": 9.9,
+  "professions": [],
+  "examples": [
+    "整理好的结果发到我微信"
+  ],
+  "entry": null,
+  "tools": [],
+  "steps": [
+    "wechat_send"
+  ],
+  "requires": [
+    "wechat_owner"
+  ],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "homepage": "",
+  "source": {
+    "type": "builtin"
+  }
+}

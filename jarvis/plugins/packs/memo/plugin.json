@@ -1,0 +1,35 @@
+{
+  "id": "memo",
+  "name": "随手记",
+  "version": "1.0.0",
+  "icon": "📝",
+  "category": "efficiency",
+  "summary": "灵感、地址、电话随手存，用时一问就有",
+  "kind": "tool",
+  "tier": "free",
+  "price": 0,
+  "professions": [
+    "shop_owner",
+    "freelancer",
+    "teacher",
+    "creator"
+  ],
+  "examples": [
+    "记一下：会议室在三楼东侧",
+    "我之前记的那个地址在哪"
+  ],
+  "entry": null,
+  "tools": [
+    "memo_add",
+    "memo_list",
+    "memo_del"
+  ],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "homepage": "",
+  "source": {
+    "type": "builtin"
+  }
+}

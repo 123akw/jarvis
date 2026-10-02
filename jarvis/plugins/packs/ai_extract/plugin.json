@@ -1,0 +1,27 @@
+{
+  "id": "ai_extract",
+  "name": "AI 提炼",
+  "version": "1.0.0",
+  "icon": "✨",
+  "category": "ai",
+  "summary": "提要点、列待办、写摘要和周报，一步搞定",
+  "kind": "step",
+  "tier": "free",
+  "price": 0,
+  "professions": [],
+  "examples": [
+    "从会议记录里挑出谁要做什么"
+  ],
+  "entry": null,
+  "tools": [],
+  "steps": [
+    "ai_extract"
+  ],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "homepage": "",
+  "source": {
+    "type": "builtin"
+  }
+}

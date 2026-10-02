@@ -1,0 +1,30 @@
+{
+  "id": "movies",
+  "name": "查影视评分",
+  "version": "1.0.0",
+  "icon": "🎬",
+  "category": "info",
+  "summary": "一部片子几个平台的评分和人数，一次看全",
+  "kind": "tool",
+  "tier": "free",
+  "price": 0,
+  "professions": [
+    "creator"
+  ],
+  "examples": [
+    "最近上映的电影评分怎么样",
+    "最近有啥高分电影"
+  ],
+  "entry": null,
+  "tools": [
+    "movie_ratings"
+  ],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "homepage": "",
+  "source": {
+    "type": "builtin"
+  }
+}

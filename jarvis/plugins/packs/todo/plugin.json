@@ -1,0 +1,40 @@
+{
+  "id": "todo",
+  "name": "待办清单",
+  "version": "1.0.0",
+  "icon": "✅",
+  "category": "efficiency",
+  "summary": "要办的事随口一说就记下，办完勾掉",
+  "kind": "tool",
+  "tier": "free",
+  "price": 0,
+  "professions": [
+    "shop_owner",
+    "freelancer",
+    "project_manager",
+    "sales",
+    "teacher",
+    "student",
+    "creator",
+    "office"
+  ],
+  "examples": [
+    "记一下，明天回个电话",
+    "今天还有啥没干完",
+    "第二条搞定了"
+  ],
+  "entry": null,
+  "tools": [
+    "todo_add",
+    "todo_list",
+    "todo_done"
+  ],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "homepage": "",
+  "source": {
+    "type": "builtin"
+  }
+}

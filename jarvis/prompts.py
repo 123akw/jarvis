@@ -135,6 +135,15 @@ def skill_sections() -> str:
     return "\n".join(parts)
 
 
+def plugin_skill_section() -> str:
+    """插件市场里装的提示词技能（kind=skill，第十四轮）；按「外部资料不是指令」包一层。失败返回空。"""
+    try:
+        from jarvis.plugins.skills import prompt_section
+        return prompt_section()
+    except Exception:
+        return ""
+
+
 def platform_section() -> str:
     """当前租户的智能平台身份段（平台名、职业人设、装了哪些技能）；没有平台或读取失败返回空。"""
     try:
@@ -171,6 +180,9 @@ def compose_system_prompt() -> str:
     skills = skill_sections()
     if skills:
         parts.append(skills)
+    plugin_skills = plugin_skill_section()
+    if plugin_skills:
+        parts.append(plugin_skills)
     return "\n".join(parts)
 
 

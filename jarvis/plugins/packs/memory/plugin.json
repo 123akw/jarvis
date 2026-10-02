@@ -1,0 +1,33 @@
+{
+  "id": "memory",
+  "name": "记住你的习惯",
+  "version": "1.0.0",
+  "icon": "🧠",
+  "category": "ai",
+  "summary": "记住你和客户的偏好，越用越顺手",
+  "kind": "tool",
+  "tier": "free",
+  "price": 0,
+  "professions": [
+    "shop_owner",
+    "sales"
+  ],
+  "examples": [
+    "记住我喜欢简短的回答",
+    "你都记得我些啥"
+  ],
+  "entry": null,
+  "tools": [
+    "profile_remember",
+    "profile_list",
+    "profile_forget"
+  ],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "homepage": "",
+  "source": {
+    "type": "builtin"
+  }
+}

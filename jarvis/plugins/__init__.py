@@ -1,17 +1,25 @@
-"""智能平台市场的插件与职业清单（第十三轮，契约见 docs/proposals/2026-10-round13-platform.md 4.1）。
+"""智能体市场的插件与职业清单（第十三轮契约 4.1；第十四轮起插件改为独立的插件包）。
 
-插件是现有能力的重新包装：对话工具按用户能理解的「技能」重组，加上微信 / 飞书通道和
-流程积木。id 是对外契约（前端、流程引擎、平台存储都按 id 引用），只许加不许改；
-名称、简介、示例可以打磨。
+插件 = 一个目录 + plugin.json（契约见 docs/proposals/2026-10-round14-plugins.md 第 1 节）：
+内置插件在 ``jarvis/plugins/packs/<id>/``，Owner 导入的在 ``$JARVIS_DATA_DIR/plugins/<id>/``。
+加载、校验、隔离与冲突处理都在 :mod:`jarvis.plugins.loader`；这里保持第十三轮的对外 API 不变：
 
 - ``catalog(user_id)``：市场目录（分类 / 插件 / 职业 / 主题色），``available`` 按账号计算；
+  每个插件比以前多带 ``version / author / homepage / source / builtin / status / reason``；
 - ``tools_for(ids)``：一组插件对应的对话工具名，平台账号的 Agent 只绑定这些（外加 now、calc）；
-- ``requirement_status(user_id)``：``feishu_bound`` / ``wechat_owner`` / ``desktop`` 是否满足。
+- ``requirement_status(user_id)``：``feishu_bound`` / ``wechat_owner`` / ``desktop`` / ``files`` 是否满足；
+- ``PLUGINS`` / ``OWNER_ONLY``：活的视图，随注册表变化（导入 / 停用后立刻反映）。
+
+id 是对外契约（前端、流程引擎、平台存储都按 id 引用），只许加不许改。职业（PROFESSIONS）仍留在这里。
 """
 from __future__ import annotations
 
 import copy
+import importlib.util
 import logging
+from collections.abc import Sequence, Set
+
+from jarvis.plugins.loader import BASE_TOOLS, OWNER_TOOLS, PRO_PRICE, generation, registry, reload
 
 log = logging.getLogger(__name__)
 
@@ -36,134 +44,55 @@ ACCENTS = (
 )
 ACCENT_VALUES = frozenset(item["value"] for item in ACCENTS)
 
-# 任何平台都默认带上的基础能力（不进市场）；Owner 专属工具只给 Owner，也不进市场
-BASE_TOOLS = ("now", "calc")
-OWNER_TOOLS = ("coding_status", "sys_query")
-REQUIREMENTS = ("feishu_bound", "wechat_owner", "desktop")
+# 任何平台都默认带上的基础能力（不进市场）与 Owner 专属工具：BASE_TOOLS / OWNER_TOOLS（见 loader）
+REQUIREMENTS = ("feishu_bound", "wechat_owner", "desktop", "files")
 
 _ALL = ["shop_owner", "freelancer", "project_manager", "sales", "teacher", "student", "creator", "office"]
-PRO_PRICE = 9.9          # 专业版插件价格，单位「元/月」（本轮只展示不收费）
-
-
-def _plugin(id, name, icon, category, summary, kind="tool", *, tools=(), requires=(),
-            tier="free", professions=(), examples=()) -> dict:
-    return {"id": id, "name": name, "icon": icon, "category": category, "summary": summary,
-            "kind": kind, "tools": list(tools), "step": None, "requires": list(requires),
-            "tier": tier, "price": PRO_PRICE if tier == "pro" else 0, "professions": list(professions),
-            "examples": list(examples), "available": True}
-
-
-def _option(key, label, type_, default, choices=None) -> dict:
-    option = {"key": key, "label": label, "type": type_, "default": default}
-    if choices is not None:
-        option["choices"] = list(choices)
-    return option
-
-
-# 积木的 step 定义以流程引擎为准（jarvis.flows.step_catalog，单一事实来源）；
-# 流程模块不在时（单独测试或拆分部署）用下面这份同形状的兜底。
 EXTRACT_TASKS = ("要点", "待办", "摘要", "周报", "改写")
 SPLIT_MODES = ("chapter", "paragraph", "size")
-_FALLBACK_STEPS = {
-    "input_text": {"role": "input", "accepts": [], "produces": ["text"],
-                   "options": [_option("label", "输入框提示", "text", "贴一段文字")]},
-    "input_file": {"role": "input", "accepts": [], "produces": ["text"], "options": []},
-    "split_file": {"role": "process", "accepts": ["text"], "produces": ["parts", "text"],
-                   "options": [_option("mode", "拆分方式", "select", "chapter", SPLIT_MODES),
-                               _option("max_parts", "最多几段", "number", 8)]},
-    "ai_extract": {"role": "process", "accepts": ["text", "parts"], "produces": ["text", "items"],
-                   "options": [_option("task", "做什么", "select", "要点", EXTRACT_TASKS),
-                               _option("instruction", "补充要求", "text", "")]},
-    "to_todo": {"role": "output", "accepts": ["items", "text"], "produces": [], "options": []},
-    "feishu_send": {"role": "output", "accepts": ["text"], "produces": [], "options": []},
-    "feishu_doc": {"role": "output", "accepts": ["text", "parts"], "produces": ["links"], "options": []},
-    "wechat_send": {"role": "output", "accepts": ["text"], "produces": [], "options": []},
-    "web_page": {"role": "output", "accepts": ["text", "parts", "links"], "produces": ["links"],
-                 "options": [_option("title", "网页标题", "text", "")]},
-}
 
 
-def _step_specs() -> dict[str, dict]:
-    try:
-        from jarvis.flows import step_catalog
-        specs = step_catalog()
-    except ImportError:
-        return copy.deepcopy(_FALLBACK_STEPS)
-    return {key: copy.deepcopy(specs.get(key) or _FALLBACK_STEPS[key]) for key in _FALLBACK_STEPS}
+class _PluginsView(Sequence):
+    """``PLUGINS``：当前启用的插件条目（只读视图，元素是注册表里的 dict，别改它）。"""
+
+    def _items(self) -> list[dict]:
+        return registry().entries
+
+    def __getitem__(self, index):
+        return self._items()[index]
+
+    def __len__(self) -> int:
+        return len(self._items())
+
+    def __repr__(self) -> str:
+        return f"PLUGINS({[item['id'] for item in self._items()]})"
 
 
-PLUGINS: tuple[dict, ...] = (
-    _plugin("schedule", "日程提醒", "📅", "efficiency", "说一句话就记下安排，到点提醒你",
-            tools=("schedule_add", "schedule_list", "schedule_del"),
-            professions=("shop_owner", "freelancer", "project_manager", "sales", "teacher", "student", "office"),
-            examples=("明天下午3点和客户开会", "周五晚上提醒我交房租", "我下周都有啥安排")),
-    _plugin("todo", "待办清单", "✅", "efficiency", "要办的事随口一说就记下，办完勾掉",
-            tools=("todo_add", "todo_list", "todo_done"), professions=_ALL,
-            examples=("记一下，给王姐回个电话", "今天还有啥没干完", "第二条搞定了")),
-    _plugin("memo", "随手记", "📝", "efficiency", "灵感、地址、电话随手存，用时一问就有",
-            tools=("memo_add", "memo_list", "memo_del"),
-            professions=("shop_owner", "freelancer", "teacher", "creator"),
-            examples=("记下来：送货的刘哥电话是 139 开头那个", "我之前记的那个店铺地址在哪")),
-    _plugin("memory", "记住你的习惯", "🧠", "ai", "记住你和客户的偏好，越用越顺手",
-            tools=("profile_remember", "profile_list", "profile_forget"),
-            professions=("shop_owner", "sales"),
-            examples=("记住我不吃香菜", "你都记得我些啥")),
-    _plugin("weather", "查天气", "🌤️", "life", "出门前问一句，穿什么、带不带伞都告诉你",
-            tools=("weather", "weather_here", "my_location"), professions=("shop_owner",),
-            examples=("明天会下雨吗", "周末杭州天气咋样")),
-    _plugin("search", "上网查资料", "🔎", "info", "查最新消息和网页，回答附上来源",
-            tools=("web_search", "web_extract"),
-            professions=("shop_owner", "freelancer", "project_manager", "teacher", "student", "creator"),
-            examples=("最近奶茶店都在搞什么活动", "帮我查下个体户报税有什么新规定")),
-    _plugin("recall", "找回聊过的话", "🗂️", "efficiency", "以前聊过的事，一句话就翻出来",
-            tools=("recall_history",), professions=("freelancer", "project_manager", "sales", "student"),
-            examples=("上次你推荐的那家火锅叫啥", "我上周跟你说的报价是多少来着")),
-    _plugin("movies", "查影视评分", "🎬", "info", "一部片子几个平台的评分和人数，一次看全",
-            tools=("movie_ratings",), professions=("creator",),
-            examples=("《哪吒2》评分怎么样", "最近有啥高分电影")),
-    _plugin("esports", "查电竞比分", "🎮", "info", "关注的战队最近打得怎么样，赛果一问便知",
-            tools=("esports_scores",),
-            examples=("T1 最近几场赢了没", "今晚 LPL 谁打谁")),
-    _plugin("tickets", "查票价与入口", "🎫", "life", "演出、展览门票多平台比价，提醒手续费",
-            tools=("ticket_search",),
-            examples=("周杰伦深圳场的票哪里买划算", "上海迪士尼门票现在多少钱")),
-    _plugin("meeting", "会议纪要", "🎙️", "efficiency", "开会时自动记下双方发言，会后出纪要发邮箱",
-            tools=("meeting_start", "meeting_stop"), requires=("desktop",), tier="pro",
-            professions=("project_manager", "office"),
-            examples=("开始记会议纪要，主题是周例会", "会开完了，停止记录")),
-    _plugin("feishu", "飞书", "🪶", "communication", "在飞书里直接找它办事、收提醒",
-            kind="channel", professions=("freelancer", "project_manager", "sales", "office"),
-            examples=("（在飞书里）明早9点提醒我交周报",)),
-    _plugin("wechat", "微信技能包", "💬", "communication", "在微信里和它办事，提醒和晨报直接发到微信",
-            kind="channel", requires=("wechat_owner",), tier="pro",
-            examples=("（在微信里）帮我记一下明天去银行",)),
-    _plugin("input_text", "文字输入", "✍️", "documents", "贴一段文字作为流程的起点", kind="step",
-            examples=("把客户发来的需求贴进来",)),
-    _plugin("input_file", "资料上传", "📎", "documents", "上传 PDF、Word、TXT、图片，自动读出文字", kind="step",
-            examples=("把这份项目方案传上来",)),
-    _plugin("split_file", "文件拆分", "✂️", "documents", "长资料按章节或段落拆成几份，逐份处理", kind="step",
-            examples=("把这份 30 页的合同按章节拆开",)),
-    _plugin("ai_extract", "AI 提炼", "✨", "ai", "提要点、列待办、写摘要和周报，一步搞定", kind="step",
-            examples=("从会议记录里挑出谁要做什么",)),
-    _plugin("to_todo", "加到待办", "📌", "output", "上一步整理出的事项，逐条写进待办清单", kind="step",
-            examples=("提炼出的待办一键加进清单",)),
-    _plugin("feishu_send", "发到飞书", "📨", "output", "把结果发给你绑定的飞书", kind="step",
-            requires=("feishu_bound",), examples=("整理好的通知发到我飞书",)),
-    _plugin("feishu_doc", "汇总到飞书文档", "📄", "output", "结果汇总成一篇飞书文档，没权限时改为发消息",
-            kind="step", requires=("feishu_bound",), tier="pro", examples=("项目资料要点存成飞书文档",)),
-    _plugin("wechat_send", "发到微信", "📲", "output", "把结果发到你的微信", kind="step",
-            requires=("wechat_owner",), tier="pro", examples=("上新文案发到我微信",)),
-    _plugin("web_page", "生成网页与二维码", "🔗", "output", "结果生成一个手机好看的网页，扫码就能打开",
-            kind="step", examples=("纪要做成网页，发个二维码给同事",)),
-)
-_STEP_SPECS = _step_specs()
-for _item in PLUGINS:
-    if _item["kind"] == "step":
-        _item["step"] = _STEP_SPECS[_item["id"]]
+class _OwnerOnlyView(Set):
+    """``OWNER_ONLY``：只有 Owner 能用的插件（微信桥只连 Owner）：推荐给其他人时一律剔除。"""
 
-_BY_ID = {item["id"]: item for item in PLUGINS}
-# 只有 Owner 能用的插件（微信桥只连 Owner）：推荐给其他人时一律剔除
-OWNER_ONLY = frozenset(item["id"] for item in PLUGINS if "wechat_owner" in item["requires"])
+    @classmethod
+    def _from_iterable(cls, it):   # 集合运算（& | -）的结果给普通 frozenset
+        return frozenset(it)
+
+    def _ids(self) -> frozenset[str]:
+        return frozenset(item["id"] for item in registry().entries if "wechat_owner" in item["requires"])
+
+    def __contains__(self, value) -> bool:
+        return value in self._ids()
+
+    def __iter__(self):
+        return iter(self._ids())
+
+    def __len__(self) -> int:
+        return len(self._ids())
+
+    def __repr__(self) -> str:
+        return f"OWNER_ONLY({sorted(self._ids())})"
+
+
+PLUGINS = _PluginsView()
+OWNER_ONLY = _OwnerOnlyView()
 
 
 def _flow(id, name, summary, *steps) -> dict:
@@ -257,11 +186,11 @@ _PROFESSIONS_BY_ID = {item["id"]: item for item in PROFESSIONS}
 
 
 def plugin_ids() -> list[str]:
-    return [item["id"] for item in PLUGINS]
+    return [item["id"] for item in registry().entries]
 
 
 def get_plugin(plugin_id: str) -> dict | None:
-    item = _BY_ID.get(plugin_id)
+    item = registry().entry_by_id.get(plugin_id) if isinstance(plugin_id, str) else None
     return copy.deepcopy(item) if item else None
 
 
@@ -271,7 +200,8 @@ def get_profession(profession_id: str) -> dict | None:
 
 
 def is_plugin(plugin_id) -> bool:
-    return isinstance(plugin_id, str) and plugin_id in _BY_ID
+    """市场里有这个插件（启用中；可能因依赖缺失暂不可用）。"""
+    return isinstance(plugin_id, str) and plugin_id in registry().entry_by_id
 
 
 def is_profession(profession_id) -> bool:
@@ -279,21 +209,34 @@ def is_profession(profession_id) -> bool:
 
 
 def tools_for(plugin_ids) -> set[str]:
-    """一组插件对应的对话工具名（未知 id 忽略）。"""
+    """一组插件对应的对话工具名（未知 id、停用或暂不可用的插件忽略）。"""
+    current = registry()
     names: set[str] = set()
     for plugin_id in plugin_ids or ():
-        item = _BY_ID.get(plugin_id)
-        if item:
-            names.update(item["tools"])
+        if isinstance(plugin_id, str):
+            names.update(current.tool_names(plugin_id))
     return names
 
 
+def pack_tools() -> list:
+    """插件包自带的工具（已包好隔离层）：build_agent 把它们并进核心工具注册表。"""
+    return list(registry().pack_tools)
+
+
 def names_for(plugin_ids) -> list[str]:
-    return [_BY_ID[pid]["name"] for pid in plugin_ids or () if pid in _BY_ID]
+    by_id = registry().entry_by_id
+    return [by_id[pid]["name"] for pid in plugin_ids or () if pid in by_id]
+
+
+def _files_ready() -> bool:
+    try:
+        return importlib.util.find_spec("jarvis.files") is not None
+    except (ImportError, ValueError):
+        return False
 
 
 def requirement_status(user_id: str | None) -> dict[str, bool]:
-    """三项前置条件对该账号是否满足；游客（None）一律视为满足。任何一项查询失败按不满足。"""
+    """前置条件对该账号是否满足；游客（None）一律视为满足。任何一项查询失败按不满足。"""
     if not user_id:
         return dict.fromkeys(REQUIREMENTS, True)
     status = dict.fromkeys(REQUIREMENTS, False)
@@ -313,26 +256,29 @@ def requirement_status(user_id: str | None) -> dict[str, bool]:
         status["desktop"] = meeting.desktop_commands.online(user_id)
     except Exception as exc:
         log.info("desktop online check failed: %s", type(exc).__name__)
+    status["files"] = _files_ready()
     return status
 
 
 def availability(user_id: str | None) -> dict[str, bool]:
-    """每个插件对该账号是否可用（requires 全部满足）。"""
+    """每个插件对该账号是否可用：插件本身加载正常，且 requires 全部满足。"""
     status = requirement_status(user_id)
-    return {item["id"]: all(status.get(need, False) for need in item["requires"]) for item in PLUGINS}
+    return {item["id"]: item["status"] == "ok" and all(status.get(need, False) for need in item["requires"])
+            for item in registry().entries}
 
 
 def is_available(plugin_id: str, user_id: str | None) -> bool:
-    return is_plugin(plugin_id) and availability(user_id)[plugin_id]
+    return is_plugin(plugin_id) and availability(user_id).get(plugin_id, False)
 
 
 def catalog(user_id: str | None = None) -> dict:
-    """市场目录：游客 available 恒为 true，登录后按账号计算。"""
+    """市场目录：游客按「插件本身可用」计算，登录后再叠加账号的前置条件。"""
+    current = registry()
     usable = availability(user_id)
     plugins = []
-    for item in PLUGINS:
+    for item in current.entries:
         entry = copy.deepcopy(item)
-        entry["available"] = usable[item["id"]]
+        entry["available"] = usable.get(item["id"], False)
         plugins.append(entry)
     return {"categories": [dict(item) for item in CATEGORIES], "plugins": plugins,
             "professions": copy.deepcopy(list(PROFESSIONS)), "accents": [dict(item) for item in ACCENTS]}
@@ -340,7 +286,7 @@ def catalog(user_id: str | None = None) -> dict:
 
 __all__ = [
     "ACCENTS", "ACCENT_VALUES", "BASE_TOOLS", "CATEGORIES", "EXTRACT_TASKS", "OWNER_TOOLS", "PLUGINS",
-    "OWNER_ONLY", "PRO_PRICE", "PROFESSIONS", "REQUIREMENTS", "SPLIT_MODES", "availability", "catalog", "get_plugin",
-    "get_profession", "is_available", "is_plugin", "is_profession", "names_for", "plugin_ids",
-    "requirement_status", "tools_for",
+    "OWNER_ONLY", "PRO_PRICE", "PROFESSIONS", "REQUIREMENTS", "SPLIT_MODES", "availability", "catalog", "generation",
+    "get_plugin", "get_profession", "is_available", "is_plugin", "is_profession", "names_for", "pack_tools",
+    "plugin_ids", "registry", "reload", "requirement_status", "tools_for",
 ]

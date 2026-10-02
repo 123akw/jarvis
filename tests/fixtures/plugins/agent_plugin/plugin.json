@@ -1,0 +1,27 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "meeting-helper",
+  "version": "2.1.0",
+  "description": "Turn meeting transcripts into notes and action items.",
+  "author": {"name": "Example Team", "email": "team@example.com", "url": "https://example.com"},
+  "homepage": "https://example.com/meeting-helper",
+  "repository": "https://github.com/example/meeting-helper",
+  "license": "MIT",
+  "keywords": ["meetings", "notes"],
+  "extensions": {
+    "com.openai.interface": {
+      "displayName": "会议助手",
+      "shortDescription": "把会议记录整理成纪要和行动项",
+      "longDescription": "读取会议记录，按议题整理纪要，列出负责人和截止时间。",
+      "developerName": "示例团队",
+      "category": "Productivity",
+      "capabilities": ["Read", "Write"],
+      "defaultPrompt": ["把这段会议记录整理成纪要", "列出会上定下的行动项"],
+      "composerIcon": "./assets/icon.png",
+      "brandColor": "#3B82F6",
+      "websiteURL": "https://example.com/meeting-helper",
+      "privacyPolicyURL": "https://example.com/privacy",
+      "termsOfServiceURL": "https://example.com/terms"
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "id": "input_file",
+  "name": "资料上传",
+  "version": "1.0.0",
+  "icon": "📎",
+  "category": "documents",
+  "summary": "上传 PDF、Word、TXT、图片，自动读出文字",
+  "kind": "step",
+  "tier": "free",
+  "price": 0,
+  "professions": [],
+  "examples": [
+    "把这份方案文档传上来"
+  ],
+  "entry": null,
+  "tools": [],
+  "steps": [
+    "input_file"
+  ],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "homepage": "",
+  "source": {
+    "type": "builtin"
+  }
+}

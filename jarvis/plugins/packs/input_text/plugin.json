@@ -1,0 +1,27 @@
+{
+  "id": "input_text",
+  "name": "文字输入",
+  "version": "1.0.0",
+  "icon": "✍️",
+  "category": "documents",
+  "summary": "贴一段文字作为流程的起点",
+  "kind": "step",
+  "tier": "free",
+  "price": 0,
+  "professions": [],
+  "examples": [
+    "把一段需求说明贴进来"
+  ],
+  "entry": null,
+  "tools": [],
+  "steps": [
+    "input_text"
+  ],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "homepage": "",
+  "source": {
+    "type": "builtin"
+  }
+}

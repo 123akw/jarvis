@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 
 MAX_DESCRIPTION_CHARS = 300
 MODEL_TIMEOUT = 8.0
-MODEL_MAX_TOKENS = 400
+MODEL_MAX_TOKENS = 1500         # 思考型模型（deepseek-v4-flash 等）的思考过程也计入 max_tokens，400 会被截成空串
 MODEL_CONCURRENCY = 4
 MAX_PLUGINS = 8
 REASON_MAX_CHARS = 80
@@ -256,6 +256,9 @@ class Recommender:
             return fallback
         except Exception as exc:
             log.info("recommend model failed: %s", type(exc).__name__)
+            return fallback
+        if not str(raw or "").strip():
+            log.warning("recommend model returned empty text (max_tokens=%s), using rules", MODEL_MAX_TOKENS)
             return fallback
         parsed = parse_model_output(raw, profession, owner=owner)
         if parsed is None:

@@ -348,6 +348,14 @@ class TenantStore:
                           " ON CONFLICT(owner_id,key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
                           (owner, key, str(value), _now()))
 
+    def prefs_with_prefix(self, prefix: str, *, owner_id: str | None = None) -> dict[str, str]:
+        """某个前缀下的全部偏好（插件设置命名空间 plugin:<id>: 用）；不用 LIKE，免得 _ 被当通配符。"""
+        owner = self._owner(owner_id)
+        with self._connect() as c:
+            rows = c.execute("SELECT key, value FROM tenant_prefs WHERE owner_id=? AND substr(key, 1, ?)=? ORDER BY key",
+                             (owner, len(prefix), prefix)).fetchall()
+        return {row["key"]: row["value"] for row in rows}
+
     def add_profile(self, content: str, *, owner_id: str | None = None) -> dict:
         """记一条用户长期画像；内容完全相同的条目不重复入库（幂等）。"""
         owner = self._owner(owner_id)

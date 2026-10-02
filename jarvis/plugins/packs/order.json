@@ -1,0 +1,27 @@
+{
+  "_说明": "内置插件在市场里的展示顺序；没列在这里的内置插件按目录名排在后面，导入的插件再排在最后。",
+  "order": [
+    "schedule",
+    "todo",
+    "memo",
+    "memory",
+    "weather",
+    "search",
+    "recall",
+    "movies",
+    "esports",
+    "tickets",
+    "meeting",
+    "feishu",
+    "wechat",
+    "input_text",
+    "input_file",
+    "split_file",
+    "ai_extract",
+    "to_todo",
+    "feishu_send",
+    "feishu_doc",
+    "wechat_send",
+    "web_page"
+  ]
+}

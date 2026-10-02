@@ -1,0 +1,27 @@
+{
+  "id": "wechat",
+  "name": "微信技能包",
+  "version": "1.0.0",
+  "icon": "💬",
+  "category": "communication",
+  "summary": "在微信里和它办事，提醒和晨报直接发到微信",
+  "kind": "channel",
+  "tier": "pro",
+  "price": 9.9,
+  "professions": [],
+  "examples": [
+    "（在微信里）帮我记一下明天去银行"
+  ],
+  "entry": null,
+  "tools": [],
+  "steps": [],
+  "requires": [
+    "wechat_owner"
+  ],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "homepage": "",
+  "source": {
+    "type": "builtin"
+  }
+}

@@ -260,6 +260,11 @@ def build_agent(
         if pandascore_token_getter is None
         else build_tools(service, pandascore_token_getter=pandascore_token_getter)
     )
+    # 插件包自带的工具（第十四轮）：并进核心工具注册表；已包好隔离层（限时、异常转人话、
+    # 第三方插件走子进程）。Owner / 无平台账号（tool_names=None）绑定所有已启用插件的工具。
+    extra = plugin_tools(exclude={item.name for item in tools})
+    if extra:
+        tools = tools + extra
     if tool_names is not None:
         # 智能平台账号只绑定平台插件对应的工具（jarvis/platforms.py 的 agent_tool_names）
         tools = [item for item in tools if item.name in tool_names]
@@ -295,6 +300,16 @@ def build_agent(
     # with_config 返回的仍是编译图（get_state/update_state/checkpointer 照常可用）；
     # 调用方显式传 recursion_limit 时以调用方为准
     return agent.with_config(recursion_limit=RECURSION_LIMIT) if hasattr(agent, "with_config") else agent
+
+
+def plugin_tools(exclude=frozenset()) -> list:
+    """已启用插件包的工具；插件系统出任何问题都只是少了这些工具，绝不拖垮 Agent。"""
+    try:
+        from jarvis.plugins import pack_tools
+        return [item for item in pack_tools() if item.name not in exclude]
+    except Exception as exc:
+        log.warning("plugin tools unavailable: %s", type(exc).__name__)
+        return []
 
 
 class ThreadBusyError(RuntimeError):

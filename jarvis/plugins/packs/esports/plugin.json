@@ -1,0 +1,28 @@
+{
+  "id": "esports",
+  "name": "查电竞比分",
+  "version": "1.0.0",
+  "icon": "🎮",
+  "category": "info",
+  "summary": "关注的战队最近打得怎么样，赛果一问便知",
+  "kind": "tool",
+  "tier": "free",
+  "price": 0,
+  "professions": [],
+  "examples": [
+    "我关注的战队最近战绩如何",
+    "今晚有哪些比赛"
+  ],
+  "entry": null,
+  "tools": [
+    "esports_scores"
+  ],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "homepage": "",
+  "source": {
+    "type": "builtin"
+  }
+}

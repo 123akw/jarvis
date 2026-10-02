@@ -1,0 +1,33 @@
+{
+  "id": "recall",
+  "name": "找回聊过的话",
+  "version": "1.0.0",
+  "icon": "🗂️",
+  "category": "efficiency",
+  "summary": "以前聊过的事，一句话就翻出来",
+  "kind": "tool",
+  "tier": "free",
+  "price": 0,
+  "professions": [
+    "freelancer",
+    "project_manager",
+    "sales",
+    "student"
+  ],
+  "examples": [
+    "上次我们聊到哪了",
+    "我之前跟你说过的那件事是什么"
+  ],
+  "entry": null,
+  "tools": [
+    "recall_history"
+  ],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "homepage": "",
+  "source": {
+    "type": "builtin"
+  }
+}
