@@ -1,0 +1,263 @@
+/* 「自己的平台」（第十三轮）：主题色覆盖、平台化顶栏 / 空态、分享卡、平台设置、/p/<slug> 入口页。
+ * 全部基于 --jv-* token；主题色由 usePlatform.js 写到 body（--pf-accent-d / -l、--pf-on-d / -l、--pf-c1..4）并挂 body.jv-pf。 */
+
+/* ---------- 主题色：覆盖 --jv-accent 及派生 token（焦点环、主按钮、发送键、链接、选中态都跟着变） ---------- */
+body.jv-pf{--jv-accent:var(--pf-accent-d);--jv-accent-soft:color-mix(in srgb,var(--pf-accent-d) 24%,transparent);--pf-on:var(--pf-on-d)}
+body.jv-pf.light{--jv-accent:var(--pf-accent-l);--jv-accent-soft:color-mix(in srgb,var(--pf-accent-l) 18%,transparent);--pf-on:var(--pf-on-l)}
+body.jv-pf .jv-btn--primary,body.jv-pf .sendbtn:not(:disabled),body.jv-pf .jv-palette-item.on .pi-icon{color:var(--pf-on)}
+body.jv-pf .hud{background:radial-gradient(1100px 560px at 50% -20%,color-mix(in srgb,var(--jv-accent) 13%,transparent),transparent 62%),var(--jv-bg)}
+body.jv-pf.light .hud{background:radial-gradient(1100px 560px at 50% -20%,color-mix(in srgb,var(--jv-accent) 8%,transparent),transparent 62%),var(--jv-bg)}
+
+/* 光球按主题色上色（只用 CSS 版：WebGL 版的配色写在着色器里） */
+.pf-orb .jv-presence{--jvp-c1:var(--pf-c1,#3B82F6);--jvp-c2:var(--pf-c2,#8B5CF6);--jvp-c3:var(--pf-c3,#EC4899);--jvp-c4:var(--pf-c4,#F59E0B)}
+.pf-orb .jv-presence .jvp-blob.b1{background:radial-gradient(circle at 30% 28%,color-mix(in srgb,var(--jvp-c1) 95%,transparent),transparent 46%)}
+.pf-orb .jv-presence .jvp-blob.b2{background:radial-gradient(circle at 72% 66%,color-mix(in srgb,var(--jvp-c3) 80%,transparent),transparent 44%)}
+.pf-orb .jv-presence .jvp-blob.b3{background:radial-gradient(circle at 42% 80%,color-mix(in srgb,var(--jvp-c4) 65%,transparent),transparent 40%)}
+.pf-orb .jv-presence .jvp-halo i:nth-child(1){background:radial-gradient(circle,color-mix(in srgb,var(--jvp-c1) 40%,transparent) 0,color-mix(in srgb,var(--jvp-c2) 18%,transparent) 34%,transparent 66%)}
+.pf-orb .jv-presence .jvp-halo i:nth-child(2){background:radial-gradient(circle at 36% 40%,color-mix(in srgb,var(--jvp-c3) 26%,transparent),transparent 40%)}
+.pf-orb .jv-presence .jvp-halo i:nth-child(3){background:radial-gradient(circle at 64% 62%,color-mix(in srgb,var(--jvp-c4) 20%,transparent),transparent 38%)}
+
+/* ---------- 平台图标块（emoji 放在主题色淡底的圆角方块里，像 App 图标） ---------- */
+.pf-tile{display:inline-grid;place-items:center;flex:none;line-height:1;
+  background:color-mix(in srgb,var(--jv-accent) 16%,var(--jv-surface-2));
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--jv-accent) 26%,transparent)}
+.pf-tile.xs{width:24px;height:24px;border-radius:7px;font-size:14px}
+.pf-tile.sm{width:32px;height:32px;border-radius:9px;font-size:18px}
+.pf-tile.lg{width:56px;height:56px;border-radius:15px;font-size:30px}
+
+/* ---------- 顶栏字标 / 抽屉品牌 / 菜单脚注 ---------- */
+.pf-wordmark{display:inline-flex;align-items:center;gap:8px;min-width:0;margin-left:4px;font-size:14px;font-weight:600;color:var(--jv-text)}
+.pf-wordmark-name{min-width:0;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mode-narrow .sb-brand.pf-sb-brand{display:flex;align-items:center;gap:8px;font-family:var(--jv-font);font-size:14px;font-weight:600;letter-spacing:0}
+.menu-foot{padding:8px 10px 4px;font-size:11.5px;color:var(--jv-text-3);text-align:center;letter-spacing:.04em}
+@media (max-width:640px){
+  .pf-wordmark{margin-left:0}
+  .pf-wordmark-name{display:none}
+}
+
+/* ---------- 平台主页（新对话空态）：版式沿用 .chat-empty，只多工具箱 / 流程两行 ---------- */
+.pf-home .ce-ico.pf-emoji{font-size:18px;background:color-mix(in srgb,var(--jv-accent) 12%,var(--jv-surface-2))}
+.pf-rows{display:flex;flex-direction:column;gap:10px;width:min(620px,100%);margin-top:22px}
+.pf-row{display:flex;align-items:center;gap:12px;min-width:0}
+.pf-row-label{flex:none;width:72px;text-align:left;font-size:12.5px;font-weight:600;color:var(--jv-text-3)}
+.pf-row-items{flex:1;min-width:0;display:flex;align-items:center;gap:6px;padding:2px;overflow-x:auto;scrollbar-width:none;
+  overscroll-behavior-x:contain}
+.pf-row-items::-webkit-scrollbar{display:none}
+.pf-tool{width:34px;height:34px;flex:none;display:grid;place-items:center;border-radius:10px;font-size:17px;
+  background:var(--jv-surface);border:1px solid var(--jv-border)}
+.pf-add{flex:none;display:inline-flex;align-items:center;gap:4px;height:34px;padding:0 12px;border-radius:10px;
+  border:1px dashed color-mix(in srgb,var(--jv-accent) 45%,var(--jv-border));background:transparent;color:var(--jv-accent);
+  font-size:13px;font-weight:500;white-space:nowrap}
+.pf-add:hover{background:color-mix(in srgb,var(--jv-accent) 10%,transparent)}
+.pf-flow{flex:none;display:inline-flex;align-items:center;gap:8px;max-width:240px;height:34px;padding:0 12px 0 6px;border-radius:999px;
+  background:var(--jv-surface);border:1px solid var(--jv-border);color:var(--jv-text);font-size:13px;font-weight:500;
+  transition:transform .24s var(--jv-ease)}
+.pf-flow:hover{background:var(--jv-surface-2);transform:translateY(-1px)}
+.pf-flow-name{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 流程小链：节点 + 主题色细线 */
+.pf-chain{display:inline-flex;align-items:center;flex:none}
+.pf-node{position:relative;width:22px;height:22px;display:grid;place-items:center;border-radius:50%;font-size:11.5px;
+  background:var(--jv-surface-2);box-shadow:inset 0 0 0 1px var(--jv-border)}
+.pf-node+.pf-node{margin-left:7px}
+.pf-node+.pf-node::before{content:'';position:absolute;right:100%;top:50%;width:7px;height:1.5px;margin-top:-.75px;
+  background:color-mix(in srgb,var(--jv-accent) 70%,transparent)}
+@media (max-width:640px){
+  .pf-rows{margin-top:18px}
+  .pf-row{flex-direction:column;align-items:stretch;gap:6px}
+  .pf-row-label{width:auto}
+}
+
+/* ---------- 分享卡 ---------- */
+.pf-share-body{display:flex;flex-direction:column;gap:14px}
+.pf-qr-card{margin:0;display:flex;flex-direction:column;align-items:center;gap:12px;padding:18px 16px 14px;border-radius:20px;
+  background:radial-gradient(120% 90% at 50% 0%,color-mix(in srgb,var(--jv-accent) 20%,transparent),transparent 70%),var(--jv-surface-2)}
+.pf-qr-brand{display:flex;align-items:center;gap:10px;max-width:100%}
+.pf-qr-name{min-width:0;font-family:var(--jv-font-display);font-size:17px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pf-qr-frame{padding:12px;border-radius:18px;background:#fff;
+  box-shadow:0 12px 32px -8px color-mix(in srgb,var(--jv-accent) 45%,transparent),0 1px 2px rgb(0 0 0 / .12)}
+.pf-qr-frame .jv-qr{display:block;width:min(232px,58vw);height:auto}
+.pf-qr-tip{font-size:12.5px;color:var(--jv-text-3)}
+.pf-link-row{display:flex;align-items:center;gap:8px;padding:6px 6px 6px 14px;border-radius:12px;background:var(--jv-surface-2)}
+.pf-link{flex:1;min-width:0;font-family:var(--jv-mono);font-size:12.5px;color:var(--jv-text-2);white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;-webkit-user-select:all;user-select:all}
+.pf-copy{background:var(--jv-elevated)}
+.pf-copy.done,.pf-copy.done .jv-icon{color:var(--jv-success)}
+
+/* ---------- 装到主屏指引 ---------- */
+.pf-install{display:flex;flex-direction:column;gap:10px;padding:16px;border-radius:16px;border:1px solid var(--jv-border)}
+.pf-install.bare{padding:0;border:none}
+.pf-install-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.pf-install.bare .pf-install-head{justify-content:flex-start}
+.pf-install-title{font-size:15px;font-weight:600}
+.pf-seg{display:inline-flex;padding:2px;border-radius:9px;background:var(--jv-surface-2)}
+.pf-seg button{height:28px;padding:0 12px;border:none;border-radius:7px;background:none;color:var(--jv-text-2);font-size:12.5px;font-weight:500}
+.pf-seg button.on{background:var(--jv-elevated);color:var(--jv-text);box-shadow:0 1px 3px rgb(0 0 0 / .18)}
+.pf-install-lead{font-size:13px;color:var(--jv-text-2)}
+.pf-install-wx{padding:8px 10px;border-radius:10px;font-size:12.5px;line-height:1.6;color:var(--jv-warn);
+  background:color-mix(in srgb,var(--jv-warn) 10%,transparent)}
+.pf-steps{list-style:none;display:flex;flex-direction:column;gap:6px}
+.pf-step{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:12px;background:var(--jv-surface-2);
+  font-size:13.5px;line-height:1.5;color:var(--jv-text-2)}
+.pf-step b{color:var(--jv-text);font-weight:600}
+.pf-step-no{width:22px;height:22px;flex:none;display:grid;place-items:center;border-radius:50%;
+  background:var(--jv-accent);color:var(--pf-on,#fff);font-size:12px;font-weight:700}
+.pf-step-text{flex:1;min-width:0}
+.pf-step-ico{flex:none;color:var(--jv-accent)}
+
+/* ---------- 平台设置 ---------- */
+.pf-settings{display:flex;flex-direction:column;gap:18px}
+.pf-preview{display:flex;align-items:center;gap:14px;padding:14px;border-radius:16px;
+  background:radial-gradient(140% 120% at 0% 0%,color-mix(in srgb,var(--jv-accent) 22%,transparent),transparent 60%),var(--jv-surface-2)}
+.pf-preview-text{display:flex;flex-direction:column;gap:2px;min-width:0}
+.pf-preview-name{font-family:var(--jv-font-display);font-size:17px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pf-preview-tag{font-size:13px;color:var(--jv-text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pf-field{position:relative;display:grid;gap:8px;font-size:13px;font-weight:500;color:var(--jv-text-2)}
+.pf-field input{width:100%;min-width:0;height:40px;padding:0 54px 0 12px;border-radius:10px;border:1px solid transparent;
+  background:var(--jv-surface-2);color:var(--jv-text);font-size:14.5px;font-weight:400;outline:none}
+.pf-field input:focus{border-color:var(--jv-accent);box-shadow:0 0 0 3px var(--jv-accent-soft)}
+.pf-count{position:absolute;right:12px;bottom:11px;font-style:normal;font-size:11.5px;font-weight:400;color:var(--jv-text-3);
+  font-variant-numeric:tabular-nums;pointer-events:none}
+.pf-fieldset{min-width:0;border:none;display:flex;flex-direction:column;gap:10px}
+.pf-fieldset legend{margin-bottom:10px;font-size:13px;font-weight:500;color:var(--jv-text-2)}
+.pf-icons{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:6px}
+.pf-icon-opt{aspect-ratio:1;display:grid;place-items:center;border:none;border-radius:11px;background:var(--jv-surface-2);font-size:20px;
+  transition:transform .2s var(--jv-ease)}
+.pf-icon-opt:hover{background:var(--jv-pressed)}
+.pf-icon-opt:active{transform:scale(.94)}
+.pf-icon-opt.on{background:color-mix(in srgb,var(--jv-accent) 16%,var(--jv-surface-2));box-shadow:inset 0 0 0 2px var(--jv-accent)}
+.pf-swatches{display:flex;flex-wrap:wrap;gap:12px}
+.pf-swatch{width:36px;height:36px;display:grid;place-items:center;border:none;border-radius:50%;background:var(--sw);color:#fff;
+  transition:transform .2s var(--jv-ease),box-shadow .2s var(--jv-ease)}
+.pf-swatch .jv-icon{filter:drop-shadow(0 1px 1px rgb(0 0 0 / .35))}
+.pf-swatch:hover{transform:scale(1.06)}
+.pf-swatch.on{box-shadow:0 0 0 3px var(--jv-elevated),0 0 0 5px var(--sw)}
+.pf-plugins{list-style:none;display:flex;flex-direction:column;gap:6px}
+.pf-plugin{display:flex;align-items:center;gap:12px;padding:8px 6px 8px 10px;border-radius:12px;background:var(--jv-surface-2)}
+.pf-plugin-text{flex:1;min-width:0;display:flex;flex-direction:column}
+.pf-plugin-name{font-size:14px;font-weight:500}
+.pf-plugin-sum{font-size:12px;color:var(--jv-text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pf-remove{width:32px;height:32px;flex:none;display:grid;place-items:center;border:none;border-radius:8px;background:none;color:var(--jv-text-3)}
+.pf-remove:hover{background:var(--jv-pressed);color:var(--jv-danger)}
+.pf-more{align-self:flex-start;color:var(--jv-accent)}
+.pf-more .jv-icon{color:var(--jv-accent)}
+.pf-empty{font-size:13px;color:var(--jv-text-3)}
+.pf-error{padding:10px 12px;border-radius:10px;font-size:13px;color:var(--jv-danger);background:color-mix(in srgb,var(--jv-danger) 10%,transparent)}
+.pf-actions{display:flex;justify-content:flex-end;gap:8px}
+@media (max-width:640px){
+  .pf-icons{grid-template-columns:repeat(6,minmax(0,1fr))}
+  .pf-actions{display:grid;grid-template-columns:1fr 1fr}
+  .pf-actions .jv-btn{height:44px}
+}
+@media (pointer:coarse){
+  .pf-field input{font-size:16px}
+  .pf-remove{width:40px;height:40px}
+  .pf-swatch{width:42px;height:42px}
+  .pf-seg button{height:34px}
+}
+
+/* =====================================================================
+ * /p/<slug> 平台入口：与贾维斯登录页同一种形式——左侧大问候 + 日期时间，右侧「身份验证」卡片；
+ * 换成平台的名字、图标、主题色。窄屏上下堆叠。
+ * ===================================================================== */
+.pfe{position:fixed;inset:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;background:var(--jv-bg);color:var(--jv-text);
+  font-family:var(--jv-font);-webkit-font-smoothing:antialiased}
+.pfe-ambient{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;
+  background:
+    radial-gradient(60vmax 46vmax at 6% 108%,color-mix(in srgb,var(--jv-accent) 16%,transparent),transparent 70%),
+    radial-gradient(52vmax 40vmax at 98% 104%,color-mix(in srgb,var(--pf-c3,#EC4899) 10%,transparent),transparent 70%),
+    radial-gradient(40vmax 28vmax at 100% 0%,color-mix(in srgb,var(--pf-c2,#8B5CF6) 6%,transparent),transparent 70%);
+  animation:pfe-fade 1.4s ease both}
+.pfe-glow{position:absolute;left:30%;top:46%;width:96vmin;height:96vmin;margin:-48vmin 0 0 -48vmin;border-radius:50%;will-change:transform;
+  background:radial-gradient(circle,color-mix(in srgb,var(--jv-accent) 24%,transparent) 0,color-mix(in srgb,var(--jv-accent) 10%,transparent) 30%,transparent 64%);
+  animation:pfe-drift 24s ease-in-out infinite alternate}
+body.light .pfe-glow{background:radial-gradient(circle,color-mix(in srgb,var(--jv-accent) 16%,transparent) 0,color-mix(in srgb,var(--jv-accent) 6%,transparent) 32%,transparent 64%)}
+.pfe-grain{position:absolute;inset:0;opacity:.05;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+body.light .pfe-grain{opacity:.035}
+
+.pfe-top{position:fixed;left:0;right:0;top:0;z-index:5;display:flex;align-items:center;justify-content:flex-end;gap:12px;
+  padding:max(18px,env(safe-area-inset-top)) clamp(18px,3vw,32px) 0;pointer-events:none;animation:pfe-fade .9s var(--jv-ease) .5s both}
+.pfe-powered{font-size:11.5px;letter-spacing:.06em;color:var(--jv-text-3);white-space:nowrap}
+
+.pfe-main{position:relative;z-index:2;min-height:100%;max-width:1120px;margin:0 auto;display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(0,372px);align-items:center;gap:clamp(32px,6vw,96px);
+  padding:88px max(clamp(24px,6vw,72px),env(safe-area-inset-right)) calc(48px + env(safe-area-inset-bottom)) max(clamp(24px,6vw,72px),env(safe-area-inset-left))}
+.pfe-greet{display:flex;flex-direction:column;align-items:flex-start;min-width:0;animation:pfe-rise .8s var(--jv-ease) .1s both}
+.pfe-orb{display:grid;place-items:center;margin:0 0 30px -10px}
+.pfe-eyebrow{display:inline-flex;align-items:center;gap:10px;max-width:100%;margin-bottom:14px;font-size:16px;font-weight:600;color:var(--jv-text)}
+.pfe-h1{font-family:var(--jv-font-display);font-size:clamp(44px,5.4vw,72px);font-weight:600;letter-spacing:-.02em;line-height:1.05}
+.pfe-date{margin-top:12px;font-size:14px;letter-spacing:.02em;color:var(--jv-text-3);font-variant-numeric:tabular-nums}
+.pfe-tagline{max-width:26em;margin-top:18px;font-size:16px;line-height:1.65;color:var(--jv-text-2)}
+
+.pfe-card-wrap{display:flex;flex-direction:column;align-items:stretch;gap:14px;min-width:0;animation:pfe-card-in .9s var(--jv-ease) .28s both}
+.pfe-card{display:flex;flex-direction:column;gap:12px;padding:22px 22px 12px;border-radius:22px;
+  background:color-mix(in srgb,var(--jv-surface) 78%,transparent);border:1px solid var(--jv-border);
+  -webkit-backdrop-filter:blur(28px) saturate(150%);backdrop-filter:blur(28px) saturate(150%);
+  box-shadow:0 30px 80px -24px rgb(0 0 0 / .7),inset 0 1px 0 rgb(255 255 255 / .05)}
+body.light .pfe-card{box-shadow:0 24px 60px -24px rgb(40 44 80 / .28)}
+.pfe-card--wait{min-height:250px}
+.pfe-card.shake{animation:pfe-shake .45s}
+.pfe-card.leaving{animation:pfe-sink .32s var(--jv-ease) both}
+.pfe-card-title{margin-bottom:2px;font-size:12px;letter-spacing:.14em;text-align:center;color:var(--jv-text-3)}
+.pfe-field{display:flex;flex-direction:column;gap:6px}
+.pfe-field span{padding-left:2px;font-size:12px;color:var(--jv-text-2)}
+.pfe-field input{height:44px;padding:0 13px;border-radius:12px;border:1px solid var(--jv-border);background:var(--jv-surface-2);
+  color:var(--jv-text);font-size:15px;outline:none;
+  transition:border-color .25s var(--jv-ease),box-shadow .25s var(--jv-ease)}
+.pfe-field input:focus{border-color:color-mix(in srgb,var(--jv-accent) 70%,transparent);box-shadow:0 0 0 4px var(--jv-accent-soft)}
+/* 主按钮：主题色实心，悬停时底下透出一圈同色柔光 */
+.pfe-btn{position:relative;isolation:isolate;margin-top:6px;height:46px;border:0;border-radius:12px;
+  background:var(--jv-accent);color:var(--pf-on,#fff);font-size:15px;font-weight:600;letter-spacing:.06em;
+  transition:transform .2s var(--jv-ease),opacity .2s}
+.pfe-btn::before{content:'';position:absolute;inset:-2px;z-index:-1;border-radius:inherit;background:var(--jv-accent);
+  opacity:0;filter:blur(12px);transition:opacity .35s var(--jv-ease)}
+.pfe-btn:hover:not(:disabled)::before,.pfe-btn:focus-visible::before{opacity:.7}
+.pfe-btn:active:not(:disabled){transform:scale(.985)}
+.pfe-btn:disabled{opacity:.6}
+.pfe-hint{min-height:16px;margin-top:-4px;font-size:12px;text-align:center;color:var(--jv-danger);opacity:0;transition:opacity .2s}
+.pfe-hint.show{opacity:1}
+.pfe-who{display:flex;align-items:center;gap:12px;padding:8px 2px 2px}
+.pfe-who-name{min-width:0;font-size:16px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pfe-link{align-self:center;height:36px;padding:0 10px;border:none;background:none;color:var(--jv-text-3);font-size:13px}
+.pfe-link:hover{color:var(--jv-text)}
+.pfe-install{align-self:center;display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 16px;border-radius:999px;
+  border:1px solid var(--jv-border);background:color-mix(in srgb,var(--jv-surface) 60%,transparent);color:var(--jv-text-2);font-size:13.5px}
+.pfe-install .jv-icon{color:var(--jv-accent)}
+.pfe-install:hover{color:var(--jv-text)}
+
+/* 平台不存在 / 打不开 */
+.pfe-lost{position:relative;z-index:2;min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:12px;padding:48px 24px;text-align:center;animation:pfe-rise .6s var(--jv-ease) both}
+.pfe-lost-title{margin-top:20px;font-family:var(--jv-font-display);font-size:26px;font-weight:600}
+.pfe-lost-text{max-width:22em;font-size:15px;line-height:1.65;color:var(--jv-text-2)}
+.pfe-lost-actions{display:flex;flex-direction:column;align-items:stretch;gap:6px;width:min(280px,100%);margin-top:12px}
+
+@keyframes pfe-fade{from{opacity:0}}
+@keyframes pfe-rise{from{opacity:0;transform:translateY(12px)}}
+@keyframes pfe-card-in{from{opacity:0;transform:translateY(22px) scale(.985)}}
+@keyframes pfe-sink{to{opacity:0;transform:translateY(10px) scale(.98)}}
+@keyframes pfe-drift{from{transform:translate3d(-2vmin,0,0) scale(.96)}to{transform:translate3d(2.5vmin,-2vmin,0) scale(1.06)}}
+@keyframes pfe-shake{10%,90%{transform:translateX(-2px)}20%,80%{transform:translateX(4px)}30%,50%,70%{transform:translateX(-7px)}40%,60%{transform:translateX(7px)}}
+
+@media (max-width:900px){
+  .pfe-main{grid-template-columns:minmax(0,1fr);justify-items:center;align-content:center;gap:24px;
+    padding:64px max(20px,env(safe-area-inset-right)) calc(28px + env(safe-area-inset-bottom)) max(20px,env(safe-area-inset-left))}
+  .pfe-greet{align-items:center;text-align:center}
+  .pfe-orb{margin:0 0 18px}
+  .pfe-eyebrow{margin-bottom:6px}
+  .pfe-h1{font-size:clamp(30px,8.4vw,40px)}
+  .pfe-date{margin-top:6px;font-size:13px}
+  .pfe-tagline{margin-top:10px;font-size:14.5px}
+  .pfe-card-wrap{width:min(380px,100%)}
+  .pfe-glow{left:50%;top:26%}
+}
+@media (pointer:coarse){
+  .pfe-field input{font-size:16px}
+  .pfe-card{background:rgb(24 25 32 / .92);-webkit-backdrop-filter:none;backdrop-filter:none}
+  body.light .pfe-card{background:rgb(255 255 255 / .92)}
+}
+@media (prefers-reduced-motion:reduce){
+  .pfe-glow{animation:none}
+  .pfe-greet,.pfe-card-wrap,.pfe-top,.pfe-lost{animation:pfe-fade .3s ease both}
+  .pfe-card.shake,.pfe-card.leaving{animation:none}
+}
