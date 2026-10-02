@@ -206,8 +206,11 @@ def test_normalize_fills_defaults_drops_unknown_options_and_keeps_valid_ids():
 
 def test_step_catalog_matches_contract_shape():
     catalog = flows.step_catalog()
-    assert set(catalog) == {"input_text", "input_file", "split_file", "ai_extract", "to_todo",
-                            "feishu_send", "feishu_doc", "wechat_send", "web_page"}
+    core = {"input_text", "input_file", "split_file", "ai_extract", "to_todo",
+            "feishu_send", "feishu_doc", "wechat_send", "web_page"}
+    assert core <= set(catalog)
+    from jarvis.flows import steps as flow_steps   # 其余都是插件包注册进来的积木（第十四轮）
+    assert flow_steps.CORE_STEP_IDS == core
     assert catalog["split_file"]["role"] == "process"
     assert {o["key"] for o in catalog["ai_extract"]["options"]} == {"task", "instruction"}
     assert catalog["ai_extract"]["options"][0]["choices"] == ["要点", "待办", "摘要", "周报", "改写"]

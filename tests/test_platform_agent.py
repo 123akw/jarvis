@@ -20,7 +20,10 @@ from jarvis.provider_settings import SecretStore
 from jarvis.tenancy import tenant_scope
 from jarvis.tools import TOOLS
 
-ALL_TOOLS = {tool.name for tool in TOOLS}
+def _all_tools() -> set[str]:
+    """完整的贾维斯：核心工具 + 所有已启用插件包的工具（第十四轮起 PDF / Excel / Word 等）。"""
+    from jarvis.plugins import pack_tools
+    return {tool.name for tool in TOOLS} | {tool.name for tool in pack_tools()}
 SCHEDULE_TODO = {"now", "calc", "schedule_add", "schedule_list", "schedule_del", "todo_add", "todo_list", "todo_done"}
 WEATHER_SEARCH = {"now", "calc", "weather", "weather_here", "my_location", "web_search", "web_extract"}
 
@@ -90,11 +93,11 @@ def test_each_platform_account_binds_only_its_chosen_tools(env):
             manager.acquire(carol) as c, manager.acquire(owner) as o:
         assert _bound_tools(a) == SCHEDULE_TODO
         assert _bound_tools(b) == WEATHER_SEARCH
-        assert _bound_tools(c) == ALL_TOOLS
-        assert _bound_tools(o) == ALL_TOOLS
+        assert _bound_tools(c) == _all_tools()
+        assert _bound_tools(o) == _all_tools()
         # 交给模型的工具清单同样只有这些：模型根本看不到别的工具
         assert set(a.model.bound[-1]) == SCHEDULE_TODO and set(b.model.bound[-1]) == WEATHER_SEARCH
-        assert set(c.model.bound[-1]) == ALL_TOOLS
+        assert set(c.model.bound[-1]) == _all_tools()
 
 
 def test_changing_plugins_rebuilds_only_that_accounts_agent(env):
@@ -179,6 +182,6 @@ def test_failed_platform_lookup_retries_on_next_acquire(env, monkeypatch):
 
     monkeypatch.setattr(platforms, "agent_tool_names", flaky)
     with manager.acquire(alice) as first:
-        assert _bound_tools(first) == ALL_TOOLS                  # 读不到时这一次先不限工具……
+        assert _bound_tools(first) == _all_tools()                  # 读不到时这一次先不限工具……
     with manager.acquire(alice) as second:
         assert second is not first and _bound_tools(second) == SCHEDULE_TODO   # ……下次立刻重建再查

@@ -366,3 +366,52 @@ def test_unit_convert_example_loads_as_third_party(tmp_path):
     assert entry["status"] == "ok", entry["reason"]
     tool = {t.name: t for t in plugins.pack_tools()}["unit_convert"]
     assert "1.75 千克" in tool.invoke({"value": 3.5, "from_unit": "斤", "to_unit": "公斤"})
+
+
+# ---------- 办公插件包（C 提供）：自动发现、积木注册、按智能体过滤工具 ----------
+
+OFFICE = {"pdf": ("pdf_",), "excel": ("excel_", "csv_"), "word": ("word_",)}
+
+
+def test_office_packs_are_discovered_and_filtered_per_agent():
+    from tests.test_platform_agent import ToolRecordingModel
+    from jarvis.accounts import AccountStore
+    from jarvis.flows import steps as flow_steps
+    from jarvis.graph import build_agent
+    from jarvis.platforms import PlatformStore, agent_tool_names
+    from jarvis.search.service import SearchService
+    found = [pid for pid in OFFICE if plugins.is_plugin(pid)]
+    if not found:
+        pytest.skip("办公插件包还没合进来")
+    for pid in found:
+        entry = plugins.get_plugin(pid)
+        assert entry["builtin"] and entry["kind"] == "tool" and entry["tools"], pid
+        assert all(name.startswith(OFFICE[pid]) for name in entry["tools"]), pid
+    for step_id in ("excel_out", "word_out"):
+        entry = plugins.get_plugin(step_id)
+        if entry and entry["status"] == "ok":
+            assert entry["kind"] == "step" and entry["pack"] in OFFICE and step_id in flow_steps.STEPS
+    usable = [pid for pid in found if plugins.get_plugin(pid)["status"] == "ok"]
+    if not usable:
+        pytest.skip("办公插件的依赖没装")
+    picked = usable[0]
+    others = set()
+    for pid in usable[1:]:
+        others |= plugins.tools_for([pid])
+    accounts = AccountStore()
+    accounts._ensure_bootstrap()
+    member = accounts.create_user("office_member", "Member-pass-123", "Member")["id"]
+    from jarvis.platforms import PlatformStore
+    PlatformStore().create(member, {"name": "办公助手", "plugins": [picked, "todo"], "profession": "", "icon": "✨",
+                                    "accent": "#0A84FF", "tagline": ""})
+    names = agent_tool_names(member)
+    assert plugins.tools_for([picked]) <= names and {"todo_add", "now", "calc"} <= names
+    assert not names & others                                          # 没装的办公插件工具一个都不给
+    model = ToolRecordingModel()
+    build_agent(search_service=SearchService([]), model=model, checkpointer=False, tool_names=names)
+    assert set(model.bound[-1]) == names
+    owner = accounts.unique_active_owner().user_id
+    assert agent_tool_names(owner) is None                             # Owner：完整贾维斯
+    model = ToolRecordingModel()
+    build_agent(search_service=SearchService([]), model=model, checkpointer=False)
+    assert plugins.tools_for(usable) <= set(model.bound[-1])
