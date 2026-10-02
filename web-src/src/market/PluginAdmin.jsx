@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import Modal, { ModalHead } from '../Modal.jsx'
 import {
   addSource, checkUpdate, confirmImport, fileToBase64, listPlugins, previewImport, previewSourcePlugin,
@@ -289,7 +290,7 @@ export default function PluginAdmin({ onChanged, initialTab = 'import', onSource
         导入插件
       </button>
       <button type="button" className="jvm-link-btn" onClick={() => { setOpen(true); setTab('manage') }}>管理插件</button>
-      {open ? (
+      {open ? createPortal(
         <Modal label="插件管理" size="lg" onClose={close} className="jvm-admin">
           <ModalHead title="插件管理" subtitle="从 GitHub、Gitee 或 zip 导入插件；第三方代码在独立子进程里运行" onClose={close} />
           <div className="jv-modal-body">
@@ -313,7 +314,9 @@ export default function PluginAdmin({ onChanged, initialTab = 'import', onSource
               </p>
             ) : null}
           </div>
-        </Modal>
+        </Modal>,
+        // 挂到市场根节点（.jvm）下：和底部工具箱同一层，弹窗盖得住它，也拿得到市场的配色变量
+        document.querySelector('.jvm') || document.body,
       ) : null}
     </>
   )
