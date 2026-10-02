@@ -121,6 +121,35 @@ def safe_http_clients(*, resolver=None, timeout: float | httpx.Timeout = 20.0,
     )
 
 
+def close_async_client(client: Any) -> None:
+    """在同步代码里关闭 httpx.AsyncClient，任何调用上下文都不留下未 await 的协程。
+
+    此前三处写法都是 ``asyncio.run(client.aclose())`` + 吞掉 RuntimeError：在运行中的
+    事件循环里（lifespan 停机）asyncio.run 直接抛错，但 aclose() 协程已经创建，
+    于是每次重启 journal 里都有一条 ``coroutine 'AsyncClient.aclose' was never awaited``，
+    客户端也并没有真正关上。现在：没有运行中的循环就地 asyncio.run；在循环里则交给
+    一个短命线程用它自己的循环关闭（最多等 5 秒，绝不阻塞停机）。
+    """
+    aclose = getattr(client, "aclose", None)
+    if not callable(aclose) or getattr(client, "is_closed", False) is True:
+        return
+
+    def run() -> None:
+        try:
+            asyncio.run(aclose())
+        except Exception:
+            pass  # 关闭失败只是少释放几条空闲连接
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        run()
+        return
+    worker = threading.Thread(target=run, name="jarvis-aclose", daemon=True)
+    worker.start()
+    worker.join(timeout=5.0)
+
+
 def _provider_error(response: httpx.Response) -> None:
     if response.is_redirect: raise ProviderSettingsError("INVALID_URL", "Provider 返回了不允许的重定向")
     if response.status_code in {401, 403}: raise ProviderSettingsError("PROVIDER_AUTH", "Provider 认证失败")
@@ -173,10 +202,7 @@ class ProviderProbe:
             raise ProviderSettingsError("APPLY_FAILED", "Provider 返回格式不兼容") from None
         finally:
             client.close()
-            try:
-                asyncio.run(async_client.aclose())
-            except RuntimeError:
-                pass
+            close_async_client(async_client)
 
     def _stream_has(self, client: httpx.Client, url: str, headers: dict[str, str], body: dict[str, Any], *, expect_tool: bool) -> bool:
         found = False
@@ -220,10 +246,7 @@ class RuntimeBundle:
             if callable(close):
                 try: close()
                 except Exception: pass
-        close_async = getattr(self.async_client, "aclose", None)
-        if callable(close_async):
-            try: asyncio.run(close_async())
-            except RuntimeError: pass
+        close_async_client(self.async_client)
 
 
 class AgentRuntimeManager:
@@ -387,9 +410,7 @@ def probe_integration(name: str, candidate: dict[str, Any]) -> dict[str, Any]:
         raise ProviderSettingsError("APPLY_FAILED", "联网 Provider 返回格式无效") from None
     finally:
         if client is not None: client.close()
-        if async_client is not None:
-            try: asyncio.run(async_client.aclose())
-            except RuntimeError: pass
+        if async_client is not None: close_async_client(async_client)
 
 
 __all__.append("probe_integration")

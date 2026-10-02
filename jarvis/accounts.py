@@ -5,6 +5,7 @@ import base64
 import datetime as dt
 import hashlib
 import hmac
+import logging
 import os
 import secrets
 import sqlite3
@@ -17,6 +18,8 @@ from pwdlib import PasswordHash
 
 from jarvis import config
 
+
+log = logging.getLogger(__name__)
 
 _PASSWORDS = PasswordHash.recommended()
 _SESSION_DAYS = 30
@@ -93,6 +96,51 @@ def csrf_token(token: str, session_id: str) -> str | None:
 
 def _clean_username(value: str) -> str:
     return value.strip()
+
+
+# ---------- 弱口令识别：只提示（日志 WARNING + /api/session 的 password_weak），不改密、不锁号 ----------
+
+MIN_PASSWORD_LENGTH = 8
+_COMMON_PASSWORDS = frozenset({
+    "admin", "administrator", "root", "password", "passw0rd", "p@ssw0rd", "jarvis", "changeme",
+    "123456", "1234567", "12345678", "123456789", "1234567890", "111111", "000000", "666666",
+    "888888", "abc123", "abcd1234", "qwerty", "qwerty123", "qwertyuiop", "iloveyou",
+    "admin123", "admin1234", "admin888", "password1", "password123", "welcome", "letmein",
+    "1qaz2wsx", "a123456", "a12345678", "woaini", "woaini1314", "5201314",
+})
+# 启动核查时拿来与已存哈希比对的候选（Argon2 校验较慢，只试最常见的几条）
+_SCAN_CANDIDATES = ("admin", "123456", "password", "12345678", "admin123", "jarvis", "changeme",
+                    "111111", "000000", "qwerty", "123456789", "88888888")
+_WEAK_FLAGS: dict[str, tuple[str, bool]] = {}   # user_id -> (password_hash, 是否弱口令)
+_WEAK_FLAGS_LOCK = threading.Lock()
+
+
+def password_is_weak(password: str, username: str = "") -> bool:
+    """规则判定：过短、常见口令、与用户名相同、字符种类过少、短纯数字。"""
+    value = password or ""
+    folded = value.casefold()
+    if len(value) < MIN_PASSWORD_LENGTH or folded in _COMMON_PASSWORDS:
+        return True
+    name = (username or "").strip().casefold()
+    if name and (folded == name or folded.startswith(name) and folded[len(name):].isdigit()):
+        return True
+    if len(set(value)) <= 2:
+        return True
+    return value.isdigit() and len(value) < 12
+
+
+def _weak_warning(username: str) -> None:
+    log.warning(
+        "账号「%s」仍在使用默认或弱口令，请尽快登录网页修改口令（系统不会自动改密或锁号）", username)
+
+
+def _remember_weak(user_id: str, username: str, password_hash: str, weak: bool) -> None:
+    """缓存某个口令哈希的强弱结论；同一哈希首次判为弱口令时打一条 WARNING。"""
+    with _WEAK_FLAGS_LOCK:
+        previous = _WEAK_FLAGS.get(user_id)
+        _WEAK_FLAGS[user_id] = (password_hash, weak)
+    if weak and previous != (password_hash, True):
+        _weak_warning(username)
 
 
 class AccountStore:
@@ -266,7 +314,54 @@ class AccountStore:
             with self._connect() as connection:
                 self._audit(connection, "login_failed")
             return None
+        _remember_weak(row["id"], row["username"], row["password_hash"],
+                       password_is_weak(password, row["username"]))
         return row["id"], row["username"], row["role"]
+
+    def password_weak(self, user_id: str) -> bool:
+        """该用户当前口令是否被判为弱口令（登录或启动核查时得出；未知按 False）。"""
+        with _WEAK_FLAGS_LOCK:
+            cached = _WEAK_FLAGS.get(user_id)
+        if not cached or not cached[1]:
+            return False
+        with self._connect() as connection:
+            row = connection.execute("SELECT password_hash FROM users WHERE id = ?", (user_id,)).fetchone()
+        return bool(row and row["password_hash"] == cached[0])
+
+    def scan_weak_passwords(self) -> list[dict]:
+        """启动核查：用最常见的默认口令逐个比对已存哈希，命中即 WARNING。
+
+        只读、不改密、不锁号；结果进缓存，供 /api/session 的 password_weak 使用
+        （服务重启后带旧 cookie 的会话不必重新登录也能拿到提示）。"""
+        self._ensure_bootstrap()
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT id, username, password_hash FROM users WHERE active = 1 ORDER BY username"
+            ).fetchall()
+        weak_users: list[dict] = []
+        for row in rows:
+            with _WEAK_FLAGS_LOCK:
+                cached = _WEAK_FLAGS.get(row["id"])
+            if cached and cached[0] == row["password_hash"]:
+                weak = cached[1]
+                if weak:
+                    _weak_warning(row["username"])
+            else:
+                username = row["username"]
+                candidates = dict.fromkeys((*_SCAN_CANDIDATES, username, username.casefold(),
+                                            f"{username}123", f"{username}888"))
+                weak = False
+                for candidate in candidates:
+                    try:
+                        if _PASSWORDS.verify(candidate, row["password_hash"]):
+                            weak = True
+                            break
+                    except Exception:
+                        break   # 哈希格式异常：不判定，交给登录时的规则判定
+                _remember_weak(row["id"], username, row["password_hash"], weak)
+            if weak:
+                weak_users.append({"id": row["id"], "username": row["username"]})
+        return weak_users
 
     def authenticate(self, username: str, password: str, transport: str) -> tuple[Principal, str, str | None] | None:
         """Authenticate and mint one independent session; failed logins are deliberately uniform."""
@@ -389,15 +484,17 @@ class AccountStore:
             return None
         now = _utcnow()
         user_id = str(uuid.uuid4())
+        password_hash = _PASSWORDS.hash(password)
         try:
             with self._connect() as connection:
                 connection.execute(
                     "INSERT INTO users(id, username, role, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-                    (user_id, username, role, _PASSWORDS.hash(password), now, now),
+                    (user_id, username, role, password_hash, now, now),
                 )
                 self._audit(connection, "user_created", user_id, role)
         except sqlite3.IntegrityError:
             return None
+        _remember_weak(user_id, username, password_hash, password_is_weak(password, username))
         return {"id": user_id, "username": username, "role": role, "active": 1, "created_at": now, "updated_at": now}
 
     def update_user(self, user_id: str, *, username: str | None = None, role: str | None = None,
@@ -415,11 +512,13 @@ class AccountStore:
         if role is not None:
             updates.append("role = ?")
             values.append(role)
+        new_hash = None
         if password is not None:
             if not password:
                 return None
+            new_hash = _PASSWORDS.hash(password)
             updates.append("password_hash = ?")
-            values.append(_PASSWORDS.hash(password))
+            values.append(new_hash)
         if active is not None:
             updates.append("active = ?")
             values.append(int(active))
@@ -457,6 +556,8 @@ class AccountStore:
                 ).fetchone()
         except sqlite3.IntegrityError:
             return None
+        if row and new_hash is not None:
+            _remember_weak(row["id"], row["username"], new_hash, password_is_weak(password, row["username"]))
         return dict(row) if row else None
 
     def change_password(self, principal: Principal, current_password: str, new_password: str) -> bool:
@@ -470,13 +571,16 @@ class AccountStore:
                 valid = False
             if not valid:
                 return False
+            new_hash = _PASSWORDS.hash(new_password)
             connection.execute(
                 "UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?",
-                (_PASSWORDS.hash(new_password), _utcnow(), principal.user_id),
+                (new_hash, _utcnow(), principal.user_id),
             )
             connection.execute(
                 "UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL",
                 (_utcnow(), principal.user_id),
             )
             self._audit(connection, "password_changed", principal.user_id)
+        _remember_weak(principal.user_id, principal.username, new_hash,
+                       password_is_weak(new_password, principal.username))
         return True

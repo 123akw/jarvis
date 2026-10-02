@@ -49,16 +49,15 @@ UNBIND_COMMANDS = frozenset({"解绑", "解除绑定", "/unbind"})
 
 EMPTY_REPLY = "（贾维斯没有生成文本回复。）"
 NOT_READY_REPLY = "（贾维斯还在启动，请稍后再试。）"
+_BIND_STEPS = "请打开贾维斯网页 → 头像菜单 → 飞书，生成 6 位绑定码，然后在这里发送「绑定 123456」"
 UNBOUND_REPLY = (
-    "你好，我是贾维斯。这个飞书账号还没有绑定贾维斯账号，暂时不能对话。\n"
-    "绑定方法：登录贾维斯后领取 6 位绑定码（网页接口 POST /api/feishu/bind-code，"
-    "或请管理员在服务器上运行 python -m jarvis.channels.feishu bind-code <用户名>），"
-    "然后私聊我发送「绑定 123456」。绑定码 10 分钟内有效。"
+    "你好，我是贾维斯。这个飞书账号还没绑定贾维斯账号，暂时不能对话。\n"
+    f"{_BIND_STEPS}（换成你的绑定码，10 分钟内有效）。"
 )
-STALE_BINDING_REPLY = "你绑定的贾维斯账号已停用或不存在，请重新领取绑定码后发送「绑定 123456」。"
-BIND_IN_GROUP_REPLY = "为避免绑定码泄露，请私聊我完成绑定。"
+STALE_BINDING_REPLY = f"你绑定的贾维斯账号已停用或不存在。{_BIND_STEPS}，重新绑定即可。"
+BIND_IN_GROUP_REPLY = "为避免绑定码泄露，请私聊我发送「绑定 123456」完成绑定。"
 BIND_LOCKED_REPLY = "绑定码错误次数过多，请一小时后再试。"
-BIND_INVALID_REPLY = "绑定码无效或已过期，请重新领取（10 分钟内有效）。"
+BIND_INVALID_REPLY = "绑定码不对或已过期。请回到贾维斯网页 → 头像菜单 → 飞书，重新生成一个再发给我。"
 UNBIND_REPLY = "已解除这个飞书账号与贾维斯账号的绑定。"
 UNBIND_NONE_REPLY = "这个飞书账号目前没有绑定贾维斯账号。"
 AUDIO_REPLY = "（暂时还听不了飞书语音消息，请改发文字。）"

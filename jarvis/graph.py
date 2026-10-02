@@ -1,6 +1,8 @@
 """LangGraph 底座：ReAct agent + SQLite 持久记忆。"""
+from contextlib import contextmanager
 import os
 import sqlite3
+import threading
 
 import httpx
 from langchain_core.messages import RemoveMessage, SystemMessage
@@ -161,6 +163,49 @@ def build_agent(
         prompt=dynamic_prompt,
         checkpointer=checkpointer,
     )
+
+
+class ThreadBusyError(RuntimeError):
+    """同一会话线程上一轮还没结束，等待超时。"""
+
+
+# 每个 checkpoint 线程一把回合锁（引用计数，用完即从表里摘掉，表不会无界增长）。
+_TURN_LOCKS: dict[str, list] = {}   # thread_id -> [Lock, 等待/持有者计数]
+_TURN_LOCKS_GUARD = threading.Lock()
+
+
+def _turn_lock_count() -> int:
+    with _TURN_LOCKS_GUARD:
+        return len(_TURN_LOCKS)
+
+
+@contextmanager
+def thread_turn(thread_id: str, timeout: float = 90.0):
+    """同一 checkpoint 线程的回合串行化（自愈 + 整轮流式都要在锁内）。
+
+    实测：同一线程同时发两条消息，两轮从同一个 checkpoint 起跑、各自落盘，后写的
+    覆盖先写的——历史里丢一条回答；更糟的是后到的一轮开头的 heal_dangling_tool_calls
+    会把前一轮「在途」的 tool_calls 当成悬空调用删掉。不同线程互不影响。
+    等待超过 timeout 秒抛 ThreadBusyError，由调用方转成人话。
+    """
+    with _TURN_LOCKS_GUARD:
+        entry = _TURN_LOCKS.get(thread_id)
+        if entry is None:
+            entry = _TURN_LOCKS[thread_id] = [threading.Lock(), 0]
+        entry[1] += 1
+    acquired = False
+    try:
+        acquired = entry[0].acquire(timeout=max(0.0, timeout))
+        if not acquired:
+            raise ThreadBusyError(thread_id)
+        yield
+    finally:
+        if acquired:
+            entry[0].release()
+        with _TURN_LOCKS_GUARD:
+            entry[1] -= 1
+            if entry[1] <= 0 and _TURN_LOCKS.get(thread_id) is entry:
+                del _TURN_LOCKS[thread_id]
 
 
 def heal_dangling_tool_calls(agent, thread_id: str) -> None:

@@ -41,7 +41,7 @@ import uuid
 from langchain_core.messages import AIMessageChunk, RemoveMessage, SystemMessage, ToolMessage
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from jarvis.graph import heal_dangling_tool_calls
+from jarvis.graph import heal_dangling_tool_calls, thread_turn
 from jarvis.tenancy import TenantMigrationError, tenant_scope
 from jarvis.voice import asr as asr_mod
 from jarvis.voice import tts as tts_mod
@@ -362,7 +362,8 @@ class _Turn:
         style_id = f"voice-style-{uuid.uuid4().hex}"
         style_prompt = self.call.style_prompt()
         try:
-            with tenant_scope(self.call.user_id):
+            # 回合锁：与网页文字聊天等共用同一 checkpoint 线程时不并发写（见 graph.thread_turn）
+            with tenant_scope(self.call.user_id), thread_turn(checkpoint_id):
                 with self.call.bundle_for(self.call.user_id) as bundle:
                     heal_dangling_tool_calls(bundle.agent, checkpoint_id)
                     config = {"configurable": {"thread_id": checkpoint_id}}
