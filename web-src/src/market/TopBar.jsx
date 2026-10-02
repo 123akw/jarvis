@@ -51,11 +51,12 @@ export function SearchBox({ value, onChange, inputRef, onSubmit }) {
   )
 }
 
-/** 右上角：检查中留白；游客「登录」；已登录「进入我的智能体」+ 头像 */
+/** 右上角：检查中留白；游客「登录」；已登录「进入我的智能体」+ 头像。compact（起名 / 结果页）只留头像 */
 export function AccountArea({ me, checking, onLogin, onEnter, compact = false }) {
   if (checking) return <span className="jvm-top-wait" aria-hidden="true" />
   if (!me) {
-    return <button type="button" className="jvm-top-btn" onClick={onLogin}>登录</button>
+    // 起名 / 结果页里游客不放「登录」：正在走流程，结果页自己有「去登录」
+    return compact ? <span /> : <button type="button" className="jvm-top-btn" onClick={onLogin}>登录</button>
   }
   const name = me.username || '已登录'
   return (
