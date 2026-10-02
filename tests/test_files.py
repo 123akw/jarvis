@@ -136,6 +136,8 @@ def test_content_disposition_rfc5987():
     plain = files.content_disposition('Q3 "report".pdf')
     assert 'filename="Q3 report.pdf"' in plain or 'filename="Q3 _report_.pdf"' in plain
     assert "\n" not in files.content_disposition("a\r\nSet-Cookie: x=1.pdf")
+    assert 'filename="download.xlsx"' in files.content_disposition("九月报销_按部门汇总.xlsx")
+    assert 'filename="Q3_.xlsx"' in files.content_disposition("Q3_汇总.xlsx")
 
 
 # ---------- HTTP 接口 ----------

@@ -214,7 +214,8 @@ def content_disposition(name: str, disposition: str = "attachment") -> str:
     name = clean_name(name)
     ext = os.path.splitext(name)[1]
     ascii_name = "".join(ch for ch in name if 32 <= ord(ch) < 127 and ch not in '"\\;%')
-    if not ascii_name.strip(" ._") or ascii_name.strip() == ext:
+    ascii_stem = ascii_name[: -len(ext)] if ext and ascii_name.endswith(ext) else ascii_name
+    if not re.search(r"[A-Za-z0-9]", ascii_stem):   # 中文名剥掉后只剩符号：兜底名用 download
         ascii_name = f"download{ext if ext.isascii() else ''}"
     return f"{disposition}; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(name, safe='')}"
 
