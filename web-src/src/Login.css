@@ -1,0 +1,196 @@
+/* 登录页：J.A.R.V.I.S. 光球形态（默认）+ MOSS 3D 形态
+ * 设计 token 由 styles.css 的 :root / body.light 提供，这里一律带 fallback，并在本地重新映射，
+ * 未定义时暗/亮两套兜底各自生效。持续动画只动 transform/opacity。 */
+
+.jv-login{
+  --_bg:var(--jv-bg,#05060a);
+  --_text:var(--jv-text,#e8ecf3);
+  --_text2:var(--jv-text-2,#a4acbc);
+  --_text3:var(--jv-text-3,#6c7486);
+  --_surface:var(--jv-surface,#12141b);
+  --_surface2:var(--jv-surface-2,#1a1d26);
+  --_border:var(--jv-border,rgb(255 255 255 / .09));
+  --_accent:var(--jv-accent,#8B5CF6);
+  --_ai:var(--jv-ai-gradient,linear-gradient(135deg,#3B82F6,#8B5CF6,#EC4899,#F59E0B));
+  --_ease:var(--jv-ease,cubic-bezier(.2,.8,.2,1));
+  --_r-lg:var(--jv-radius-lg,22px);
+  --_r-md:var(--jv-radius-md,12px);
+  --_font:var(--jv-font,-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Helvetica Neue","Hiragino Sans GB","Microsoft YaHei",sans-serif);
+  --_btn-bg:#eef1f6;--_btn-fg:#0b0d12;
+  --_field:rgb(255 255 255 / .05);
+  --_shadow:0 30px 80px -24px rgb(0 0 0 / .7);
+  position:fixed;inset:0;overflow:hidden;background:var(--_bg);color:var(--_text);
+  font-family:var(--_font);-webkit-font-smoothing:antialiased;
+}
+body.light .jv-login{
+  --_bg:var(--jv-bg,#f3f4f7);
+  --_text:var(--jv-text,#14161c);
+  --_text2:var(--jv-text-2,#4b5263);
+  --_text3:var(--jv-text-3,#8a909e);
+  --_surface:var(--jv-surface,#ffffff);
+  --_surface2:var(--jv-surface-2,#f6f7fa);
+  --_border:var(--jv-border,rgb(15 18 30 / .08));
+  --_btn-bg:#14161c;--_btn-fg:#fff;
+  --_field:rgb(15 18 30 / .04);
+  --_shadow:0 24px 60px -24px rgb(40 44 80 / .28);
+}
+
+/* ---------- 背景光（ShaderBg） ---------- */
+.jvl-ambient{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;
+  background:
+    radial-gradient(60vmax 46vmax at 6% 108%,rgb(59 130 246 / .14),transparent 70%),
+    radial-gradient(52vmax 40vmax at 98% 104%,rgb(236 72 153 / .10),transparent 70%),
+    radial-gradient(40vmax 28vmax at 100% 0%,rgb(245 158 11 / .045),transparent 70%);
+  animation:jvl-fade 1.6s ease both}
+body.light .jvl-ambient{background:
+    radial-gradient(60vmax 46vmax at 6% 108%,rgb(59 130 246 / .12),transparent 70%),
+    radial-gradient(52vmax 40vmax at 98% 104%,rgb(236 72 153 / .09),transparent 70%),
+    radial-gradient(40vmax 28vmax at 100% 0%,rgb(245 158 11 / .07),transparent 70%)}
+/* 光球身后的主光：缓慢漂移 + 呼吸（只动 transform，栅格化一次） */
+.jvl-key-light{position:absolute;left:50%;top:30%;width:96vmin;height:96vmin;margin:-48vmin 0 0 -48vmin;
+  border-radius:50%;will-change:transform;
+  background:radial-gradient(circle,rgb(124 58 237 / .24) 0,rgb(79 70 229 / .13) 28%,rgb(59 130 246 / .05) 48%,transparent 66%);
+  animation:jvl-drift 24s ease-in-out infinite alternate}
+body.light .jvl-key-light{background:radial-gradient(circle,rgb(139 92 246 / .16) 0,rgb(99 102 241 / .08) 30%,transparent 64%)}
+.jv-login.form-moss .jvl-key-light{display:none}
+.jvl-grain{position:absolute;inset:0;opacity:.05;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+body.light .jvl-grain{opacity:.035}
+@keyframes jvl-drift{
+  from{transform:translate3d(-2vmin,0,0) scale(.96)}
+  to{transform:translate3d(2.5vmin,-2vmin,0) scale(1.06)}}
+
+/* ---------- 顶栏：品牌 + 形态开关 ---------- */
+.jvl-top{position:fixed;left:0;right:0;top:0;z-index:5;display:flex;align-items:center;justify-content:space-between;
+  padding:max(18px,env(safe-area-inset-top)) clamp(18px,3vw,32px) 0;animation:jvl-fade .9s var(--_ease) .8s both}
+.jvl-brand{font-size:12px;font-weight:600;letter-spacing:.32em;color:var(--_text2)}
+.jvl-switch{position:relative;display:grid;grid-template-columns:1fr 1fr;padding:3px;border-radius:999px;
+  background:color-mix(in srgb,var(--_surface) 55%,transparent);border:1px solid var(--_border);
+  -webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px)}
+.jvl-switch button{position:relative;z-index:1;border:0;background:none;font:inherit;font-size:11.5px;font-weight:600;
+  letter-spacing:.08em;color:var(--_text3);padding:6px 12px;border-radius:999px;cursor:pointer;transition:color .3s var(--_ease)}
+.jvl-switch button[aria-checked="true"]{color:var(--_text)}
+.jvl-switch button:disabled{cursor:default}
+.jvl-switch button:focus-visible{outline:2px solid var(--_accent);outline-offset:1px}
+.jvl-switch-thumb{position:absolute;top:3px;bottom:3px;left:3px;width:calc(50% - 3px);border-radius:999px;
+  background:var(--_surface2);box-shadow:0 1px 2px rgb(0 0 0 / .25),inset 0 0 0 1px var(--_border);
+  transition:transform .45s var(--_ease)}
+.jvl-switch.is-moss .jvl-switch-thumb{transform:translateX(100%)}
+body.light .jvl-switch-thumb{background:#fff;box-shadow:0 1px 3px rgb(20 24 40 / .14)}
+
+/* ---------- 主区：光球 → 问候 → 玻璃卡（光先亮，字再起，卡最后浮现） ---------- */
+.jvl-main{position:relative;z-index:2;height:100%;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:clamp(12px,2.2vh,22px);padding:64px 20px 32px}
+.jvl-orb{display:grid;place-items:center;margin-bottom:clamp(4px,2.2vh,26px);
+  animation:jvl-orb-in 1.15s var(--_ease) both}
+.jvl-greet{text-align:center;animation:jvl-rise .8s var(--_ease) .38s both}
+.jvl-h1{margin:0;font-size:clamp(26px,3vw,36px);font-weight:600;letter-spacing:-.01em;line-height:1.2;color:var(--_text)}
+.jvl-date{margin-top:6px;font-size:13px;color:var(--_text3);letter-spacing:.02em;font-variant-numeric:tabular-nums}
+.jvl-eyebrow{font-size:11.5px;font-weight:600;letter-spacing:.3em;color:var(--_text2);margin-bottom:10px}
+
+.jvl-card-wrap{width:min(360px,100%);animation:jvl-card-in .9s var(--_ease) .56s both}
+.jvl-card{display:flex;flex-direction:column;gap:12px;padding:22px 22px 12px;border-radius:var(--_r-lg);
+  background:color-mix(in srgb,var(--_surface) 62%,transparent);border:1px solid var(--_border);
+  -webkit-backdrop-filter:blur(28px) saturate(150%);backdrop-filter:blur(28px) saturate(150%);
+  box-shadow:var(--_shadow),inset 0 1px 0 rgb(255 255 255 / .05)}
+.jvl-card.shake{animation:jvl-shake .45s}
+.jvl-card-title{font-size:12px;color:var(--_text3);letter-spacing:.14em;text-align:center;margin-bottom:2px}
+.jvl-notice{padding:8px 11px;border-radius:10px;font-size:12.5px;line-height:1.5;
+  color:#34d399;background:rgb(52 211 153 / .1);border:1px solid rgb(52 211 153 / .22)}
+body.light .jvl-notice{color:#047857}
+.jvl-field{display:flex;flex-direction:column;gap:6px}
+.jvl-field span{font-size:12px;color:var(--_text2);padding-left:2px}
+.jvl-field input{height:44px;padding:0 13px;border-radius:var(--_r-md);border:1px solid var(--_border);
+  background:var(--_field);color:var(--_text);font:inherit;font-size:15px;outline:none;
+  transition:border-color .25s var(--_ease),box-shadow .25s var(--_ease),background-color .25s var(--_ease)}
+.jvl-field input:focus{border-color:color-mix(in srgb,var(--_accent) 70%,transparent);
+  box-shadow:0 0 0 4px color-mix(in srgb,var(--_accent) 18%,transparent)}
+/* 主按钮：实心中性色；悬停时底下透出一圈 AI 渐变光（只渐变 opacity） */
+.jvl-btn{position:relative;margin-top:6px;height:46px;border:0;border-radius:var(--_r-md);cursor:pointer;
+  background:var(--_btn-bg);color:var(--_btn-fg);font:inherit;font-size:15px;font-weight:600;letter-spacing:.06em;
+  isolation:isolate;transition:transform .2s var(--_ease),opacity .2s}
+.jvl-btn::before{content:"";position:absolute;inset:-2px;z-index:-1;border-radius:inherit;background:var(--_ai);
+  opacity:0;filter:blur(10px);transition:opacity .35s var(--_ease)}
+.jvl-btn:hover:not(:disabled)::before,.jvl-btn:focus-visible::before{opacity:.75}
+.jvl-btn:active:not(:disabled){transform:scale(.985)}
+.jvl-btn:disabled{opacity:.6;cursor:default}
+.jvl-btn:focus-visible{outline:2px solid var(--_accent);outline-offset:2px}
+.jvl-hint{min-height:16px;margin-top:-4px;font-size:12px;text-align:center;color:#f87171;opacity:0;transition:opacity .2s}
+.jvl-hint.show{opacity:1}
+.jvl-voice{align-self:center;border:0;background:none;font:inherit;font-size:11.5px;letter-spacing:.1em;
+  color:var(--_text3);cursor:pointer;transition:color .2s}
+.jvl-voice:hover{color:var(--_text)}
+
+/* ---------- 登录成功：卡片和文字先退 → 光球扩散成整屏柔光（.jv-bloom 在 Presence.css） ---------- */
+.stage-leaving .jvl-card-wrap,.stage-bloom .jvl-card-wrap{animation:jvl-sink .38s var(--_ease) both}
+.stage-leaving .jvl-greet,.stage-bloom .jvl-greet{animation:jvl-sink .34s var(--_ease) .04s both}
+.stage-leaving .jvl-top,.stage-bloom .jvl-top{animation:jvl-fade-out .3s ease both}
+.stage-bloom .jvl-orb{animation:jvl-orb-out .85s cubic-bezier(.55,0,.25,1) both}
+/* MOSS 退场：保留原来的「过曝淡出」 */
+.form-moss.stage-out .jvl-main,.form-moss.stage-out .jvl-top,.form-moss.stage-out .mossbg{
+  transition:opacity .5s .45s,filter .5s .45s;opacity:0;filter:brightness(2.2) blur(3px)}
+.stage-out{pointer-events:none}
+
+@keyframes jvl-fade{from{opacity:0}}
+@keyframes jvl-fade-out{to{opacity:0}}
+@keyframes jvl-orb-in{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:none}}
+@keyframes jvl-orb-out{from{opacity:1;transform:none}to{opacity:0;transform:scale(2.4)}}
+@keyframes jvl-rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes jvl-card-in{from{opacity:0;transform:translateY(22px) scale(.985)}to{opacity:1;transform:none}}
+@keyframes jvl-sink{from{opacity:1;transform:none}to{opacity:0;transform:translateY(10px) scale(.98)}}
+@keyframes jvl-shake{
+  10%,90%{transform:translateX(-2px)}20%,80%{transform:translateX(4px)}
+  30%,50%,70%{transform:translateX(-7px)}40%,60%{transform:translateX(7px)}}
+
+/* ---------- MOSS 形态：电影化构图（左侧问候、中部机头、右侧登录卡） ---------- */
+.jv-login .mossbg{position:fixed;inset:0;z-index:1}
+.jv-login.form-moss{--_bg:#030A12}
+.form-moss .jvl-main{flex-direction:row;justify-content:space-between;align-items:center;padding:0 7vw 0 6vw;gap:24px}
+.form-moss .jvl-greet{text-align:left;pointer-events:none;align-self:center}
+.form-moss .jvl-h1{font-size:clamp(38px,5vw,70px);color:#EAF7FC;text-shadow:0 2px 34px rgb(0 0 0 / .55)}
+.form-moss .jvl-eyebrow{color:#53E8FF;text-shadow:0 0 14px rgb(83 232 255 / .5)}
+.form-moss .jvl-date{color:#7d93a6;letter-spacing:.14em}
+/* MOSS 卡片压在 WebGL 场景上：不用 backdrop-filter（省一次逐帧背景模糊），改实色半透明 */
+.form-moss .jvl-card{background:rgb(5 10 17 / .86);border-color:rgb(83 232 255 / .16);
+  -webkit-backdrop-filter:none;backdrop-filter:none}
+.form-moss .jvl-field input:focus{border-color:rgb(83 232 255 / .6);box-shadow:0 0 0 4px rgb(83 232 255 / .12)}
+.form-moss .jvl-btn{background:#53E8FF;color:#03121a}
+.form-moss .jvl-btn::before{background:#53E8FF}
+.jvl-scan{position:fixed;inset:0;z-index:1;pointer-events:none;opacity:.35;
+  background:repeating-linear-gradient(0deg,rgb(0 0 0 / .12) 0 1px,transparent 1px 3px)}
+/* MOSS 台词弹窗（原样保留） */
+.jvl-bubble{position:fixed;left:57%;top:14%;z-index:3;max-width:320px;
+  background:rgb(6 10 16 / .92);border:1px solid rgb(255 80 60 / .45);border-left:3px solid #FF5C4A;
+  padding:10px 16px 12px;font-family:'Share Tech Mono',ui-monospace,monospace;font-size:13.5px;color:#FFD9D4;
+  letter-spacing:.06em;line-height:1.75;
+  clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px);
+  animation:jvl-bubble-in .22s ease-out;pointer-events:none}
+.jvl-bubble-tag{display:block;color:#FF5C4A;font-size:10px;letter-spacing:.3em;margin-bottom:5px}
+.jvl-caret{display:inline-block;width:7px;height:13px;background:#FF5C4A;margin-left:3px;vertical-align:-2px;
+  animation:jvl-blink .8s steps(1) infinite}
+@keyframes jvl-bubble-in{from{opacity:0;transform:translateY(8px)}}
+@keyframes jvl-blink{50%{opacity:0}}
+.jvl-ambient.is-moss{background:#030A12}
+
+@media (max-width:900px){
+  .form-moss .jvl-main{flex-direction:column;justify-content:center;padding:72px 20px 32px}
+  .form-moss .jvl-greet{position:fixed;left:6vw;top:9vh}
+  .form-moss .jvl-h1{font-size:clamp(28px,7vw,44px)}
+  .jvl-bubble{left:6vw;right:6vw;top:auto;bottom:10vh;max-width:none}
+}
+@media (max-width:480px){
+  .jvl-brand{visibility:hidden}
+}
+@media (max-height:640px){
+  .jvl-main{justify-content:flex-start;overflow-y:auto}
+}
+
+/* 减弱动态：入场/退场只剩淡入淡出，背景光不漂移 */
+@media (prefers-reduced-motion:reduce){
+  .jvl-key-light{animation:none}
+  .jvl-orb,.jvl-greet,.jvl-card-wrap,.jvl-top{animation:jvl-fade .4s ease both !important}
+  .stage-leaving .jvl-card-wrap,.stage-bloom .jvl-card-wrap,.stage-leaving .jvl-greet,.stage-bloom .jvl-greet,
+  .stage-bloom .jvl-orb{animation:jvl-fade-out .2s ease both !important}
+  .jvl-card.shake{animation:none}
+  .jvl-caret{animation:none}
+}
