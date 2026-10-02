@@ -16,6 +16,7 @@ import Reminders from './Reminders.jsx'
 import Threads from './Threads.jsx'
 import WeChatConnect from './WeChatConnect.jsx'
 import { applyTheme, currentTheme, toggleTheme } from './theme.js'
+import { trackKeyboard } from './viewport.js'
 
 function newThreadId() {
   return 't-' + (crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10))
@@ -100,6 +101,7 @@ export default function Hud({ session, onLogout }) {
   }, [theme])
 
   useEffect(() => { localStorage.setItem('jws_thread', thread) }, [thread])
+  useEffect(() => trackKeyboard(), [])   // iOS 软键盘：主界面贴合键盘以上的可见区域（见 viewport.js）
 
   // 跨断点：进窄屏收起抽屉/浮层；回到宽屏按用户偏好恢复常驻
   const prevMode = useRef(mode)
