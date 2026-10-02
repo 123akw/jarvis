@@ -25,9 +25,12 @@ export function retainTouchGuard() {
 
 export const gestureActive = () => !!current?.active
 
-/** 松手后吞掉紧随其后的 click：鼠标的 click 和 pointerup 在同一个任务里，下一拍就撤；触摸留得久一点 */
-function swallowClick(touch) {
+/** 松手后吞掉紧随其后、落在拖拽源（或其祖先，指针捕获失效时 click 落在公共祖先上）的那次 click：
+ *  鼠标的 click 和 pointerup 在同一个任务里，下一拍就撤；触摸留得久一点 */
+function swallowClick(el, touch) {
   const stop = ev => {
+    const t = ev.target
+    if (el && t && t.nodeType === 1 && !(el === t || el.contains(t) || t.contains(el))) return
     ev.preventDefault()
     ev.stopPropagation()
     ev.stopImmediatePropagation?.()
@@ -105,7 +108,7 @@ export function beginGesture(e, {
     const was = g.active
     cleanup()
     if (!was) return
-    swallowClick(type === 'touch')
+    swallowClick(el, type === 'touch')
     onEnd?.({ x: ev.clientX, y: ev.clientY })
   }
   function cancel(ev) {

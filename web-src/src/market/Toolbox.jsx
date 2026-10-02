@@ -39,10 +39,9 @@ function UndoBar({ undo, onUndo, className = '' }) {
 }
 
 /** 工具箱抽屉：已选插件可拖动排序（或上下按钮）、拖出 / 拖到删除区移除（或移除按钮）、点名字看详情；顶部是类型分布 */
-function Drawer({ plugins, onClose, onMove, onClear, onOpen, action, reorder, remove, undo, onUndo }) {
+function Drawer({ plugins, onClose, onMove, onClear, onOpen, action, reorder, remove, undo, onUndo, announce, region }) {
   const n = plugins.length
   const [sure, setSure] = useState(false)   // 「全部清空」点两次才生效
-  const [announce, region] = useNews()
   const sort = useSortableList({
     items: plugins.map(p => ({ id: p.id, name: p.name, icon: p.icon, sub: KIND_LABEL[p.kind] || '' })),
     onReorder: (from, to, item) => { reorder(from, to); announce(say.moved(item.name, to + 1)) },
@@ -58,7 +57,8 @@ function Drawer({ plugins, onClose, onMove, onClear, onOpen, action, reorder, re
   const move = (p, i, dir) => {
     onMove(p.id, dir)
     announce(say.moved(p.name, i + dir + 1))
-    focusRow(p.id, row => row.querySelector(`[data-dir="${dir}"]:not(:disabled)`) || row.querySelector('[data-dir]:not(:disabled)'))
+    const key = dir < 0 ? 'up' : 'down'
+    focusRow(p.id, row => row.querySelector(`[data-dir="${key}"]:not(:disabled)`) || row.querySelector('[data-dir]:not(:disabled)'))
   }
   // 移除后焦点落到下一行（没有就上一行）的移除按钮，不掉回页面开头
   const removeAt = (p, i) => {
@@ -144,7 +144,8 @@ function useDockMini() {
     const last = new WeakMap()
     const onScroll = e => {
       const t = e.target === document ? document.scrollingElement : e.target
-      if (!t || t.nodeType !== 1 || !mq.matches || t.closest?.('[role="dialog"],.jvm-dock')) return
+      if (!mq.matches) { setMini(false); return }
+      if (!t || t.nodeType !== 1 || t.closest?.('[role="dialog"],.jvm-dock')) return
       const y = t.scrollTop
       if (!last.has(t)) { last.set(t, y); return }
       const prev = last.get(t)
@@ -188,7 +189,8 @@ export default function Toolbox({ plugins, onRemove, onMove, onReorder, onAdd, o
   const { dropProps, isOver, dragging, landing, tip } = useDockDrop()
   const dnd = useDndActions()
   const [mini, setMini] = useDockMini()
-  const [announce, region] = useNews()
+  const [announce, region] = useNews()              // Dock 上的播报（加入）
+  const [tell, drawerRegion] = useNews()            // 抽屉里的播报（抽屉是模态框，读屏只读框内的）
   const [undo, setUndo] = useState(null)
   const [tipOn, setTipOn] = useState(null)
   const n = plugins.length
@@ -247,7 +249,7 @@ export default function Toolbox({ plugins, onRemove, onMove, onReorder, onAdd, o
     const to = Math.min(u.index, latest.current.length - 1)
     if (from >= 0 && from !== to) flushSync(() => reorder(from, to))
     const pos = latest.current.findIndex(p => p.id === u.id)
-    announce(say.restored(u.name, (pos >= 0 ? pos : to) + 1))
+    ;(open ? tell : announce)(say.restored(u.name, (pos >= 0 ? pos : to) + 1))
   }
 
   const slot = (isOver && dragging?.tone === 'ok') || landing ? (dragging?.icon || landing?.icon || '') : null
@@ -296,7 +298,8 @@ export default function Toolbox({ plugins, onRemove, onMove, onReorder, onAdd, o
       </div>
       {open ? (
         <Drawer plugins={plugins} onClose={() => setOpen(false)} onMove={onMove} onClear={onClear}
-          onOpen={id => { setOpen(false); onOpen(id) }} action={action} reorder={reorder} remove={remove} undo={undo} onUndo={restore} />
+          onOpen={id => { setOpen(false); onOpen(id) }} action={action} reorder={reorder} remove={remove} undo={undo} onUndo={restore}
+          announce={tell} region={drawerRegion} />
       ) : null}
     </>
   )
