@@ -42,7 +42,8 @@ describe('任务台可交互', () => {
     const tick = await screen.findByLabelText('完成：整理会议材料')
     fireEvent.click(tick)
     await waitFor(() => expect(patchTodo).toHaveBeenCalledWith(7, true))
-    expect(getDashboard.mock.calls.length).toBeGreaterThan(1)  // 操作后重新拉取
+    // 打勾动画播完（约 0.45 秒）后重新拉取
+    await waitFor(() => expect(getDashboard.mock.calls.length).toBeGreaterThan(1))
   })
 
   it('待办快速新增：输入回车调 POST', async () => {
@@ -82,7 +83,8 @@ describe('会议纪要卡片', () => {
     expect(open.textContent).toContain('✉')   // 已发过邮件的标记
     fireEvent.click(open)
     await waitFor(() => expect(getMeeting).toHaveBeenCalledWith(2))
-    expect((await screen.findByText(/方案明天上线/)).textContent).toContain('会议纪要')
+    const item = await screen.findByText(/方案明天上线/)
+    expect(item.closest('.meeting-minutes').textContent).toContain('会议纪要')   // 纪要按 Markdown 渲染
   })
 
   it('重发邮件按钮真的调接口并回显收件人', async () => {

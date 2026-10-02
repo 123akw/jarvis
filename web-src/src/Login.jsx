@@ -270,7 +270,7 @@ export default function Login({ onAuthed, notice = '' }) {
     if (moss) say(LINES_FAIL, { voice: true })
     later(() => setFail(false), 700)
     // 提交时按钮被禁用、焦点丢到 body：放回口令框，直接重输
-    requestAnimationFrame(() => passRef.current?.focus())
+    passRef.current?.focus()
   }
 
   const orbState = spinup ? 'speaking' : busy ? 'thinking' : typing ? 'listening' : 'idle'

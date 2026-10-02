@@ -395,9 +395,18 @@ body.light .jbody .hljs-built_in,body.light .jbody .hljs-type,body.light .jbody 
 .when.over{color:var(--jv-text-3)}
 .sched.past .ptxt{color:var(--jv-text-3)}
 .ptick{appearance:none;-webkit-appearance:none;flex:none;width:18px;height:18px;margin-top:2px;border-radius:50%;
-  border:1.5px solid var(--jv-text-3);background:transparent;cursor:pointer;transition:transform .2s var(--jv-ease)}
+  border:1.5px solid var(--jv-text-3);background:transparent center/12px no-repeat;cursor:pointer;
+  transition:transform .2s var(--jv-ease),background-color .2s var(--jv-ease),border-color .2s var(--jv-ease)}
 .ptick:hover{border-color:var(--jv-accent)}
 .ptick:active{transform:scale(.9)}
+/* 勾上：实心圆 + 白勾，文字划掉淡出（乐观更新，服务器确认后再从列表移除） */
+.ptick:checked{border-color:var(--jv-accent);background-color:var(--jv-accent);cursor:default;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12.5 4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+  animation:jv-tick .3s var(--jv-ease)}
+@keyframes jv-tick{40%{transform:scale(1.18)}}
+.prow .ptxt{transition:color .3s var(--jv-ease),opacity .3s var(--jv-ease)}
+.prow.done .ptxt{color:var(--jv-text-3);text-decoration:line-through;text-decoration-color:var(--jv-text-3);opacity:.7}
+.prow.done .pdel{visibility:hidden}
 .tickbox{flex:none;width:5px;height:5px;margin:9px 6px 0 6px;border-radius:50%;background:var(--jv-text-3)}
 .pdel{flex:none;width:24px;height:24px;display:grid;place-items:center;border:none;border-radius:7px;background:none;
   color:var(--jv-text-3);font-size:13px;opacity:0;transition:opacity .2s var(--jv-ease)}
@@ -409,13 +418,36 @@ body.light .jbody .hljs-built_in,body.light .jbody .hljs-type,body.light .jbody 
 .jv-add-row input::placeholder{color:var(--jv-text-3)}
 .jv-add-row input:hover{background:var(--jv-hover)}
 .jv-add-row input:focus{background:var(--jv-surface-2)}
+/* 日程新增：写下标题后才出现时间选择（默认下一个整点），平时保持一行的安静 */
+.sched-add{display:flex;gap:6px;align-items:center}
+.sched-add input:first-child{flex:1;min-width:0}
+.sched-add .sched-when{flex:none;width:auto;max-width:60%;font-family:var(--jv-mono);font-size:12.5px;
+  font-variant-numeric:tabular-nums;color:var(--jv-text-2);background:var(--jv-surface-2);animation:jv-in-right .24s var(--jv-ease)}
+.today-more{display:block;margin:2px 0 0 10px;padding:4px 0;border:none;background:none;color:var(--jv-accent);font-size:12.5px}
+.today-more:hover{text-decoration:underline;text-underline-offset:3px}
+/* 读取中 / 读取失败 / 操作失败 */
+.today-state{display:flex;flex-direction:column;align-items:center;gap:12px;padding:48px 16px;text-align:center;
+  color:var(--jv-text-3);font-size:13.5px}
+.today-state[role=status]{flex-direction:row;justify-content:center;gap:10px}
+.today-spinner{width:14px;height:14px;border-radius:50%;border:2px solid var(--jv-surface-2);border-top-color:var(--jv-text-2);
+  animation:jv-spin .8s linear infinite}
+@keyframes jv-spin{to{transform:rotate(360deg)}}
+.today-err{margin:8px 6px 0;padding:9px 12px;border-radius:10px;font-size:13px;line-height:1.5;
+  color:var(--jv-danger);background:color-mix(in srgb,var(--jv-danger) 10%,transparent);animation:jv-rise .24s var(--jv-ease)}
 
 /* 会议纪要 */
 .meeting-open{border:none;background:none;color:var(--jv-text);font-size:14.5px;line-height:1.5;text-align:left;padding:0}
 .meeting-open:hover{color:var(--jv-accent)}
 .meeting-detail{margin:4px 6px 8px;border-radius:12px;background:var(--jv-surface-2);overflow:hidden}
-.meeting-minutes{max-height:260px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;font-family:inherit;
+.meeting-minutes{max-height:300px;overflow-y:auto;word-break:break-word;font-family:inherit;
   font-size:13px;line-height:1.7;padding:12px 14px;margin:0;color:var(--jv-text)}
+.meeting-minutes.is-raw{white-space:pre-wrap}
+.meeting-minutes.jbody{font-size:13.5px;line-height:1.7}
+.meeting-minutes.jbody h1,.meeting-minutes.jbody h2,.meeting-minutes.jbody h3{font-size:14px;margin:12px 0 4px}
+.meeting-minutes.jbody>:first-child{margin-top:0}
+.meeting-minutes.jbody ul,.meeting-minutes.jbody ol{margin:4px 0 4px 18px}
+.meeting-row.on .meeting-open{color:var(--jv-accent)}
+.meeting-mailed{color:var(--jv-text-3);font-size:12px}
 .meeting-actions{display:flex;gap:6px;padding:0 10px 10px}
 .meeting-actions button,.meeting-rename button{flex:1;height:30px;border:none;border-radius:8px;background:var(--jv-surface-2);
   color:var(--jv-text);font-size:12.5px;font-weight:500}
