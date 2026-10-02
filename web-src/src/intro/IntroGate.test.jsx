@@ -21,6 +21,23 @@ afterEach(() => {
   setIntroPlaying(false)
 })
 
+describe('只在市场首页播', () => {
+  it('首次打开 /（市场）自动播；/login、/app、旧二维码 /?u= 都不播', () => {
+    window.history.replaceState(null, '', '/')
+    const first = render(<IntroGate />)
+    expect(first.container.querySelector('.jv-intro-gate')).not.toBeNull()
+    first.unmount()
+    for (const path of ['/login', '/app', '/?u=jvabc123']) {
+      window.sessionStorage.removeItem(SEEN_KEY)
+      window.history.replaceState(null, '', path)
+      const { container, unmount } = render(<IntroGate />)
+      expect(container.querySelector('.jv-intro-gate')).toBeNull()
+      expect(introPlaying()).toBe(false)
+      unmount()
+    }
+  })
+})
+
 describe('IntroGate 与登录页的交接', () => {
   it('?intro=off：不渲染、不标记播放中', () => {
     setSearch('?intro=off')

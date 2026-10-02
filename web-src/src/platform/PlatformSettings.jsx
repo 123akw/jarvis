@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import Icon from '../Icon.jsx'
 import Modal, { ModalHead } from '../Modal.jsx'
-import { navigate } from '../routes.js'
+import { MARKET_PATH, navigate } from '../routes.js'
 import { normalizeHex, PLATFORM_ACCENTS, PLATFORM_ICONS, pluginMeta, savePlatform } from './platform.js'
 import './platform.css'
 
@@ -116,7 +116,7 @@ export default function PlatformSettings({ platform, plugins = null, onSaved, on
               })}
             </ul>
           ) : <p className="pf-empty">还没有插件，去市场挑几个吧。</p>}
-          <button type="button" className="jv-btn jv-btn--sm pf-more" onClick={() => { onClose(); navigate('/market') }}>
+          <button type="button" className="jv-btn jv-btn--sm pf-more" onClick={() => { onClose(); navigate(MARKET_PATH) }}>
             <Icon name="store" size={15} />添加更多
           </button>
         </fieldset>

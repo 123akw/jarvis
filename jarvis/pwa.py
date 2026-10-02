@@ -87,7 +87,7 @@ def manifest(platform: dict) -> dict:
         "name": name,
         "short_name": name[:12],
         "start_url": f"/p/{slug}",
-        "scope": "/",              # 登录后进主页（/）仍留在 App 里，不跳出到浏览器
+        "scope": "/",              # 登录后进主应用（/app）、逛市场（/）都仍留在 App 里，不跳出到浏览器
         "display": "standalone",
         "orientation": "portrait",
         "lang": "zh-CN",
