@@ -132,6 +132,21 @@ function Thinking() {
  *  原来是 max-height + 气泡内部滚动：手机上手指落在气泡里，整次滑动都被它吃掉，对话翻不动。 */
 const LONG_CHARS = 600
 const LONG_LINES = 12
+const UPLOAD_ACCEPT = '.pdf,.docx,.doc,.xlsx,.xlsm,.xls,.csv,.txt,.md,.jpg,.jpeg,.png,.webp,.bmp,.mp4,.mov'
+
+/** 上传的文档 → 发给贾维斯的一条消息：附件标记（有原文件时）+ 读出来的文字 */
+function documentMessage(doc) {
+  const marker = doc.file?.marker ? `\n${doc.file.marker}` : ''
+  if (!doc.text) {
+    return `我上传了文件《${doc.name}》${doc.note ? `（没能读出文字：${doc.note}）` : ''}，先告诉我能对它做些什么。${marker}`
+  }
+  const notice = doc.truncated ? '（内容过长，以下为截断后的开头部分）' : ''
+  if (doc.kind === 'table') {
+    return `请看看这份表格《${doc.name}》${notice}，先简要说明有哪些工作表和列、大概多少行、主要内容；之后我可能让你统计、筛选或整理。${marker}\n\n【表格开始】\n${doc.text}\n【表格结束】`
+  }
+  return `请通读这份文档《${doc.name}》${notice}，先用不超过 5 条要点总结主要内容；之后我会就它继续提问。${marker}\n\n【文档开始】\n${doc.text}\n【文档结束】`
+}
+
 function UserBubble({ text }) {
   const [open, setOpen] = useState(false)
   const long = text.length > LONG_CHARS || text.split('\n').length > LONG_LINES
@@ -406,7 +421,8 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input) }
   }
 
-  /** 📎 文档上传：解析成文本后作为一条消息发出，让贾维斯先总结、后续可追问 */
+  /** 📎 文档上传：解析成文本后作为一条消息发出，让贾维斯先总结、后续可追问；
+   *  PDF / Word / Excel / CSV 另存进文件空间，消息里带附件标记，办公工具按 file_id 处理原文件 */
   async function onPickFile(e) {
     const file = e.target.files?.[0]
     e.target.value = ''
@@ -428,8 +444,8 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
       } else if (doc.kind === 'video') {
         await send(`我发了一段视频《${doc.name}》，以下是对画面的识别描述（无声音），请基于它先简要回应，我可能会继续追问。\n\n【视频内容】\n${doc.text}\n【视频内容结束】`)
       } else {
-        const notice = doc.truncated ? '（文档过长，以下为截断后的开头部分）' : ''
-        await send(`请通读这份文档《${doc.name}》${notice}，先用不超过 5 条要点总结主要内容；之后我会就它继续提问。\n\n【文档开始】\n${doc.text}\n【文档结束】`)
+        await send(documentMessage(doc))
+        if (doc.file_error) setUploadErr(doc.file_error)   // 文字已发出，只是原文件没存进文件空间
       }
     } catch (err) {
       if (err.message === '401') { onExpired?.(); return }
@@ -478,11 +494,11 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
         {uploading ? <div className="upload-note" role="status"><span className="today-spinner" aria-hidden="true" />正在读取《{uploading}》…</div> : null}
         {uploadErr && <div className="upload-err" role="alert">⚠ {uploadErr}</div>}
         <div className="inputbar2">
-          <input ref={fileRef} type="file" accept=".pdf,.docx,.txt,.md,.jpg,.jpeg,.png,.webp,.bmp,.mp4,.mov" style={{ display: 'none' }}
+          <input ref={fileRef} type="file" accept={UPLOAD_ACCEPT} style={{ display: 'none' }}
             aria-label="选择文档" onChange={onPickFile} />
           <button className={`jv-icon-btn round${uploading ? ' loading' : ''}`} onClick={() => fileRef.current?.click()}
             disabled={busy || Boolean(uploading)}
-            title="上传文档（PDF / Word / TXT / MD / 图片 / 视频）" aria-label="上传文档"><Icon name="clip" /></button>
+            title="上传文件（PDF / Word / Excel / CSV / TXT / MD / 图片 / 视频）" aria-label="上传文档"><Icon name="clip" /></button>
           <textarea ref={boxRef} value={input} rows={1}
             onChange={e => { setInput(e.target.value); autoGrow() }}
             onKeyDown={onKey}

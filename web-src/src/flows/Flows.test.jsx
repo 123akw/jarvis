@@ -294,6 +294,22 @@ describe('流程拼接页', () => {
     expect(within(screen.getByRole('complementary')).getByText(/上次运行成功/)).toBeInTheDocument()
   })
 
+  it('结果是文件（生成 Excel / Word 积木）：结果卡给下载按钮，不给二维码', async () => {
+    const { container } = await renderPage()
+    const s = await startRun(container)
+    await act(async () => {
+      s.send({ type: 'run_start', run_id: 'r9' })
+      s.send({ type: 'run_done', status: 'ok', output: { url: '/api/files/AbC123xyz', title: '会议纪要.xlsx', kind: 'file' } })
+    })
+    const card = await screen.findByRole('region', { name: '运行结果' })
+    expect(within(card).getByRole('heading', { name: '会议纪要.xlsx' })).toBeInTheDocument()
+    const download = within(card).getByRole('link', { name: '下载文件' })
+    expect(download).toHaveAttribute('href', '/api/files/AbC123xyz')
+    expect(download).toHaveAttribute('download')
+    expect(within(card).queryByRole('img', { name: /二维码/ })).toBeNull()
+    expect(within(card).queryByRole('link', { name: '打开结果网页' })).toBeNull()
+  })
+
   it('中途失败：失败节点标红并说原因，后面的节点不再亮', async () => {
     const { container } = await renderPage()
     const s = await startRun(container)

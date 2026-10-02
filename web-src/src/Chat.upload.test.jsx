@@ -58,6 +58,85 @@ describe('文档上传', () => {
   })
 })
 
+describe('办公文件附件：存进文件空间并在消息里带附件标记', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getHistory.mockResolvedValue([])
+    chatStream.mockImplementation(() => streamOk())
+  })
+  afterEach(cleanup)
+
+  async function pick(name, type = '') {
+    render(<Chat threadId="t1" />)
+    const picker = await screen.findByLabelText('选择文档')
+    fireEvent.change(picker, { target: { files: [new File(['x'], name, { type })] } })
+    await waitFor(() => expect(chatStream).toHaveBeenCalledTimes(1))
+    return chatStream.mock.calls[0][0]
+  }
+
+  it('选择框接受 Excel / CSV / Word / PDF', async () => {
+    render(<Chat threadId="t1" />)
+    const accept = (await screen.findByLabelText('选择文档')).getAttribute('accept')
+    for (const ext of ['.pdf', '.docx', '.xlsx', '.csv', '.xls']) expect(accept).toContain(ext)
+  })
+
+  it('Excel：表格模板 + 附件标记 + 表格文字', async () => {
+    uploadDocument.mockResolvedValue({
+      ok: true, kind: 'table', name: '报销.xlsx', chars: 30, truncated: false,
+      text: '## 工作表：明细\n\n| 部门 | 金额 |\n| --- | --- |\n| 销售部 | 1200 |',
+      file: { id: 'AbC123xyz', name: '报销.xlsx', url: '/api/files/AbC123xyz', marker: '［附件：报销.xlsx · file_id=AbC123xyz］' },
+    })
+    const message = await pick('报销.xlsx')
+    expect(message).toContain('这份表格《报销.xlsx》')
+    expect(message).toContain('［附件：报销.xlsx · file_id=AbC123xyz］')
+    expect(message).toContain('【表格开始】')
+    expect(message).toContain('| 销售部 | 1200 |')
+    expect(message.indexOf('［附件')).toBeLessThan(message.indexOf('【表格开始】'))   // 标记在前，折叠时也看得见
+  })
+
+  it('PDF：文档模板照旧并带附件标记', async () => {
+    uploadDocument.mockResolvedValue({
+      ok: true, kind: 'document', name: '合同.pdf', chars: 4, truncated: false, text: '甲方乙方',
+      file: { id: 'PdF987abc', name: '合同.pdf', url: '/api/files/PdF987abc', marker: '［附件：合同.pdf · file_id=PdF987abc］' },
+    })
+    const message = await pick('合同.pdf', 'application/pdf')
+    expect(message).toContain('请通读这份文档《合同.pdf》')
+    expect(message).toContain('［附件：合同.pdf · file_id=PdF987abc］')
+    expect(message).toContain('【文档开始】\n甲方乙方\n【文档结束】')
+  })
+
+  it('读不出文字的 PDF（扫描件）：仍发出附件标记，说明原因', async () => {
+    uploadDocument.mockResolvedValue({
+      ok: true, kind: 'document', name: '扫描件.pdf', chars: 0, truncated: false, text: '',
+      note: '没有从文档里读到文字（可能是纯图片扫描件）',
+      file: { id: 'ScAn12345', name: '扫描件.pdf', url: '/api/files/ScAn12345', marker: '［附件：扫描件.pdf · file_id=ScAn12345］' },
+    })
+    const message = await pick('扫描件.pdf')
+    expect(message).toContain('没能读出文字')
+    expect(message).toContain('file_id=ScAn12345')
+    expect(message).not.toContain('【文档开始】')
+  })
+
+  it('文件空间满了：文字照发，另外提示原文件没保存', async () => {
+    uploadDocument.mockResolvedValue({
+      ok: true, kind: 'table', name: '名单.csv', chars: 5, truncated: false, text: '| 姓名 |', file: null,
+      file_error: '文件空间已满（每个账号 200MB），请先删掉一些不用的文件再试（这次只读取了文字，原文件没有保存）',
+    })
+    const message = await pick('名单.csv')
+    expect(message).not.toContain('［附件')
+    expect(await screen.findByText(/原文件没有保存/)).toBeTruthy()
+  })
+
+  it('老版 .xls 的人话错误直接展示', async () => {
+    uploadDocument.mockRejectedValue(new Error('暂不支持老版 Excel（.xls）：请在 Excel 或 WPS 里「另存为」.xlsx 后再上传'))
+    render(<Chat threadId="t1" />)
+    const picker = await screen.findByLabelText('选择文档')
+    fireEvent.change(picker, { target: { files: [new File(['x'], '老表.xls')] } })
+    expect(await screen.findByText(/另存为」.xlsx/)).toBeTruthy()
+    expect(chatStream).not.toHaveBeenCalled()
+  })
+})
+
 describe('图片 / 视频上传', () => {
   beforeEach(() => {
     vi.clearAllMocks()

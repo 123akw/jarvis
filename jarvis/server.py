@@ -1050,7 +1050,7 @@ def upload_document(request: Request, body: UploadIn):
     if err:
         return err
     name = Path(body.name).name.strip() or "文档"
-    from jarvis import documents
+    from jarvis import documents, files
     # 先按编码长度拦超限文件：此前 30MB 也要先整段解码（多占一份内存）才报超限
     if len(body.content_b64) > (documents.MAX_UPLOAD_BYTES + 2) // 3 * 4 + 4:
         return JSONResponse({"error": "文件超过 10MB 上限"}, status_code=422)
@@ -1073,15 +1073,31 @@ def upload_document(request: Request, body: UploadIn):
             return JSONResponse({"error": str(exc)}, status_code=422)
         return {"ok": True, "kind": "image" if image_ext else "video", "name": name,
                 "chars": len(text), "truncated": False, "text": text}
+    # PDF / Word / Excel / CSV 另存一份进文件空间：办公插件要的是原文件，不是解析后的文字
+    keep = name.lower().endswith(files.ATTACHABLE_EXTENSIONS)
+    note = ""
     try:
         text = documents.extract_text(name, data)
     except documents.DocumentError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=422)
+        if not keep:
+            return JSONResponse({"error": str(exc)}, status_code=422)
+        text, note = "", str(exc)   # 读不出文字（扫描件 / 加密）也先存下，工具可能还能处理
+    attached, file_error = None, ""
+    if keep:
+        try:
+            meta = files.save(principal.user_id, name, data, source="upload")
+            attached = {**meta, "marker": files.attachment_marker(meta)}
+        except files.FileSpaceError as exc:
+            if not text:
+                return JSONResponse({"error": str(exc)}, status_code=422)
+            file_error = f"{exc}（这次只读取了文字，原文件没有保存）"
     truncated = len(text) > documents.MAX_DOC_CHARS
     if truncated:
         text = text[: documents.MAX_DOC_CHARS]
-    return {"ok": True, "kind": "document", "name": name, "chars": len(text),
-            "truncated": truncated, "text": text}
+    kind = "table" if name.lower().endswith((".xlsx", ".xlsm", ".csv")) else "document"
+    return {"ok": True, "kind": kind, "name": name, "chars": len(text),
+            "truncated": truncated, "text": text, "note": note,
+            "file": attached, "file_error": file_error}
 
 
 # ---------- Heartbeat 主动唤醒：定期读关注清单，模型裁量后主动开口 ----------
@@ -1703,6 +1719,15 @@ def spa_page():
 @app.get("/p/{slug}")
 def spa_platform(slug: str):
     return FileResponse(_WEB / "index.html")
+
+
+# ---- 文件空间：办公插件读写的原文件，按账号隔离（逻辑在 jarvis/files.py） ----
+from jarvis import files  # noqa: E402
+
+files.register(
+    app, request_principal=_request_principal, write_authorized=_write_authorized,
+    deny=_deny, csrf_deny=_csrf_deny,
+)
 
 
 # ---- 智能平台工坊：插件市场、平台开通、/p/<slug> 的 PWA 入口（逻辑在 jarvis/platforms.py） ----
