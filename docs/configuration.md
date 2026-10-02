@@ -54,7 +54,7 @@
 | --- | --- | --- |
 | `MINIMAX_API_KEY` | 无 | 语音通话 TTS（MiniMax） |
 | `DASHSCOPE_API_KEY` | 无 | 阿里百炼：通话与会议的服务端流式识别、微信语音识别、情绪感知、图片 / 短视频识别（含飞书发图）、会议说话人分离 |
-| `MINIMAX_TTS_VOICE` / `MINIMAX_TTS_MODEL` | `male-qn-qingse` / `speech-02-turbo` | 语音答复音色与模型 |
+| `MINIMAX_TTS_VOICE` / `MINIMAX_TTS_MODEL` | `male-qn-qingse` / `speech-2.8-turbo` | 语音答复音色与模型（可切回 `speech-02-turbo` 等任意型号） |
 | `JARVIS_DASHSCOPE_ASR_MODEL` | `qwen3-asr-flash` | 微信语音消息识别模型（同用 `DASHSCOPE_API_KEY`） |
 | `JARVIS_WECHAT_GROUP_NAME` | `贾维斯` | 群聊里 @ 贾维斯的名字，被 @ 才会在群里应答 |
 | `JARVIS_HISTORY_CHAR_BUDGET` | `30000` | 每轮送模型的历史字符预算（按轮次边界裁剪，checkpoint 全量历史不动）；`0` 关闭裁剪 |

@@ -89,3 +89,7 @@ body.light .voice-typebar button{color:#fff}
 @media (prefers-reduced-motion:reduce){
   .voice-overlay,.voice-panel{animation:none}
 }
+
+/* —— 语音 B：打断标记 / 垫话（独立小块，追加在文件末尾） —— */
+.voice-cut{margin-left:.35em;font-size:.82em;color:var(--_text3);white-space:nowrap;letter-spacing:.02em}
+.voice-filler{color:var(--_text2)}
