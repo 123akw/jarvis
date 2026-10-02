@@ -72,6 +72,13 @@ function mockApi(role = 'Owner', overrides = {}) {
   return { calls, session: { authed: true, username: role === 'Owner' ? 'admin' : 'member', role, csrf_token: 't' } }
 }
 
+/** 第十七轮：插件管理入口在头像菜单里（Owner 才有「插件管理」），打开后默认在「已装」页签 */
+async function openAdmin(user) {
+  await user.click(await screen.findByRole('button', { name: /^账号：/ }))
+  await user.click(screen.getByRole('menuitem', { name: '插件管理' }))
+  return screen.findByRole('dialog', { name: '插件管理' })
+}
+
 describe('插件市场：来源、不可用与插件管理', () => {
   beforeEach(() => {
     vi.stubGlobal('sessionStorage', memoryStorage())
@@ -94,11 +101,12 @@ describe('插件市场：来源、不可用与插件管理', () => {
     render(<Market session={session} />)
     const broken = await screen.findByRole('article', { name: 'Excel 工具箱' })
     expect(broken).toHaveClass('is-off')
-    expect(within(broken).getByText(/暂不可用：缺少 Python 包：openpyxl/)).toBeInTheDocument()
+    expect(within(broken).getByText(/暂不可用：缺少 Python 包：openpyxl/)).toBeInTheDocument()   // 读屏文字 +「＋」的悬停提示
     expect(within(broken).getByRole('button', { name: '加入工具箱：Excel 工具箱' })).toBeDisabled()
     // 第十五轮：社区插件与官方插件同列，靠徽标和「来源」筛选区分；来源链接在详情里
     const community = screen.getByRole('article', { name: '回声测试' })
     expect(within(community).getByText('社区')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '筛选' }))
     await user.click(within(screen.getByRole('group', { name: '按来源' })).getByRole('button', { name: '社区' }))
     expect(screen.queryByRole('article', { name: '待办清单' })).toBeNull()
     await user.click(within(screen.getByRole('article', { name: '回声测试' })).getByRole('link', { name: '回声测试' }))
@@ -113,8 +121,8 @@ describe('插件市场：来源、不可用与插件管理', () => {
     const { calls, session } = mockApi('Owner')
     const user = userEvent.setup()
     render(<Market session={session} />)
-    await user.click(await screen.findByRole('button', { name: '导入插件' }))
-    const dialog = await screen.findByRole('dialog', { name: '插件管理' })
+    const dialog = await openAdmin(user)
+    await user.click(within(dialog).getByRole('tab', { name: '导入' }))
     await user.type(within(dialog).getByRole('textbox'), 'https://github.com/acme/skills/tree/main/polite')
     await user.click(within(dialog).getByRole('button', { name: '预览' }))
     const card = await within(dialog).findByRole('region', { name: '安装预览：礼貌回复' })
@@ -140,8 +148,8 @@ describe('插件市场：来源、不可用与插件管理', () => {
     })
     const user = userEvent.setup()
     render(<Market session={session} />)
-    await user.click(await screen.findByRole('button', { name: '导入插件' }))
-    const dialog = await screen.findByRole('dialog', { name: '插件管理' })
+    const dialog = await openAdmin(user)
+    await user.click(within(dialog).getByRole('tab', { name: '导入' }))
     await user.type(within(dialog).getByRole('textbox'), 'https://github.com/acme/x')
     await user.click(within(dialog).getByRole('button', { name: '预览' }))
     const alert = await within(dialog).findByRole('alert')
@@ -154,7 +162,8 @@ describe('插件市场：来源、不可用与插件管理', () => {
     const user = userEvent.setup()
     vi.stubGlobal('confirm', () => true)
     render(<Market session={session} />)
-    // 插件源成为「来源」筛选里的一项（与官方 / 社区并列）
+    // 插件源成为「来源」筛选里的一项（与官方 / 社区并列，收在「筛选」弹层里）
+    await user.click(await screen.findByRole('button', { name: '筛选' }))
     const tab = await screen.findByRole('button', { name: '示例插件源' })
     const sourceGroup = screen.getByRole('group', { name: '按来源' })
     expect(within(sourceGroup).getByRole('button', { name: '官方' })).toBeInTheDocument()

@@ -129,16 +129,25 @@ describe('市场首页：顶栏、搜索与筛选', () => {
     expect(window.location.pathname).toBe('/')
   })
 
-  it('管理员入口：只有 Owner 能看到「导入插件 / 管理插件」', async () => {
+  it('管理员入口挪进头像菜单：只有 Owner 有「插件管理」，打开插件管理弹窗；目录里不再有虚线框入口', async () => {
     mockApi()
-    const { unmount } = render(<Market session={false} />)
+    const user = userEvent.setup()
+    const { unmount } = render(<Market session={{ authed: true, username: 'amy', role: 'Member' }} />)
     await screen.findByRole('article', { name: '查天气' })
-    expect(screen.queryByRole('group', { name: '插件管理（管理员）' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: '账号：amy' }))
+    expect(screen.queryByRole('menuitem', { name: '插件管理' })).toBeNull()
     unmount()
+
     render(<Market session={{ authed: true, username: 'boss', role: 'Owner' }} />)
-    const admin = await screen.findByRole('group', { name: '插件管理（管理员）' })
-    expect(within(admin).getByRole('button', { name: '导入插件' })).toBeInTheDocument()
-    expect(within(admin).getByRole('button', { name: '管理插件' })).toBeInTheDocument()
+    await screen.findByRole('article', { name: '查天气' })
+    expect(screen.queryByRole('button', { name: '导入插件' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '管理插件' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: '账号：boss' }))
+    expect(within(screen.getByRole('menu')).getAllByRole('menuitem').map(i => i.textContent))
+      .toEqual(['进入我的智能体', '我的流程', '插件管理', '退出登录'])
+    await user.click(screen.getByRole('menuitem', { name: '插件管理' }))
+    const dialog = await screen.findByRole('dialog', { name: '插件管理' })
+    expect(within(dialog).getByRole('tab', { name: '已装' })).toHaveAttribute('aria-selected', 'true')
   })
 
   it('搜索：「/」与 Ctrl+K 聚焦，即时过滤（名称、示例、类型都能搜），Esc 清空；搜不到时一键让 AI 推荐', async () => {
@@ -150,10 +159,10 @@ describe('市场首页：顶栏、搜索与筛选', () => {
     await user.keyboard('/')
     expect(box).toHaveFocus()
     await user.type(box, '天气')
-    expect(screen.getByRole('heading', { name: /搜索结果/ })).toHaveTextContent('1 个')
+    expect(screen.getByRole('heading', { name: /“天气” 的结果/ })).toHaveTextContent('1 个')
     expect(screen.getByRole('article', { name: '查天气' })).toBeInTheDocument()
     expect(screen.queryByRole('article', { name: '日程提醒' })).toBeNull()
-    expect(screen.queryByRole('heading', { name: /拼出你自己的 AI 智能体/ })).toBeNull()   // 搜索时首屏让位给结果
+    expect(screen.queryByRole('region', { name: '精选套装' })).toBeNull()   // 搜索结果直接替换精选与总览
 
     await user.clear(box)
     await user.type(box, '开会')   // 只出现在「日程提醒」的示例里
@@ -164,13 +173,14 @@ describe('市场首页：顶栏、搜索与筛选', () => {
 
     await user.keyboard('{Escape}')
     expect(box).toHaveValue('')
-    expect(screen.getByRole('heading', { name: /拼出你自己的 AI 智能体/ })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '精选套装' })).toBeInTheDocument()
     box.blur()
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
     expect(box).toHaveFocus()
 
     await user.type(box, '火星移民')
     expect(screen.getByText('没找到和「火星移民」相关的插件')).toBeInTheDocument()
+    expect(screen.queryByRole('option')).toBeNull()   // 四个字不算一句话：不弹「让 AI 推荐」
     await user.click(screen.getByRole('button', { name: /让 AI 按这句推荐/ }))
     await waitFor(() => expect(called(calls, 'POST', '/api/market/recommend')).toHaveLength(1))
     expect(called(calls, 'POST', '/api/market/recommend')[0].body).toEqual({ description: '火星移民' })
@@ -178,34 +188,50 @@ describe('市场首页：顶栏、搜索与筛选', () => {
     expect(await screen.findByText('先记事。')).toBeInTheDocument()
   })
 
-  it('筛选组合：类型 × 来源 × 分类；组合为空时能一键清除', async () => {
+  it('筛选：分类页签是主导航（不带计数）；来源 / 类型收进「筛选」弹层；组合为空时能一键清除', async () => {
     mockApi()
     const user = userEvent.setup()
     render(<Market session={false} />)
     await screen.findByRole('article', { name: '查天气' })
-    const kinds = screen.getByRole('group', { name: '按类型' })
-    const sources = screen.getByRole('group', { name: '按来源' })
+    expect(screen.queryByRole('group', { name: '按类型' })).toBeNull()   // 默认不再摆三排
     const cats = screen.getByRole('group', { name: '按分类看' })
+    expect(within(cats).getByRole('button', { name: '效率' })).toHaveTextContent(/^效率$/)
+    const filterBtn = () => screen.getByRole('button', { name: /^筛选/ })
+    const openFilter = async () => {
+      if (!screen.queryByRole('dialog', { name: '筛选' })) await user.click(filterBtn())
+      return screen.getByRole('dialog', { name: '筛选' })
+    }
+    const pick = async (group, name) => {
+      const pop = await openFilter()
+      await user.click(within(within(pop).getByRole('group', { name: group })).getByRole('button', { name }))
+    }
 
-    await user.click(within(kinds).getByRole('button', { name: '技能' }))
-    expect(within(kinds).getByRole('button', { name: '技能' })).toHaveAttribute('aria-pressed', 'true')
+    await pick('按类型', '技能')
+    expect(within(screen.getByRole('group', { name: '按类型' })).getByRole('button', { name: '技能' })).toHaveAttribute('aria-pressed', 'true')
     expect(cards()).toEqual(['周报写手', '小红书文案'])
-    // 分类上的数字跟着类型筛选走，没有技能的分类收起
-    expect(within(cats).queryByRole('button', { name: /效率/ })).toBeNull()
-    expect(within(cats).getByRole('button', { name: /AI 处理/ })).toHaveTextContent('2')
+    expect(filterBtn()).toHaveAccessibleName('筛选（已选 1 项）')
+    // 没有技能的分类收起
+    expect(within(cats).queryByRole('button', { name: '效率' })).toBeNull()
+    expect(within(cats).getByRole('button', { name: 'AI 处理' })).toBeInTheDocument()
 
-    await user.click(within(kinds).getByRole('button', { name: '工具' }))
-    await user.click(within(cats).getByRole('button', { name: /效率/ }))
+    await pick('按类型', '工具')
+    await user.click(within(cats).getByRole('button', { name: '效率' }))   // 点弹层外面：弹层收起
+    expect(screen.queryByRole('dialog', { name: '筛选' })).toBeNull()
     expect(cards()).toEqual(['日程提醒', '待办清单', '随手记', '回声测试'])
-    await user.click(within(sources).getByRole('button', { name: '社区' }))
+    await pick('按来源', '社区')
     expect(cards()).toEqual(['回声测试'])
-
-    await user.click(within(kinds).getByRole('button', { name: 'MCP' }))
+    await pick('按类型', 'MCP')
     expect(cards()).toHaveLength(0)
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: '筛选' })).toBeNull()
+    expect(filterBtn()).toHaveFocus()
+
     const empty = screen.getByText('这个组合下还没有插件').closest('.jvm-none')
     await user.click(within(empty).getByRole('button', { name: '清除筛选' }))
     expect(screen.getByRole('article', { name: '查天气' })).toBeInTheDocument()
-    expect(within(kinds).getByRole('button', { name: 'MCP' })).toHaveAttribute('aria-pressed', 'false')
+    const pop = await openFilter()
+    expect(within(within(pop).getByRole('group', { name: '按类型' })).getByRole('button', { name: 'MCP' })).toHaveAttribute('aria-pressed', 'false')
+    expect(within(within(pop).getByRole('group', { name: '按类型' })).getByRole('button', { name: '全部' })).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('大目录：总览每个分类先露几张，「全部 N 个」切到该分类看全', async () => {
@@ -218,6 +244,7 @@ describe('市场首页：顶栏、搜索与筛选', () => {
     await user.click(screen.getByRole('button', { name: '查看效率的全部 30 个插件' }))
     expect(cards()).toHaveLength(30)
     expect(screen.getByRole('heading', { name: /效率/, level: 2 })).toHaveTextContent('30 个')
+    expect(screen.queryByRole('region', { name: '精选套装' })).toBeNull()   // 切到分类：精选让位
   })
 })
 
@@ -290,8 +317,9 @@ describe('插件详情：?plugin=<id>', () => {
     const user = userEvent.setup()
     render(<Market session={false} />)
     const card = await screen.findByRole('article', { name: '高德地图' })
-    expect(within(card).getByText('MCP')).toBeInTheDocument()
+    // 卡片最多一个徽标：需要配置 > 暂不可用 > 专业版 > MCP > 社区
     expect(within(card).getByText('需要配置')).toBeInTheDocument()
+    expect(within(card).queryByText('MCP')).toBeNull()
     expect(within(card).getByRole('button', { name: '加入工具箱：高德地图' })).toBeDisabled()
     await user.click(within(card).getByRole('link', { name: '高德地图' }))
     const dialog = await screen.findByRole('dialog', { name: '插件详情：高德地图' })
@@ -316,7 +344,7 @@ describe('插件详情：?plugin=<id>', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     await waitFor(() => expect(called(calls, 'POST', '/api/market/recommend')).toHaveLength(1))
     expect(called(calls, 'POST', '/api/market/recommend')[0].body).toEqual({ description: '这周有什么安排' })
-    expect(screen.getByRole('textbox', { name: '用一句话描述你的情况' })).toHaveValue('这周有什么安排')
+    expect(await screen.findByRole('region', { name: '为你推荐' })).toHaveTextContent('这周有什么安排')
   })
 })
 
