@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { logout } from './api.js'
+import { getFeishuStatus, logout } from './api.js'
 import AccountMenu from './AccountMenu.jsx'
 import AccountSettings from './AccountSettings.jsx'
 import Chat from './Chat.jsx'
 import CommandPalette from './CommandPalette.jsx'
 import { DesktopGuide, useDesktopHandoff } from './DesktopHandoff.jsx'
+import FeishuConnect from './FeishuConnect.jsx'
 import Icon from './Icon.jsx'
 import MemoryPanel from './MemoryPanel.jsx'
 import Modal, { useEscape } from './Modal.jsx'
@@ -46,6 +47,24 @@ const writePref = (key, on) => localStorage.setItem(key, on ? '1' : '0')
 
 const todayText = () => new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })
 
+/** 浮层/抽屉的焦点：打开时把焦点移进面板（键盘与读屏用户不用再摸过去），
+ *  关闭时若焦点还在面板里（或已随 inert 掉回 body），交还给开关按钮。 */
+function useOverlayFocus(shown, panelRef, toggleRef) {
+  const prev = useRef(shown)
+  useEffect(() => {
+    if (prev.current === shown) return
+    prev.current = shown
+    const panel = panelRef.current
+    if (!panel) return
+    if (shown) {
+      panel.focus({ preventScroll: true })
+    } else {
+      const a = document.activeElement
+      if (!a || a === document.body || panel.contains(a)) toggleRef.current?.focus({ preventScroll: true })
+    }
+  }, [shown]) // eslint-disable-line react-hooks/exhaustive-deps
+}
+
 export default function Hud({ session, onLogout }) {
   const mode = useLayoutMode()
   const leftOverlay = mode === 'narrow'
@@ -54,12 +73,17 @@ export default function Hud({ session, onLogout }) {
   const [refreshKey, setRefreshKey] = useState(0)
   const [dash, setDash] = useState(null)
   const [geo, setGeo] = useState(null)
+  // 本地新建、服务端还没有记录的会话：对话区据此跳过拉历史（否则每次「新对话」都换来一个 404）
+  const freshRef = useRef(null)
+  if (!freshRef.current) freshRef.current = new Set()
   const [thread, setThread] = useState(() => localStorage.getItem('jws_thread') || 'web')
   const [threadList, setThreadList] = useState([])
   const [leftOpen, setLeftOpen] = useState(() => mode !== 'narrow' && readPref('jws_sidebar', true))
   const [todayOpen, setTodayOpen] = useState(() => mode === 'wide' && readPref('jws_today', true))
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [wxOpen, setWxOpen] = useState(false)
+  const [feishu, setFeishu] = useState(null)       // 飞书渠道状态：只有服务端配置了飞书才出现入口
+  const [fsOpen, setFsOpen] = useState(false)
   const [injected, setInjected] = useState(null)   // 会议纪要「追问」注入对话的消息
   const [accountOpen, setAccountOpen] = useState(false)
   const [providerOpen, setProviderOpen] = useState(false)
@@ -84,6 +108,12 @@ export default function Hud({ session, onLogout }) {
   }, [mode])
 
   const onTurnDone = useCallback(() => setRefreshKey(k => k + 1), [])
+
+  useEffect(() => {  // 飞书入口：GET /api/feishu/status 报 configured=true 才显示（旧服务端没有该接口就当未配置）
+    let alive = true
+    getFeishuStatus().then(s => { if (alive) setFeishu(s) }).catch(() => {})
+    return () => { alive = false }
+  }, [])
 
   useEffect(() => {  // 浏览器定位：拿到就随对话上报，拒绝则服务端按 IP 兜底
     navigator.geolocation?.getCurrentPosition(
@@ -121,7 +151,11 @@ export default function Hud({ session, onLogout }) {
     setThread(id)
     if (leftOverlay) setLeftOpen(false)  // 抽屉模式选完会话自动收起
   }
-  const newChat = () => selectThread(newThreadId())
+  const newChat = () => {
+    const id = newThreadId()
+    freshRef.current.add(id)
+    selectThread(id)
+  }
 
   const overlayShown = (leftOverlay && leftOpen) || (todayOverlay && todayOpen)
   const closeOverlays = useCallback(() => {
@@ -129,6 +163,12 @@ export default function Hud({ session, onLogout }) {
     if (todayOverlay) setTodayOpen(false)
   }, [leftOverlay, todayOverlay])
   useEscape(closeOverlays, overlayShown)
+  const sideRef = useRef(null)
+  const sideBtnRef = useRef(null)
+  const todayRef = useRef(null)
+  const todayBtnRef = useRef(null)
+  useOverlayFocus(leftOverlay && leftOpen, sideRef, sideBtnRef)
+  useOverlayFocus(todayOverlay && todayOpen, todayRef, todayBtnRef)
 
   const isOwner = session?.role === 'Owner'
   const settingsCommands = [
@@ -136,6 +176,7 @@ export default function Hud({ session, onLogout }) {
     { id: 'memory', label: '记忆与人设', icon: 'sparkles', keywords: '画像 称呼 人格 persona', run: () => setMemoryOpen(true) },
     { id: 'settings', label: '设置中心', hint: '模型 API · 语音 · 桌面', icon: 'sliders', keywords: 'api 模型 provider key 语音 音色 语速 晨报 电台 桌面 会议 邮箱 联网 搜索', run: () => setProviderOpen(true) },
     ...(isOwner ? [{ id: 'wechat', label: '接入个人微信', icon: 'bubble', keywords: 'wechat 扫码', run: () => setWxOpen(true) }] : []),
+    ...(feishu?.configured ? [{ id: 'feishu', label: '接入飞书', hint: feishu.bound ? '已绑定' : '', icon: 'feishu', keywords: 'feishu lark 飞书 绑定 机器人', run: () => setFsOpen(true) }] : []),
     { id: 'desktop', label: '桌面悬浮窗', hint: desktop.busy ? '联系中…' : '', icon: 'desktop', keywords: '悬浮球 桌面端', run: () => void desktop.activate() },
     { id: 'theme', label: theme === 'light' ? '切换到暗色' : '切换到亮色', icon: theme === 'light' ? 'moon' : 'sun', keywords: '主题 外观 theme', run: () => setTheme(toggleTheme()) },
   ]
@@ -163,7 +204,7 @@ export default function Hud({ session, onLogout }) {
     <div className={`hud mode-${mode}`}>
       <header className="jv-topbar">
         <div className="tb-left">
-          <button type="button" className={`jv-icon-btn${leftOpen ? ' on' : ''}`} onClick={toggleLeft}
+          <button ref={sideBtnRef} type="button" className={`jv-icon-btn${leftOpen ? ' on' : ''}`} onClick={toggleLeft}
             aria-label={leftOpen ? '收起会话栏' : '展开会话栏'} aria-expanded={leftOpen}
             aria-controls="jv-sidebar" title="会话历史">
             <Icon name="sidebar" />
@@ -184,7 +225,7 @@ export default function Hud({ session, onLogout }) {
             <span className="tb-search-text">搜索与命令</span>
             <kbd>⌘K</kbd>
           </button>
-          <button type="button" className={`jv-icon-btn${todayOpen ? ' on' : ''}`} onClick={() => setToday(!todayOpen)}
+          <button ref={todayBtnRef} type="button" className={`jv-icon-btn${todayOpen ? ' on' : ''}`} onClick={() => setToday(!todayOpen)}
             aria-label="今日" aria-expanded={todayOpen} aria-controls="jv-today"
             title={pending ? `今日：${pending} 项待办` : '今日：日程 / 待办 / 备忘'}>
             <Icon name="today" />
@@ -196,7 +237,7 @@ export default function Hud({ session, onLogout }) {
       <Reminders onExpired={onLogout} />
       {desktop.note ? <div className="jv-toast" role="status">{desktop.note}</div> : null}
       <main className="jv-main">
-        <aside id="jv-sidebar" className={`jv-sidebar${leftOpen ? ' open' : ''}`} aria-label="会话历史"
+        <aside id="jv-sidebar" ref={sideRef} tabIndex={-1} className={`jv-sidebar${leftOpen ? ' open' : ''}`} aria-label="会话历史"
           inert={!leftOpen || undefined}>
           <div className="sb-brand" aria-hidden="true">J.A.R.V.I.S.</div>
           <Threads current={thread} refreshKey={refreshKey}
@@ -204,8 +245,9 @@ export default function Hud({ session, onLogout }) {
             onExpired={onLogout} onLoaded={setThreadList} />
         </aside>
         <Chat threadId={thread} location={geo} onBusy={setBusy} injected={injected}
+          fresh={freshRef.current.has(thread) && !threadList.some(t => t.id === thread)}
           onTurnDone={onTurnDone} onExpired={onLogout} userName={session?.username || ''} />
-        <aside id="jv-today" className={`jv-today${todayOpen ? ' open' : ''}`} aria-label="今日"
+        <aside id="jv-today" ref={todayRef} tabIndex={-1} className={`jv-today${todayOpen ? ' open' : ''}`} aria-label="今日"
           inert={!todayOpen || undefined}>
           <div className="today-card">
             <div className="today-head">
@@ -231,6 +273,7 @@ export default function Hud({ session, onLogout }) {
           onPickThread={selectThread} onClose={() => setPaletteOpen(false)} />
       ) : null}
       {wxOpen ? <WeChatConnect onClose={() => setWxOpen(false)} onExpired={onLogout} /> : null}
+      {fsOpen ? <FeishuConnect onClose={() => setFsOpen(false)} onExpired={onLogout} onChange={setFeishu} /> : null}
       {memoryOpen ? <MemoryPanel onClose={() => setMemoryOpen(false)} onExpired={onLogout} /> : null}
       {accountOpen ? (
         <Modal label="账户设置" onClose={() => setAccountOpen(false)} dismissOnBackdrop={false}>

@@ -1,12 +1,22 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { login } from './api.js'
 import Presence, { prefersReducedMotion } from './Presence.jsx'
-import ShaderBg from './ShaderBg.jsx'
 import { applyTheme, currentTheme } from './theme.js'
 import './Login.css'
 
 // MOSS 3D 机头（three.js）只在 MOSS 形态下懒加载：默认的光球形态首屏不碰 three
 const Moss = lazy(() => import('./Moss.jsx'))
+
+/** 登录页柔和背景光：零依赖 CSS 光场（两团静态光 + 光球身后缓慢漂移的主光 + 细颗粒），样式在 Login.css。
+ *  MOSS 形态在 3D 场景加载出来之前用它的暗色版（is-moss）垫底。 */
+function Ambient({ moss = false }) {
+  return (
+    <div className={`jvl-ambient${moss ? ' is-moss' : ''}`} aria-hidden="true">
+      <i className="jvl-key-light" />
+      <i className="jvl-grain" />
+    </div>
+  )
+}
 
 /**
  * 登录页两种形态：
@@ -146,8 +156,12 @@ export default function Login({ onAuthed, notice = '' }) {
   const [bloomAt, setBloomAt] = useState(null)
   const [bubble, setBubble] = useState(null)
   const [voiceOn, setVoiceOn] = useState(readVoicePref)
+  const [missing, setMissing] = useState('')   // 空着没填的那一栏：'user' | 'pass'
+  const [hint, setHint] = useState('')         // 错误提示：一直留到用户重新输入（原来 0.7 秒就消失，来不及读）
   const orbSize = useOrbSize()
   const orbRef = useRef(null)
+  const userRef = useRef(null)
+  const passRef = useRef(null)
   const typingLevel = useRef({ v: 0, t: 0 })
   const typingTimer = useRef(0)
   const timers = useRef([])
@@ -230,9 +244,19 @@ export default function Login({ onAuthed, notice = '' }) {
   async function submit(e) {
     e.preventDefault()
     if (busy || spinup) return
+    // 从表单元素取值：浏览器自动填充的口令在用户交互前可能还没同步进 React 状态
+    const user = (userRef.current?.value ?? u).trim()
+    const pass = passRef.current?.value ?? p
+    if (!user || !pass) {   // 空着的栏不发请求：提示并把光标放过去
+      setMissing(!user ? 'user' : 'pass')
+      setHint(!user ? '请输入用户名' : '请输入口令')
+      ;(!user ? userRef : passRef).current?.focus()
+      return
+    }
+    setMissing('')
     setBusy(true)
     let session = null
-    try { session = await login(u.trim(), p) } catch { session = null }
+    try { session = await login(user, pass) } catch { session = null }
     setP('')
     if (session) {
       setBusy(false)
@@ -241,9 +265,12 @@ export default function Login({ onAuthed, notice = '' }) {
     }
     setBusy(false)
     setFail(true)
+    setHint('身份未确认，请重试')
     setShaking(true)
     if (moss) say(LINES_FAIL, { voice: true })
     later(() => setFail(false), 700)
+    // 提交时按钮被禁用、焦点丢到 body：放回口令框，直接重输
+    passRef.current?.focus()
   }
 
   const orbState = spinup ? 'speaking' : busy ? 'thinking' : typing ? 'listening' : 'idle'
@@ -252,7 +279,7 @@ export default function Login({ onAuthed, notice = '' }) {
     <div className={`jv-login form-${form} stage-${stage}`}>
       {moss ? (
         <>
-          <Suspense fallback={<ShaderBg className="is-moss" />}>
+          <Suspense fallback={<Ambient moss />}>
             <Moss busy={busy} fail={fail} spinup={spinup}
               onPick={() => say(pick(LINES_PICK), { voice: true })} />
           </Suspense>
@@ -264,7 +291,7 @@ export default function Login({ onAuthed, notice = '' }) {
             </div>
           )}
         </>
-      ) : <ShaderBg />}
+      ) : <Ambient />}
 
       <div className="jvl-top">
         <span className="jvl-brand">J.A.R.V.I.S.</span>
@@ -290,18 +317,18 @@ export default function Login({ onAuthed, notice = '' }) {
             {notice ? <div className="jvl-notice" role="status">{notice}</div> : null}
             <label className="jvl-field">
               <span>用户名</span>
-              <input value={u} onChange={e => { setU(e.target.value); onKeyActivity() }}
-                autoComplete="username" autoFocus spellCheck={false} />
+              <input ref={userRef} value={u} onChange={e => { setU(e.target.value); setMissing(''); setHint(''); onKeyActivity() }}
+                autoComplete="username" autoFocus spellCheck={false} aria-invalid={missing === 'user' || undefined} />
             </label>
             <label className="jvl-field">
               <span>口令</span>
-              <input type="password" value={p} onChange={e => { setP(e.target.value); onKeyActivity() }}
-                autoComplete="current-password" />
+              <input ref={passRef} type="password" value={p} onChange={e => { setP(e.target.value); setMissing(''); setHint(''); onKeyActivity() }}
+                autoComplete="current-password" aria-invalid={missing === 'pass' || undefined} />
             </label>
             <button className="jvl-btn" disabled={busy || spinup}>
               <span>{spinup ? (moss ? '核心同步中…' : '正在接入…') : busy ? '验证中…' : '接入系统'}</span>
             </button>
-            <div className={`jvl-hint${fail ? ' show' : ''}`} aria-live="polite">{fail ? '身份未确认，请重试' : ''}</div>
+            <div className={`jvl-hint${hint ? ' show' : ''}`} aria-live="polite">{hint}</div>
             {moss && (
               <button type="button" className="jvl-voice" onClick={toggleVoice}>
                 {voiceOn ? '🔊 MOSS 语音 · 开' : '🔇 MOSS 语音 · 关'}

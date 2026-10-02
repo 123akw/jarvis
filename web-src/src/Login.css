@@ -35,7 +35,7 @@ body.light .jv-login{
   --_shadow:0 24px 60px -24px rgb(40 44 80 / .28);
 }
 
-/* ---------- 背景光（ShaderBg） ---------- */
+/* ---------- 背景光（Login.jsx 的 Ambient） ---------- */
 .jvl-ambient{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;
   background:
     radial-gradient(60vmax 46vmax at 6% 108%,rgb(59 130 246 / .14),transparent 70%),
@@ -161,7 +161,7 @@ body.light .jvl-notice{color:#047857}
 /* MOSS 台词弹窗（原样保留） */
 .jvl-bubble{position:fixed;left:57%;top:14%;z-index:3;max-width:320px;
   background:rgb(6 10 16 / .92);border:1px solid rgb(255 80 60 / .45);border-left:3px solid #FF5C4A;
-  padding:10px 16px 12px;font-family:'Share Tech Mono',ui-monospace,monospace;font-size:13.5px;color:#FFD9D4;
+  padding:10px 16px 12px;font-family:var(--jv-mono,ui-monospace,monospace);font-size:13.5px;color:#FFD9D4;
   letter-spacing:.06em;line-height:1.75;
   clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px);
   animation:jvl-bubble-in .22s ease-out;pointer-events:none}

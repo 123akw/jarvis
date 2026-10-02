@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Icon from './Icon.jsx'
-import { useEscape } from './Modal.jsx'
+import { useDialogFocus, useEscape } from './Modal.jsx'
 
 /** ⌘K 命令面板：所有设置入口 + 最近会话跳转，键盘 ↑↓ 选择、Enter 执行、Esc 关闭。
  *  commands: [{ id, label, hint?, icon, run }]；threads: [{ id, title }] */
@@ -9,8 +9,9 @@ export default function CommandPalette({ commands, threads = [], onPickThread, o
   const [active, setActive] = useState(0)
   const inputRef = useRef(null)
   const listRef = useRef(null)
+  const boxRef = useRef(null)
   useEscape(onClose)
-  useEffect(() => { inputRef.current?.focus() }, [])
+  useDialogFocus(boxRef)   // 焦点进搜索框；关闭后还给打开前的控件
 
   const items = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -49,10 +50,10 @@ export default function CommandPalette({ commands, threads = [], onPickThread, o
   let lastGroup = ''
   return (
     <div className="jv-palette-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="jv-palette" role="dialog" aria-modal="true" aria-label="命令面板">
+      <div className="jv-palette" role="dialog" aria-modal="true" aria-label="命令面板" ref={boxRef} tabIndex={-1}>
         <div className="jv-palette-search">
           <Icon name="search" size={18} />
-          <input ref={inputRef} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={onKey}
+          <input ref={inputRef} data-autofocus value={query} onChange={e => setQuery(e.target.value)} onKeyDown={onKey}
             placeholder="搜索对话，或输入要做的事…" aria-label="搜索命令" role="combobox"
             aria-expanded="true" aria-controls="jv-palette-list"
             aria-activedescendant={items[active] ? `pal-${items[active].key}` : undefined} />

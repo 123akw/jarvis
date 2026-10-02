@@ -36,6 +36,18 @@ describe('文档上传', () => {
     expect(message).toContain('决议：周五上线')
   })
 
+  it('解析期间显示「正在读取《文件名》…」，完成后消失', async () => {
+    let resolve
+    uploadDocument.mockImplementation(() => new Promise(r => { resolve = r }))
+    render(<Chat threadId="t1" />)
+    const picker = await screen.findByLabelText('选择文档')
+    fireEvent.change(picker, { target: { files: [new File(['x'], '季度报告.pdf', { type: 'application/pdf' })] } })
+    expect(await screen.findByText('正在读取《季度报告.pdf》…')).toBeTruthy()
+    await waitFor(() => expect(uploadDocument).toHaveBeenCalled())
+    resolve({ ok: true, kind: 'document', name: '季度报告.pdf', chars: 1, truncated: false, text: 'x' })
+    await waitFor(() => expect(screen.queryByText('正在读取《季度报告.pdf》…')).toBeNull())
+  })
+
   it('解析失败时给出人话错误提示，不发消息', async () => {
     uploadDocument.mockRejectedValue(new Error('只支持 PDF、Word（.docx）、TXT 和 Markdown 文件'))
     render(<Chat threadId="t1" />)

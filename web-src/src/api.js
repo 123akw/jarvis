@@ -201,6 +201,18 @@ export async function desktopHandoffTicket() {
   return parse(await fetch('/api/desktop/handoff', { method: 'POST', headers: csrfHeaders() }))
 }
 
+/* ---- 飞书机器人绑定（鉴权与 CSRF 规则与微信接口一致） ---- */
+export async function getFeishuStatus() {
+  return parse(await fetch('/api/feishu/status'))
+}
+/** 领 6 位一次性绑定码：{ code, expires_in(秒), command: '绑定 123456' } */
+export async function createFeishuBindCode() {
+  return parse(await fetch('/api/feishu/bind-code', { method: 'POST', headers: csrfHeaders() }))
+}
+export async function unbindFeishu() {
+  return parse(await fetch('/api/feishu/unbind', { method: 'POST', headers: csrfHeaders() }))
+}
+
 /** 语音通话 WebSocket 地址；连接后第一条 init 消息带 currentCsrf() */
 export function voiceSocketUrl() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -209,6 +221,15 @@ export function voiceSocketUrl() {
 
 export function currentCsrf() {
   return csrfToken
+}
+
+/** 对话请求的 HTTP 错误 → 给人看的说明（原来一律是「请求失败」） */
+function chatHttpError(status, reason) {
+  if (status === 403) return '登录状态校验没通过，请刷新页面后再试'
+  if (status === 413) return '这条消息太长了，删减一些再发'
+  if (status === 429) return '请求太频繁了，请稍等片刻再试'
+  if (status >= 500) return reason || '服务暂时不可用，请稍后重试'
+  return reason || `请求失败（HTTP ${status}）`
 }
 
 /** SSE 流式对话，逐事件产出 {type, ...}；location 为浏览器定位 {lat, lon}，可空 */
@@ -220,7 +241,11 @@ export async function* chatStream(message, location = null, threadId = 'web', si
     signal,
   })
   if (r.status === 401) { csrfToken = ''; throw new Error('401') }
-  if (!r.ok) throw new Error('请求失败')
+  if (!r.ok) {
+    let reason = ''
+    try { reason = (await r.json())?.error || '' } catch { /* 网关错误页不是 JSON */ }
+    throw Object.assign(new Error(chatHttpError(r.status, reason)), { status: r.status })
+  }
   const reader = r.body.getReader()
   const dec = new TextDecoder()
   let buf = ''

@@ -114,20 +114,22 @@ export default function Threads({ current, onSelect, onNew, refreshKey, onExpire
           <div key={g.label}>
             <div className="tgroup">{g.label}</div>
             {g.items.map(t => (
-              <div key={t.id}
-                className={`titem${t.id === current ? ' on' : ''}`}
-                onClick={() => editing !== t.id && onSelect(t.id)} title={t.title}>
+              <div key={t.id} className={`titem${t.id === current ? ' on' : ''}`}>
                 {editing === t.id ? (
-                  <input className="trename" value={draft} autoFocus
-                    onClick={e => e.stopPropagation()}
+                  <input className="trename" value={draft} autoFocus aria-label="会话新名称"
+                    onFocus={e => e.target.select()}
                     onChange={e => setDraft(e.target.value)}
                     onBlur={() => saveEdit(t.id)}
                     onKeyDown={e => {
                       if (e.key === 'Enter') saveEdit(t.id)
-                      if (e.key === 'Escape') setEditing(null)
+                      // Esc 只取消改名：不冒泡到全局 Esc（抽屉模式下否则会把会话栏一起关掉）
+                      if (e.key === 'Escape') { e.stopPropagation(); setEditing(null) }
                     }} />
                 ) : (
-                  <span className="ttitle">{t.title}</span>
+                  /* 会话本身是按钮：键盘 Tab 可达、回车切换（原来是 div 点击，键盘用户选不了会话） */
+                  <button type="button" className="ttitle" title={t.title}
+                    aria-current={t.id === current ? 'true' : undefined}
+                    onClick={() => onSelect(t.id)}>{t.title}</button>
                 )}
                 <span className="tactions">
                   <button className="tdel trn" onClick={e => exportThread(e, t)} title="导出为 Markdown" aria-label="导出为 Markdown"><Icon name="download" size={15} /></button>

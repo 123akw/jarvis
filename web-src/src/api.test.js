@@ -2,6 +2,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { changePassword, chatStream, createUser, csrfHeaders, deleteThread, login, logout, updateUser } from './api.js'
 
+describe('对话请求的错误说明', () => {
+  beforeEach(() => { global.fetch = vi.fn() })
+
+  it('HTTP 错误转成人话：403 提示刷新、429 提示稍后、5xx 优先用服务端原因', async () => {
+    global.fetch.mockResolvedValueOnce({ ok: false, status: 403, json: async () => ({ error: 'CSRF 校验失败' }) })
+    await expect(chatStream('hi').next()).rejects.toThrow(/刷新页面/)
+    global.fetch.mockResolvedValueOnce({ ok: false, status: 429, json: async () => ({}) })
+    await expect(chatStream('hi').next()).rejects.toThrow(/太频繁/)
+    global.fetch.mockResolvedValueOnce({ ok: false, status: 503, json: async () => ({ error: '个人数据迁移失败' }) })
+    await expect(chatStream('hi').next()).rejects.toThrow('个人数据迁移失败')
+    global.fetch.mockResolvedValueOnce({ ok: false, status: 502, json: async () => { throw new Error('not json') } })
+    await expect(chatStream('hi').next()).rejects.toThrow(/服务暂时不可用/)
+  })
+})
+
 describe('web CSRF transport', () => {
   beforeEach(() => {
     global.fetch = vi.fn()

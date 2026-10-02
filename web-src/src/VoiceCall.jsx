@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { currentCsrf, getVoiceSettings, voiceSocketUrl } from './api.js'
+import { useDialogFocus, useEscape } from './Modal.jsx'
 import Presence, { EdgeGlow, rmsToLevel } from './Presence.jsx'
 import { toolLabel } from './toolInfo.js'
 import { isMicError, pcmStreamSupported, startMicStream } from './VoiceAudio.js'
@@ -475,7 +476,19 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
   }, [])
 
   const degraded = micState === 'denied' || micState === 'unsupported'
-  const presenceState = PHASE_PRESENCE[phase] || 'idle'
+  // 接通了但麦克风授权还没给（浏览器弹窗还挂着）：别说「我在听」，光球也别做聆听律动
+  const micPending = phase === 'listening' && micState === 'pending'
+  const presenceState = micPending ? 'idle' : (PHASE_PRESENCE[phase] || 'idle')
+  const phaseText = micPending ? '等待麦克风授权…' : (PHASE_LABEL[phase] || phase)
+
+  // 全屏通话层是模态：焦点进来、Tab 不跑到背后、Esc 挂断，挂断后焦点回到通话按钮
+  const overlayRef = useRef(null)
+  const typeRef = useRef(null)
+  useEscape(onClose)
+  useDialogFocus(overlayRef)
+  useEffect(() => {   // 降级为打字通话：直接把光标放进输入框
+    if (degraded && overlayRef.current?.contains(document.activeElement)) typeRef.current?.focus()
+  }, [degraded])
   const [orbSize] = useState(() => (window.innerHeight < 720 || window.innerWidth < 420 ? 128 : 168))
 
   // 光球/流光每帧读音量：听的时候是麦克风，说的时候是正在播放的那一段（函数引用稳定，不触发重渲染）
@@ -494,14 +507,14 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
 
   // 挂到 body：不受 Chat 所在层叠上下文限制，遮罩和边缘流光盖住整屏（含顶栏）
   return createPortal(
-    <div className={`voice-overlay is-${phase}`} role="dialog" aria-label="语音通话">
+    <div ref={overlayRef} className={`voice-overlay is-${phase}`} role="dialog" aria-modal="true" aria-label="语音通话" tabIndex={-1}>
       <EdgeGlow state={presenceState} getLevel={levelRef.current} active={phase !== 'closed'} />
       <div className="voice-panel">
         {scenes.length > 1 && (
           <div className="voice-scenes" data-testid="voice-scenes">
             {scenes.map(s => (
-              <button key={s.id} className={`voice-scene${s.id === scene ? ' on' : ''}`}
-                onClick={() => sendScene(s.id)} title={s.opening || s.name}>
+              <button key={s.id} type="button" className={`voice-scene${s.id === scene ? ' on' : ''}`}
+                aria-pressed={s.id === scene} onClick={() => sendScene(s.id)} title={s.opening || s.name}>
                 {s.icon} {s.name}
               </button>
             ))}
@@ -511,7 +524,7 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
           <Presence state={presenceState} getLevel={levelRef.current} size={orbSize} decorative />
         </div>
         <div className="voice-status">
-          <span className="voice-phase">{PHASE_LABEL[phase] || phase}</span>
+          <span className="voice-phase" aria-live="polite">{phaseText}</span>
           {emotion && (
             <span className="voice-emotion" title="语气感知（识别你说话的情绪）">
               {EMOTION_EMOJI[emotion.emotion] || ''} {emotion.label}
@@ -541,6 +554,7 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
         {degraded && (
           <div className="voice-typebar">
             <input
+              ref={typeRef}
               value={typed}
               onChange={e => setTyped(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') sendTyped() }}

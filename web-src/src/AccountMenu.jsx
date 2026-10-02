@@ -20,9 +20,12 @@ export default function AccountMenu({ session, status, commands }) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef(null)
   const menuRef = useRef(null)
+  const btnRef = useRef(null)
   const name = session?.username || '账号'
   const initial = name.trim().slice(0, 1).toUpperCase() || '·'
-  useEscape(() => setOpen(false), open)
+  // 键盘关闭菜单：焦点交还头像按钮（否则落到 body，键盘用户要从头 Tab）
+  const closeToButton = () => { setOpen(false); btnRef.current?.focus() }
+  useEscape(closeToButton, open)
 
   useEffect(() => {
     if (!open) return undefined
@@ -33,17 +36,30 @@ export default function AccountMenu({ session, status, commands }) {
   }, [open])
 
   function onMenuKey(e) {
-    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
-    e.preventDefault()
     const items = [...menuRef.current.querySelectorAll('[role="menuitem"]')]
+    if (!items.length) return
     const i = items.indexOf(document.activeElement)
-    const next = e.key === 'ArrowDown' ? (i + 1) % items.length : (i - 1 + items.length) % items.length
+    let next = -1
+    if (e.key === 'ArrowDown') next = (i + 1) % items.length
+    else if (e.key === 'ArrowUp') next = (i - 1 + items.length) % items.length
+    else if (e.key === 'Home') next = 0
+    else if (e.key === 'End') next = items.length - 1
+    else if (e.key === 'Tab') { setOpen(false); return }   // Tab 离开菜单即收起，焦点自然移到下一个控件
+    if (next < 0) return
+    e.preventDefault()
     items[next]?.focus()
+  }
+
+  function pick(c) {
+    // 先把焦点交还头像按钮再执行：随后打开的弹窗会把它记作「关闭后还焦点」的目标
+    btnRef.current?.focus()
+    setOpen(false)
+    c.run()
   }
 
   return (
     <div className="acct" ref={rootRef}>
-      <button type="button" className={`avatar-btn${open ? ' on' : ''}`} onClick={() => setOpen(v => !v)}
+      <button ref={btnRef} type="button" className={`avatar-btn${open ? ' on' : ''}`} onClick={() => setOpen(v => !v)}
         aria-label="账户与设置" aria-haspopup="menu" aria-expanded={open} title={name}>
         <span className="avatar">{initial}</span>
       </button>
@@ -71,7 +87,7 @@ export default function AccountMenu({ session, status, commands }) {
             : (
               <button key={c.id} type="button" role="menuitem"
                 className={`menu-item${c.danger ? ' danger' : ''}`}
-                onClick={() => { setOpen(false); c.run() }}>
+                onClick={() => pick(c)}>
                 <Icon name={c.icon} size={17} />
                 <span className="mi-label">{c.label}</span>
                 {c.hint ? <span className="mi-hint">{c.hint}</span> : null}
