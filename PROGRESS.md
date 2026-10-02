@@ -631,3 +631,14 @@
 - 可操作的提醒（F5）+ 送达与免打扰（F6）：`jarvis/delivery.py`，`POST /api/reminders/{id}/snooze|done`（幂等，完成优先），网页弹条 / 桌面通知 / 微信 / 飞书回复均可「稍后 / 完成」且跨渠道去重；设置中心「主动找你」；提醒、晨报、巡检可推送飞书；免打扰只拦巡检、结束后合并。复用 `tenant_reminders_sent` 与 tenant_prefs，无表结构变更。
 - 调研：`docs/proposals/2026-10-round12-roadmap.md`（下一轮建议「手机上的贾维斯」PWA + 推送、「有人味的管家」惦记回访与接通先开口）。
 - 基线 pytest 1069 / vitest 347 / desktop 149。
+
+# 第十三轮（2026-10-02）：智能体工坊（依据 10-02 会议纪要）
+
+- 方向：面向不懂技术的人的插件拼接平台。用户口径（两次修正后）：**先进插件市场挑插件 → 生成专属账号和口令 → 用现有登录页登录 → 进去就是按所选插件形成的智能体**；现有页面保持不变；前端删除 MOSS。方案与接口契约：`docs/proposals/2026-10-round13-platform.md`，调研与演示：`docs/proposals/2026-10-round13-research.md`、`docs/demo/round13-pitch.md`。
+- 地基（a8d2be7）：`routes.js` 顶层页面 `/market`、`/flows`、`/p/<slug>`，`qr.jsx`（qrcode-generator），服务端三类路径回 index.html。注意：worktree 代理基于 origin/main，本地未推送的地基要让代理先 merge。
+- 后端·平台与市场：`jarvis/plugins/`（22 插件、8 职业、规则 + 模型推荐，模型只许选清单 id）、`jarvis/platforms.py`（租户 schema v5 `tenant_platforms`；`/api/market/catalog|recommend|signup`、`/api/platform`、`/api/p/{slug}`；signup 不种 cookie，Owner 代开不受开关限制，游客受 `JARVIS_MARKET_SIGNUP` / 邀请码 / IP 限流 / 总量上限约束）、`jarvis/pwa.py`（manifest、纯 zlib 光球图标、sw.js）。**账号级智能体**：`build_agent(tool_names=…)` + `RuntimeBundle.platform_rev`，平台账号只绑定所选插件的工具（+ now/calc），提示词加「智能体身份」段；Owner 与无平台账号不变。
+- 后端·流程引擎：`jarvis/flows/`（租户 schema v6 `tenant_flows`、`tenant_flow_runs`；9 个积木；`POST /api/flows/{id}/run` SSE；公开结果页 `/r/{token}` 服务端渲染、全转义、CSP 禁脚本、30 天）；飞书 `FeishuAPI` 增加建文档 / 追加块 / 加协作者，没权限降级为发消息。
+- 前端：`market/`（市场、帮我推荐、起名、结果页账号口令卡与存成图片）、`flows/`（节点式编辑器、信号流动的试运行动画、结果卡二维码、运行历史）、`platform/`（智能体品牌化主页、智能体设置、分享卡、`/p/<slug>` 品牌登录、PWA 注入），菜单与 ⌘K 入口。
+- 删除 MOSS：登录页切换 / 3D 机器人 / 台词语音、人设 MOSS 人格（旧数据按 jarvis）；移除 three / @react-three/*，前端产物 1.68MB → 0.71MB；登录页支持 `?u=` 预填用户名。
+- 本机端到端联调（临时数据目录、真实 DeepSeek）：Owner 在市场用一句话描述推荐 → 生成「奶茶店小管家」账号 → `?u=` 登录 → 智能体自称其名、没装的技能直说并给替代、日程正常；流程「上新文案」3 秒跑完并生成结果页。联调发现并修正：回答里「平台 / 智能平台市场」统一为「智能体 / 智能体市场」。
+- 基线 pytest 1178 / vitest 417 / desktop 149。
