@@ -23,6 +23,7 @@ from urllib.parse import urlsplit, urlunsplit
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from jarvis import config
+from jarvis.periodic import warn_throttled
 
 
 CATALOG = (
@@ -67,8 +68,15 @@ def _master_key(value: str | None) -> bytes | None:
     try:
         decoded = base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4))
     except (ValueError, TypeError):
-        return None
-    return decoded if len(decoded) == 32 else None
+        decoded = b""
+    if len(decoded) == 32:
+        return decoded
+    # 常见误配：照抄 SESSION_SECRET 的 openssl rand -hex 32（解码后 48 字节）。此前静默当作未配置，
+    # 设置中心只读却查不到原因。只报长度，绝不把密钥本身写进日志。
+    warn_throttled("secrets-key-invalid",
+                   "JARVIS_SECRETS_KEY 已设置但不是 URL-safe Base64 编码的 32 字节随机值（解码得 %d 字节），"
+                   "Provider 设置保持只读；生成方法见 docs/configuration.md", len(decoded))
+    return None
 
 
 def normalize_base_url(provider: str, value: str) -> str:

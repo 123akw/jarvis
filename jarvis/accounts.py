@@ -18,7 +18,7 @@ from pwdlib import PasswordHash
 
 from jarvis import config
 from jarvis.db import ClosingConnection, file_identity
-from jarvis.periodic import PeriodicWorker
+from jarvis.periodic import PeriodicWorker, warn_throttled
 
 
 log = logging.getLogger(__name__)
@@ -75,10 +75,15 @@ def _is_placeholder(value: str) -> bool:
 def _session_secret() -> bytes | None:
     """Read the explicitly configured CSRF secret; never create a fallback secret."""
     value = os.getenv("JARVIS_SESSION_SECRET", "").strip()
-    if _is_placeholder(value):
-        return None
     encoded = value.encode("utf-8")
-    return encoded if len(encoded) >= 32 else None
+    if value and not _is_placeholder(value) and len(encoded) >= 32:
+        return encoded
+    # 此前只表现为登录接口回 503「服务未配置」，日志里没有任何线索
+    reason = "未配置" if not value else ("仍是示例占位符" if _is_placeholder(value) else f"只有 {len(encoded)} 字节")
+    warn_throttled("session-secret-invalid",
+                   "JARVIS_SESSION_SECRET %s（需要至少 32 字节随机值，如 openssl rand -hex 32），"
+                   "网页登录会 fail closed", reason)
+    return None
 
 
 def session_secret_configured() -> bool:
@@ -339,6 +344,9 @@ class AccountStore:
         password = os.getenv("JARVIS_ADMIN_PASSWORD", "")
         if (not username or not password or _is_placeholder(username)
                 or _is_placeholder(password) or not session_secret_configured()):
+            warn_throttled("bootstrap-owner-missing",
+                           "账户库里还没有任何用户，且 JARVIS_ADMIN_USERNAME / JARVIS_ADMIN_PASSWORD / "
+                           "JARVIS_SESSION_SECRET 未配齐（或仍是占位符），不会创建 Owner，网页无法登录")
             return
         now = _utcnow()
         user_id = str(uuid.uuid4())

@@ -112,7 +112,7 @@ log = logging.getLogger(__name__)
 # tenant_scope 等 contextvars 不会因跨线程恢复而断裂。
 # 大小可用启动环境变量 JARVIS_AGENT_WORKERS 调整（默认 8，≤20 人够用）。
 _agent_pool = ThreadPoolExecutor(
-    max_workers=max(1, int(os.getenv("JARVIS_AGENT_WORKERS", "8") or "8")),
+    max_workers=config.env_int("JARVIS_AGENT_WORKERS", 8, minimum=1),
     thread_name_prefix="jarvis-agent",
 )
 
@@ -1614,10 +1614,10 @@ def run() -> None:
     import uvicorn
 
     # JARVIS_LOG_LEVEL=INFO 可看到心跳/提醒等后台线程的推送记录；默认维持 WARNING
-    logging.basicConfig(level=os.getenv("JARVIS_LOG_LEVEL", "WARNING").upper())
+    logging.basicConfig(level=config.log_level())
     config.load_env()
     _initialize_runtime()
-    port = int(os.getenv("JARVIS_PORT", "7789"))
+    port = config.env_int("JARVIS_PORT", 7789, minimum=1, maximum=65535)
     print(f"J.A.R.V.I.S. 网页端已上线：http://127.0.0.1:{port}")
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
