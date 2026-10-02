@@ -3,7 +3,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import Presence, {
-  clamp01, EdgeGlow, PARAM_KEYS, paramsSettled, PRESENCE_STATES, resetWebglProbe, rmsToLevel,
+  clamp01, EdgeGlow, PARAM_KEYS, paramsSettled, presenceClock, PRESENCE_STATES, resetWebglProbe, rmsToLevel,
   setPresenceGLLoader, smoothLevel, stepParams, targetParams,
 } from './Presence.jsx'
 
@@ -176,5 +176,19 @@ describe('EdgeGlow 屏幕边缘流光', () => {
     expect(el).toHaveAttribute('aria-hidden', 'true')
     expect(el).toHaveClass('is-reduced', 'is-speaking', 'on')
     expect(el.querySelectorAll('.jve-s')).toHaveLength(4)
+  })
+})
+
+describe('全局花纹时钟', () => {
+  it('只由时间决定：同一时刻处处相同，相位按待命流速前进，呼吸在 ±2.2% 内', () => {
+    expect(presenceClock(5000)).toEqual(presenceClock(5000))
+    const a = presenceClock(1000)
+    const b = presenceClock(3000)
+    expect(b.phase - a.phase).toBeCloseTo(targetParams('idle').speed * 2, 10)
+    expect(b.time - a.time).toBeCloseTo(2, 10)
+    for (const t of [0, 700, 1400, 2800]) {
+      const { breath } = presenceClock(t)
+      expect(Math.abs(breath - 1)).toBeLessThanOrEqual(0.0221)
+    }
   })
 })

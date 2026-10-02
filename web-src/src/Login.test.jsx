@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -7,6 +7,7 @@ vi.mock('./api.js', () => ({ login: vi.fn() }))
 vi.mock('./Moss.jsx', () => ({ default: ({ spinup }) => <div aria-label="MOSS 3D" data-spinup={String(spinup)} /> }))
 
 import { login } from './api.js'
+import { INTRO_DONE_EVENT, setIntroPlaying } from './intro/registry.js'
 import Login, { LOGIN_FORM_KEY } from './Login.jsx'
 
 // 本 jsdom 环境不带 localStorage，按仓库惯例 stub 一个内存版
@@ -117,5 +118,33 @@ describe('登录流程', () => {
     await waitFor(() => expect(login).toHaveBeenCalledTimes(2))
     expect(screen.getByRole('button', { name: '接入系统' })).toBeEnabled()
     expect(onAuthed).not.toHaveBeenCalled()
+  })
+})
+
+describe('登录页与进场动画的交接', () => {
+  beforeEach(() => { vi.stubGlobal('localStorage', memoryStorage()) })
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+    setIntroPlaying(false)
+  })
+
+  it('没有进场动画：照常立刻入场', () => {
+    const { container } = render(<Login onAuthed={() => {}} />)
+    expect(container.querySelector('.jv-login')).not.toHaveClass('intro-hold')
+    expect(container.querySelector('.jv-login')).not.toHaveClass('after-intro')
+  })
+
+  it('进场动画播放中：问候语和登录卡先不入场，收到 jv:intro-done 再入场', () => {
+    setIntroPlaying(true)
+    const { container } = render(<Login onAuthed={() => {}} />)
+    const root = container.querySelector('.jv-login')
+    expect(root).toHaveClass('intro-hold')
+    act(() => {
+      setIntroPlaying(false)
+      window.dispatchEvent(new Event(INTRO_DONE_EVENT))
+    })
+    expect(root).not.toHaveClass('intro-hold')
+    expect(root).toHaveClass('after-intro')
   })
 })

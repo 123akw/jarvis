@@ -57,6 +57,22 @@ export function targetParams(state, level = 0) {
 }
 
 export const PARAM_KEYS = ['speed', 'spin', 'energy', 'scale', 'halo', 'sweep']
+
+// ---- 全局花纹时钟：同一页面里所有光球（含进场动画里的那颗）在待命状态下逐帧同相 ----
+const IDLE = targetParams('idle')
+const CLOCK_SEED = Math.random() * 10   // 每次加载换一种花纹；同一页面内所有光球共用
+/** 待命状态下的流动相位 / 旋转角 / 呼吸缩放，只由 performance.now() 决定。
+ *  Presence 在非待命状态下累积的偏移会随状态回落保持不变，所以回到待命后依然与时钟同速；
+ *  进场动画末帧按同一时钟渲染，交接给登录页光球时花纹完全一致。 */
+export function presenceClock(nowMs = performance.now()) {
+  const time = nowMs / 1000
+  return {
+    time,
+    phase: CLOCK_SEED + IDLE.speed * time,
+    spin: CLOCK_SEED * 0.63 + IDLE.spin * 1.6 * time,
+    breath: 1 + 0.022 * Math.sin(time * (Math.PI * 2 / 5.6)),
+  }
+}
 // 各参数的时间常数（秒）：音量相关的快、氛围相关的慢——像呼吸，不像开关
 const TAU = { speed: 0.7, spin: 0.8, energy: 0.16, scale: 0.09, halo: 0.22, sweep: 0.45 }
 
@@ -189,7 +205,7 @@ function Presence({
   const sim = useRef(null)
   if (!sim.current) {
     const t = targetParams(s, 0)
-    sim.current = { cur: t, lvl: 0, phase: Math.random() * 10, spinA: Math.random() * 6.28, time: 0, drewGL: false }
+    sim.current = { cur: t, lvl: 0, phaseOff: 0, spinOff: 0, drewGL: false }
   }
 
   const glEligible = quality === 'auto' && !reduced && size >= GL_MIN_SIZE
@@ -206,19 +222,19 @@ function Presence({
     S.lvl = smoothLevel(S.lvl, isLevelDriven(L.state) ? clamp01(raw) : 0, dt)
     const target = targetParams(L.state, S.lvl)
     S.cur = stepParams(S.cur, target, dt)
-    S.time += dt
-    S.phase += S.cur.speed * dt
-    S.spinA += S.cur.spin * dt * 1.6
+    // 相对全局时钟的偏移：只有偏离待命速度时才累积，待命时花纹与时钟（和进场动画）同相
+    S.phaseOff += (S.cur.speed - IDLE.speed) * dt
+    S.spinOff += (S.cur.spin - IDLE.spin) * dt * 1.6
     const r = rendererRef.current
     if (r && L.gl !== 'off') {
-      const breath = 1 + 0.022 * Math.sin(S.time * (Math.PI * 2 / 5.6))
+      const clk = presenceClock()
       const ok = r.render({
-        phase: S.phase, spin: S.spinA, energy: S.cur.energy, scale: S.cur.scale * breath,
-        halo: S.cur.halo, sweep: S.cur.sweep, time: S.time,
+        phase: clk.phase + S.phaseOff, spin: clk.spin + S.spinOff, energy: S.cur.energy, scale: S.cur.scale * clk.breath,
+        halo: S.cur.halo, sweep: S.cur.sweep, time: clk.time,
         light: document.body.classList.contains('light') ? 1 : 0,
       })
-      if (!ok) return false
-      if (!S.drewGL) { S.drewGL = true; setGlRef.current('ready') }
+      if (ok === false) return false
+      if (ok && !S.drewGL) { S.drewGL = true; setGlRef.current('ready') }   // ok === null：着色器还在后台编译
       return true // WebGL 版持续流动：可见期间一直画
     }
     // CSS 版：只写两个元素的 transform/opacity（不触发布局）

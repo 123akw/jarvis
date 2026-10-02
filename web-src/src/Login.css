@@ -121,6 +121,12 @@ body.light .jvl-notice{color:#047857}
   color:var(--_text3);cursor:pointer;transition:color .2s}
 .jvl-voice:hover{color:var(--_text)}
 
+/* ---------- 进场动画交接：播放中先不入场，收到 jv:intro-done 后入场（节奏比冷启动紧一些） ---------- */
+.jv-login.intro-hold .jvl-greet,.jv-login.intro-hold .jvl-card-wrap,.jv-login.intro-hold .jvl-top{animation:none !important;opacity:0}
+.jv-login.after-intro .jvl-greet{animation-delay:.06s}
+.jv-login.after-intro .jvl-card-wrap{animation-delay:.16s}
+.jv-login.after-intro .jvl-top{animation-delay:.32s}
+
 /* ---------- 登录成功：卡片和文字先退 → 光球扩散成整屏柔光（.jv-bloom 在 Presence.css） ---------- */
 .stage-leaving .jvl-card-wrap,.stage-bloom .jvl-card-wrap{animation:jvl-sink .38s var(--_ease) both}
 .stage-leaving .jvl-greet,.stage-bloom .jvl-greet{animation:jvl-sink .34s var(--_ease) .04s both}
