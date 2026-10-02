@@ -113,6 +113,27 @@ export async function deleteProfile(id) {
   return parse(await fetch(`/api/profile/${id}`, { method: 'DELETE', headers: csrfHeaders() }))
 }
 
+/* ---- 记忆回执：总开关 + 夜间蒸馏「昨晚整理了 N 条」 ---- */
+/** { receipts: bool, fresh: { count, ids, date, at } } */
+export async function getMemoryState() {
+  return parse(await fetch('/api/memory'))
+}
+export async function saveMemoryPrefs(receipts) {
+  return parse(await fetch('/api/memory/prefs', { method: 'PUT', headers: jsonHeaders(), body: JSON.stringify({ receipts }) }))
+}
+export async function dismissFreshMemory() {
+  return parse(await fetch('/api/memory/fresh/dismiss', { method: 'POST', headers: csrfHeaders() }))
+}
+
+/* ---- 今日简报卡：GET 只读缓存；POST 当天第一次才生成（每账号每天最多 1 次模型调用） ---- */
+/** { status: 'ready'|'none'|'pending'|'early', date, source?: 'model'|'fallback', headline?, details?, at? } */
+export async function getBrief() {
+  return parse(await fetch('/api/brief'))
+}
+export async function ensureBrief() {
+  return parse(await fetch('/api/brief', { method: 'POST', headers: csrfHeaders() }))
+}
+
 export async function getThreads() {
   return parse(await fetch('/api/threads'))
 }

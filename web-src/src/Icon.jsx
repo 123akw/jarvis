@@ -31,6 +31,7 @@ const PATHS = {
   feishu: <><path d="M4 11.5 20 4.5l-4.5 15-4.2-5.6Z" /><path d="m11.3 13.9 4-4.2" /></>,
   copy: <><rect x="8.5" y="8.5" width="11" height="11" rx="2.5" /><path d="M15.5 8.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h2.5" /></>,
   check: <><path d="m5 12.5 4.5 4.5L19 7.5" /></>,
+  undo: <><path d="M9.5 5.5 5 10l4.5 4.5" /><path d="M5 10h9.5a5 5 0 0 1 0 10H11" /></>,
 }
 
 export default function Icon({ name, size = 18, className = '' }) {

@@ -14,6 +14,10 @@ vi.mock('./api.js', () => ({
   deleteMemo: vi.fn(),
   addSchedule: vi.fn(),
   deleteSchedule: vi.fn(),
+  getBrief: vi.fn(async () => ({ status: 'early', date: '2026-08-14' })),
+  ensureBrief: vi.fn(),
+  getMemoryState: vi.fn(async () => ({ receipts: true, fresh: { count: 0, ids: [] } })),
+  dismissFreshMemory: vi.fn(),
 }))
 
 import { addTodo, deleteMemo, emailMeeting, getDashboard, getMeeting, getMeetings, importMeetingTodos, patchTodo } from './api.js'
@@ -48,7 +52,7 @@ describe('任务台可交互', () => {
 
   it('待办快速新增：输入回车调 POST', async () => {
     render(<Panels refreshKey={0} />)
-    const input = await screen.findByPlaceholderText('＋ 添加待办，回车确认')
+    const input = await screen.findByPlaceholderText('＋ 待办或日程，写上时间就是日程')
     fireEvent.change(input, { target: { value: '买咖啡豆' } })
     fireEvent.keyDown(input, { key: 'Enter' })
     await waitFor(() => expect(addTodo).toHaveBeenCalledWith('买咖啡豆'))

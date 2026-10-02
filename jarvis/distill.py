@@ -4,12 +4,15 @@
 更新过的日常对话线程，让模型提炼「值得长期记住的稳定事实」（≤5 条），逐条写入
 tenant_profile（与 profile_remember 工具同一存储，内容级去重）。当日无对话不烧
 模型；蒸馏失败当日不重试只 log；distill_last_run 记账保证同日重跑零新条目。
+新写入的条目编号记进 distill_fresh（见 memory_receipts），第二天「今日」板据此提示
+「昨晚为你整理了 N 条记忆」——蒸馏不再是静默的暗箱操作。
 随 JARVIS_REMINDERS_ENABLED 总开关起停（与晨报/提醒同属主动线程）。
 """
 import datetime
 import logging
 import os
 
+from jarvis.memory_receipts import record_fresh
 from jarvis.periodic import PeriodicWorker
 from jarvis.tenancy import TenantStore, tenant_scope
 
@@ -72,6 +75,25 @@ class NightlyDistiller(PeriodicWorker):
         except Exception:
             pass
 
+    def _profile_ids(self, owner) -> set[int] | None:
+        """蒸馏前的画像编号快照；读不到就不记「昨晚整理了 N 条」（画像照常写）。"""
+        try:
+            with tenant_scope(owner.user_id):
+                return {x["id"] for x in self._store_factory().list_profile()}
+        except Exception as exc:
+            log.warning("distill profile snapshot failed: %s", type(exc).__name__)
+            return None
+
+    def _record_fresh(self, owner, before: set[int], today: str, at: str) -> None:
+        """本批新写入的条目 = 蒸馏后多出来的编号（内容重复的 existed 条目自然不算）。"""
+        try:
+            with tenant_scope(owner.user_id):
+                store = self._store_factory()
+                fresh = [x["id"] for x in store.list_profile() if x["id"] not in before]
+                record_fresh(store, date=today, at=at, ids=fresh)
+        except Exception as exc:  # 记账失败只少一行提示，画像已经写进去了
+            log.warning("distill fresh record failed: %s", type(exc).__name__)
+
     def scan_once(self) -> int:
         """跑一轮，返回本轮新写入画像条数；任何异常只告警不外抛。"""
         if not self._owner_getter or not self._collect or not self._compose or not self._remember:
@@ -110,6 +132,7 @@ class NightlyDistiller(PeriodicWorker):
             log.warning("distill compose failed: %s", type(exc).__name__)
             self._mark_done(owner, today)       # 生成失败也记账，绝不成本螺旋
             return 0
+        before = self._profile_ids(owner)
         written = 0
         for fact in parse_facts(raw):
             try:
@@ -117,6 +140,8 @@ class NightlyDistiller(PeriodicWorker):
                     written += 1
             except Exception as exc:
                 log.warning("distill remember failed: %s", type(exc).__name__)
+        if written and before is not None:
+            self._record_fresh(owner, before, today, now.strftime("%H:%M"))
         self._mark_done(owner, today)
         if written:
             log.info("distill wrote %d profile fact(s)", written)

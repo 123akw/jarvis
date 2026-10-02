@@ -329,6 +329,19 @@ body.light .jbody .hljs-built_in,body.light .jbody .hljs-type,body.light .jbody 
 .tchip.done .st{color:var(--jv-success)}
 .tchip.fail{color:var(--jv-danger)}
 .tms{color:var(--jv-text-3);font-family:var(--jv-mono);font-size:11px}
+/* 记忆回执：回答下方一行，克制的灰字 + 一个「撤销」 */
+.mem-receipts{display:flex;flex-direction:column;gap:2px;margin-top:10px;animation:jv-fade .3s var(--jv-ease)}
+.mem-receipt{display:flex;align-items:center;gap:6px;min-height:26px;font-size:12.5px;line-height:1.5;color:var(--jv-text-3)}
+.mem-receipt .mr-ico{color:var(--jv-success)}
+.mr-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mr-content{color:var(--jv-text-2)}
+.mr-dot{flex:none}
+.mr-undo{flex:none;height:24px;padding:0 6px;margin-left:-4px;border:none;border-radius:7px;background:none;
+  color:var(--jv-accent);font-size:12.5px;font-weight:500}
+.mr-undo:hover{background:var(--jv-hover)}
+.mr-undo:disabled{opacity:.5}
+.mem-receipt.undone .mr-ico{color:var(--jv-text-3)}
+.mem-receipt.undone .mr-content{color:var(--jv-text-3);text-decoration:line-through;text-decoration-color:var(--jv-text-3)}
 .tdetail{display:block;max-width:560px;max-height:200px;overflow:auto;margin:0 6px 6px;padding:8px 10px;border-radius:10px;
   background:var(--jv-code-bg);color:var(--jv-text-2);font-family:var(--jv-mono);font-size:11.5px;line-height:1.6;
   white-space:pre-wrap;text-align:left;cursor:auto}
@@ -425,6 +438,63 @@ body.light .jbody .hljs-built_in,body.light .jbody .hljs-type,body.light .jbody 
 .sched-add input:first-child{flex:1;min-width:0}
 .sched-add .sched-when{flex:none;width:auto;max-width:60%;font-family:var(--jv-mono);font-size:12.5px;
   font-variant-numeric:tabular-nums;color:var(--jv-text-2);background:var(--jv-surface-2);animation:jv-in-right .24s var(--jv-ease)}
+/* 一句话速记：待办输入框下方的实时预览（写上时间才出现），平时只有一行输入框 */
+.qa-preview,.qa-err{display:flex;align-items:center;flex-wrap:wrap;column-gap:6px;row-gap:2px;margin:2px 0 0;
+  padding:5px 4px 5px 10px;font-size:12.5px;line-height:1.5;color:var(--jv-text-2);animation:jv-rise .2s var(--jv-ease)}
+.qa-preview>.jv-icon{color:var(--jv-accent)}
+.qa-preview.is-todo>.jv-icon{color:var(--jv-text-3)}
+.qa-lead{color:var(--jv-text-3);white-space:nowrap}
+.qa-when{font-variant-numeric:tabular-nums;color:var(--jv-accent);white-space:nowrap}
+.qa-when b{font-weight:600}
+.qa-hm{font-family:var(--jv-mono);font-size:12px;font-weight:500}
+.qa-preview.is-past .qa-when{color:var(--jv-warn)}
+.qa-title{min-width:0;color:var(--jv-text);overflow-wrap:anywhere}
+.qa-note{color:var(--jv-text-3);white-space:nowrap}
+.qa-note.warn{color:var(--jv-warn)}
+.qa-switch{margin-left:auto;flex:none;height:24px;padding:0 8px;border:none;border-radius:7px;background:none;
+  color:var(--jv-text-3);font-size:12px;white-space:nowrap}
+.qa-switch:hover{background:var(--jv-hover);color:var(--jv-text)}
+.qa-err{color:var(--jv-danger)}
+
+/* 今日简报卡：默认一句话（最多两行），点开 2–3 行细节；AI 写的左侧一道渐变细边（HIG：标明 AI 生成） */
+.brief{position:relative;margin:4px 4px 6px;border-radius:14px;background:var(--jv-surface-2);overflow:hidden;
+  animation:jv-rise .3s var(--jv-ease)}
+.brief.is-ai::before{content:'';position:absolute;left:0;top:12px;bottom:12px;width:2px;border-radius:0 2px 2px 0;
+  background:var(--jv-ai-gradient)}
+.brief-head{display:flex;align-items:flex-start;gap:10px;width:100%;padding:11px 10px 11px 14px;border:none;background:none;
+  color:var(--jv-text);font-size:13.5px;line-height:1.55;text-align:left}
+.brief-head:hover{background:var(--jv-hover)}
+.brief-head:focus-visible{outline-offset:-2px;border-radius:14px}
+.brief-ico{flex:none;display:grid;place-items:center;height:21px;color:var(--jv-text-2)}
+.brief.is-ai .brief-ico{color:#A78BFA}
+body.light .brief.is-ai .brief-ico{color:#7C3AED}
+.brief-line{flex:1;min-width:0;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.brief.open .brief-line{display:block}
+.brief-chev{margin-top:4px;color:var(--jv-text-3);transform:rotate(90deg);transition:transform .24s var(--jv-ease)}
+.brief.open .brief-chev{transform:rotate(-90deg)}
+.brief-more{padding:0 14px 10px 39px;animation:jv-fade .24s var(--jv-ease)}
+.brief-detail{margin:0 0 3px;font-size:13px;line-height:1.6;color:var(--jv-text-2)}
+.brief-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;font-size:12px;color:var(--jv-text-3)}
+.brief-hide{flex:none;height:24px;padding:0 8px;margin-right:-8px;border:none;border-radius:7px;background:none;
+  color:var(--jv-text-3);font-size:12px}
+.brief-hide:hover{background:var(--jv-hover);color:var(--jv-text)}
+.brief--loading{display:flex;align-items:center;height:44px;padding:0 14px}
+.brief-skel{display:block;width:72%;height:10px;border-radius:6px;
+  background:linear-gradient(90deg,var(--jv-surface-2) 0%,var(--jv-pressed) 50%,var(--jv-surface-2) 100%);
+  background-size:200% 100%;animation:jv-shimmer 1.4s ease-in-out infinite}
+@keyframes jv-shimmer{from{background-position:100% 0}to{background-position:-100% 0}}
+
+/* 夜间蒸馏提示：一行，看过或点 × 就消失 */
+.mem-notice{display:flex;align-items:center;gap:8px;margin:0 4px 2px;padding:5px 4px 5px 14px;border-radius:12px;
+  font-size:13px;color:var(--jv-text-2);animation:jv-rise .3s var(--jv-ease)}
+.mem-notice>.jv-icon{color:var(--jv-accent)}
+.mn-text{min-width:0}
+.mn-open{flex:none;height:24px;padding:0 6px;border:none;border-radius:7px;background:none;color:var(--jv-accent);
+  font-size:13px;font-weight:500}
+.mn-open:hover{background:var(--jv-hover)}
+.mn-x{flex:none;margin-left:auto;width:24px;height:24px;display:grid;place-items:center;border:none;border-radius:7px;
+  background:none;color:var(--jv-text-3)}
+.mn-x:hover{background:var(--jv-pressed);color:var(--jv-text)}
 .today-more{display:block;margin:2px 0 0 10px;padding:4px 0;border:none;background:none;color:var(--jv-accent);font-size:12.5px}
 .today-more:hover{text-decoration:underline;text-underline-offset:3px}
 /* 读取中 / 读取失败 / 操作失败 */
@@ -491,6 +561,14 @@ body.light .jbody .hljs-built_in,body.light .jbody .hljs-type,body.light .jbody 
   padding:9px 16px;border-radius:999px;font-size:13.5px;color:var(--jv-text);
   background:var(--jv-elevated);-webkit-backdrop-filter:var(--jv-blur);backdrop-filter:var(--jv-blur);
   border:1px solid var(--jv-border);box-shadow:var(--jv-shadow-float);animation:jv-drop .3s var(--jv-ease)}
+/* 带操作的 toast（速记「撤销」）：图标 + 文字 + 右侧一个文字按钮 */
+.jv-toast--action{display:flex;align-items:center;gap:10px;padding:6px 6px 6px 14px}
+.jv-toast--action>.jv-icon{color:var(--jv-accent)}
+.jt-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.jt-act{flex:none;height:28px;padding:0 12px;border:none;border-radius:999px;background:var(--jv-surface-2);
+  color:var(--jv-accent);font-size:13px;font-weight:600}
+.jt-act:hover{background:var(--jv-pressed)}
+.jt-act:disabled{opacity:.5}
 
 /* ---------- ⌘K 命令面板 ---------- */
 .jv-palette-backdrop{position:fixed;inset:0;z-index:90;display:flex;justify-content:center;align-items:flex-start;
@@ -595,6 +673,24 @@ body.light .provider-tabs button.on{background:#fff;box-shadow:0 1px 3px rgba(0,
 .memory-del:hover{color:var(--jv-danger)}
 .memory-add{padding-top:12px}
 .memory-add input{background:var(--jv-surface-2)}
+.memory-list li.fresh{margin:0 -10px;padding-left:10px;padding-right:10px;border-radius:10px;border-bottom-color:transparent;
+  background:color-mix(in srgb,var(--jv-accent) 9%,transparent)}
+.memory-list li.fresh+li.fresh{border-top-left-radius:0;border-top-right-radius:0}   /* 连续的新条目连成一块 */
+.memory-list li.fresh:has(+li.fresh){border-bottom-left-radius:0;border-bottom-right-radius:0}
+.memory-new{display:inline-block;margin-right:8px;padding:0 6px;border-radius:6px;font-size:11px;font-weight:600;line-height:18px;
+  vertical-align:1px;color:#fff;background:var(--jv-accent)}
+/* 「显示记忆回执」：iOS 式开关 */
+.memory-switch{display:flex;align-items:center;gap:16px;margin:0 0 14px;padding:12px 14px;border-radius:12px;background:var(--jv-surface-2)}
+.ms-text{flex:1;min-width:0;display:grid;gap:2px;cursor:pointer}
+.ms-title{font-size:14.5px;color:var(--jv-text)}
+.ms-sub{font-size:12.5px;line-height:1.55;color:var(--jv-text-3)}
+.ms-err{font-size:12.5px;color:var(--jv-danger)}
+.jv-switch{appearance:none;-webkit-appearance:none;position:relative;flex:none;width:44px;height:26px;margin:0;border-radius:13px;
+  background:var(--jv-pressed);cursor:pointer;transition:background-color .2s var(--jv-ease)}
+.jv-switch::before{content:'';position:absolute;top:2px;left:2px;width:22px;height:22px;border-radius:50%;background:#fff;
+  box-shadow:0 2px 6px rgba(0,0,0,.25);transition:transform .24s var(--jv-ease)}
+.jv-switch:checked{background:var(--jv-success)}
+.jv-switch:checked::before{transform:translateX(18px)}
 
 /* 微信接入 / 悬浮窗指引 */
 .wx-center{text-align:center}

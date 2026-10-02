@@ -7,6 +7,8 @@ vi.mock('./api.js', () => ({
   importMeetingTodos: vi.fn(), renameMeetingSpeaker: vi.fn(),
   addTodo: vi.fn(), patchTodo: vi.fn(), deleteTodo: vi.fn(), addMemo: vi.fn(), deleteMemo: vi.fn(),
   addSchedule: vi.fn(), deleteSchedule: vi.fn(),
+  getBrief: vi.fn(async () => ({ status: 'early', date: '2026-08-14' })), ensureBrief: vi.fn(),
+  getMemoryState: vi.fn(async () => ({ receipts: true, fresh: { count: 0, ids: [] } })), dismissFreshMemory: vi.fn(),
 }))
 
 import { addSchedule, addTodo, getDashboard, getMeeting, getMeetings, patchTodo } from './api.js'
@@ -49,7 +51,7 @@ describe('今日板体验', () => {
   it('新增待办失败：草稿放回输入框并提示', async () => {
     addTodo.mockRejectedValue(new Error('请求失败'))
     render(<Panels refreshKey={0} />)
-    const input = await screen.findByPlaceholderText('＋ 添加待办，回车确认')
+    const input = await screen.findByPlaceholderText('＋ 待办或日程，写上时间就是日程')
     fireEvent.change(input, { target: { value: '买咖啡豆' } })
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(await screen.findByRole('alert')).toHaveTextContent('没能添加')

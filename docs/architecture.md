@@ -38,7 +38,8 @@ flowchart LR
 
 ## 流式、线程与记忆
 
-- 网页和桌面端调用 FastAPI `/api/chat`，服务端以 `text/event-stream` 返回 `token`、`tool_start`、`tool_result`、`done` 或 `error` 事件。
+- 网页和桌面端调用 FastAPI `/api/chat`，服务端以 `text/event-stream` 返回 `token`、`tool_start`、`tool_result`、`done` 或 `error` 事件。`profile_remember` / `profile_forget` 真正写入或删除时，`tool_result` 额外带 `memory: {action, id, content}`（来自 ToolMessage.artifact，不进模型上下文），网页据此在回答下方显示可撤销的记忆回执。
+- 「今日」板的两个附加行都不加表、只用 `tenant_prefs`：今日简报卡（`jarvis/briefing.py`，`GET/POST /api/brief`，每账号每天最多 1 次模型调用，失败退回规则摘要）；夜间蒸馏批次提示与回执开关（`jarvis/memory_receipts.py`，`GET /api/memory`、`PUT /api/memory/prefs`、`POST /api/memory/fresh/dismiss`）。
 - 每次 Agent 调用都带 `thread_id`。网页会话、桌面固定线程、CLI 自定义线程和微信联系人线程相互隔离，避免不同入口的上下文串线。
 - `JARVIS_DATA_DIR/jarvis.db` 保存 LangGraph 检查点；`accounts.sqlite3` 保存账号、会话、审计以及按 Owner 隔离的线程/备忘/待办/日程/位置元数据。两个 SQLite 文件都是完整备份的一部分。
 - 服务还提供带 Bearer 鉴权的 `/v1/chat/completions` OpenAI 兼容接口，供微信备用网关等客户端接入；它不是完整的 OpenAI API 实现。

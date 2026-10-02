@@ -1288,6 +1288,7 @@ def chat(request: Request, body: ChatIn):
                                 "ok": getattr(chunk, "status", "success") != "error",
                                 "ms": int((time.monotonic() - started) * 1000) if started is not None else None,
                                 "detail": _chunk_text(chunk.content)[:400],
+                                **memory_receipts.sse_fields(chunk),   # 记住/忘记：附结构化回执（可撤销）
                             })
                         elif isinstance(chunk, AIMessageChunk):
                             for tc in chunk.tool_call_chunks or []:
@@ -1627,6 +1628,16 @@ register_voice(
     public_error=_public_runtime_error,
     count_chat=_count_voice_chat,
 )
+
+
+# ---- 记忆回执 / 今日简报卡：路由与逻辑在各自模块里，这里只注入鉴权与运行时依赖 ----
+from jarvis import briefing, memory_receipts  # noqa: E402
+
+memory_receipts.register(app, request_principal=_request_principal, panel_write=_panel_write,
+                         tenant_store=lambda: _tenant_store(), deny=_deny)
+briefing.register(app, request_principal=_request_principal, panel_write=_panel_write,
+                  tenant_store=lambda: _tenant_store(), bundle_for=lambda uid: _bundle_for(uid),
+                  chunk_text=_chunk_text, deny=_deny)
 
 
 if __name__ == "__main__":
