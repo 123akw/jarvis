@@ -17,7 +17,7 @@ from typing import Annotated
 
 from fastapi import FastAPI, Path as PathParam, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import AIMessageChunk, ToolMessage
 from pydantic import BaseModel, SecretStr
@@ -1713,14 +1713,33 @@ def integration_restore(name: str, request: Request, body: SettingsDeleteIn):
 
 
 # ---------- 静态页 ----------
+# 前端顶层页面（web-src/src/routes.js）都是同一个单页应用：
+#   /        智能体市场（主域名首页）     /login   登录页（?u= 预填账号，?next= 登录后去哪）
+#   /app     主应用（对话 / 今日板）      /flows   积木流程       /p/<slug>   智能体品牌入口
+# 旧链接兼容：/market → /；/?u=X（第十四轮市场结果页的二维码、旧分享）→ /login?u=X。查询参数原样带上。
+# 前端也做同样的跳转（站内跳转不经服务端），这里先跳省一次白屏，也让扫码的手机直接落到登录页。
+
+def _spa_redirect(path: str, request: Request) -> RedirectResponse:
+    query = request.url.query
+    return RedirectResponse(f"{path}?{query}" if query else path, status_code=302)
+
 
 @app.get("/")
-def index():
+def index(request: Request):
+    if "u" in request.query_params:
+        return _spa_redirect("/login", request)
     return FileResponse(_WEB / "index.html")
 
 
-# 前端顶层页面（web-src/src/routes.js）：市场、平台入口、流程拼接都是同一个单页应用
 @app.get("/market")
+def legacy_market(request: Request):
+    if "u" in request.query_params:
+        return _spa_redirect("/login", request)
+    return _spa_redirect("/", request)
+
+
+@app.get("/login")
+@app.get("/app")
 @app.get("/flows")
 def spa_page():
     return FileResponse(_WEB / "index.html")
