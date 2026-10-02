@@ -10,6 +10,7 @@ from starlette.websockets import WebSocketDisconnect
 
 import jarvis.server as server_mod
 import jarvis.voice.gateway as gateway_mod
+import jarvis.voice.spoken as spoken_mod
 from jarvis.voice.asr import ASRError, ASRResult
 from jarvis.voice.tts import TTSError
 
@@ -36,13 +37,16 @@ class _FakeAgent:
 
 
 class _FakeTTS:
-    """走完整协议形状的假 TTS：speak 一句给一块音频。"""
+    """走完整协议形状的假 TTS：speak 一句给一块音频（mark_sentences 时随后补一个空块作句子边界）。"""
 
     instances = []
+    chunk = b"\x01\x02\x03\x04"
 
-    def __init__(self):
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
         self.audio_format = "pcm"
         self.sample_rate = 24000
+        self.mark_sentences = False
         self.spoken = []
         self.closed = False
         self._q = asyncio.Queue()
@@ -53,7 +57,9 @@ class _FakeTTS:
 
     async def speak(self, text):
         self.spoken.append(text)
-        self._q.put_nowait(b"\x01\x02\x03\x04")
+        self._q.put_nowait(type(self).chunk)
+        if self.mark_sentences:
+            self._q.put_nowait(b"")
 
     async def finish(self):
         self._q.put_nowait(None)
@@ -339,7 +345,8 @@ def test_voice_turn_injects_style_prompt_then_scrubs_it(monkeypatch):
         _collect_turn(ws)
     messages = agent.stream_inputs[-1]["messages"]
     style, user = messages[0], messages[-1]
-    assert style.type == "system" and style.content == gateway_mod.VOICE_STYLE_PROMPT
+    assert style.type == "system" and style.content.startswith(gateway_mod.VOICE_STYLE_PROMPT)
+    assert spoken_mod.SPOKEN_RULES in style.content, "口语规则随场景规则一起注入"
     assert style.id.startswith("voice-style-")
     assert user["content"] == "现在几点了"
     removed = [m for upd in agent.state_updates for m in upd.get("messages", [])]
@@ -627,3 +634,130 @@ def test_echo_window_closes_after_new_turn(monkeypatch):
         _collect_turn(ws)                             # 新回合只念「收到。」
         ws.send_bytes("P:你好领导".encode())           # 旧回合的词，此刻是真人说的
         assert ws.receive_json() == {"type": "asr_partial", "text": "你好领导"}
+
+
+# ---------- 说人话：口语规整 / 垫话 / 被打断在哪 ----------
+
+class _ToolAgent(_FakeAgent):
+    """先发一个工具调用（可选先说一句），工具「跑」tool_delay 秒后回结果，再给出答案。"""
+
+    def __init__(self, tool_delay=0.3, preamble="", answer=("明天晴，", "最高26℃。")):
+        super().__init__(pieces=answer)
+        self.tool_delay = tool_delay
+        self.preamble = preamble
+
+    def stream(self, state, config=None, stream_mode=None):
+        from langchain_core.messages import ToolMessage
+        self.stream_inputs.append(state)
+        if self.preamble:
+            yield AIMessageChunk(content=self.preamble), {}
+        yield AIMessageChunk(content="", tool_call_chunks=[
+            {"name": "weather", "args": "{}", "id": "call-1", "index": 0}]), {}
+        time.sleep(self.tool_delay)
+        yield ToolMessage(content="晴 26", name="weather", tool_call_id="call-1"), {}
+        for piece in self.pieces:
+            yield AIMessageChunk(content=piece), {}
+
+
+def _run_turn(monkeypatch, agent, text="明天天气怎么样"):
+    monkeypatch.setattr(server_mod, "_get_agent", lambda: agent)
+    monkeypatch.setattr(gateway_mod, "create_tts_session", _FakeTTS)
+    _FakeTTS.instances.clear()
+    client = _client()
+    csrf, token = _login(client)
+    with _connect(client, token) as ws:
+        ws.send_json({"type": "init", "csrf": csrf})
+        assert ws.receive_json()["type"] == "ready"
+        ws.send_json({"type": "user_text", "text": text})
+        events, _audio = _collect_turn(ws)
+    return events, _FakeTTS.instances[-1]
+
+
+def test_tts_gets_spoken_text_while_subtitles_keep_original(monkeypatch):
+    agent = _FakeAgent(pieces=("**会议**在15:00开始，", "地点见 https://x.cn/a 。"))
+    events, tts = _run_turn(monkeypatch, agent)
+    subtitle = "".join(e.get("text", "") for e in events if e["type"] == "token")
+    assert subtitle == "**会议**在15:00开始，地点见 https://x.cn/a 。", "字幕保留原文"
+    assert "".join(tts.spoken) == "会议在下午三点开始，地点见。", tts.spoken
+    assert all("http" not in s and "*" not in s for s in tts.spoken)
+
+
+def test_slow_tool_gets_one_filler_before_answer(monkeypatch):
+    monkeypatch.setattr(gateway_mod, "_FILLER_AFTER_S", 0.05)
+    monkeypatch.setattr(gateway_mod, "_FILLER_SKIP_RATE", 0.0)
+    events, tts = _run_turn(monkeypatch, _ToolAgent(tool_delay=0.4))
+    kinds = [e["type"] for e in events]
+    fillers = [e for e in events if e["type"] == "filler"]
+    assert len(fillers) == 1 and fillers[0]["text"] in gateway_mod.FILLERS
+    assert kinds.index("tool_start") < kinds.index("filler") < kinds.index("tool_result")
+    assert tts.spoken[0] == fillers[0]["text"], "垫话先出声"
+    assert "".join(tts.spoken[1:]) == "明天晴，最高二十六度。", "工具回来后接着说结果"
+    latency = next(e for e in events if e["type"] == "latency")
+    assert latency["tool_start"] <= latency["filler"] <= latency["tool_end"]
+    subtitle = "".join(e.get("text", "") for e in events if e["type"] == "token")
+    assert fillers[0]["text"] not in subtitle, "垫话不进回答正文（也不进对话记录）"
+
+
+def test_fast_tool_or_model_preamble_needs_no_filler(monkeypatch):
+    monkeypatch.setattr(gateway_mod, "_FILLER_AFTER_S", 0.2)
+    monkeypatch.setattr(gateway_mod, "_FILLER_SKIP_RATE", 0.0)
+    events, _tts = _run_turn(monkeypatch, _ToolAgent(tool_delay=0.0))
+    assert not [e for e in events if e["type"] == "filler"], "工具及时回来不垫话"
+    monkeypatch.setattr(gateway_mod, "_FILLER_AFTER_S", 0.05)
+    events, _tts = _run_turn(monkeypatch, _ToolAgent(tool_delay=0.3, preamble="好，我查一下。"))
+    assert not [e for e in events if e["type"] == "filler"], "模型自己已开口就不再垫话"
+
+
+def test_pick_filler_varies_and_sometimes_stays_quiet(monkeypatch):
+    import random
+
+    call = gateway_mod._CallSession.__new__(gateway_mod._CallSession)
+    call._last_filler, call._rng = "", random.Random(7)
+    monkeypatch.setattr(gateway_mod, "_FILLER_SKIP_RATE", 0.0)
+    picks = [call.pick_filler() for _ in range(30)]
+    assert all(a != b for a, b in zip(picks, picks[1:])), "不连着说同一句"
+    assert len(set(picks)) >= 3, "有几种变化"
+    monkeypatch.setattr(gateway_mod, "_FILLER_SKIP_RATE", 1.0)
+    assert call.pick_filler() == ""
+
+
+def test_barge_in_reports_heard_prefix_and_next_turn_knows(monkeypatch):
+    """前端回报已播放 150ms：第一句（100ms）听完、第二句听到一半 → cut 帧 + 下一回合提示。"""
+    monkeypatch.setattr(_FakeTTS, "chunk", b"\x00" * 4800)     # 每句 100ms@24kHz
+    slow = _FakeAgent(pieces=("你好，领导。", "今天要开三个会。") +
+                      tuple(f"第{i}件事说得很慢。" for i in range(40)), delay=0.05)
+    monkeypatch.setattr(server_mod, "_get_agent", lambda: slow)
+    monkeypatch.setattr(gateway_mod, "create_tts_session", _FakeTTS)
+    client = _client()
+    csrf, token = _login(client)
+    with _connect(client, token) as ws:
+        ws.send_json({"type": "init", "csrf": csrf})
+        assert ws.receive_json()["type"] == "ready"
+        ws.send_json({"type": "user_text", "text": "今天有什么安排"})
+        frames = 0
+        while frames < 2:                                   # 两句的音频都已下行
+            if ws.receive().get("bytes") is not None:
+                frames += 1
+        ws.send_json({"type": "interrupt", "played_ms": 150})
+        events, _audio = _collect_turn(ws)
+        assert events[-1] == {"type": "turn_end", "interrupted": True}
+        cut = next(e for e in events if e["type"] == "cut")
+        assert cut["heard"] == "你好，领导。今天要开", cut
+        ws.send_json({"type": "user_text", "text": "第二个会几点"})
+        _collect_turn(ws)
+        ws.send_json({"type": "user_text", "text": "好的"})
+        _collect_turn(ws)
+    styles = [s["messages"][0].content for s in slow.stream_inputs]
+    assert "今天要开" in styles[1] and "打断" in styles[1], "下一回合知道自己说到哪被打断"
+    assert "打断" not in styles[2], "提示只跟紧接着的一回合"
+
+
+def test_punctuation_only_final_opens_no_turn(monkeypatch):
+    client, csrf, token = _start_call(monkeypatch, _FakeASR)
+    with _connect(client, token) as ws:
+        ws.send_json({"type": "init", "csrf": csrf})
+        assert ws.receive_json()["type"] == "ready"
+        ws.send_bytes("F:。".encode())                         # 噪声被识别成一个句号
+        assert ws.receive_json() == {"type": "asr_partial", "text": ""}
+        ws.send_json({"type": "ping"})
+        assert ws.receive_json() == {"type": "pong"}, "不该开空回合"

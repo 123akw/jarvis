@@ -4,13 +4,16 @@
 - JSON {"type": "init", "csrf": "...", "thread_id": "voice"}  连接后第一条；web 会话必须带 CSRF
 - 二进制帧：麦克风 PCM 音频（16-bit 小端、单声道、16kHz），转发百炼流式识别
 - JSON {"type": "user_text", "text": "..."}  浏览器识别降级通道的转写文本；在途回合立即被打断
-- JSON {"type": "interrupt"}  打断在途回合，并丢弃未定稿的识别文字
+- JSON {"type": "interrupt", "played_ms": 1234}  打断在途回合，并丢弃未定稿的识别文字；
+  played_ms（可选）= 本回合音频实际已播放的毫秒数，网关据此算出主人听到哪一句
 - JSON {"type": "ping"}  心跳
 
 下行：
 - JSON 文本帧：ready / asr_partial（识别中增量，字幕灰字）/ asr_final（断句定稿）/
   asr_fallback（服务端识别不可用，前端切浏览器识别）/ turn_start / token /
-  tool_start / tool_result / audio_start / tts_error / latency / turn_end / error / pong
+  tool_start / tool_result / filler（工具慢时的垫话，只出声不入记录）/ audio_start /
+  tts_error / latency / cut（被打断：heard=主人大概听到的回答前缀，字幕在此截断）/
+  turn_end / error / pong
   （latency：回合分段耗时，毫秒，自定稿/user_text 到达网关起算；前端可忽略，只作观测）
 - 二进制帧：TTS PCM 音频块（16-bit 小端、单声道，采样率见 audio_start）
 
@@ -26,6 +29,12 @@ scripts/asr_smoke.py --live --vad --wav x.wav [--max-silence 500]）：
 - 开口即预热：每句话的第一个识别增量到达时，后台预热该用户的 agent 运行时；
 - 回声抑制：播放中识别到的文字若与本回合正在念的 TTS 文本高度重合，判为回声，
   不出字幕、不触发前端打断、不开回合。
+
+说人话（jarvis/voice/spoken.py）：
+- 本回合 system 指令 = 场景规则 + 口语规则 + 语气感知 + 「上一句被打断在哪」；
+- 每句送 TTS 前过 to_spoken()（去 Markdown/表情/网址，时间日期温度按中文口语）；
+- 工具 0.7s 还没回来、模型也还没开口 → 先说一句垫话（几种轮换、偶尔不说、每回合至多一次）；
+- 被打断：按前端回报的已播放时长 + TTS 句子边界，算出主人听到哪儿（cut 帧 + 下一回合提示）。
 """
 from __future__ import annotations
 
@@ -33,6 +42,7 @@ import asyncio
 import json
 import logging
 import os
+import random
 import re
 import threading
 import time
@@ -44,9 +54,10 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from jarvis.graph import heal_dangling_tool_calls, thread_turn
 from jarvis.tenancy import TenantMigrationError, tenant_scope
 from jarvis.voice import asr as asr_mod
+from jarvis.voice import spoken
 from jarvis.voice import tts as tts_mod
-from jarvis.voice.emotion import EMOTION_LABELS, detect_emotion, pcm_to_wav
-from jarvis.voice.segment import FirstFastSegmenter, speakable
+from jarvis.voice.emotion import EMOTION_LABELS, detect_emotion, pcm_to_wav, tts_style_for
+from jarvis.voice.segment import FirstFastSegmenter
 
 CLOSE_UNAUTHORIZED = 4401
 CLOSE_BAD_REQUEST = 4400
@@ -67,6 +78,12 @@ _ECHO_AFTER_BARGE_S = 1.5        # 前端打断停播后，在途的回声识别
 _ECHO_TEXT_CAP = 400             # 回声比对只看本回合最近念出的这么多字
 _ECHO_BIGRAM_RATIO = 0.6
 _NON_WORD = re.compile(r"[\W_]+", re.UNICODE)
+
+# 垫话：工具调用发出后这么久还没结果、模型也还没开口，就先说一句（真人管家的「我查一下」）。
+# 几种轮换、不连续重复；_FILLER_SKIP_RATE 的概率干脆不说，免得每次都一个腔调。
+_FILLER_AFTER_S = 0.7
+_FILLER_SKIP_RATE = 0.25
+FILLERS = ("好，我查一下。", "稍等哈。", "我看看。", "嗯，我查查。", "马上，稍等一下。")
 
 log = logging.getLogger("jarvis.voice")
 
@@ -233,6 +250,10 @@ class _AsrPipeline:
                     utter_pcm = bytes(self._utter)
                     self._utter.clear()
                     text = result.text.strip()
+                    if not _NON_WORD.sub("", text):
+                        # 只有标点（噪声被识别成「。」之类）：不开空回合，清掉灰字即可
+                        await self.call.send_json({"type": "asr_partial", "text": ""}, best_effort=True)
+                        continue
                     if text:
                         if len(utter_pcm) >= _EMOTION_MIN_PCM_BYTES:
                             self.call.spawn_emotion(utter_pcm)
@@ -275,6 +296,18 @@ class _AsrPipeline:
         await self.call.restart_resumed()  # 续说取消的那句话不能因识别断线而丢掉
 
 
+class _Said:
+    """送进 TTS 的一句：原文（字幕口径）+ 已收到的音频字节数 + 是否合成完毕。"""
+
+    __slots__ = ("text", "audio", "done", "filler")
+
+    def __init__(self, text: str, filler: bool = False) -> None:
+        self.text = text
+        self.audio = 0
+        self.done = False
+        self.filler = filler
+
+
 class _Turn:
     """一个通话回合：agent 流（线程）→ 切句 → TTS → 音频下行。"""
 
@@ -294,6 +327,12 @@ class _Turn:
         self.tts_failed = False
         self.interrupted = False
         self.said_text = False
+        self.said: list[_Said] = []        # 送进 TTS 的句子（按序），音频按句子边界记账
+        self._audio_idx = 0                # 正在收音频的那一句
+        self.played_bytes: int | None = None   # 被打断时前端回报/网关估算的已播放字节
+        self.sample_rate = tts_mod.SAMPLE_RATE
+        self._filler_due: float | None = None
+        self._filler_used = False
 
     @property
     def committed(self) -> bool:
@@ -311,14 +350,20 @@ class _Turn:
             except TenantMigrationError:
                 await self.call.send_json({"type": "error", "message": "个人数据迁移失败"})
                 return
+            style_prompt = self.call.take_style_prompt()
             # TTS 建连（~450ms）与 LLM 首 token（600–1900ms）并行，不在关键路径上；
             # 先放 agent 线程起跑（实测把建连提前反而让 agent 晚起 5–10ms）
             self.tts_open = asyncio.create_task(self._open_tts())
-            worker = threading.Thread(target=self._agent_thread, args=(checkpoint_id,), daemon=True)
+            worker = threading.Thread(
+                target=self._agent_thread, args=(checkpoint_id, style_prompt), daemon=True)
             worker.start()
             self._mark("agent_start")
             while True:
-                kind, payload = await self.queue.get()
+                item = await self._next_event()
+                if item is None:           # 垫话到点：工具还没回来、模型也还没开口
+                    await self._say_filler()
+                    continue
+                kind, payload = item
                 if kind == "chunk":
                     await self._handle_chunk(payload, seg, seen_calls)
                 elif kind == "error":
@@ -336,10 +381,25 @@ class _Turn:
             raise
         finally:
             self.stop.set()
+            if self.interrupted and "first_audio" in self.marks:   # 纯文字降级时字幕全看得到，不截
+                await self._report_cut()
             await self._teardown_tts()
             await self._report_latency()
             await self.call.send_json(
                 {"type": "turn_end", "interrupted": self.interrupted}, best_effort=True)
+
+    async def _next_event(self):
+        """取 agent 流的下一件事；有垫话排着时最多等到点，到点返回 None。"""
+        if self._filler_due is None:
+            return await self.queue.get()
+        timeout = self._filler_due - time.monotonic()
+        if timeout > 0:
+            try:
+                return await asyncio.wait_for(self.queue.get(), timeout)
+            except asyncio.TimeoutError:
+                pass
+        self._filler_due = None
+        return None
 
     # ---- 分段延迟观测 ----
 
@@ -351,16 +411,19 @@ class _Turn:
     async def _report_latency(self) -> None:
         if not self.marks:
             return
-        log.info("voice turn latency interrupted=%s %s", self.interrupted,
-                 " ".join(f"{k}={v}" for k, v in self.marks.items()))
+        extra = ""
+        if "vad_wait" in self.marks and "first_audio" in self.marks:
+            # 端到端：用户说完最后一个字 → 第一块音频下行
+            extra = f" e2e={self.marks['vad_wait'] + self.marks['first_audio']}"
+        log.info("voice turn latency interrupted=%s %s%s", self.interrupted,
+                 " ".join(f"{k}={v}" for k, v in self.marks.items()), extra)
         await self.call.send_json(
             {"type": "latency", "interrupted": self.interrupted, **self.marks}, best_effort=True)
 
     # ---- agent 流（在线程里跑同步生成器，stop 事件负责打断） ----
 
-    def _agent_thread(self, checkpoint_id: str) -> None:
+    def _agent_thread(self, checkpoint_id: str, style_prompt: str) -> None:
         style_id = f"voice-style-{uuid.uuid4().hex}"
-        style_prompt = self.call.style_prompt()
         try:
             # 回合锁：与网页文字聊天等共用同一 checkpoint 线程时不并发写（见 graph.thread_turn）
             with tenant_scope(self.call.user_id), thread_turn(checkpoint_id):
@@ -401,8 +464,10 @@ class _Turn:
         except RuntimeError:
             pass  # 事件循环已关闭
 
-    async def _handle_chunk(self, chunk, seg: SentenceSegmenter, seen_calls: set[str]) -> None:
+    async def _handle_chunk(self, chunk, seg: FirstFastSegmenter, seen_calls: set[str]) -> None:
         if isinstance(chunk, ToolMessage):
+            self._mark("tool_end")
+            self._filler_due = None        # 工具及时回来了：不用垫话
             await self.call.send_json({"type": "tool_result", "name": chunk.name})
             return
         if not isinstance(chunk, AIMessageChunk):
@@ -411,22 +476,45 @@ class _Turn:
             name, cid = tc.get("name"), tc.get("id")
             if name and cid and cid not in seen_calls:
                 seen_calls.add(cid)
+                self._mark("tool_start")
+                self._arm_filler()
                 await self.call.send_json({"type": "tool_start", "name": name})
         text = self.call.chunk_text(chunk.content)
         if text:
             self._mark("llm_first_token")
             self.said_text = True
+            self._filler_due = None
             await self.call.send_json({"type": "token", "text": text})
             for sentence in seg.push(text):
                 await self._speak(sentence)
+
+    # ---- 垫话 ----
+
+    def _arm_filler(self) -> None:
+        """工具调用发出：模型还没开口、本回合没垫过话 → 排一句垫话，_FILLER_AFTER_S 后到点。"""
+        if self._filler_used or self.said_text or self.tts_failed or self._filler_due is not None:
+            return
+        self._filler_due = time.monotonic() + _FILLER_AFTER_S
+
+    async def _say_filler(self) -> None:
+        if self._filler_used or self.said_text or self.tts_failed:
+            return
+        self._filler_used = True           # 同一回合至多一次（含「这次决定不说」）
+        text = self.call.pick_filler()
+        if not text:
+            return
+        self._mark("filler")
+        await self.call.send_json({"type": "filler", "text": text}, best_effort=True)
+        await self._speak(text, filler=True)
 
     # ---- TTS 管道（连接失败/中途失败 → 一次 tts_error，纯文字继续） ----
 
     async def _open_tts(self) -> None:
         try:
-            prefs = tts_prefs_for(self.call.user_id)
+            prefs = {**tts_prefs_for(self.call.user_id), **self.call.tts_style()}
             # 无偏好时保持零参调用：测试注入的假工厂不必接受 kwargs
             session = create_tts_session(**prefs) if prefs else create_tts_session()
+            session.mark_sentences = True   # 句子边界：打断时据此算主人听到哪儿
             await session.connect()
         except tts_mod.TTSError:
             await self._tts_down()
@@ -436,6 +524,7 @@ class _Turn:
             return
         self._mark("tts_ready")
         self.tts = session
+        self.sample_rate = session.sample_rate or tts_mod.SAMPLE_RATE
         await self.call.send_json({
             "type": "audio_start", "format": session.audio_format,
             "sample_rate": session.sample_rate, "channels": tts_mod.CHANNELS,
@@ -449,20 +538,23 @@ class _Turn:
                 {"type": "tts_error", "message": "语音合成暂不可用，本回合降级为纯文字"},
                 best_effort=True)
 
-    async def _speak(self, sentence: str) -> None:
-        self._mark("first_segment")
+    async def _speak(self, sentence: str, filler: bool = False) -> None:
+        if not filler:
+            self._mark("first_segment")
         if self.tts_failed:
             return
         if self.tts_open is not None:
             await self.tts_open
         if self.tts is None or self.tts_failed:
             return
-        clean = speakable(sentence)
+        clean = spoken.to_spoken(sentence)
         if not clean:
             return
         try:
             await self.tts.speak(clean)
-            self._mark("first_tts_send")
+            self.said.append(_Said(sentence, filler))
+            if not filler:
+                self._mark("first_tts_send")
             self.call.note_spoken(clean)
         except tts_mod.TTSError:
             await self._tts_down()
@@ -470,11 +562,46 @@ class _Turn:
     async def _forward_audio(self, session: tts_mod.TTSSession) -> None:
         try:
             async for chunk in session.audio_chunks():
+                if not chunk:              # 句子边界：这一句合成完了
+                    if self._audio_idx < len(self.said):
+                        self.said[self._audio_idx].done = True
+                    self._audio_idx += 1
+                    continue
                 self._mark("first_audio")
+                if self._audio_idx < len(self.said):
+                    self.said[self._audio_idx].audio += len(chunk)
                 self.call.note_audio(len(chunk), session.sample_rate)
                 await self.call.send_bytes(chunk)
         except tts_mod.TTSError:
             await self._tts_down()
+
+    # ---- 被打断：主人听到哪儿 ----
+
+    def heard_text(self, played_bytes: int) -> str:
+        """已播放字节 → 主人大概听到的回答前缀（字幕口径，不含垫话）。
+        整句播完的算全听到；正在播的那句按字节比例截取（语速均匀的近似）。"""
+        out = []
+        for said in self.said:
+            if played_bytes <= 0 or said.audio <= 0:   # 这句还没出声：一个字也没听到
+                break
+            if played_bytes < said.audio:
+                if not said.filler:
+                    out.append(said.text[:int(len(said.text) * played_bytes / said.audio)])
+                break
+            if not said.filler:
+                out.append(said.text)      # 整句播完（合成中的句子：收到的都播完了，按整句近似）
+            played_bytes -= said.audio
+            if not said.done:
+                break
+        return "".join(out)
+
+    async def _report_cut(self) -> None:
+        played = self.played_bytes
+        if played is None:
+            played = self.call.estimate_played_bytes(self)
+        heard = self.heard_text(played)
+        self.call.note_cut(heard)
+        await self.call.send_json({"type": "cut", "heard": heard}, best_effort=True)
 
     async def _drain_tts(self) -> None:
         if self.tts_open is not None:
@@ -530,17 +657,52 @@ class _CallSession:
         self.scene_id = "butler"
         self.last_emotion = ""
         self._emotion_task: asyncio.Task | None = None
+        self._cut_heard: str | None = None   # 上一回合被打断时主人听到的前缀（只用一次）
+        self._last_filler = ""
+        self._rng = random.Random()
 
     def style_prompt(self) -> str:
-        """本回合注入的应答规则：场景化规则 + 最近一次的语气感知（若有）。"""
+        """本回合注入的应答规则：场景化规则 + 口语规则 + 语气感知 + 上一句被打断在哪（若有）。"""
         from jarvis.voice import scenes
-        prompt = scenes.scene_prompt(self.scene_id)
-        if self.last_emotion and self.last_emotion != "neutral":
-            label = EMOTION_LABELS.get(self.last_emotion, "")
-            if label:
-                prompt += (f"（语气感知：主人刚才听起来有点{label}，"
-                           "回应时自然照应这份情绪，不要点破你在识别情绪。）")
+        parts = [scenes.scene_prompt(self.scene_id), spoken.SPOKEN_RULES,
+                 spoken.emotion_hint(self.last_emotion)]
+        if self._cut_heard is not None:
+            parts.append(spoken.interrupted_hint(self._cut_heard))
+        return "".join(part for part in parts if part)
+
+    def take_style_prompt(self) -> str:
+        """取本回合的应答规则；「被打断」提示只跟下一回合，取完即清。"""
+        prompt = self.style_prompt()
+        self._cut_heard = None
         return prompt
+
+    def tts_style(self) -> dict:
+        """本回合 TTS 语气：场景自带（如晚安电台更慢更柔）为底，主人情绪微调语速；
+        场景已定语气标签时不被情绪覆盖。"""
+        from jarvis.voice import scenes
+        style = scenes.scene_tts(self.scene_id)
+        mood = tts_style_for(self.last_emotion)
+        if mood:
+            style.setdefault("emotion", mood["emotion"])
+            style["speed_scale"] = round(style.get("speed_scale", 1.0) * mood["speed_scale"], 3)
+        return style
+
+    def pick_filler(self) -> str:
+        """挑一句垫话：偶尔干脆不说；不和上一次重复。"""
+        if self._rng.random() < _FILLER_SKIP_RATE:
+            return ""
+        choices = [f for f in FILLERS if f != self._last_filler] or list(FILLERS)
+        self._last_filler = self._rng.choice(choices)
+        return self._last_filler
+
+    def note_cut(self, heard: str) -> None:
+        self._cut_heard = heard
+
+    def estimate_played_bytes(self, turn: "_Turn") -> int:
+        """前端没回报已播放时长时的估算：已下行音频 − 估计还没播完的部分。"""
+        total = sum(s.audio for s in turn.said)
+        unplayed = max(0.0, self._play_end - time.monotonic()) * 2 * max(1, turn.sample_rate)
+        return max(0, int(total - unplayed))
 
     def spawn_emotion(self, pcm: bytes) -> None:
         """情绪检测最多一件在途（只有最新结果有意义），并持有引用防 GC 半途回收。"""
@@ -679,8 +841,19 @@ class _CallSession:
         self._play_end = max(now, self._play_end) + nbytes / (2 * max(1, sample_rate or 1))
         self._echo_until = self._play_end + _ECHO_TAIL_S
 
-    def note_barge_in(self) -> None:
-        """前端开口打断已停播：回声窗口收短，但停播前收进去的回声还会被识别出来。"""
+    def note_barge_in(self, played_ms=None) -> None:
+        """前端开口打断已停播：记下本回合实际播到哪（主人听到哪儿）；
+        回声窗口收短，但停播前收进去的回声还会被识别出来。"""
+        turn = self._turn
+        if turn is not None and self._turn_task is not None and not self._turn_task.done():
+            try:
+                ms = float(played_ms)
+            except (TypeError, ValueError):
+                ms = None
+            if ms is not None and 0 <= ms <= 3_600_000:
+                turn.played_bytes = int(ms / 1000 * 2 * max(1, turn.sample_rate))
+            else:
+                turn.played_bytes = self.estimate_played_bytes(turn)
         self._play_end = 0.0
         self._echo_until = min(self._echo_until, time.monotonic() + _ECHO_AFTER_BARGE_S)
 
@@ -784,7 +957,7 @@ def register_voice(app, *, cookie_name: str, accounts, bundle_for, tenant_store,
                     if utterance:
                         await session.start_turn(utterance)
                 elif mtype == "interrupt":
-                    session.note_barge_in()
+                    session.note_barge_in(data.get("played_ms"))
                     await session.interrupt()
                     await session.asr.discard_pending()
                 elif mtype == "scene":

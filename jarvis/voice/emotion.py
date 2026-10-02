@@ -72,3 +72,19 @@ def detect_emotion(wav_bytes: bytes, *, http_post=None) -> str:
         log.warning("emotion detect failed: %s", type(exc).__name__)
         return ""
     return extract_emotion(payload if isinstance(payload, dict) else {})
+
+
+# 用户情绪 → 下一回合 TTS 语气（克制：只在明显情绪时微调语气标签和语速；
+# 平静/惊讶/嫌弃不干预，交给 TTS 模型按文本自行判断）。对方低落/生气/紧张时
+# 管家不跟着情绪走，而是更稳、更慢一点。
+_TTS_STYLE = {
+    "happy": {"emotion": "happy", "speed_scale": 1.03},
+    "sad": {"emotion": "calm", "speed_scale": 0.94},
+    "angry": {"emotion": "calm", "speed_scale": 0.97},
+    "fearful": {"emotion": "calm", "speed_scale": 0.95},
+}
+
+
+def tts_style_for(emotion: str) -> dict:
+    """情绪标签 → TTSSession 关键字参数（emotion / speed_scale）；无需干预返回空。"""
+    return dict(_TTS_STYLE.get(emotion or "", {}))

@@ -5,7 +5,12 @@
 - 发 task_start（模型/音色/音频参数）→ 服务端发 task_started；
 - 每句发 task_continue，音频以 hex 编码回在 task_continued 事件里；
 - 发 task_finish 收尾 → task_finished；失败发 task_failed；
+- 每句的最后一个 task_continued 带 is_final=true（2026-10 实测），据此标出句子边界；
 - 没有取消事件：打断 = 直接关连接（close()）。
+
+模型（2026-10-02 实测，同一短句、同一网络，文本送出→首包）：speech-02-turbo 265–1110ms，
+speech-2.6-turbo 204–245ms，speech-2.8-turbo 183–265ms；建连+task_start 三者相同（~400ms）。
+默认用 2.8-turbo（官方 2.6 的后继），MINIMAX_TTS_MODEL 可切回任意型号。
 
 MINIMAX_API_KEY 只从环境变量读，任何异常信息不携带上游细节或凭据。
 """
@@ -16,7 +21,10 @@ import json
 import os
 
 DEFAULT_WSS_URL = "wss://api.minimaxi.com/ws/v1/t2a_v2"
-DEFAULT_MODEL = "speech-02-turbo"
+DEFAULT_MODEL = "speech-2.8-turbo"
+# voice_setting.emotion 各模型通用的取值（fluent/whisper 仅 2.6 支持，不用）
+EMOTIONS = ("happy", "sad", "angry", "fearful", "disgusted", "surprised", "calm")
+_SENTENCE_END = object()   # 队列里的句子边界标记（mark_sentences 时以空块 b"" 产出）
 DEFAULT_VOICE = "male-qn-qingse"
 SAMPLE_RATE = 24000
 AUDIO_FORMAT = "pcm"
@@ -35,10 +43,15 @@ def _api_key() -> str:
 
 
 class TTSSession:
-    """一次回合的合成会话：task_start 一次、task_continue 多句、音频异步流出。"""
+    """一次回合的合成会话：task_start 一次、task_continue 多句、音频异步流出。
+
+    emotion：本回合语气（EMOTIONS 之一，其余忽略，交给模型自行判断）；
+    speed_scale：在音色语速偏好之上再乘的系数（语气微调用，结果仍收敛到 0.5–2.0）；
+    mark_sentences：置 True 后 audio_chunks() 在每句合成完毕处多产出一个空块 b""。"""
 
     def __init__(self, *, url: str | None = None, model: str | None = None,
                  voice_id: str | None = None, speed: float | None = None,
+                 emotion: str | None = None, speed_scale: float = 1.0,
                  sample_rate: int = SAMPLE_RATE,
                  audio_format: str = AUDIO_FORMAT, timeout: float = 10.0) -> None:
         self.url = url or os.getenv("MINIMAX_TTS_WSS_URL", DEFAULT_WSS_URL)
@@ -48,7 +61,13 @@ class TTSSession:
             raw_speed = float(speed if speed is not None else os.getenv("MINIMAX_TTS_SPEED", "1.0"))
         except (TypeError, ValueError):
             raw_speed = 1.0
-        self.speed = min(2.0, max(0.5, raw_speed))   # MiniMax 允许 0.5–2.0
+        try:
+            raw_speed *= float(speed_scale)
+        except (TypeError, ValueError):
+            pass
+        self.speed = round(min(2.0, max(0.5, raw_speed)), 2)   # MiniMax 允许 0.5–2.0
+        self.emotion = emotion if emotion in EMOTIONS else None
+        self.mark_sentences = False
         self.sample_rate = sample_rate
         self.audio_format = audio_format
         self.timeout = timeout
@@ -74,10 +93,13 @@ class TTSSession:
             hello = json.loads(await asyncio.wait_for(self._ws.recv(), self.timeout))
             if hello.get("event") != "connected_success":
                 raise TTSError("语音合成握手失败")
+            voice_setting = {"voice_id": self.voice_id, "speed": self.speed}
+            if self.emotion:
+                voice_setting["emotion"] = self.emotion
             await self._ws.send(json.dumps({
                 "event": "task_start",
                 "model": self.model,
-                "voice_setting": {"voice_id": self.voice_id, "speed": self.speed},
+                "voice_setting": voice_setting,
                 "audio_setting": {
                     "sample_rate": self.sample_rate,
                     "format": self.audio_format,
@@ -117,11 +139,16 @@ class TTSSession:
             pass
 
     async def audio_chunks(self):
-        """异步产出 PCM 字节块，直到本回合结束；失败抛 TTSError。"""
+        """异步产出 PCM 字节块，直到本回合结束；失败抛 TTSError。
+        mark_sentences 时，每句合成完毕处额外产出一个空块 b""（句子边界）。"""
         while True:
             item = await self._audio.get()
             if item is None:
                 return
+            if item is _SENTENCE_END:
+                if self.mark_sentences:
+                    yield b""
+                continue
             if isinstance(item, TTSError):
                 raise item
             yield item
@@ -154,6 +181,8 @@ class TTSSession:
                         self._audio.put_nowait(bytes.fromhex(audio_hex))
                     except ValueError:
                         pass
+                if event == "task_continued" and msg.get("is_final"):
+                    self._audio.put_nowait(_SENTENCE_END)
                 if event == "task_failed":
                     self._audio.put_nowait(TTSError("语音合成失败"))
                     return

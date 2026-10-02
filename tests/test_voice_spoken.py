@@ -60,7 +60,7 @@ def test_units_dates_and_ranges(raw, expected):
     ("（来源：新华网）北京晴", "北京晴"),
     ("- 第一项\n- 第二项\n1. 第三项", "第一项，第二项，第三项"),
     ("## 结论\n明天有雨", "结论，明天有雨"),
-    ("```py\nprint(1)\n```", "代码我就不念了"),
+    ("```py\nprint(1)\n```", "代码我就不念了，"),
 ])
 def test_markup_links_emoji_are_not_read(raw, expected):
     assert say(raw) == expected

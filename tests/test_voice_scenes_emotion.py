@@ -29,10 +29,13 @@ class _FakeAgent:
 
 
 class _FakeTTS:
-    def __init__(self):
+    created = []   # 每次实例化的关键字参数（语气/语速断言用）
+
+    def __init__(self, **kwargs):
         self.audio_format = "pcm"
         self.sample_rate = 24000
         self._q = asyncio.Queue()
+        _FakeTTS.created.append(kwargs)
 
     async def connect(self):
         pass
@@ -191,6 +194,26 @@ def test_emotion_detected_downlinked_and_injected_next_turn(monkeypatch):
     second_style = agent.stream_inputs[-1]["messages"][0]
     assert "低落" in second_style.content and "语气感知" in second_style.content, \
         "情绪结果就绪后必须注入回合提示（异步旁路，快则当回合、慢则下一回合）"
+    tts_kwargs = _FakeTTS.created[-1]
+    assert tts_kwargs.get("emotion") == "calm" and tts_kwargs.get("speed_scale", 1) < 1, \
+        "主人低落：下一回合 TTS 更稳更慢，而不是跟着低落"
+
+
+def test_tts_style_scene_base_and_emotion_nudge():
+    from jarvis.voice.emotion import tts_style_for
+
+    assert tts_style_for("neutral") == {} and tts_style_for("") == {}
+    assert tts_style_for("happy")["emotion"] == "happy"
+    assert scenes_mod.scene_tts("butler") == {}
+    assert scenes_mod.scene_tts("night") == {"emotion": "calm", "speed_scale": 0.9}
+
+    call = gateway_mod._CallSession.__new__(gateway_mod._CallSession)
+    call.scene_id, call.last_emotion = "night", "happy"
+    style = call.tts_style()
+    assert style["emotion"] == "calm", "场景定下的语气不被情绪覆盖"
+    assert style["speed_scale"] == round(0.9 * 1.03, 3)
+    call.scene_id, call.last_emotion = "butler", "angry"
+    assert call.tts_style() == {"emotion": "calm", "speed_scale": 0.97}
 
 
 def test_neutral_emotion_not_injected(monkeypatch):

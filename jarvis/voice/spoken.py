@@ -226,11 +226,14 @@ def strip_markup(text: str) -> str:
     text = _MD_INLINE.sub("", text)
     text = _EMOJI.sub("", text)
     text = re.sub(r"[（(]\s*[）)]", "", text)  # 删掉网址后留下的空括号
-    text = re.sub(r"\s*\n\s*", "，", text)
+    text = text.strip()
+    text = re.sub(r"([，。！？、；：,.!?;:])\s*\n\s*", r"\1", text)   # 句末换行：标点已有停顿
+    text = re.sub(r"\s*\n\s*", "，", text)                          # 列表/标题换行 → 逗号停顿
     text = _SPACES.sub(" ", text)
     text = re.sub(r"\s+([，。！？、；：,.!?;:])", r"\1", text)
     text = re.sub(r"^[，。！？、；：,.!?;:\s]+", "", text)
-    return text.strip(" ，,：:")
+    # 句尾逗号保留（首句在逗号处切出，TTS 靠它收住语调）；只去掉删网址后悬空的冒号
+    return text.rstrip().rstrip("：:").rstrip()
 
 
 def to_spoken(text: str, today: _dt.date | None = None) -> str:

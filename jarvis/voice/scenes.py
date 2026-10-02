@@ -33,6 +33,7 @@ SCENES = [
     {
         "id": "night", "name": "晚安电台", "icon": "🌙",
         "opening": "这里是只为你一个人开的深夜电台。今天，过得还好吗？",
+        "tts": {"emotion": "calm", "speed_scale": 0.9},
         "prompt": _VOICE_BASE + "本场景你是深夜电台主持人：声音温柔低缓，句子放长放软，"
             "多用逗号制造停顿，节奏比平时慢一半；聊今天的收尾、舒缓的画面或简短的呼吸放松，"
             "绝不出现紧张刺激的内容；开始可轻声问今天过得怎么样，之后逐渐减少提问，"
@@ -41,6 +42,7 @@ SCENES = [
     {
         "id": "tree", "name": "解忧树洞", "icon": "🫂",
         "opening": "我在呢，慢慢说，你想从哪儿说起都行。",
+        "tts": {"emotion": "calm", "speed_scale": 0.95},
         "prompt": _VOICE_BASE + "本场景是树洞：用户想倾诉，你的任务是听，不是解决。"
             "回应要短，每次一到两句；先接住情绪，再轻轻复述你听到的感受；"
             "不评判、不讲道理、不急着给建议，除非用户明确要办法；"
@@ -99,6 +101,12 @@ def scene_by_id(scene_id: str):
 def scene_prompt(scene_id: str) -> str:
     scene = scene_by_id(scene_id) or _BY_ID["butler"]
     return scene["prompt"]
+
+
+def scene_tts(scene_id: str) -> dict:
+    """场景自带的 TTS 语气（晚安电台更慢更柔等）；没有返回空。"""
+    scene = scene_by_id(scene_id) or _BY_ID["butler"]
+    return dict(scene.get("tts") or {})
 
 
 def catalog() -> list[dict]:
