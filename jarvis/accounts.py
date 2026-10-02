@@ -18,6 +18,7 @@ from pwdlib import PasswordHash
 
 from jarvis import config
 from jarvis.db import ClosingConnection, file_identity
+from jarvis.periodic import PeriodicWorker, warn_throttled
 
 
 log = logging.getLogger(__name__)
@@ -74,10 +75,15 @@ def _is_placeholder(value: str) -> bool:
 def _session_secret() -> bytes | None:
     """Read the explicitly configured CSRF secret; never create a fallback secret."""
     value = os.getenv("JARVIS_SESSION_SECRET", "").strip()
-    if _is_placeholder(value):
-        return None
     encoded = value.encode("utf-8")
-    return encoded if len(encoded) >= 32 else None
+    if value and not _is_placeholder(value) and len(encoded) >= 32:
+        return encoded
+    # 此前只表现为登录接口回 503「服务未配置」，日志里没有任何线索
+    reason = "未配置" if not value else ("仍是示例占位符" if _is_placeholder(value) else f"只有 {len(encoded)} 字节")
+    warn_throttled("session-secret-invalid",
+                   "JARVIS_SESSION_SECRET %s（需要至少 32 字节随机值，如 openssl rand -hex 32），"
+                   "网页登录会 fail closed", reason)
+    return None
 
 
 def session_secret_configured() -> bool:
@@ -102,9 +108,35 @@ def _clean_username(value: str) -> str:
     return value.strip()
 
 
-# ---------- 弱口令识别：只提示（日志 WARNING + /api/session 的 password_weak），不改密、不锁号 ----------
+class AccountError(ValueError):
+    """账户写操作失败：message 是可直接展示给用户的中文原因，status 是建议的 HTTP 状态码。"""
+
+    def __init__(self, message: str, status: int = 400) -> None:
+        super().__init__(message)
+        self.message = message
+        self.status = status
+
+
+MAX_USERNAME_LENGTH = 64
+
+
+def username_policy_error(username: str) -> str | None:
+    """新用户名（建用户/改名）的校验：返回中文原因，合格返回 None。"""
+    value = _clean_username(username or "")
+    if not value:
+        return "用户名不能为空"
+    if len(value) > MAX_USERNAME_LENGTH:
+        return f"用户名不能超过 {MAX_USERNAME_LENGTH} 个字符"
+    if any(not ch.isprintable() for ch in value):
+        return "用户名不能包含换行、制表符等控制字符"
+    return None
+
+
+# ---------- 弱口令：新口令（建用户/改口令）按下面的规则拒绝；已有账号登录只提示不拦 ----------
+# 已有账号的提示通道：日志 WARNING + /api/session 的 password_weak，不改密、不锁号。
 
 MIN_PASSWORD_LENGTH = 8
+MAX_PASSWORD_LENGTH = 256   # Argon2 对超长口令也要做完整哈希，给新口令设个上限防滥用
 _COMMON_PASSWORDS = frozenset({
     "admin", "administrator", "root", "password", "passw0rd", "p@ssw0rd", "jarvis", "changeme",
     "123456", "1234567", "12345678", "123456789", "1234567890", "111111", "000000", "666666",
@@ -119,18 +151,34 @@ _WEAK_FLAGS: dict[str, tuple[str, bool]] = {}   # user_id -> (password_hash, 是
 _WEAK_FLAGS_LOCK = threading.Lock()
 
 
-def password_is_weak(password: str, username: str = "") -> bool:
-    """规则判定：过短、常见口令、与用户名相同、字符种类过少、短纯数字。"""
+def _weak_reason(password: str, username: str = "") -> str | None:
+    """弱口令规则（过短、常见口令、与用户名相同、字符种类过少、短纯数字）：命中返回中文原因。"""
     value = password or ""
     folded = value.casefold()
-    if len(value) < MIN_PASSWORD_LENGTH or folded in _COMMON_PASSWORDS:
-        return True
+    if len(value) < MIN_PASSWORD_LENGTH:
+        return f"口令至少要 {MIN_PASSWORD_LENGTH} 位"
+    if folded in _COMMON_PASSWORDS:
+        return "这个口令太常见，很容易被猜到，请换一个"
     name = (username or "").strip().casefold()
     if name and (folded == name or folded.startswith(name) and folded[len(name):].isdigit()):
-        return True
+        return "口令不能和用户名相同，也不能只是用户名加数字"
     if len(set(value)) <= 2:
-        return True
-    return value.isdigit() and len(value) < 12
+        return "口令不能只由一两个字符重复组成"
+    if value.isdigit() and len(value) < 12:
+        return "纯数字口令至少要 12 位，或者加入字母和符号"
+    return None
+
+
+def password_is_weak(password: str, username: str = "") -> bool:
+    """已存口令的强弱判定（只用于提示，不拦登录）。"""
+    return _weak_reason(password, username) is not None
+
+
+def password_policy_error(password: str, username: str = "") -> str | None:
+    """新口令策略（建用户、Owner 重置口令、本人改口令时强制）：返回中文原因，合格返回 None。"""
+    if len(password or "") > MAX_PASSWORD_LENGTH:
+        return f"口令不能超过 {MAX_PASSWORD_LENGTH} 位"
+    return _weak_reason(password, username)
 
 
 def _weak_warning(username: str) -> None:
@@ -296,6 +344,9 @@ class AccountStore:
         password = os.getenv("JARVIS_ADMIN_PASSWORD", "")
         if (not username or not password or _is_placeholder(username)
                 or _is_placeholder(password) or not session_secret_configured()):
+            warn_throttled("bootstrap-owner-missing",
+                           "账户库里还没有任何用户，且 JARVIS_ADMIN_USERNAME / JARVIS_ADMIN_PASSWORD / "
+                           "JARVIS_SESSION_SECRET 未配齐（或仍是占位符），不会创建 Owner，网页无法登录")
             return
         now = _utcnow()
         user_id = str(uuid.uuid4())
@@ -493,10 +544,29 @@ class AccountStore:
         row = rows[0]
         return Principal(row["id"], row["username"], row["role"], "fixed-owner", "fixed")
 
+    # ---------- 账户写操作 ----------
+    # *_checked 版本给 HTTP 入口用：强制用户名与口令策略，失败抛 AccountError（中文原因 + 状态码）。
+    # 不带后缀的旧接口保留原语义（失败返回 None/False、不套口令策略），供内部与测试夹具使用。
+
     def create_user(self, username: str, password: str, role: str) -> dict | None:
-        username = _clean_username(username)
-        if not username or not password or role not in _ROLES:
+        try:
+            return self._create_user(username, password, role, enforce_policy=False)
+        except AccountError:
             return None
+
+    def create_user_checked(self, username: str, password: str, role: str) -> dict:
+        return self._create_user(username, password, role, enforce_policy=True)
+
+    def _create_user(self, username: str, password: str, role: str, *, enforce_policy: bool) -> dict:
+        username = _clean_username(username)
+        if role not in _ROLES:
+            raise AccountError("角色只能是 Owner 或 Member")
+        if enforce_policy:
+            reason = username_policy_error(username) or password_policy_error(password, username)
+            if reason:
+                raise AccountError(reason)
+        elif not username or not password:
+            raise AccountError("用户名和口令都不能为空")
         now = _utcnow()
         user_id = str(uuid.uuid4())
         password_hash = _PASSWORDS.hash(password)
@@ -508,20 +578,39 @@ class AccountStore:
                 )
                 self._audit(connection, "user_created", user_id, role)
         except sqlite3.IntegrityError:
-            return None
+            raise AccountError(_username_taken(username), 409) from None
         _remember_weak(user_id, username, password_hash, password_is_weak(password, username))
         return {"id": user_id, "username": username, "role": role, "active": 1, "created_at": now, "updated_at": now}
 
     def update_user(self, user_id: str, *, username: str | None = None, role: str | None = None,
                     password: str | None = None, active: bool | None = None) -> dict | None:
-        if role is not None and role not in _ROLES:
+        try:
+            return self._update_user(user_id, username=username, role=role, password=password,
+                                     active=active, enforce_policy=False)
+        except AccountError:
             return None
+
+    def update_user_checked(self, user_id: str, *, username: str | None = None, role: str | None = None,
+                            password: str | None = None, active: bool | None = None) -> dict:
+        return self._update_user(user_id, username=username, role=role, password=password,
+                                 active=active, enforce_policy=True)
+
+    def _username_of(self, user_id: str) -> str | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT username FROM users WHERE id = ?", (user_id,)).fetchone()
+        return row["username"] if row else None
+
+    def _update_user(self, user_id: str, *, username: str | None, role: str | None,
+                     password: str | None, active: bool | None, enforce_policy: bool) -> dict:
+        if role is not None and role not in _ROLES:
+            raise AccountError("角色只能是 Owner 或 Member")
         updates: list[str] = []
         values: list[object] = []
         if username is not None:
             username = _clean_username(username)
-            if not username:
-                return None
+            reason = username_policy_error(username) if enforce_policy else (None if username else "用户名不能为空")
+            if reason:
+                raise AccountError(reason)
             updates.append("username = ?")
             values.append(username)
         if role is not None:
@@ -529,8 +618,15 @@ class AccountStore:
             values.append(role)
         new_hash = None
         if password is not None:
-            if not password:
-                return None
+            if enforce_policy:
+                name = username if username is not None else self._username_of(user_id)
+                if name is None:
+                    raise AccountError("用户不存在", 404)
+                reason = password_policy_error(password, name)
+                if reason:
+                    raise AccountError(reason)
+            elif not password:
+                raise AccountError("口令不能为空")
             new_hash = _PASSWORDS.hash(password)
             updates.append("password_hash = ?")
             values.append(new_hash)
@@ -538,7 +634,7 @@ class AccountStore:
             updates.append("active = ?")
             values.append(int(active))
         if not updates:
-            return None
+            raise AccountError("没有要修改的内容")
         updates.append("updated_at = ?")
         values.append(_utcnow())
         values.append(user_id)
@@ -548,7 +644,7 @@ class AccountStore:
                 existing = connection.execute("SELECT role, active FROM users WHERE id = ?", (user_id,)).fetchone()
                 if not existing:
                     connection.rollback()
-                    return None
+                    raise AccountError("用户不存在", 404)
                 removes_last_owner = (
                     existing["role"] == "Owner" and existing["active"]
                     and (role == "Member" or active is False)
@@ -558,11 +654,11 @@ class AccountStore:
                 )
                 if removes_last_owner:
                     connection.rollback()
-                    return None
+                    raise AccountError("至少要保留一个启用中的 Owner，不能降级或停用最后一个 Owner", 409)
                 changed = connection.execute("UPDATE users SET " + ", ".join(updates) + " WHERE id = ?", values)
                 if not changed.rowcount:
                     connection.rollback()
-                    return None
+                    raise AccountError("用户不存在", 404)
                 if password is not None or active is False:
                     connection.execute("UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL", (_utcnow(), user_id))
                 self._audit(connection, "user_updated", user_id)
@@ -570,14 +666,29 @@ class AccountStore:
                     "SELECT id, username, role, active, created_at, updated_at FROM users WHERE id = ?", (user_id,)
                 ).fetchone()
         except sqlite3.IntegrityError:
-            return None
+            raise AccountError(_username_taken(username or ""), 409) from None
         if row and new_hash is not None:
             _remember_weak(row["id"], row["username"], new_hash, password_is_weak(password, row["username"]))
-        return dict(row) if row else None
+        return dict(row)
 
     def change_password(self, principal: Principal, current_password: str, new_password: str) -> bool:
-        if not new_password:
+        try:
+            self._change_password(principal, current_password, new_password, enforce_policy=False)
+        except AccountError:
             return False
+        return True
+
+    def change_password_checked(self, principal: Principal, current_password: str, new_password: str) -> None:
+        self._change_password(principal, current_password, new_password, enforce_policy=True)
+
+    def _change_password(self, principal: Principal, current_password: str, new_password: str,
+                         *, enforce_policy: bool) -> None:
+        if enforce_policy:
+            reason = password_policy_error(new_password, principal.username)
+            if reason:
+                raise AccountError(reason)
+        elif not new_password:
+            raise AccountError("新口令不能为空")
         with self._connect() as connection:
             row = connection.execute("SELECT password_hash FROM users WHERE id = ?", (principal.user_id,)).fetchone()
             try:
@@ -585,7 +696,9 @@ class AccountStore:
             except Exception:
                 valid = False
             if not valid:
-                return False
+                raise AccountError("当前口令不对")
+            if enforce_policy and new_password == current_password:
+                raise AccountError("新口令不能和当前口令相同")
             new_hash = _PASSWORDS.hash(new_password)
             connection.execute(
                 "UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?",
@@ -598,4 +711,46 @@ class AccountStore:
             self._audit(connection, "password_changed", principal.user_id)
         _remember_weak(principal.user_id, principal.username, new_hash,
                        password_is_weak(new_password, principal.username))
-        return True
+
+    # ---------- 会话表清理 ----------
+
+    def purge_sessions(self, now: dt.datetime | None = None) -> int:
+        """删掉再也不可能通过鉴权的会话行：已过期的，以及吊销超过保留期的。返回删除行数。
+
+        每次登录（网页/桌面+OpenAI 成对）都插新行、登出与改口令只置 revoked_at，此前从不删除，
+        sessions 表只增不减。鉴权查询本身已排除这些行，删掉不改变任何人的登录状态。"""
+        moment = now or dt.datetime.now(dt.timezone.utc)
+        revoked_before = (moment - _REVOKED_SESSION_RETENTION).isoformat()
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM sessions WHERE expires_at <= ? "
+                "OR (revoked_at IS NOT NULL AND revoked_at <= ?)",
+                (moment.isoformat(), revoked_before),
+            )
+            return cursor.rowcount
+
+
+def _username_taken(username: str) -> str:
+    return f"用户名「{username}」已被占用，请换一个" if username else "用户名已被占用，请换一个"
+
+
+_REVOKED_SESSION_RETENTION = dt.timedelta(days=7)   # 吊销后再留一周，便于排查「谁什么时候被踢下线」
+SESSION_CLEANUP_INTERVAL = 6 * 3600.0
+SESSION_CLEANUP_FIRST_DELAY = 60.0                  # 启动一分钟后先清一次，别和启动抢资源
+
+
+class SessionJanitor(PeriodicWorker):
+    """定期清理 sessions 表（复用 PeriodicWorker 的兜底/重启语义）。"""
+
+    thread_name = "jarvis-session-janitor"
+    first_delay = SESSION_CLEANUP_FIRST_DELAY
+
+    def __init__(self, store: AccountStore, interval: float = SESSION_CLEANUP_INTERVAL) -> None:
+        self._store = store
+        super().__init__(interval)
+
+    def scan_once(self) -> int:
+        removed = self._store.purge_sessions()
+        if removed:
+            log.info("session janitor removed %d expired/revoked sessions", removed)
+        return removed

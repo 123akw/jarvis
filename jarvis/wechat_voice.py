@@ -22,6 +22,7 @@ import wave
 
 import httpx
 
+from jarvis import config
 from jarvis.voice.segment import speakable
 from jarvis.voice.tts import SAMPLE_RATE as TTS_SAMPLE_RATE
 from jarvis.voice.tts import TTSError, TTSSession
@@ -273,8 +274,7 @@ def synthesize_pcm(text: str, *, session_factory=None) -> bytes:
     clean = speakable(text or "").strip()
     if not clean:
         raise VoiceSynthesisError("没有可朗读的内容")
-    max_chars = int(os.getenv("JARVIS_WECHAT_VOICE_MAX_REPLY_CHARS",
-                              str(DEFAULT_MAX_REPLY_CHARS)))
+    max_chars = config.env_int("JARVIS_WECHAT_VOICE_MAX_REPLY_CHARS", DEFAULT_MAX_REPLY_CHARS, minimum=1)
     clean = clean[:max_chars]
 
     async def _run() -> bytes:
@@ -330,8 +330,7 @@ def encode_silk(pcm: bytes, sample_rate: int = TTS_SAMPLE_RATE) -> tuple[bytes, 
 
 def build_voice_items(silk: bytes, duration_ms: int) -> list[dict]:
     """打包 sendmessage 的语音 item_list；类型号与 key 名可配置，实样到位改默认值。"""
-    item_type = int(os.getenv("JARVIS_WECHAT_VOICE_SEND_ITEM_TYPE",
-                              str(DEFAULT_SEND_ITEM_TYPE)))
+    item_type = config.env_int("JARVIS_WECHAT_VOICE_SEND_ITEM_TYPE", DEFAULT_SEND_ITEM_TYPE)
     item_key = os.getenv("JARVIS_WECHAT_VOICE_SEND_ITEM_KEY", DEFAULT_SEND_ITEM_KEY)
     data_key = os.getenv("JARVIS_WECHAT_VOICE_SEND_DATA_KEY", DEFAULT_SEND_DATA_KEY)
     voice_format = os.getenv("JARVIS_WECHAT_VOICE_SEND_FORMAT", DEFAULT_SEND_FORMAT)

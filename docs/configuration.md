@@ -19,9 +19,9 @@
 | `JARVIS_PORT` | 否 | `7789` | Web 服务监听端口 |
 | `JARVIS_ADMIN_USERNAME` | 首次启动必需 | 无 | 首次数据库初始化时创建的唯一 Owner 用户名 |
 | `JARVIS_ADMIN_PASSWORD` | 首次启动必需 | 无 | 首次数据库初始化时创建的 Owner 口令；只存 Argon2id 哈希 |
-| `JARVIS_SESSION_SECRET` | 是 | 无 | 至少 32 字节随机值，用于会话与 CSRF；缺失时网页登录会 fail closed |
+| `JARVIS_SESSION_SECRET` | 是 | 无 | 至少 32 字节随机值，用于会话与 CSRF；缺失或过短时网页登录会 fail closed，并在日志里记一条 WARNING 说明原因 |
 | `JARVIS_SETTINGS_WRITE_ENABLED` | 否 | `false` | 设为 `true` 才允许网页/桌面写入 Provider 设置 |
-| `JARVIS_SECRETS_KEY` | 设置写入必需 | 无 | URL-safe Base64 编码的随机 32 字节主密钥；仅在服务器保存，不得轮换或丢失 |
+| `JARVIS_SECRETS_KEY` | 设置写入必需 | 无 | URL-safe Base64 编码的随机 32 字节主密钥（不是 hex）；仅在服务器保存，不得轮换或丢失。格式不对时设置中心保持只读，日志 WARNING 会给出解码长度 |
 | `JARVIS_SEARCH_BACKENDS` | 否 | `searxng,ddgs,tavily` | 搜索 provider 降级顺序；名称不能重复 |
 | `SEARXNG_BASE_URL` | 否 | 无 | 本地 Compose 可设为 `http://127.0.0.1:18888`；未配置或不健康时继续 DDGS |
 | `JARVIS_EXTRACT_BACKENDS` | 否 | `trafilatura,playwright` | 正文提取降级顺序；Playwright 未安装时明确跳过 |
@@ -30,6 +30,7 @@
 | `JARVIS_REMINDERS_ENABLED` | 否 | `1` | 设为 `0` 关闭日程提醒、晨报电台与夜间记忆蒸馏的后台线程 |
 | `JARVIS_HEARTBEAT_ENABLED` | 否 | `1` | 设为 `0` 关闭 Heartbeat 主动唤醒（线程根本不启动） |
 | `JARVIS_HEARTBEAT_INTERVAL` | 否 | `1800` | Heartbeat 扫描周期（秒） |
+| `JARVIS_HEARTBEAT_QUIET_HOURS` | 否 | `23:00-08:00` | Heartbeat 静默时段（可跨午夜，`off` 关闭）：期间整轮跳过、不调模型；24 小时内相同或高度相似的心跳只推一次。日程到点提醒不受影响 |
 | `JARVIS_DISTILL_TIME` | 否 | `03:00` | 夜间记忆蒸馏触发时刻（HH:MM，过点 2 小时窗口内可补跑） |
 | `JARVIS_SKILLS_DIR` | 否 | `<项目根>/skills` | 技能热加载目录，放 `<名>/SKILL.md` 即生效 |
 | `JARVIS_SMTP_HOST` / `JARVIS_SMTP_PORT` | 发邮件必需 / 否 | 无 / `465` | 会议纪要发信的 SMTP 服务器；465 走 SSL，其他端口走 STARTTLS。未配置时纪要仍生成保存，只是不发邮件 |

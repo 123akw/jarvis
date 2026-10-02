@@ -5,12 +5,22 @@ data/HEARTBEAT.md 是一份纯文本「关注清单」——主人手写（或�
 非空才把内容连同当前时间交给模型判断「现在该不该主动说点什么」；该说则经微信主动
 推送（复用「提醒发给我」绑定通道），并投递一份进桌面/网页 pending 领取箱。模型判
 轮空（只答 PASS）就保持沉默。JARVIS_HEARTBEAT_ENABLED=0 时线程根本不启动。
+
+两道克制闸门（第十一轮）：
+- 静默时段（默认 23:00–08:00，JARVIS_HEARTBEAT_QUIET_HOURS 可改/关）：整轮跳过，连模型都不调；
+  日程到点提醒走 reminders.py，不受影响。
+- 24 小时去重：同一内容（或只差标点、语气词的高度相似内容）推过一次就不再推；推送记录落盘
+  （data/heartbeat-sent.json），服务重启后仍然有效。数字不同（时间、金额、数量）一律视为不同提醒。
 """
 import datetime
+import difflib
+import json
 import logging
 import math
 import os
+import re
 import threading
+import time
 
 from jarvis import config
 from jarvis.periodic import PeriodicWorker
@@ -23,6 +33,13 @@ MIN_INTERVAL = 60.0           # 配置护栏：设成 0 曾让模型调用陷入
 MAX_INTERVAL = 86400.0        # Event.wait 不接受 inf，且一天一轮已是下限频率
 MAX_PENDING_PER_USER = 20     # 领取箱上限：长期无人领取时只留最新的，旧的先进先出
 PASS_TOKEN = "PASS"
+DEFAULT_QUIET_HOURS = (datetime.time(23, 0), datetime.time(8, 0))
+DEDUP_WINDOW_SECONDS = 24 * 3600.0
+DEDUP_SIMILARITY = 0.8         # 归一化后 SequenceMatcher 相似度达到它即视为同一条提醒
+SENT_LOG_FILE = "heartbeat-sent.json"
+MAX_SENT_RECORDS = 200
+_QUIET_OFF = frozenset(("off", "none", "0", "false", "no"))
+_DIGITS = re.compile(r"\d+")
 
 HEARTBEAT_PROMPT = (
     "你在做后台巡检，主人此刻并没有发问。下面是主人手写的关注清单与当前时间。"
@@ -34,6 +51,109 @@ HEARTBEAT_PROMPT = (
 
 def heartbeat_path():
     return config.data_dir() / HEARTBEAT_FILE
+
+
+def parse_quiet_hours(raw: str | None):
+    """'23:00-08:00' → (time(23,0), time(8,0))；off/none/0 → None（不设静默）；未设置或空 → 默认。
+
+    起止相同视为不设静默；起点晚于终点表示跨午夜。格式不对抛 ValueError。"""
+    value = (raw or "").strip().lower()
+    if not value:
+        return DEFAULT_QUIET_HOURS
+    if value in _QUIET_OFF:
+        return None
+    parts = re.split(r"\s*[-~–—]\s*", value)
+    if len(parts) != 2:
+        raise ValueError(raw)
+    start, end = (_parse_clock(part) for part in parts)
+    return None if start == end else (start, end)
+
+
+def _parse_clock(text: str) -> datetime.time:
+    """'23:00' / '8:30' / '7' → time；'24:00' 按 0 点算。越界抛 ValueError。"""
+    match = re.fullmatch(r"(\d{1,2})(?:[:：](\d{2}))?", text)
+    if not match:
+        raise ValueError(text)
+    hour, minute = int(match[1]), int(match[2] or 0)
+    if (hour, minute) == (24, 0):
+        return datetime.time(0, 0)
+    return datetime.time(hour, minute)
+
+
+def in_quiet_hours(now: datetime.datetime, quiet) -> bool:
+    if not quiet:
+        return False
+    start, end = quiet
+    moment = now.time()
+    if start < end:
+        return start <= moment < end
+    return moment >= start or moment < end   # 跨午夜，如 23:00–08:00
+
+
+def _normalized(text: str) -> str:
+    """去掉标点、空白、表情和大小写差异，只留文字与数字。"""
+    return "".join(ch for ch in text.casefold() if ch.isalnum())
+
+
+def similar_messages(a: str, b: str) -> bool:
+    """两条心跳是否算「同一条提醒」：归一化后相同，或数字一致且高度相似。"""
+    left, right = _normalized(a), _normalized(b)
+    if not left or not right:
+        return a.strip() == b.strip()
+    if left == right:
+        return True
+    if _DIGITS.findall(a) != _DIGITS.findall(b):
+        return False   # 「3 点开会」和「4 点开会」是两件事
+    return difflib.SequenceMatcher(None, left, right, autojunk=False).ratio() >= DEDUP_SIMILARITY
+
+
+def sent_log_path():
+    return config.data_dir() / SENT_LOG_FILE
+
+
+class SentLog:
+    """最近 24 小时已推送的心跳记录：按用户去重，落盘以便重启后仍然有效。"""
+
+    def __init__(self, path_fn=sent_log_path, window: float = DEDUP_WINDOW_SECONDS):
+        self._path_fn = path_fn
+        self._window = window
+        self._lock = threading.Lock()
+
+    def _load(self, cutoff: float) -> list[dict]:
+        path = self._path_fn()
+        if not path.exists():
+            return []
+        try:
+            rows = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            log.warning("heartbeat sent-log unreadable, starting fresh: %s", type(exc).__name__)
+            return []
+        if not isinstance(rows, list):
+            return []
+        return [row for row in rows if isinstance(row, dict) and isinstance(row.get("ts"), (int, float))
+                and row["ts"] >= cutoff and isinstance(row.get("text"), str)]
+
+    def _save(self, rows: list[dict]) -> None:
+        path = self._path_fn()
+        temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        temporary.write_text(json.dumps(rows[-MAX_SENT_RECORDS:], ensure_ascii=False), encoding="utf-8")
+        temporary.chmod(0o600)
+        os.replace(temporary, path)
+
+    def find_similar(self, user_id: str, text: str, now: datetime.datetime) -> dict | None:
+        with self._lock:
+            rows = self._load(now.timestamp() - self._window)
+        for row in reversed(rows):
+            if row.get("user") == user_id and similar_messages(row["text"], text):
+                return row
+        return None
+
+    def record(self, user_id: str, text: str, now: datetime.datetime) -> None:
+        stamp = now.timestamp()
+        with self._lock:
+            rows = self._load(stamp - self._window)
+            rows.append({"user": user_id, "ts": stamp, "text": text})
+            self._save(rows)
 
 
 class PendingOutbox:
@@ -67,13 +187,16 @@ class HeartbeatScanner(PeriodicWorker):
 
     def __init__(self, *, owner_getter=None, compose=None, push_wechat=None,
                  outbox=None, path_fn=heartbeat_path, now_fn=None,
-                 interval: float = DEFAULT_INTERVAL):
+                 interval: float = DEFAULT_INTERVAL, quiet_hours=DEFAULT_QUIET_HOURS,
+                 sent_log: SentLog | None = None):
         self._owner_getter = owner_getter
         self._compose = compose
         self._push_wechat = push_wechat
         self._outbox = outbox
         self._path_fn = path_fn
         self._now = now_fn or datetime.datetime.now
+        self._quiet_hours = quiet_hours
+        self._sent_log = sent_log or SentLog()
         super().__init__(interval)
 
     def scan_once(self) -> bool:
@@ -83,6 +206,9 @@ class HeartbeatScanner(PeriodicWorker):
         owner = self._resolve_owner(self._owner_getter)
         if owner is None:
             return False
+        now = self._now()
+        if in_quiet_hours(now, self._quiet_hours):
+            return False   # 夜里不打扰，也不烧模型；静默结束后的下一轮会重新裁量
         try:
             path = self._path_fn()
             if not path.exists():
@@ -93,13 +219,21 @@ class HeartbeatScanner(PeriodicWorker):
             return False
         if not content:
             return False
-        now = self._now()
         try:
             message = (self._compose(owner, content, now) or "").strip()
         except Exception as exc:
             log.warning("heartbeat compose failed: %s", type(exc).__name__)
             return False
         if not message or message.upper() == PASS_TOKEN:
+            return False
+        try:
+            duplicate = self._sent_log.find_similar(owner.user_id, message, now)
+        except Exception as exc:   # 去重记录坏了宁可多提醒一次，也不能让心跳停摆
+            log.warning("heartbeat dedup check failed: %s", type(exc).__name__)
+            duplicate = None
+        if duplicate is not None:
+            log.info("heartbeat suppressed (same as %s): %s",
+                     time.strftime("%m-%d %H:%M", time.localtime(duplicate["ts"])), message[:60])
             return False
         delivered = False
         if self._push_wechat is not None:
@@ -115,6 +249,10 @@ class HeartbeatScanner(PeriodicWorker):
                 log.warning("heartbeat outbox failed: %s", type(exc).__name__)
         if delivered:
             log.info("heartbeat pushed: %s", message[:60])
+            try:
+                self._sent_log.record(owner.user_id, message, now)
+            except Exception as exc:
+                log.warning("heartbeat sent-log write failed: %s", type(exc).__name__)
         return delivered
 
 
@@ -133,4 +271,11 @@ def maybe_create(**kwargs) -> HeartbeatScanner | None:
     if clamped != interval:
         log.warning("JARVIS_HEARTBEAT_INTERVAL=%s 超出 %d–%d 秒，已按 %d 秒执行",
                     os.getenv("JARVIS_HEARTBEAT_INTERVAL"), MIN_INTERVAL, MAX_INTERVAL, clamped)
-    return HeartbeatScanner(interval=clamped, **kwargs)
+    raw_quiet = os.getenv("JARVIS_HEARTBEAT_QUIET_HOURS")
+    try:
+        quiet = parse_quiet_hours(raw_quiet)
+    except ValueError:
+        log.warning("JARVIS_HEARTBEAT_QUIET_HOURS=%r 格式应为 HH:MM-HH:MM（或 off 关闭），已按默认 23:00-08:00 执行",
+                    raw_quiet)
+        quiet = DEFAULT_QUIET_HOURS
+    return HeartbeatScanner(interval=clamped, quiet_hours=quiet, **kwargs)

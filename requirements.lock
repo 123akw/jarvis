@@ -45,7 +45,7 @@ click==8.4.2
     #   uvicorn
 courlan==1.4.0
     # via trafilatura
-cryptography==45.0.7
+cryptography==50.0.2
     # via jarvis (pyproject.toml)
 dateparser==1.4.2
     # via htmldate
@@ -209,6 +209,7 @@ trafilatura==2.1.0
 typing-extensions==4.16.0
     # via
     #   anyio
+    #   cryptography
     #   exceptiongroup
     #   fastapi
     #   langchain-core

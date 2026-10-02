@@ -1,98 +1,28 @@
 # BLOCKED
 
-## 线 C · 微信语音
+只列**当前仍未解决**的事项（2026-10-02 第十一轮整理）。已解决的历史条目见 git 历史与 [`PROGRESS.md`](PROGRESS.md)；解决一条就删一条。
 
-## 线 A · 语音通话
-# 待裁决清单
+## 需要用户操作
 
-- **阻断上线验收：**本机 `.env` 与生产 `/opt/jarvis/.env` 均未配置 `TAVILY_API_KEY`。代码、109 条测试和无效 Key 反向 smoke 已完成，但在有效 Key 到位前无法得到任务书要求的真实查询 4/4，也不能部署到生产。下一步只需在上述两个运行环境安全注入同一有效 Key（不要提交到 Git），再运行 `scripts/search_smoke.py`。
-- `PANDASCORE_TOKEN` 本机与生产也未配置，但它是可选项；电竞工具会按任务书回退 Tavily，不单独阻断上线。
-- 连续阻断审计：第 2 轮仍确认本机与生产均无 Tavily Key；本轮继续完成了 PandaScore、评分冲突和 smoke 防假绿补强，尚未到停止阈值。
-- 连续阻断审计：第 3 轮再次得到 `local_TAVILY_API_KEY_configured=False` 与 `production_TAVILY_API_KEY_configured=False`。已达到任务书停止阈值；交付已完成分支，但生产 main、服务和微信桥保持原状。
+1. **部署第十一轮时升级服务器上的 cryptography。** 锁文件已从 45.0.7 升到 50.0.2（pip-audit 13 条漏洞清零）。服务器执行 `/opt/jarvis/.venv/bin/pip install cryptography==50.0.2`（有 cp311-abi3 manylinux 轮子，清华镜像可用），`cd / && /opt/jarvis/.venv/bin/python -c "import cryptography; print(cryptography.__version__)"` 确认后重启 `jarvis-web`。新旧版本加解密双向兼容、已存的 Provider Key 不用重新填写（见 `tests/test_crypto_compat.py`）；不升级服务也能跑，只是漏洞还在。
+2. **把生产 Owner 口令从 `admin/admin` 改掉。** 第十一轮起新设口令必须通过策略（≥8 位、非常见口令、非用户名加数字），但按要求**不强制修改**已有口令，只在网页顶部弹弱口令提醒。登录后在「账户设置 → 修改口令」更换。
+3. **轮换飞书 App Secret（如果还没换过）。** 第八轮接入时 Secret 曾在聊天里出现过。在飞书开发者后台重置后，同步更新 `/opt/jarvis/.env` 与本机 `.env` 的 `FEISHU_APP_SECRET`，再重启服务。
+4. **开通飞书 `cardkit:card:write` 权限（推荐，可选）。** 第八轮上线时没开，流式卡片会自动降级成普通消息。开通后要在「版本管理与发布」重新发布一次。已开通的话删掉这条。
+5. **可选：Tavily / PandaScore key。** 本机与生产都没配 `TAVILY_API_KEY`、`PANDASCORE_TOKEN`。不影响使用：搜索走 SearXNG → DDGS，电竞回退网页搜索。需要时把 key 注入两边 `.env`（不要提交），再跑 `scripts/search_smoke.py --live`。
 
-## 语音通话（voice-call 分支，2026-08-13）
-- 无阻断项：任务 0/1/2 全部验收通过，硬指标达成。**无**。
+## 需要外部条件
 
-## 线 C · 微信语音（wechat-voice 分支，2026-08-13）
-- **等语音样本**：生产 `journalctl -u jarvis-web | grep 'non-text probe'` 至今为空（领导未发语音），iLink 语音报文实结构未知。收/发两侧均按「item type 未知 + voice_item 含下载凭证」的可配置结构实现（JARVIS_WECHAT_VOICE_* 环境变量可改 key 名与类型号）；样本到位后按实测一处改齐。
-- ~~缺 DASHSCOPE_API_KEY~~ **已解除（2026-08-13 当日）**：管理者送达 key 并追加进 worktree .env。百炼真实调用已实现（qwen3-asr-flash + multimodal-generation 端点，实测 HTTP 200、识别文字逐字正确）；无 key 环境仍安全降级「没听清」。生产 .env 需同步注入该 key（管理者部署项）。
-- 备注（非阻断）：新依赖 pilk 仅装在本地 .venv；requirements.lock / pyproject.toml 不在本线白名单，生产部署前需管理者把 `pilk` 加入依赖并在服务器 venv 安装，否则收侧解码/发侧编码会走「没听清」/纯文字降级（不会崩）。
+1. **微信语音消息的真实报文结构。** 生产 `journalctl -u jarvis-web | grep 'non-text probe'` 至今为空，iLink 语音结构仍未采到样本。收发两侧按可配置结构实现（`JARVIS_WECHAT_VOICE_*`，见 `.env.example`），识别不出时降级为「没听清」/纯文字。有人给机器人发一条语音后，按探针日志把配置或 `jarvis/wechat_voice.py` 顶部默认值一处改齐。
+2. **微信主动推送（日程提醒 / 晨报 / Heartbeat）真机验证。** sendmessage 没有回复上下文，复用最近一条 `context_token`，需要真实联系人发「提醒发给我」绑定后观察一次。失败只记 WARNING 并降级，不影响正常收发。
+3. **Chrome 私网访问（PNA）政策变化。** 网页唤起本机悬浮窗依赖 `Access-Control-Allow-Private-Network` 预检。如果 Chrome 改成强制用户授权，会多出一次授权弹窗，代码无需改动，留意即可。
 
-## 线 B · 并发加固与遗留修复
-# BLOCKED
+## 技术债
 
-无阻断项。
-
-备注（非阻断）：
-- README 快速开始第 4 节 `npm start`（macOS Electron 悬浮窗）是 GUI，无人值守环境无法验收；`cd desktop && npm install` 已亲手跑通（70 packages, exit 0）。属半托管范围，待领导亲验。
-- 反向验证 12 路并发聊天时有 3 路 ReadTimeout：瓶颈为同一用户共享 runtime bundle 的 httpx `max_connections=10`（jarvis/provider_runtime.py，非本次白名单文件）。真实多用户各持独立 bundle，≤20 人正常使用不受影响；如需单用户更高并发，需裁决是否调该文件的连接上限。
-
-## 线 D · 网页语音升级
-
-## 线 A · 语音通话
-# 待裁决清单
-
-- **阻断上线验收：**本机 `.env` 与生产 `/opt/jarvis/.env` 均未配置 `TAVILY_API_KEY`。代码、109 条测试和无效 Key 反向 smoke 已完成，但在有效 Key 到位前无法得到任务书要求的真实查询 4/4，也不能部署到生产。下一步只需在上述两个运行环境安全注入同一有效 Key（不要提交到 Git），再运行 `scripts/search_smoke.py`。
-- `PANDASCORE_TOKEN` 本机与生产也未配置，但它是可选项；电竞工具会按任务书回退 Tavily，不单独阻断上线。
-- 连续阻断审计：第 2 轮仍确认本机与生产均无 Tavily Key；本轮继续完成了 PandaScore、评分冲突和 smoke 防假绿补强，尚未到停止阈值。
-- 连续阻断审计：第 3 轮再次得到 `local_TAVILY_API_KEY_configured=False` 与 `production_TAVILY_API_KEY_configured=False`。已达到任务书停止阈值；交付已完成分支，但生产 main、服务和微信桥保持原状。
-
-## 语音通话（voice-call 分支，2026-08-13）
-- 无阻断项：任务 0/1/2 全部验收通过，硬指标达成。**无**。
-
-## 语音升级（voice-upgrade 分支，2026-08-13）
-- ~~待 key：`.env` 无 DASHSCOPE_API_KEY~~ → **已解除**：管理者当日注入 key 到 .env，`asr_smoke.py --live` 真连百炼识别回环 100% 重合、坏 key 红→绿闭环（见 PROGRESS 任务 1）。默认网关 `wss://dashscope.aliyuncs.com/api-ws/v1/inference` 实测可用，无需切 workspace 子域。
-- 生产上线提醒（管理者动作，非本执行者地界）：`/opt/jarvis/.env` 也需注入 `DASHSCOPE_API_KEY`，否则线上自动走 asr_fallback→浏览器识别降级通道（通话不中断，但识别质量回到旧水平）。
-- 上线提醒 2（界限所致）：jarvis/web 构建产物不在本任务白名单、未重建未提交；合并后上线前需 `cd web-src && npm ci && npm run build`（产物写入 jarvis/web）再部署，否则线上跑的还是旧版通话 UI（旧 UI 对新网关兼容：无二进制上行，走 user_text 老路）。
-- 交付时点阻断项：**无**。
-
-## 线 B · 并发加固与遗留修复
-# BLOCKED
-
-无阻断项。
-
-备注（非阻断）：
-- README 快速开始第 4 节 `npm start`（macOS Electron 悬浮窗）是 GUI，无人值守环境无法验收；`cd desktop && npm install` 已亲手跑通（70 packages, exit 0）。属半托管范围，待领导亲验。
-- 反向验证 12 路并发聊天时有 3 路 ReadTimeout：瓶颈为同一用户共享 runtime bundle 的 httpx `max_connections=10`（jarvis/provider_runtime.py，非本次白名单文件）。真实多用户各持独立 bundle，≤20 人正常使用不受影响；如需单用户更高并发，需裁决是否调该文件的连接上限。
-
-## 线 C · README 焕新（readme-refresh 分支，2026-08-13）
-
-无阻断项。**无**。
-
-备注（非阻断）：规格 Task 4 Step 3 要求 push origin/main，与本线任务书「不许 git push」冲突，按任务书只落本地分支；视觉效果待领导亲验。
-
-## 桌面语音通话（desktop-voice 分支，2026-08-13）
-
-无阻断项。**无**。
-
-备注（非阻断）：
-- 修了一个既有阻断 bug（在我的 desktop/** 地界内）：Electron 38 默认沙箱化 preload 加载失败（require('crypto')/相对模块不可用），主仓库未改分支同样复现，即交付前桌面 app 实际起不来。已按最小修改加 `sandbox:false`（contextIsolation/nodeIntegration 不变），详见 PROGRESS 任务 2。
-- 自动化验收测试环境限制（如实声明）：机器无法「真人开口」，扬声器自放自收会被 macOS/Chromium 回声消除压制（实测 RMS 0.022<0.04）。故用 Chromium 假麦克风设备灌真人声 WAV 完成全自动验收；除麦克风硬件外全链路生产真连（统计与时间轴见 PROGRESS）。真人麦克风路径留领导亲验清单第 1 条，预期无碍（真人声不在回声消除的参考信号里）。
-- 验收在生产 admin 账号下创建了线程 desktop-voice（desktop 前缀，不污染网页记录），含数轮测试对话，可在需要时自行清理。
-
-## 网页↔桌面一体化接管（web-desktop-handoff 分支，2026-08-13）
-
-无阻断项。**无**。
-
-备注（非阻断，供领导决策二期）：
-- 打包安装器（dmg/exe）按任务书不在本活范围：网页指引「没在跑」时指向 README 源码启动方式（cd desktop && npm install && npm start）。jws:// 协议注册在 dev（未打包）下 macOS 是 best-effort——`setAsDefaultProtocolClient` 对未打包应用不保证注册成功，代码与测试已就位，打包后即可靠；二期出安装器时此路径零改动直接受益。
-- Chrome 私网访问预检（PNA）按拍板实现（预检回 `Access-Control-Allow-Private-Network: true`），Playwright Chromium 实测通过；Chrome 后续版本若把 PNA 升级为强制「本机访问需用户授权」（Chrome 官方路线图上有），届时浏览器会弹一次授权框，代码无需改动，但体验会多一次点击——留意即可。
-- e2e 验证用 vite dev server 跑新前端（构建产物写死 ../jarvis/web，在白名单外故未重建未提交）；合并上线前需 `cd web-src && npm ci && npm run build` 再部署，否则线上跑的还是没有「悬浮窗」入口的旧版页面（旧页面对新服务端端点无感知、零影响）。
-- 生产 Origin 白名单取自桌面端设置里的 server 地址（默认 https://jws.gkgeek-set.cn）；若领导换生产域名，桌面端设置改 server 后白名单自动跟随，无需改代码。
-
-# 第三轮升级（feat/round3-upgrade，2026-08-19）待裁决清单
-- ~~.env.example 属禁区未更新~~ **已解除（2026-08-19 晚，领导授权上推时补齐）**：五个新环境变量说明已进 .env.example 与 README 环境变量表。
-- **生产部署为管理者动作**：已合并 main 并推送 GitHub（领导授权）；生产上线仍需在服务器 fast-forward + 重启 jarvis-web；桌面端无新依赖，重启 Electron 即可。
-- 其余：无。
-
-# 飞书机器人渠道（feishu 分支，2026-10-02）待用户操作清单
-- **阻断真机验收：本机 `.env` 与生产均无飞书凭证。** 代码与 59 条离线单测（假 HTTP/假 WS + 一条本地真 socket 往返）已完成；协议帧与官方 SDK 黄金向量逐字节一致；已用伪造凭据打到真飞书确认 token 接口与长连接取址接口路径正确（分别返回 10014 / 1000040345 并被正确识别）。凭证到位后运行 `.venv/bin/python scripts/feishu_smoke.py --live`。
-- **需要用户在飞书开发者后台（https://open.feishu.cn/app）完成：**
-  1. 创建**企业自建应用**；「凭证与基础信息」复制 App ID / App Secret → 写入服务器 `.env` 的 `FEISHU_APP_ID` / `FEISHU_APP_SECRET`（不提交 Git）。
-  2. 「添加应用能力」→ **机器人**。
-  3. 「权限管理」开通：`im:message.p2p_msg:readonly`（必需）、`im:message.group_at_msg:readonly`（群聊）、`im:message:send_as_bot`（必需）、`im:message:readonly`（图片识别）、`cardkit:card:write`（流式卡片，推荐）、`im:message.reactions:write_only`（可选）。
-  4. 先让长连接在线（启动贾维斯服务或跑 `feishu_smoke.py --live`），再到「事件与回调 → 事件配置」把订阅方式改为**使用长连接接收事件**并保存，添加事件**接收消息 v2.0（im.message.receive_v1）**。
-  5. 「版本管理与发布」创建版本、设置可用范围并发布（管理员审核）；以后每次改权限都要重新发布。
-  6. 绑定账号：服务器上 `.venv/bin/python -m jarvis.channels.feishu bind-code <用户名>` 领码 → 飞书私聊机器人发「绑定 123456」。
-- 部署提醒（管理者动作，本分支未部署）：生产 venv 无需新装包（`websockets==15.0.1` 原已在锁文件中，只是改为显式依赖）；`.env` 注入两项凭证后重启 `jarvis-web` 即启用；未注入时飞书渠道保持 disabled，零影响。
-- 非阻断后续项：飞书语音消息（opus 需转码后接百炼 ASR，需真实样本验证）；日程提醒/Heartbeat 推送到飞书（需在 lifespan 的提醒线程里加飞书推送通道）；网页/桌面「飞书」设置面板（目前用 API/CLI 领绑定码，web-src 不在本次地界）。
+1. **桌面端没有打包签名（dmg / exe）。** 未打包的 dev 版上 `jws://` 协议注册只是 best-effort；需要签名与公证链路，建议单独立项。
+2. **飞书渠道后续项。** 语音消息（opus 转码后接百炼 ASR，需要真实样本）；日程提醒 / Heartbeat 推送到飞书（目前只推微信与桌面 / 网页）。
+3. **LangGraph `create_react_agent` 已弃用**（V2.0 移除）。`jarvis/graph.py` 需要迁移到 `langchain.agents.create_agent`，升级 LangGraph 2.x 之前必须做。
+4. **本机主 `.venv` 和 `requirements.lock` 不一致。** 缺 ddgs、trafilatura、lxml 等 21 个锁定包，langgraph / langchain-openai / typing-inspection 各低一个补丁版，cryptography 仍是 45.0.7。测试靠假实现兜底能通过，但会掩盖真实依赖问题。建议 `.venv/bin/pip install -r requirements.lock` 重新对齐。
+5. **前端账户设置的报错文案。** 后端现在会返回具体原因（口令太弱、用户名已被占用、当前口令不对等）。前端创建用户失败时仍在后面拼「：用户名可能已被占用」，本地也只校验长度，应该改成直接展示接口返回的 `error`（`web-src/src/AccountSettings.jsx`）。
+6. **`JARVIS_AGENT_WORKERS` 在 import 时读取**，早于 `run()` 里的 `load_env()`。本机直接跑 `jarvis-web` 时写在 `.env` 里不生效（生产经 systemd EnvironmentFile 注入，不受影响）。要修需要把线程池改成懒创建。
+7. **Heartbeat 去重发生在模型生成之后**，每轮仍要调用一次模型。想进一步省钱，可以把最近 24 小时已推送的内容注入提示词，让模型直接回 PASS（要改 `server._heartbeat_compose`）。
+8. **测试里约 20 条 sqlite 连接未关闭的 ResourceWarning**，来自测试创建、随后被回收的 Agent 检查点连接。不影响结果，生产单例 Agent 也不受影响。

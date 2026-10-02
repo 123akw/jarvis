@@ -1,9 +1,44 @@
 """集中配置：路径、环境变量、模型参数。所有取值都在调用时读取，方便测试与热切换。"""
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+
+def env_int(name: str, default: int, *, minimum: int | None = None, maximum: int | None = None) -> int:
+    """读整数环境变量：未设置用默认值；不是整数时用默认值、越界时取边界，都记一条 WARNING。
+
+    此前 JARVIS_AGENT_WORKERS / JARVIS_PORT 写错一个字符，服务在 import 阶段就抛 ValueError 起不来。"""
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        logging.getLogger("jarvis").warning("%s=%r 不是整数，已按默认值 %s 执行", name, raw, default)
+        return default
+    bounded = value
+    if minimum is not None:
+        bounded = max(minimum, bounded)
+    if maximum is not None:
+        bounded = min(maximum, bounded)
+    if bounded != value:
+        logging.getLogger("jarvis").warning("%s=%s 超出允许范围，已按 %s 执行", name, value, bounded)
+    return bounded
+
+
+def log_level(default: str = "WARNING") -> str:
+    """JARVIS_LOG_LEVEL：不认识的级别名（如 verbose）回退默认值，而不是让 basicConfig 抛错导致起不来。"""
+    raw = os.getenv("JARVIS_LOG_LEVEL", "").strip().upper()
+    if not raw:
+        return default
+    if isinstance(logging.getLevelName(raw), int):
+        return raw
+    logging.getLogger("jarvis").warning("JARVIS_LOG_LEVEL=%r 不是有效的日志级别（DEBUG/INFO/WARNING/ERROR），已按 %s 执行",
+                                        raw, default)
+    return default
 
 
 _SEARCH_PROVIDERS = frozenset(("searxng", "ddgs", "tavily"))
