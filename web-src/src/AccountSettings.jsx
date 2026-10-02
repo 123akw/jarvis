@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { changePassword, createUser, getUsers, updateUser } from './api.js'
+import { ModalHead } from './Modal.jsx'
 
 function ErrorMessage({ children }) {
   return children ? <p className="account-error" role="alert">{children}</p> : null
@@ -55,27 +56,31 @@ export default function AccountSettings({ session, onReauth, onClose }) {
   }
 
   return (
-    <section className="account-card" aria-label="账户设置">
-      <div className="account-head"><div><b>{session?.username} · {session?.role}</b><small>账户设置</small></div>
-        {onClose ? <button className="wx-x" onClick={onClose} aria-label="关闭账户设置">×</button> : null}</div>
-      <form className="account-form" onSubmit={submitPassword}>
-        <label>当前口令<input aria-label="当前口令" type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} autoComplete="current-password" required /></label>
-        <label>新口令<input aria-label="新口令" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} autoComplete="new-password" required /></label>
-        <button className="wx-btn" type="submit">更新口令</button>
-      </form>
-      {passwordMessage ? <p className="account-ok" role="status">{passwordMessage}</p> : null}
-      <ErrorMessage>{error}</ErrorMessage>
-      {owner ? <div className="user-manager"><button type="button" className="wx-btn ghost" onClick={() => setManagerOpen(v => !v)} aria-expanded={managerOpen}>用户管理</button>
-        {managerOpen ? <>
-        <form className="account-form" onSubmit={submitUser}>
-          <label>新用户名<input aria-label="新用户名" value={username} onChange={e => setUsername(e.target.value)} autoComplete="off" required /></label>
-          <label>初始口令<input aria-label="初始口令" type="password" value={initialPassword} onChange={e => setInitialPassword(e.target.value)} autoComplete="new-password" required /></label>
-          <label>角色<select value={role} onChange={e => setRole(e.target.value)}><option>Member</option><option>Owner</option></select></label>
-          <button className="wx-btn" type="submit">创建用户</button>
+    <section className="jv-sheet account-sheet" aria-label="账户设置">
+      <ModalHead title="账户设置" subtitle={<>{session?.username} · {session?.role}</>}
+        onClose={onClose} closeLabel="关闭账户设置" />
+      <div className="jv-modal-body">
+        <h3 className="jv-section-title">修改口令</h3>
+        <form className="account-form" onSubmit={submitPassword}>
+          <label>当前口令<input aria-label="当前口令" type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} autoComplete="current-password" required /></label>
+          <label>新口令<input aria-label="新口令" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} autoComplete="new-password" required /></label>
+          <div className="jv-actions"><button className="jv-btn jv-btn--primary" type="submit">更新口令</button></div>
         </form>
-        <div className="user-list" aria-label="用户列表">{users.map(user => <UserRow key={user.id} user={user} onPatch={patchUser} />)}</div>
-        </> : null}
-      </div> : null}
+        {passwordMessage ? <p className="account-ok" role="status">{passwordMessage}</p> : null}
+        <ErrorMessage>{error}</ErrorMessage>
+        {owner ? <div className="user-manager">
+          <button type="button" className="jv-disclosure" onClick={() => setManagerOpen(v => !v)} aria-expanded={managerOpen}>用户管理</button>
+          {managerOpen ? <>
+            <form className="account-form" onSubmit={submitUser}>
+              <label>新用户名<input aria-label="新用户名" value={username} onChange={e => setUsername(e.target.value)} autoComplete="off" required /></label>
+              <label>初始口令<input aria-label="初始口令" type="password" value={initialPassword} onChange={e => setInitialPassword(e.target.value)} autoComplete="new-password" required /></label>
+              <label>角色<select value={role} onChange={e => setRole(e.target.value)}><option>Member</option><option>Owner</option></select></label>
+              <div className="jv-actions"><button className="jv-btn jv-btn--primary" type="submit">创建用户</button></div>
+            </form>
+            <div className="user-list" aria-label="用户列表">{users.map(user => <UserRow key={user.id} user={user} onPatch={patchUser} />)}</div>
+          </> : null}
+        </div> : null}
+      </div>
     </section>
   )
 }
@@ -84,8 +89,8 @@ function UserRow({ user, onPatch }) {
   const [password, setPassword] = useState('')
   return <div className="user-row"><span className="user-name" title={user.username}>{user.username}</span>
     <select aria-label={`${user.username} 角色`} value={user.role} onChange={e => onPatch(user.id, { role: e.target.value })}><option>Member</option><option>Owner</option></select>
-    <button type="button" onClick={() => onPatch(user.id, { active: !Boolean(user.active) })}>{user.active ? '停用' : '启用'}</button>
+    <button type="button" className="jv-btn jv-btn--sm" onClick={() => onPatch(user.id, { active: !Boolean(user.active) })}>{user.active ? '停用' : '启用'}</button>
     <label className="sr-only">重置 {user.username} 口令</label><input aria-label={`重置 ${user.username} 口令`} type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="new-password" />
-    <button type="button" disabled={!password} onClick={async () => { if (await onPatch(user.id, { password })) setPassword('') }}>重置口令</button>
+    <button type="button" className="jv-btn jv-btn--sm" disabled={!password} onClick={async () => { if (await onPatch(user.id, { password })) setPassword('') }}>重置口令</button>
   </div>
 }

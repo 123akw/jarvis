@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { getPendingReminders } from './api.js'
+import Icon from './Icon.jsx'
 
-/** 日程主动提醒：每 30 秒领取一次到点日程（服务端按通道只发一次），顶栏下方弹金色提示条 */
+/** 日程主动提醒：每 30 秒领取一次到点日程（服务端按通道只发一次），顶栏下方弹出玻璃提示条 */
 export default function Reminders({ onExpired }) {
   const [toasts, setToasts] = useState([])
 
@@ -27,7 +28,7 @@ export default function Reminders({ onExpired }) {
     <div className="reminder-stack" role="alert">
       {toasts.map(t => (
         <div key={t.key} className="reminder-toast">
-          <span className="rt-icon">⏰</span>
+          <span className="rt-icon"><Icon name="today" size={16} /></span>
           <span className="rt-body"><b>{t.when.slice(11)}</b>　{t.title}</span>
           <button className="rt-ok"
             onClick={() => setToasts(ts => ts.filter(x => x.key !== t.key))}>知道了</button>

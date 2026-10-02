@@ -1,52 +1,71 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { logout } from './api.js'
+import AccountMenu from './AccountMenu.jsx'
+import AccountSettings from './AccountSettings.jsx'
 import Chat from './Chat.jsx'
-
-// three.js 相关组件懒加载：主 bundle 不再背着 3D 引擎
-const MossMini = lazy(() => import('./Moss.jsx').then(m => ({ default: m.MossMini })))
+import CommandPalette from './CommandPalette.jsx'
+import { DesktopGuide, useDesktopHandoff } from './DesktopHandoff.jsx'
+import Icon from './Icon.jsx'
+import MemoryPanel from './MemoryPanel.jsx'
+import Modal, { useEscape } from './Modal.jsx'
 import Panels from './Panels.jsx'
+import ProviderSettings from './ProviderSettings.jsx'
+import Reminders from './Reminders.jsx'
 import Threads from './Threads.jsx'
 import WeChatConnect from './WeChatConnect.jsx'
-import AccountSettings from './AccountSettings.jsx'
-import ProviderSettings from './ProviderSettings.jsx'
-import DesktopHandoff from './DesktopHandoff.jsx'
-import MemoryPanel from './MemoryPanel.jsx'
-import Reminders from './Reminders.jsx'
 import { applyTheme, currentTheme, toggleTheme } from './theme.js'
 
 function newThreadId() {
   return 't-' + (crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10))
 }
 
-const isNarrow = () => window.innerWidth <= 1180
+/* 断点（与 styles.css 媒体查询一致）：
+ *  narrow  ≤1024    会话栏是抽屉、今日是浮层，默认都收起
+ *  regular 1025–1599 会话栏常驻可折叠；今日是浮层，默认收起
+ *  wide    ≥1600    会话栏与今日板都可常驻，默认展开（记住用户的折叠偏好） */
+const NARROW_MAX = 1024
+const WIDE_MIN = 1600
+const modeOf = w => (w <= NARROW_MAX ? 'narrow' : w >= WIDE_MIN ? 'wide' : 'regular')
 
-const nowText = () => new Date().toLocaleTimeString('zh-CN', { hour12: false })
-
-/** 顶栏时钟单独成组件：每秒只重渲染这一个 chip（旧版把 1Hz setState 放在 Hud，
- *  每秒连带对话区、任务台、侧栏整树重渲染） */
-function Clock() {
-  const [clock, setClock] = useState(nowText)
+/** 只在跨断点时触发重渲染（拖动窗口不会每帧连带整棵树） */
+function useLayoutMode() {
+  const [mode, setMode] = useState(() => modeOf(window.innerWidth))
   useEffect(() => {
-    const t = setInterval(() => setClock(nowText()), 1000)
-    return () => clearInterval(t)
+    const onResize = () => setMode(modeOf(window.innerWidth))
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
   }, [])
-  return <span className="chip hide-sm">{clock}</span>
+  return mode
 }
 
+const readPref = (key, fallback) => {
+  const v = localStorage.getItem(key)
+  return v === null || v === undefined ? fallback : v === '1'
+}
+const writePref = (key, on) => localStorage.setItem(key, on ? '1' : '0')
+
+const todayText = () => new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })
+
 export default function Hud({ session, onLogout }) {
+  const mode = useLayoutMode()
+  const leftOverlay = mode === 'narrow'
+  const todayOverlay = mode !== 'wide'
   const [busy, setBusy] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const [dash, setDash] = useState(null)
   const [geo, setGeo] = useState(null)
   const [thread, setThread] = useState(() => localStorage.getItem('jws_thread') || 'web')
-  const [leftOpen, setLeftOpen] = useState(() => !isNarrow())
-  const [rightOpen, setRightOpen] = useState(() => !isNarrow())
+  const [threadList, setThreadList] = useState([])
+  const [leftOpen, setLeftOpen] = useState(() => mode !== 'narrow' && readPref('jws_sidebar', true))
+  const [todayOpen, setTodayOpen] = useState(() => mode === 'wide' && readPref('jws_today', true))
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const [wxOpen, setWxOpen] = useState(false)
   const [injected, setInjected] = useState(null)   // 会议纪要「追问」注入对话的消息
   const [accountOpen, setAccountOpen] = useState(false)
   const [providerOpen, setProviderOpen] = useState(false)
   const [memoryOpen, setMemoryOpen] = useState(false)
   const [theme, setTheme] = useState(currentTheme)
+  const desktop = useDesktopHandoff()
 
   useEffect(() => {
     applyTheme(theme)
@@ -54,6 +73,15 @@ export default function Hud({ session, onLogout }) {
   }, [theme])
 
   useEffect(() => { localStorage.setItem('jws_thread', thread) }, [thread])
+
+  // 跨断点：进窄屏收起抽屉/浮层；回到宽屏按用户偏好恢复常驻
+  const prevMode = useRef(mode)
+  useEffect(() => {
+    if (prevMode.current === mode) return
+    prevMode.current = mode
+    setLeftOpen(mode !== 'narrow' && readPref('jws_sidebar', true))
+    setTodayOpen(mode === 'wide' && readPref('jws_today', true))
+  }, [mode])
 
   const onTurnDone = useCallback(() => setRefreshKey(k => k + 1), [])
 
@@ -63,70 +91,159 @@ export default function Hud({ session, onLogout }) {
       () => {}, { timeout: 8000, maximumAge: 600000 })
   }, [])
 
+  useEffect(() => {  // ⌘K / Ctrl+K：命令面板
+    function onKey(e) {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key?.toLowerCase() === 'k') {
+        e.preventDefault()
+        setPaletteOpen(v => !v)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   async function quit() {
     try { await logout() } catch { /* local state still fails closed */ } finally { onLogout() }
   }
 
-  function selectThread(id) {
-    setThread(id)
-    if (isNarrow()) setLeftOpen(false)  // 窄屏选完会话自动收抽屉
+  function toggleLeft() {
+    const next = !leftOpen
+    setLeftOpen(next)
+    if (!leftOverlay) writePref('jws_sidebar', next)
   }
 
+  function setToday(next) {
+    setTodayOpen(next)
+    if (!todayOverlay) writePref('jws_today', next)
+  }
+
+  function selectThread(id) {
+    setThread(id)
+    if (leftOverlay) setLeftOpen(false)  // 抽屉模式选完会话自动收起
+  }
+  const newChat = () => selectThread(newThreadId())
+
+  const overlayShown = (leftOverlay && leftOpen) || (todayOverlay && todayOpen)
+  const closeOverlays = useCallback(() => {
+    if (leftOverlay) setLeftOpen(false)
+    if (todayOverlay) setTodayOpen(false)
+  }, [leftOverlay, todayOverlay])
+  useEscape(closeOverlays, overlayShown)
+
+  const isOwner = session?.role === 'Owner'
+  const settingsCommands = [
+    { id: 'account', label: '账户设置', hint: isOwner ? '口令 · 用户管理' : '口令', icon: 'user', keywords: '密码 口令 用户', run: () => setAccountOpen(true) },
+    { id: 'memory', label: '记忆与人设', icon: 'sparkles', keywords: '画像 称呼 人格 persona', run: () => setMemoryOpen(true) },
+    { id: 'settings', label: '设置中心', hint: '模型 API · 语音 · 桌面', icon: 'sliders', keywords: 'api 模型 provider key 语音 音色 语速 晨报 电台 桌面 会议 邮箱 联网 搜索', run: () => setProviderOpen(true) },
+    ...(isOwner ? [{ id: 'wechat', label: '接入个人微信', icon: 'bubble', keywords: 'wechat 扫码', run: () => setWxOpen(true) }] : []),
+    { id: 'desktop', label: '桌面悬浮窗', hint: desktop.busy ? '联系中…' : '', icon: 'desktop', keywords: '悬浮球 桌面端', run: () => void desktop.activate() },
+    { id: 'theme', label: theme === 'light' ? '切换到暗色' : '切换到亮色', icon: theme === 'light' ? 'moon' : 'sun', keywords: '主题 外观 theme', run: () => setTheme(toggleTheme()) },
+  ]
+  const logoutCommand = { id: 'logout', label: '退出登录', icon: 'logout', danger: true, run: quit }
+  const menuCommands = [...settingsCommands, { id: 'sep-logout', sep: true }, logoutCommand]
+  const paletteCommands = [
+    { id: 'new', label: '新对话', icon: 'compose', run: newChat },
+    { id: 'sidebar', label: leftOpen ? '收起会话栏' : '展开会话栏', icon: 'sidebar', keywords: '历史 会话', run: toggleLeft },
+    { id: 'today', label: todayOpen ? '收起今日' : '打开今日', hint: '日程 · 待办 · 备忘 · 会议纪要', icon: 'today', run: () => setToday(!todayOpen) },
+    ...settingsCommands,
+    logoutCommand,
+  ]
+
+  const status = {
+    state: busy ? 'busy' : dash ? 'online' : 'idle',
+    label: busy ? '正在思考' : dash ? '在线' : '连接中',
+    place: dash?.place || '',
+    detail: [geo ? '浏览器定位' : dash?.place ? 'IP 定位' : '未定位', dash?.model, dash?.version ? `v${dash.version}` : '']
+      .filter(Boolean).join(' · '),
+  }
+  const title = threadList.find(t => t.id === thread)?.title || '新对话'
+  const pending = dash ? dash.todos.length : 0
+
   return (
-    <div className="hud">
-      <div className="sweep" /><div className="grain" />
-      <header>
-        <button className={`chip navbtn${leftOpen ? ' on' : ''}`}
-          onClick={() => setLeftOpen(v => !v)} title="会话历史">☰</button>
-        <span className="wordmark">J.A.R.V.I.S.</span>
-        <span className="tagline">私人管家 · v{dash?.version ?? '—'}</span>
-        <span className="spacer" />
-        <button className="chip navbtn account-chip" onClick={() => setAccountOpen(true)} aria-label="账户设置"><span>{session?.username || '账号'}{session?.role ? ` · ${session.role}` : ''}</span></button>
-        <button className="chip navbtn" onClick={() => setMemoryOpen(true)} aria-label="记忆" title="贾维斯记住了什么">◉ 记忆</button>
-        <button className="chip navbtn" onClick={() => setProviderOpen(true)} aria-label="API 设置" title="模型与联网 API 设置">⚙ API</button>
-        <DesktopHandoff />
-        <span className="chip hide-sm">{dash?.model ?? '—'}</span>
-        <span className="chip online hide-sm"><span className="dot" />{dash?.place || '在线'}</span>
-        <Clock />
-        {session?.role === 'Owner' ? <button className="chip navbtn wxnav" aria-label="接入个人微信"
-          onClick={() => setWxOpen(true)} title="接入个人微信">微信</button> : null}
-        <button className="chip navbtn" onClick={() => setTheme(toggleTheme())}
-          title={theme === 'light' ? '切换到暗色' : '切换到亮色'} aria-label="切换主题">{theme === 'light' ? '☾' : '☀'}</button>
-        <button className={`chip navbtn${rightOpen ? ' on' : ''}`}
-          onClick={() => setRightOpen(v => !v)} title="日程 / 待办 / 备忘">▦</button>
-        <button className="chip logout" onClick={quit} title="退出登录">⏻</button>
+    <div className={`hud mode-${mode}`}>
+      <header className="jv-topbar">
+        <div className="tb-left">
+          <button type="button" className={`jv-icon-btn${leftOpen ? ' on' : ''}`} onClick={toggleLeft}
+            aria-label={leftOpen ? '收起会话栏' : '展开会话栏'} aria-expanded={leftOpen}
+            aria-controls="jv-sidebar" title="会话历史">
+            <Icon name="sidebar" />
+          </button>
+          <span className="wordmark">J.A.R.V.I.S.</span>
+        </div>
+        <div className="tb-center">
+          <span className="tb-title" title={title}>{title}</span>
+          <span className="tb-meta" title={`${status.label}${status.place ? ` · ${status.place}` : ''}`}>
+            <span className={`status-dot ${status.state}`} aria-hidden="true" />
+            <span className="tb-model">{dash?.model || status.label}</span>
+          </span>
+        </div>
+        <div className="tb-right">
+          <button type="button" className="tb-search" onClick={() => setPaletteOpen(true)}
+            aria-label="命令面板" title="搜索与命令（⌘K）">
+            <Icon name="search" size={16} />
+            <span className="tb-search-text">搜索与命令</span>
+            <kbd>⌘K</kbd>
+          </button>
+          <button type="button" className={`jv-icon-btn${todayOpen ? ' on' : ''}`} onClick={() => setToday(!todayOpen)}
+            aria-label="今日" aria-expanded={todayOpen} aria-controls="jv-today"
+            title={pending ? `今日：${pending} 项待办` : '今日：日程 / 待办 / 备忘'}>
+            <Icon name="today" />
+            {pending > 0 && !todayOpen ? <span className="badge-dot" aria-hidden="true" /> : null}
+          </button>
+          <AccountMenu session={session} status={status} commands={menuCommands} />
+        </div>
       </header>
       <Reminders onExpired={onLogout} />
-      <main className={`${leftOpen ? '' : 'hide-left'} ${rightOpen ? '' : 'hide-right'}`}>
-        <section className={`left pane${leftOpen ? ' open' : ''}`}>
+      {desktop.note ? <div className="jv-toast" role="status">{desktop.note}</div> : null}
+      <main className="jv-main">
+        <aside id="jv-sidebar" className={`jv-sidebar${leftOpen ? ' open' : ''}`} aria-label="会话历史"
+          inert={!leftOpen || undefined}>
+          <div className="sb-brand" aria-hidden="true">J.A.R.V.I.S.</div>
           <Threads current={thread} refreshKey={refreshKey}
-            onSelect={selectThread} onNew={() => selectThread(newThreadId())}
-            onExpired={onLogout} />
-          <div className="sidefoot">
-            <div className="minireactor"><Suspense fallback={null}><MossMini busy={busy} /></Suspense></div>
-            <div className="sf-lines">
-              <div>{busy ? 'MOSS · 扫描中' : 'MOSS · 待命'}</div>
-              <div>{geo ? '浏览器定位' : dash?.place ? 'IP 定位' : '未定位'}</div>
+            onSelect={selectThread} onNew={newChat}
+            onExpired={onLogout} onLoaded={setThreadList} />
+        </aside>
+        <Chat threadId={thread} location={geo} onBusy={setBusy} injected={injected}
+          onTurnDone={onTurnDone} onExpired={onLogout} userName={session?.username || ''} />
+        <aside id="jv-today" className={`jv-today${todayOpen ? ' open' : ''}`} aria-label="今日"
+          inert={!todayOpen || undefined}>
+          <div className="today-card">
+            <div className="today-head">
+              <div>
+                <h2 className="today-title">今日</h2>
+                <p className="today-date">{todayText()}</p>
+              </div>
+              <button type="button" className="jv-icon-btn" onClick={() => setToday(false)} aria-label="收起今日">
+                <Icon name="close" size={16} />
+              </button>
+            </div>
+            <div className="today-scroll">
+              {/* 常挂载：收起时也继续轮询仪表盘（顶栏状态点、模型名、待办提示都靠它） */}
+              <Panels refreshKey={refreshKey} onData={setDash} onExpired={onLogout}
+                onAskMeeting={text => { setInjected({ seq: Date.now(), text }); if (todayOverlay) setTodayOpen(false) }} />
             </div>
           </div>
-        </section>
-        <Chat threadId={thread} location={geo} onBusy={setBusy} injected={injected}
-          onTurnDone={onTurnDone} onExpired={onLogout} />
-        <section className={`right${rightOpen ? ' open' : ''}`}>
-          <Panels refreshKey={refreshKey} onData={setDash} onExpired={onLogout}
-            onAskMeeting={text => setInjected({ seq: Date.now(), text })} />
-        </section>
-        {(leftOpen || rightOpen) && (
-          <div className="drawer-backdrop"
-            onClick={() => { setLeftOpen(false); setRightOpen(false) }} />
-        )}
+        </aside>
+        {overlayShown ? <div className="drawer-backdrop" onClick={closeOverlays} /> : null}
       </main>
-      {wxOpen ? (
-        <WeChatConnect onClose={() => setWxOpen(false)} onExpired={onLogout} />
+      {paletteOpen ? (
+        <CommandPalette commands={paletteCommands} threads={threadList}
+          onPickThread={selectThread} onClose={() => setPaletteOpen(false)} />
       ) : null}
+      {wxOpen ? <WeChatConnect onClose={() => setWxOpen(false)} onExpired={onLogout} /> : null}
       {memoryOpen ? <MemoryPanel onClose={() => setMemoryOpen(false)} onExpired={onLogout} /> : null}
-      {accountOpen ? <div className="wx-backdrop"><AccountSettings session={session} onClose={() => setAccountOpen(false)} onReauth={onLogout} /></div> : null}
-      {providerOpen ? <div className="wx-backdrop"><ProviderSettings session={session} onClose={() => setProviderOpen(false)} onExpired={onLogout} onApplied={() => setRefreshKey(key => key + 1)} /></div> : null}
+      {accountOpen ? (
+        <Modal label="账户设置" onClose={() => setAccountOpen(false)} dismissOnBackdrop={false}>
+          <AccountSettings session={session} onClose={() => setAccountOpen(false)} onReauth={onLogout} />
+        </Modal>
+      ) : null}
+      {providerOpen ? (
+        <Modal label="设置中心" size="lg" onClose={() => setProviderOpen(false)} dismissOnBackdrop={false}>
+          <ProviderSettings session={session} onClose={() => setProviderOpen(false)} onExpired={onLogout}
+            onApplied={() => setRefreshKey(key => key + 1)} />
+        </Modal>
+      ) : null}
+      {desktop.guide ? <DesktopGuide onClose={desktop.closeGuide} /> : null}
     </div>
   )
 }
