@@ -157,7 +157,10 @@ function progressText(run, steps, byId) {
   const i = run.cursor
   const name = i >= 0 ? byId[steps[i]?.plugin]?.name || '' : ''
   if (run.status === 'running') return i < 0 ? '准备中…' : `第 ${i + 1} / ${steps.length} 步「${name}」`
-  if (run.status === 'ok') return run.output?.url ? '运行完成，结果网页已生成' : '运行完成'
+  if (run.status === 'ok') {
+    if (run.output?.kind === 'file') return '运行完成，文件已生成'
+    return run.output?.url ? '运行完成，结果网页已生成' : '运行完成'
+  }
   if (run.status === 'cancelled') return '已取消运行'
   return `运行没跑通：${run.error}`
 }

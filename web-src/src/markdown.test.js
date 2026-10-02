@@ -14,6 +14,22 @@ describe('Markdown 渲染引擎', () => {
     expect(html).toContain('href="https://example.com/x"')  // 裸 URL 自动成链
   })
 
+  it('文件空间的下载链接（同源 /api/files/<id>）保留相对地址、原地下载不开新窗口', () => {
+    const html = renderMarkdown('[下载 部门汇总.xlsx](/api/files/AbC123_xyz-98) 和 [别处](/api/other)')
+    const box = document.createElement('div')
+    box.innerHTML = html
+    const [file, other] = box.querySelectorAll('a')
+    expect(file.getAttribute('href')).toBe('/api/files/AbC123_xyz-98')
+    expect(file.hasAttribute('download')).toBe(true)
+    expect(file.hasAttribute('target')).toBe(false)
+    expect(file.textContent).toBe('下载 部门汇总.xlsx')
+    expect(other.getAttribute('target')).toBe('_blank')        // 其他链接照旧新窗口
+    expect(other.hasAttribute('download')).toBe(false)
+    const evil = renderMarkdown('[下载](javascript:alert(1)) [x](/api/files/../../etc)')
+    expect(evil).not.toContain('javascript:')
+    expect(evil).not.toContain('download=""')
+  })
+
   it('GFM 表格渲染为真表格', () => {
     const html = renderMarkdown('| 平台 | 评分 |\n| --- | --- |\n| 豆瓣 | 8.9 |')
     expect(html).toContain('<table>')

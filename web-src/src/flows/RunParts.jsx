@@ -172,8 +172,23 @@ export function ResultCard({ run, steps, byId, onRetry }) {
       </section>
     )
   }
-  const url = absUrl(run.output?.url)
   const lastDone = [...run.order].reverse().map(id => run.nodes[id]).find(n => n?.state === 'done')
+  if (run.output?.kind === 'file' && run.output.url) {   // 「生成 Excel / Word」积木：结果是文件空间里的文件
+    return (
+      <section className="fl-result" data-status="ok" aria-label="运行结果">
+        <div className="fl-result-main">
+          <p className="fl-result-kicker"><Icon name="check" size={14} />跑通了{secs ? ` · ${secs}` : ''}</p>
+          <h3 className="fl-result-title">{run.output.title || '文件已生成'}</h3>
+          <p className="fl-result-note">文件存在你的文件空间里，保留 30 天。</p>
+          <div className="jv-actions">
+            <a className="jv-btn jv-btn--sm jv-btn--primary" href={run.output.url} download>下载文件</a>
+            <button type="button" className="jv-btn jv-btn--sm" onClick={onRetry}>再跑一次</button>
+          </div>
+        </div>
+      </section>
+    )
+  }
+  const url = absUrl(run.output?.url)
   return (
     <section className="fl-result" data-status="ok" aria-label="运行结果">
       <div className="fl-result-main">
