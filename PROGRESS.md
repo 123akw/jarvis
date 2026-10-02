@@ -642,3 +642,14 @@
 - 删除 MOSS：登录页切换 / 3D 机器人 / 台词语音、人设 MOSS 人格（旧数据按 jarvis）；移除 three / @react-three/*，前端产物 1.68MB → 0.71MB；登录页支持 `?u=` 预填用户名。
 - 本机端到端联调（临时数据目录、真实 DeepSeek）：Owner 在市场用一句话描述推荐 → 生成「奶茶店小管家」账号 → `?u=` 登录 → 智能体自称其名、没装的技能直说并给替代、日程正常；流程「上新文案」3 秒跑完并生成结果页。联调发现并修正：回答里「平台 / 智能平台市场」统一为「智能体 / 智能体市场」。
 - 基线 pytest 1178 / vitest 417 / desktop 149。
+
+# 第十四轮（2026-10-02）：插件独立封装 + 开源导入 + 办公插件 + 体验修复 + 桌面正式 App
+
+- 用户反馈：①「学习助手」主页快捷问题出现「火锅」「奶茶店」；②扫码进新账号看到 admin 的历史（线上库核对：新账号 0 会话 0 索引，服务端没串；是手机浏览器留着 admin 登录、`?u=` 被忽略）；③插件要独立封装互不影响、能从 GitHub / 开源导入，加 PDF、Excel 等；④参考 Codex / ChatGPT 插件体系；⑤网页点悬浮窗拉不起来。契约：`docs/proposals/2026-10-round14-plugins.md`。
+- 体验修复：`?u=` 与当前账号不一致时先确认再切换、登录即作废本浏览器旧会话；`accountStorage.js` 本地数据按账号区分；`jarvis/platform_home.py` 按名称 / 介绍 / 职业 / 插件用模型生成问候与 4 个快捷问题（tenant_prefs 存签名，规则兜底）。
+- 插件框架：`jarvis/plugins/{loader,manifest,importer,routes,sandbox,sandbox_runner,settings,skills}.py`；22 个插件迁成 `jarvis/plugins/packs/<id>/plugin.json`（目录快照测试保证接口不变）；隔离五条（坏包只影响自己、超时与人话、冲突拒绝、设置命名空间、第三方子进程 `python -I -B` + rlimit + 最小环境）；Owner 导入 GitHub / Gitee / zip（信任预览、固定 commit、启停、卸载、检查更新）；兼容 Agent Plugins 标准 plugin.json、`skills/*/SKILL.md`、`.agents/plugins/marketplace.json` 插件源；状态存 `plugins/_state.json`，无表结构变更。
+- 文件空间与办公插件：`jarvis/files.py`（每账号 200MB / 单文件 20MB / 30 天，路由 /api/files）；对话附件存原件并带 `［附件：… · file_id=…］` 标记（气泡里显示为 📎 小标签）；内置 pdf / excel / word 插件包与 `excel_out` / `word_out` 积木；新依赖 openpyxl 3.1.5、python-docx 1.2.0。
+- 生态：`docs/plugins.md`、`examples/plugin-template/`（MIT-0）、示例插件 unit_convert / lottery / text_check / moments_coach、`examples/marketplace/`、调研 `docs/proposals/2026-10-round14-ecosystem.md`。
+- 桌面端：Chrome 本地网络访问实测为根因（`loopback-network` 权限待询问时请求直接失败）；网页探活带 `targetAddressSpace: 'loopback'`、按权限给指引、没启动时自动 `jws://` 并轮询接管；`npm run pack:mac` / `install:mac` 打包安装 `~/Applications/贾维斯.app`（`cn.gkgeek.jws`，ad-hoc 签名，与开发版共用 userData）；对话下载链接由主进程带令牌下载。
+- 本机联调（真实模型）：从 zip 导入「单位换算」→ 开「报销小助手」（excel + unit_convert + todo）→「3 斤半是多少公斤」走第三方子进程答对；上传报销表按部门汇总，金额全对并给出下载链接；问 PDF 合并时说明未装并给替代。联调发现并修：插件工具芯片显示英文名（改为插件名，网页 / 语音 / 飞书都带 label）、用户气泡露出附件标记。
+- 基线 pytest 1296 / vitest 461 / desktop 166 / examples 62。

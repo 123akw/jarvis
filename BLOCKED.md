@@ -1,6 +1,6 @@
 # BLOCKED
 
-只列**当前仍未解决**的事项（2026-10-02 第十三轮整理）。已解决的历史条目见 git 历史与 [`PROGRESS.md`](PROGRESS.md)；解决一条就删一条。
+只列**当前仍未解决**的事项（2026-10-02 第十四轮整理）。已解决的历史条目见 git 历史与 [`PROGRESS.md`](PROGRESS.md)；解决一条就删一条。
 
 ## 需要用户操作
 
@@ -17,17 +17,22 @@
    - **飞书提醒推送**：确认机器人有 `im:message:send_as_bot` 权限、用户在应用可用范围内；建一条 2 分钟后的日程，看私聊是否收到，回「稍后」应 10 分钟后收到「再次提醒」，网页与桌面不再弹原来那次。
    - **微信回复提醒**：提醒到点后 30 分钟内回「好了」应得到「不再提醒」；超过 30 分钟回「稍后」应按普通聊天处理。
 
+8. **第十四轮真机验证。** 线上从 GitHub / Gitee 真实导入一个插件（服务器访问 GitHub 常失败，失败时用「下载 zip 上传」）；第三方插件在服务器（Linux）上的资源限额是否生效；手机 Safari 点对话里的下载链接；Chrome 首次点「桌面悬浮窗」的允许弹窗与 `jws://`「始终允许」。
+
 ## 需要外部条件
 
 1. **微信语音消息的真实报文结构。** 生产 `journalctl -u jarvis-web | grep 'non-text probe'` 至今为空，iLink 语音结构仍未采到样本。收发两侧按可配置结构实现（`JARVIS_WECHAT_VOICE_*`，见 `.env.example`），识别不出时降级为「没听清」/纯文字。有人给机器人发一条语音后，按探针日志把配置或 `jarvis/wechat_voice.py` 顶部默认值一处改齐。
 2. **微信主动推送（日程提醒 / 晨报 / Heartbeat）真机验证。** sendmessage 没有回复上下文，复用最近一条 `context_token`，需要真实联系人发「提醒发给我」绑定后观察一次。失败只记 WARNING 并降级，不影响正常收发。
-3. **Chrome 私网访问（PNA）政策变化。** 网页唤起本机悬浮窗依赖 `Access-Control-Allow-Private-Network` 预检。如果 Chrome 改成强制用户授权，会多出一次授权弹窗，代码无需改动，留意即可。
+3. **浏览器访问本机的限制。** Chrome 142 起的「本地网络访问」要求用户允许网页访问「此设备上的应用」（第十四轮已适配：请求声明 `targetAddressSpace: 'loopback'`、按权限状态给指引）；Safari 一律拦截 https 页面访问 http 本机，只能走 `jws://`。浏览器政策再变时留意。
 
 ## 技术债
 
+- **第三方插件的隔离只是子进程**：和贾维斯同一个系统用户，仍能读 data 目录、能联网；只给管理员导入、预览里已提示。更强的隔离需要独立低权限用户或容器。另外部署流程的 `chmod -R a+rX /opt/jarvis` 会让 `/opt/jarvis/.env` 变成全员可读，每次部署后要补 `chmod 600 /opt/jarvis/.env`（systemd 以 root 读取，不影响服务）。
+- **MCP 还没接**：插件包里的 `mcp.json` 只记录不生效。下一步先接白名单里的远程 streamable-http MCP（不需要 node），再考虑 Python stdio。
+
 - **通过一句话描述生成的智能体没有职业**，流程页的「为你推荐」模板分组就不出现（只列全部模板）。可以让推荐顺带推断职业并在开号时带上。
 
-1. **桌面端没有打包签名（dmg / exe）。** 未打包的 dev 版上 `jws://` 协议注册只是 best-effort；macOS 通知上的「稍后 / 完成」按钮也要签名包并在 Info.plist 设 `NSUserNotificationAlertStyle=alert` 才会显示（dev 版点通知走悬浮窗里的提醒条）。需要签名与公证链路，建议单独立项。
+1. **桌面端只做了本机打包（ad-hoc 签名）。** 第十四轮起 `npm run pack:mac` / `install:mac` 在本机打出并安装 `贾维斯.app`（`jws://` 可靠可用）；但没有 Developer ID 签名与公证，不能直接分发给别的 Mac，Windows 版也没做。macOS 通知上的「稍后 / 完成」按钮仍需正式签名包并设 `NSUserNotificationAlertStyle=alert` 才显示。
 2. **飞书语音消息。** opus 转码后接百炼 ASR，需要真实样本。（提醒 / 晨报 / 巡检推送到飞书已在第十二轮补上。）
 3. **LangGraph `create_react_agent` 已弃用**（V2.0 移除）。`jarvis/graph.py` 需要迁移到 `langchain.agents.create_agent`，升级 LangGraph 2.x 之前必须做。
 4. **步数用尽时的英文兜底。** 递归上限已设为 24，并在剩余步数 ≤6 时提醒模型收尾；模型仍无视提醒时，LangGraph 会写入一句英文「Sorry, need more steps…」，网页实时流里只见工具芯片、历史回放显示英文。彻底解决要在 server 的流式出口统一识别并替换成中文。

@@ -28,7 +28,7 @@
 
 ## 它能做什么
 
-一个 LangGraph Agent 驱动 27 项工具，能聊、能记，也能动手：增删日程待办、查天气、搜实时信息、开会记纪要。完整清单见 [功能详解](docs/features.md)。
+一个 LangGraph Agent 驱动 27 项核心工具，外加可插拔的插件（内置 PDF / Excel / Word 工具箱，还能从 GitHub 导入社区插件），能聊、能记，也能动手：增删日程待办、查天气、搜实时信息、处理文档表格、开会记纪要。完整清单见 [功能详解](docs/features.md)，插件开发见 [插件指南](docs/plugins.md)。
 
 它也是一座**智能体工坊**：不懂技术的人在插件市场里挑几个插件，就能拿到一套专属账号口令，登录进去就是按这些插件组装好的智能体；再用「输入 → 处理 → 输出」积木拼个流程，结果生成网页二维码，手机一扫就能看。
 
@@ -146,6 +146,21 @@ flowchart LR
 ## 最新动态
 
 <details open>
+<summary><b>第十四轮 · 2026-10-02</b>　插件独立封装 · GitHub 导入 · PDF / Excel / Word · 换号与推荐修复 · 桌面端成为正式 App</summary>
+
+<img src="docs/assets/readme/web-plugin-import.png" alt="导入插件前的信任预览：来源、权限、许可证" width="420" align="right">
+
+- **插件独立封装**：每个插件是一个目录（`plugin.json` + 代码），单独加载、单独出错——清单坏了、依赖缺了只让它自己「暂不可用」；工具调用有超时与人话报错；导入的第三方插件跑在独立子进程（隔离环境变量、资源限额）。原有 22 个插件全部迁成插件包，接口不变。
+- **从开源导入**：管理员在市场里贴 GitHub / Gitee 地址或上传 zip，先看信任预览（作者、版本、许可证、来源 commit、权限），确认后固定版本安装；兼容 Codex / ChatGPT 的 Agent Plugins 标准格式、SKILL.md 技能和 `.agents/plugins/marketplace.json` 插件源，可检查更新。开发指南见 [`docs/plugins.md`](docs/plugins.md)，插件模板以 MIT-0 授权。
+- **办公插件 + 文件空间**：PDF 工具箱（合并、拆分、提取文字、旋转）、Excel 工具箱（读表、分组汇总、筛选、生成表格、CSV 互转）、Word 文档（读取、按要点生成）；对话里上传的文件会保存原件，处理结果给下载链接；流程新增「生成 Excel 表格」「生成 Word 文档」积木。
+- **体验修复**：扫码带来的账号与当前登录不一致时先确认再切换，本地记录按账号区分；智能体主页的快捷问题由模型按名称、介绍和已装插件生成（「学习助手」→「提醒我明天早上背单词」）。
+- **桌面端成为正式 App**：打包为 `~/Applications/贾维斯.app`，注册 `jws://`，网页一点即可拉起并接管登录；适配 Chrome 的「本地网络访问」权限，被拦时提示如何放行。
+- 测试基线 **pytest 1296 / vitest 461 / desktop 166**，全部通过。方案见 [`docs/proposals/2026-10-round14-plugins.md`](docs/proposals/2026-10-round14-plugins.md)。
+
+<br clear="right">
+</details>
+
+<details>
 <summary><b>第十三轮 · 2026-10-02</b>　智能体工坊：插件市场 · 专属账号即智能体 · 积木流程 · 删除 MOSS</summary>
 
 <img src="docs/assets/readme/web-market.png" alt="智能体市场：挑插件、帮我推荐" width="420" align="right">
