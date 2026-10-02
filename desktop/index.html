@@ -2,377 +2,40 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<style>
-:root{
-  --void:#050B12; --arc:#53E8FF; --gold:#F0B45A; --alert:#FF5C4A;
-  --text:#C9E6F2; --dim:#5E7E93; --line:rgba(83,232,255,.22);
-  --mono:ui-monospace,Menlo,monospace;
-}
-*{margin:0;padding:0;box-sizing:border-box}
-html,body{height:100%;background:transparent;overflow:hidden;
-  font-family:-apple-system,'PingFang SC',sans-serif;color:var(--text);
-  -webkit-user-select:none;user-select:none}
-
-/* ---------- 悬浮球（收起态，三种样式，尺寸可调） ---------- */
-:root{--ball:64px}
-#ball{position:fixed;right:4px;top:4px;width:var(--ball);height:var(--ball);
-  border-radius:50%;cursor:grab;
-  display:flex;align-items:center;justify-content:center;
-  transition:transform .18s ease}
-#ball:active{cursor:grabbing}
-#ball:hover{transform:scale(1.05)}
-#eye{pointer-events:none;width:80%;height:80%;border-radius:50%;
-  position:relative;z-index:3;background:transparent;border:none}
-body.expanded #ball{display:none}
-
-/* 通话态外显：收起面板继续通话时，球按听/想/说三态变色动效。
- * 球窗只比球大 8px，外辉光会被窗口裁掉——用描边+内辉光，任何球样式下都可见 */
-body.voice-listening #ball{border:2px solid rgba(83,232,255,.95)!important;
-  box-shadow:0 0 4px 1px rgba(83,232,255,.6),inset 0 0 14px rgba(83,232,255,.5);animation:vglow-l 2.4s ease-in-out infinite}
-body.voice-thinking #ball{border:2px solid rgba(255,193,84,.95)!important;
-  box-shadow:0 0 4px 1px rgba(255,193,84,.6),inset 0 0 14px rgba(255,193,84,.5);animation:vglow-t 1.2s ease-in-out infinite}
-body.voice-speaking #ball{border:2px solid rgba(122,255,170,.95)!important;
-  box-shadow:0 0 4px 1px rgba(122,255,170,.7),inset 0 0 14px rgba(122,255,170,.55);animation:vglow-s .8s ease-in-out infinite}
-@keyframes vglow-l{50%{box-shadow:0 0 2px 0 rgba(83,232,255,.25),inset 0 0 5px rgba(83,232,255,.2)}}
-@keyframes vglow-t{50%{box-shadow:0 0 2px 0 rgba(255,193,84,.25),inset 0 0 5px rgba(255,193,84,.2)}}
-@keyframes vglow-s{50%{transform:scale(1.05);box-shadow:0 0 6px 2px rgba(122,255,170,.85),inset 0 0 18px rgba(122,255,170,.7)}}
-
-/* 样式一：MOSS 能量核（默认）——玻璃球体 + 内部流体能量 */
-#orb{position:absolute;inset:0;border-radius:50%;overflow:hidden;display:none;
-  pointer-events:none;
-  background:radial-gradient(circle at 50% 58%,#0B1119 28%,#05080D 72%,#03050A)}
-body.ball-moss #orb{display:block}
-.sw{position:absolute;width:130%;height:130%;left:-15%;top:-15%;border-radius:50%;
-  filter:blur(4px) saturate(1.5);mix-blend-mode:screen}
-.sw1{background:radial-gradient(circle at 32% 42%,rgba(255,64,40,1),rgba(255,64,40,.3) 26%,transparent 44%);
-  animation:swA 7s ease-in-out infinite}
-.sw2{background:radial-gradient(circle at 68% 58%,rgba(83,232,255,.95),rgba(83,232,255,.25) 22%,transparent 38%);
-  animation:swB 9.5s ease-in-out infinite}
-.sw3{background:radial-gradient(circle at 55% 28%,rgba(255,150,66,.75),transparent 34%);
-  animation:swA 12s ease-in-out infinite reverse}
-.sw4{background:radial-gradient(circle at 42% 74%,rgba(150,90,255,.7),transparent 36%);
-  animation:swB 14s ease-in-out infinite reverse}
-.sw5{background:radial-gradient(circle at 50% 52%,rgba(255,170,140,.95),rgba(255,42,31,.55) 26%,transparent 48%);
-  animation:corePulse 3.2s ease-in-out infinite;filter:blur(3px) saturate(1.4)}
-@keyframes corePulse{50%{transform:scale(.88);opacity:.8}}
-@keyframes swA{
-  0%,100%{transform:translate(-5%,-3%) rotate(0) scale(1)}
-  33%{transform:translate(7%,5%) rotate(120deg) scale(1.18)}
-  66%{transform:translate(-3%,7%) rotate(240deg) scale(.92)}}
-@keyframes swB{
-  0%,100%{transform:translate(4%,2%) rotate(0) scale(1.05)}
-  50%{transform:translate(-6%,-5%) rotate(180deg) scale(.9)}}
-body.ball-moss #ball{border:1px solid rgba(150,225,255,.30);
-  box-shadow:0 6px 20px rgba(0,0,0,.55),0 0 22px rgba(255,60,40,.28),
-    0 0 34px rgba(83,232,255,.14)}
-body.ball-moss #ball::before{content:'';position:absolute;left:22%;top:8%;width:56%;height:26%;
-  border-radius:50%;z-index:2;pointer-events:none;filter:blur(2px);
-  background:linear-gradient(rgba(255,255,255,.20),rgba(255,255,255,0))}
-body.ball-moss #ball::after{content:'';position:absolute;inset:0;border-radius:50%;z-index:2;
-  pointer-events:none;
-  box-shadow:inset 0 -8px 16px rgba(0,0,0,.55),inset 0 0 10px rgba(83,232,255,.08)}
-body.busy.ball-moss .sw{animation-duration:2.6s}
-
-/* 样式二：极简暗球——低调小黑球 + 微红点 */
-body.ball-mini #ball{
-  background:radial-gradient(circle at 34% 28%,#2A323C,#14181E 68%,#0B0E12);
-  border:1px solid rgba(255,255,255,.08);
-  box-shadow:0 3px 12px rgba(0,0,0,.5)}
-body.ball-mini #ball::after{content:'';position:absolute;right:16%;bottom:16%;
-  width:18%;height:18%;border-radius:50%;
-  background:radial-gradient(circle at 40% 35%,#FF8A7C,#FF2A1F 60%,#7A0E08);
-  box-shadow:0 0 8px rgba(255,42,31,.8);animation:breath 3s infinite}
-
-/* 样式三：自定义图片——圆形头像 + 细环 */
-body.ball-img #ball{
-  background-image:var(--ball-img);background-size:cover;background-position:center;
-  border:2px solid rgba(83,232,255,.45);
-  box-shadow:0 4px 16px rgba(0,0,0,.55),0 0 14px rgba(83,232,255,.2)}
-body.ball-img #ball::after{content:'';position:absolute;right:6%;bottom:6%;
-  width:16%;height:16%;border-radius:50%;border:1.5px solid rgba(5,11,18,.9);
-  background:#FF2A1F;box-shadow:0 0 6px rgba(255,42,31,.9);animation:breath 3s infinite}
-
-@keyframes breath{50%{opacity:.72;transform:scale(.95)}}
-body.busy.ball-mini #ball::after,body.busy.ball-img #ball::after{animation-duration:.9s}
-
-/* ---------- 对话面板（展开态） ---------- */
-#panel{display:none;position:fixed;inset:6px;flex-direction:column;
-  background:#060C13;border:1px solid var(--line);
-  box-shadow:0 16px 48px rgba(0,0,0,.6);
-  clip-path:polygon(12px 0,100% 0,100% calc(100% - 12px),calc(100% - 12px) 100%,0 100%,0 12px)}
-body.expanded #panel{display:flex}
-#phead{-webkit-app-region:drag;display:flex;align-items:center;gap:9px;
-  padding:10px 14px;border-bottom:1px solid var(--line);flex:none}
-#mini-eye{width:16px;height:16px;border-radius:50%;flex:none;
-  background:radial-gradient(circle at 40% 36%,#FFB3A6,#FF2A1F 40%,#5A0A05);
-  box-shadow:0 0 8px rgba(255,42,31,.8);animation:breath 3s infinite}
-#ptitle{font-family:var(--mono);font-size:12px;letter-spacing:.22em;color:var(--arc)}
-#pstate{font-family:var(--mono);font-size:10px;color:var(--dim);letter-spacing:.1em}
-#phead .sp{flex:1}
-.hbtn{-webkit-app-region:no-drag;background:none;border:1px solid var(--line);
-  color:var(--dim);font-size:13px;width:26px;height:22px;cursor:pointer;line-height:1}
-.hbtn:hover{color:var(--arc)}
-#plog{flex:1;overflow-y:auto;padding:14px 14px 6px;display:flex;flex-direction:column;gap:12px}
-#plog::-webkit-scrollbar{width:4px}
-#plog::-webkit-scrollbar-thumb{background:rgba(83,232,255,.3)}
-.m-user{align-self:flex-end;max-width:86%;background:rgba(240,180,90,.14);
-  border-right:2px solid var(--gold);padding:7px 11px;font-size:13.5px;
-  line-height:1.6;white-space:pre-wrap}
-.m-ai{align-self:stretch;border-left:2px solid rgba(83,232,255,.4);
-  padding:2px 2px 2px 11px;font-size:13.5px;line-height:1.7}
-.m-ai b{color:#fff}
-.m-ai code{font-family:var(--mono);font-size:12px;color:var(--arc);
-  background:rgba(83,232,255,.09);padding:0 3px}
-.m-ai pre{background:rgba(3,10,18,.85);border:1px solid var(--line);padding:8px 10px;
-  overflow-x:auto;font-family:var(--mono);font-size:12px;margin:6px 0;line-height:1.55}
-.m-ai ul,.m-ai ol{margin:4px 0 4px 18px}
-.m-ai p{margin:4px 0}
-.m-ai a{color:var(--arc);text-decoration:underline;text-underline-offset:2px;word-break:break-all}
-.m-ai blockquote{margin:5px 0;padding:2px 9px;border-left:2px solid var(--gold);
-  background:rgba(240,180,90,.07);color:var(--dim)}
-.m-ai hr{border:none;border-top:1px dashed var(--line);margin:8px 0}
-.m-ai h1,.m-ai h2,.m-ai h3,.m-ai h4{margin:8px 0 3px;color:#fff;font-size:14px}
-.m-ai table{display:block;overflow-x:auto;max-width:100%;border-collapse:collapse;
-  margin:6px 0;font-size:12.5px;line-height:1.55}
-.m-ai th,.m-ai td{border:1px solid var(--line);padding:3px 9px;text-align:left}
-.m-ai th{background:rgba(83,232,255,.08);color:var(--arc);font-family:var(--mono);
-  font-size:11px;white-space:nowrap}
-.m-ai input[type=checkbox]{accent-color:#53E8FF;margin-right:5px;vertical-align:-2px}
-.m-ai .codeblock{margin:6px 0;border:1px solid var(--line);background:rgba(3,10,18,.85)}
-.m-ai .codebar{display:flex;align-items:center;justify-content:space-between;
-  padding:3px 9px;border-bottom:1px solid rgba(83,232,255,.14);background:rgba(13,28,44,.5)}
-.m-ai .codelang{font-family:var(--mono);font-size:10px;color:var(--dim);letter-spacing:.12em}
-.m-ai .codecopy{border:none;background:none;color:var(--dim);font-family:var(--mono);
-  font-size:10px;cursor:pointer;padding:1px 3px}
-.m-ai .codecopy:hover{color:var(--arc)}
-.m-ai .codeblock pre{border:none;margin:0}
-.m-ai .hljs{color:var(--text);background:none}
-.m-ai .hljs-keyword,.m-ai .hljs-literal,.m-ai .hljs-selector-tag,.m-ai .hljs-section{color:var(--arc)}
-.m-ai .hljs-string,.m-ai .hljs-attr,.m-ai .hljs-selector-attr,.m-ai .hljs-regexp{color:var(--gold)}
-.m-ai .hljs-number,.m-ai .hljs-symbol,.m-ai .hljs-meta{color:#FF9C6B}
-.m-ai .hljs-comment,.m-ai .hljs-quote{color:var(--dim);font-style:italic}
-.m-ai .hljs-title,.m-ai .hljs-name,.m-ai .hljs-attribute{color:#7CF5B2}
-.m-ai .hljs-built_in,.m-ai .hljs-type,.m-ai .hljs-variable{color:#B48CFF}
-.caret{display:inline-block;width:7px;height:13px;background:var(--arc);
-  vertical-align:-2px;animation:blink .8s steps(1) infinite;margin-left:2px}
-@keyframes blink{50%{opacity:0}}
-.sys{align-self:center;font-family:var(--mono);font-size:11px;color:var(--alert)}
-.tool{font-family:var(--mono);font-size:10.5px;color:var(--arc);opacity:.8;margin-bottom:3px}
-#pinput{flex:none;display:flex;align-items:flex-end;gap:8px;margin:8px 12px 12px;
-  background:rgba(13,28,44,.6);border:1px solid var(--line);padding:8px 10px}
-#pinput:focus-within{border-color:rgba(83,232,255,.55)}
-#box{flex:1;background:transparent;border:none;outline:none;color:var(--text);
-  font-size:13.5px;font-family:inherit;resize:none;max-height:96px;line-height:1.5;
-  caret-color:var(--arc);-webkit-user-select:text;user-select:text}
-#box::placeholder{color:var(--dim)}
-#send{width:30px;height:30px;flex:none;border:none;font-size:14px;cursor:pointer;
-  color:var(--void);background:var(--arc)}
-#send:disabled{opacity:.35}
-#plog .empty{color:var(--dim);font-family:var(--mono);font-size:12px;
-  letter-spacing:.1em;text-align:center;padding:26px 0 10px}
-.qchips{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;padding-bottom:10px}
-.qchips button{background:rgba(13,28,44,.6);border:1px solid var(--line);color:var(--text);
-  font-size:12.5px;padding:7px 12px;cursor:pointer;transition:border-color .2s,color .2s}
-.qchips button:hover{border-color:rgba(83,232,255,.5);color:var(--arc)}
-#clipbar{margin:0 12px;background:rgba(240,180,90,.1);border:1px dashed rgba(240,180,90,.45);
-  color:var(--gold);font-size:12px;font-family:var(--mono);letter-spacing:.06em;
-  padding:7px 10px;cursor:pointer;text-align:left;overflow:hidden;text-overflow:ellipsis;
-  white-space:nowrap}
-#clipbar:hover{background:rgba(240,180,90,.18)}
-
-/* 划词工具条：快捷键取词后弹出，三动作 + 降级授权提示 */
-#quickbar{margin:0 12px;background:rgba(83,232,255,.08);border:1px dashed rgba(83,232,255,.45);
-  padding:8px 10px;display:none;flex-direction:column;gap:7px}
-#qb-preview{color:var(--dim);font-size:12px;font-family:var(--mono);letter-spacing:.04em;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#qb-actions{display:flex;gap:8px}
-#qb-actions button{flex:1;background:rgba(13,28,44,.7);border:1px solid var(--line);color:var(--text);
-  font-size:12.5px;padding:6px 0;cursor:pointer}
-#qb-actions button:hover{border-color:rgba(83,232,255,.5);color:var(--arc)}
-#qb-auth{background:none;border:none;color:var(--gold);font-size:11.5px;cursor:pointer;
-  text-align:left;padding:0;text-decoration:underline}
-#qb-close{position:absolute;right:8px;top:6px;background:none;border:none;color:var(--dim);cursor:pointer}
-body.show-quickbar #quickbar{display:flex;position:relative}
-
-/* ---------- 登录覆盖层：口令仅提交给 preload，不进入 localStorage ---------- */
-#desktop-login{display:none;position:absolute;inset:0;z-index:20;background:#050B12;padding:26px;align-items:center;justify-content:center}body.needs-login #desktop-login{display:flex}.desktop-login-card{width:min(330px,100%);display:grid;gap:12px}.desktop-login-card h2{font-family:var(--mono);font-size:14px;color:var(--arc);letter-spacing:.16em}.desktop-login-card label{display:grid;gap:5px;color:var(--dim);font-size:12px}.desktop-login-card input{min-width:0;background:#0d1c2c;border:1px solid var(--line);padding:10px;color:var(--text);-webkit-user-select:text;user-select:text}.desktop-login-card button{border:0;padding:10px;background:var(--arc);color:var(--void);font-weight:bold}.desktop-login-server{display:grid;grid-template-columns:1fr auto;gap:6px}.desktop-login-server button{background:transparent;color:var(--arc);border:1px solid var(--line)}.desktop-login-error,.desktop-login-state{min-height:16px;color:var(--alert);font-size:12px}.desktop-login-state.ok{color:#7CF5B2}.desktop-login-state.bad{color:var(--alert)}
-
-/* ---------- 任务台 ---------- */
-#board{display:none;position:absolute;inset:0;background:#050B12;
-  z-index:5;flex-direction:column}
-body.show-board #board{display:flex}
-.b-sec{border:1px solid var(--line);padding:10px 12px}
-.b-title{font-family:var(--mono);font-size:11px;letter-spacing:.2em;color:var(--arc);
-  margin-bottom:8px}
-.b-list{font-size:13px;line-height:1.7;color:var(--text)}
-.b-list .row{display:flex;gap:8px;padding:3px 0;border-bottom:1px dashed rgba(83,232,255,.1)}
-.b-list .row:last-child{border-bottom:none}
-.b-list .tag{font-family:var(--mono);font-size:11px;color:var(--dim);white-space:nowrap;padding-top:2px}
-.b-list .tag.on{color:#7CF5B2}
-.b-list .txt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
-.b-off{color:var(--dim);font-family:var(--mono);font-size:11.5px;letter-spacing:.06em}
-.b-list .sub{font-family:var(--mono);font-size:11px;color:var(--dim);
-  margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.b-empty{color:var(--dim);font-family:var(--mono);font-size:12px}
-.b-tick{width:14px;height:14px;margin-top:3px;accent-color:#53E8FF;cursor:pointer;flex:none}
-
-/* ---------- 语音通话面板 ---------- */
-#voice{display:none;position:absolute;inset:0;background:#050B12;z-index:6;flex-direction:column}
-body.show-voice #voice{display:flex}
-#v-body{flex:1;display:flex;flex-direction:column;gap:14px;padding:20px 18px 14px;overflow-y:auto}
-#v-status{display:flex;align-items:center;gap:12px}
-#v-orb{width:18px;height:18px;border-radius:50%;flex:none;background:var(--dim);transition:background .25s}
-#voice.connecting #v-orb{background:var(--dim);animation:vpulse 1.1s ease-in-out infinite}
-#voice.listening #v-orb{background:var(--arc);box-shadow:0 0 14px rgba(83,232,255,.8);
-  animation:vpulse 1.6s ease-in-out infinite}
-#voice.thinking #v-orb{background:var(--gold);box-shadow:0 0 12px rgba(240,180,90,.7);
-  animation:vpulse .9s ease-in-out infinite}
-#voice.speaking #v-orb{background:var(--alert);box-shadow:0 0 14px rgba(255,92,74,.8)}
-#voice.closed #v-orb{background:#44525E}
-@keyframes vpulse{50%{opacity:.4}}
-#v-phase{font-size:13.5px;letter-spacing:.06em}
-#v-anim{display:none;gap:3px;align-items:flex-end;height:16px}
-#voice.speaking #v-anim{display:flex}
-#v-anim i{width:3px;background:var(--alert);animation:veq .7s ease-in-out infinite}
-#v-anim i:nth-child(1){height:7px}#v-anim i:nth-child(2){height:15px;animation-delay:.12s}
-#v-anim i:nth-child(3){height:10px;animation-delay:.24s}#v-anim i:nth-child(4){height:13px;animation-delay:.36s}
-@keyframes veq{50%{transform:scaleY(.35)}}
-#v-hint{font-family:var(--mono);font-size:11px;color:var(--dim);letter-spacing:.06em;min-height:14px}
-#v-emotion{margin-left:auto;font-size:11.5px;color:var(--gold);border:1px dashed rgba(240,180,90,.4);
-  padding:2px 8px;border-radius:999px;white-space:nowrap}
-#v-scenes{display:flex;gap:6px;flex-wrap:wrap}
-#v-scenes button{border:1px solid rgba(83,232,255,.25);background:rgba(13,28,44,.55);color:var(--dim);
-  font-size:11.5px;padding:3px 9px;cursor:pointer;border-radius:999px}
-#v-scenes button:hover{border-color:rgba(83,232,255,.55);color:var(--text)}
-#v-scenes button.on{border-color:rgba(83,232,255,.8);background:rgba(83,232,255,.14);color:var(--arc)}
-#v-heard{font-size:14px;line-height:1.7;min-height:24px}
-#v-final{color:var(--gold)}
-#v-interim{color:var(--dim)}
-#v-tools{display:flex;gap:6px;flex-wrap:wrap}
-#v-tools span{font-family:var(--mono);font-size:10.5px;color:var(--arc);border:1px solid var(--line);padding:3px 7px}
-#v-reply{flex:1;min-height:56px;overflow-y:auto;border-left:2px solid rgba(83,232,255,.4);
-  padding-left:11px;font-size:13.5px;line-height:1.7;white-space:pre-wrap}
-#v-reply::-webkit-scrollbar{width:4px}
-#v-reply::-webkit-scrollbar-thumb{background:rgba(83,232,255,.3)}
-#v-notice{color:var(--gold);font-size:12px;line-height:1.6;border:1px dashed rgba(240,180,90,.45);
-  padding:8px 10px;background:rgba(240,180,90,.08)}
-#v-typebar{display:flex;gap:8px}
-#v-typebar input{flex:1;min-width:0;background:rgba(13,28,44,.6);border:1px solid var(--line);
-  padding:9px 10px;color:var(--text);font-size:13.5px;outline:none;-webkit-user-select:text;user-select:text}
-#v-typebar input:focus{border-color:rgba(83,232,255,.55)}
-#v-typebar button{border:none;background:var(--arc);color:var(--void);padding:0 14px;cursor:pointer;font-size:13px}
-#v-actions{display:flex;gap:10px;justify-content:center;padding-bottom:2px}
-#v-actions button{border:1px solid var(--line);background:rgba(13,28,44,.6);color:var(--text);
-  font-size:13px;letter-spacing:.06em;padding:9px 22px;cursor:pointer}
-#v-interrupt:hover{border-color:rgba(83,232,255,.5);color:var(--arc)}
-#v-hangup{border-color:rgba(255,92,74,.5);color:var(--alert)}
-#v-hangup:hover{background:rgba(255,92,74,.12)}
-
-/* ---------- 会议纪要面板 ---------- */
-#meeting{display:none;position:absolute;inset:0;background:#050B12;z-index:6;flex-direction:column}
-body.show-meeting #meeting{display:flex}
-#m-body{flex:1;display:flex;flex-direction:column;gap:12px;padding:18px 18px 14px;overflow:hidden}
-#m-status{display:flex;align-items:center;gap:10px;font-size:13.5px}
-#m-dot{width:12px;height:12px;border-radius:50%;flex:none;background:var(--dim)}
-#meeting.recording #m-dot{background:var(--alert);box-shadow:0 0 12px rgba(255,92,74,.8);
-  animation:vpulse 1.4s ease-in-out infinite}
-#meeting.summarizing #m-dot{background:var(--gold);box-shadow:0 0 10px rgba(240,180,90,.7);
-  animation:vpulse .9s ease-in-out infinite}
-#meeting.done #m-dot{background:#7CF5B2}
-#m-vu{display:flex;gap:3px;align-items:flex-end;height:14px;margin-left:6px}
-#m-vu i{width:5px;height:14px;background:rgba(83,232,255,.15);border-radius:1px;position:relative;overflow:hidden}
-#m-vu i::after{content:'';position:absolute;left:0;right:0;bottom:0;height:var(--vu,0%);background:#53E8FF;transition:height .12s}
-#m-vu-sys::after{background:var(--gold)}
-#m-count{font-family:var(--mono);font-size:11px;color:var(--dim);margin-left:auto}
-#m-live{border:1px solid rgba(240,180,90,.4);background:rgba(240,180,90,.06);padding:8px 11px}
-.m-live-title{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;color:var(--gold);margin-bottom:5px}
-#m-live-body{font-size:12.5px;line-height:1.7;white-space:pre-wrap;max-height:130px;overflow-y:auto}
-#m-captions{flex:1;min-height:80px;overflow-y:auto;border-left:2px solid rgba(83,232,255,.4);
-  padding-left:11px;font-size:13px;line-height:1.7}
-#m-captions::-webkit-scrollbar{width:4px}
-#m-captions::-webkit-scrollbar-thumb{background:rgba(83,232,255,.3)}
-#m-captions .m-line b{color:var(--arc);font-weight:600;margin-right:4px}
-#m-captions .m-part{color:var(--dim)}
-#m-captions .m-empty{color:var(--dim);font-family:var(--mono);font-size:11.5px}
-#m-notice{color:var(--gold);font-size:12px;line-height:1.6;border:1px dashed rgba(240,180,90,.45);
-  padding:8px 10px;background:rgba(240,180,90,.08)}
-#m-minutes{flex:1;overflow-y:auto;border:1px solid var(--line);padding:10px 12px;
-  font-size:13px;line-height:1.7}
-#m-actions{display:flex;gap:10px;justify-content:center;padding-bottom:2px}
-#m-actions button{border:1px solid var(--line);background:rgba(13,28,44,.6);color:var(--text);
-  font-size:13px;letter-spacing:.06em;padding:9px 22px;cursor:pointer}
-#m-stop{border-color:rgba(255,92,74,.5);color:var(--alert)}
-#m-stop:hover{background:rgba(255,92,74,.12)}
-#meeting.done #m-stop,#meeting.error #m-stop,#meeting.closed #m-stop{display:none}
-
-/* 悬浮球收起态：通话进行中的红点指示 */
-#calldot{display:none;position:absolute;right:2%;top:2%;width:24%;height:24%;border-radius:50%;z-index:4;
-  background:radial-gradient(circle at 40% 35%,#FF8A7C,#FF2A1F 60%,#7A0E08);
-  border:1.5px solid rgba(5,11,18,.9);box-shadow:0 0 10px rgba(255,42,31,.95);
-  animation:breath 1.2s infinite;pointer-events:none}
-body.on-call #calldot{display:block}
-body.on-meeting #calldot{display:block}
-
-/* ---------- 设置面板 ---------- */
-#settings{display:none;position:absolute;inset:0;background:#050B12;
-  z-index:5;flex-direction:column}
-body.show-settings #settings{display:flex}
-.s-head{-webkit-app-region:drag;display:flex;align-items:center;gap:10px;
-  padding:10px 14px;border-bottom:1px solid var(--line)}
-.s-title{font-family:var(--mono);font-size:12px;letter-spacing:.3em;color:var(--arc)}
-.s-body{flex:1;overflow-y:auto;padding:18px 18px;display:flex;flex-direction:column;gap:18px}
-.s-row{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:14px}
-.s-row.s-col{flex-direction:column;align-items:stretch;gap:8px}
-.s-row>span{color:var(--text);letter-spacing:.06em}
-.s-row select,.s-row input[type=text],.s-row input[type=password]{background:rgba(13,28,44,.7);border:1px solid var(--line);
-  color:var(--text);font-size:13px;padding:9px 10px;outline:none;font-family:inherit;
-  -webkit-user-select:text;user-select:text}
-.s-row select:focus,.s-row input[type=text]:focus,.s-row input[type=password]:focus{border-color:rgba(83,232,255,.55)}
-.s-row input[type=checkbox]{width:18px;height:18px;accent-color:#53E8FF}
-.s-hint{font-family:var(--mono);font-size:11px;color:var(--dim);letter-spacing:.06em;min-height:14px}
-.s-hint.ok{color:#7CF5B2}
-.s-hint.bad{color:var(--alert)}
-.s-hint.wait{color:var(--gold)}
-#s-save{border:none;background:var(--arc);color:var(--void);font-size:13px;
-  letter-spacing:.2em;padding:11px 0;cursor:pointer;font-weight:600}
-#s-save:hover{box-shadow:0 0 18px rgba(83,232,255,.5)}
-.s-slider{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--dim)}
-.s-slider input[type=range]{flex:1;accent-color:#53E8FF}
-.s-slider em{font-family:var(--mono);font-style:normal;color:var(--text);min-width:44px;text-align:right}
-#s-imgrow{display:flex;align-items:center;gap:10px}
-#s-imgpick{background:rgba(13,28,44,.7);border:1px solid var(--line);color:var(--text);
-  font-size:13px;padding:8px 14px;cursor:pointer}
-#s-imgpick:hover{border-color:rgba(83,232,255,.5)}
-#s-imgprev{width:44px;height:44px;border-radius:50%;object-fit:cover;
-  border:2px solid rgba(83,232,255,.45);display:none}
-.hk-line{display:flex;gap:8px;align-items:stretch}
-.hk-field{flex:1;background:rgba(13,28,44,.7);border:1px solid var(--line);
-  color:var(--text);font-size:15px;padding:11px 10px;cursor:pointer;
-  font-family:var(--mono);letter-spacing:.18em;text-align:center;transition:border-color .2s}
-.hk-field:hover{border-color:rgba(83,232,255,.45)}
-.hk-field.rec{border:1px dashed var(--gold);color:var(--gold);animation:pulse 1.2s infinite}
-.hk-field.off{color:var(--dim);letter-spacing:.06em;font-size:13px}
-.hk-x{height:auto}
-@keyframes pulse{50%{opacity:.55}}
-.wx-setting{padding-top:16px;border-top:1px solid var(--line)}
-#wx-area{min-height:40px;display:grid;place-items:center;gap:10px}
-#wx-area button{width:100%;border:1px solid rgba(83,232,255,.5);background:rgba(83,232,255,.08);
-  color:var(--arc);font-family:var(--mono);font-size:12px;letter-spacing:.08em;padding:9px;cursor:pointer}
-#wx-area button:hover{background:rgba(83,232,255,.16)}
-#wx-area #wx-disc{color:var(--alert);border-color:rgba(255,92,92,.42);background:rgba(255,92,92,.06)}
-#wx-qr{display:block;width:220px;height:220px;object-fit:contain;padding:10px;background:#fff;
-  box-shadow:0 0 24px rgba(83,232,255,.16)}
-.wx-risk{font-family:var(--mono);font-size:10px;color:var(--dim);line-height:1.55}
-.api-setting{padding-top:16px;border-top:1px solid var(--line)}.api-grid{display:grid;gap:8px}.api-grid label{display:grid;gap:4px;color:var(--dim);font-family:var(--mono);font-size:10px}.api-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.api-actions button,.api-link{border:1px solid var(--line);background:rgba(83,232,255,.08);color:var(--arc);padding:8px;font-family:var(--mono);font-size:10px;cursor:pointer}.api-link{width:100%}.api-risk{font-family:var(--mono);font-size:10px;color:var(--gold);line-height:1.5}.api-check{display:flex!important;grid-template-columns:auto 1fr;align-items:center}.api-check input{width:15px;height:15px;accent-color:var(--arc)}
-/* 系统开了「减少动态效果」：悬浮球能量核与呼吸灯停在静帧（常驻透明置顶窗不再 60fps 出帧） */
-@media (prefers-reduced-motion:reduce){
-  .sw,#ball::after,#mini-eye,.caret{animation:none!important}
-}
-</style>
+<link rel="stylesheet" href="styles.css">
 </head>
 <body class="needs-login">
+  <!-- 主题尽早挂上（body 一出现就跑），避免首帧暗→亮闪一下 -->
+  <script src="theme.js"></script>
+
+  <!-- 线性图标（24 网格，与网页端 Icon.jsx 同一套描边） -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-phone" viewBox="0 0 24 24"><path d="M5.2 4.5h3l1.6 4-2 1.3a11 11 0 0 0 6.4 6.4l1.3-2 4 1.6v3a1.6 1.6 0 0 1-1.7 1.6A16 16 0 0 1 3.6 6.2a1.6 1.6 0 0 1 1.6-1.7Z"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M9.5 6.5h10M9.5 12h10M9.5 17.5h10M4.8 6.5h.01M4.8 12h.01M4.8 17.5h.01"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M10 11v5.5M14 11v5.5M6.5 7l.8 12a1.6 1.6 0 0 0 1.6 1.5h6.2a1.6 1.6 0 0 0 1.6-1.5l.8-12M9.5 7V4.5h5V7"/></symbol>
+    <symbol id="i-minus" viewBox="0 0 24 24"><path d="M6 12h12"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="m14.5 6-6 6 6 6"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M19.5 12a7.5 7.5 0 1 1-2.3-5.4"/><path d="M19.5 4.5v4h-4"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5.5M6 11.5l6-6 6 6"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2.2" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-sunrise" viewBox="0 0 24 24"><path d="M3 19.5h18M6.5 16a5.5 5.5 0 0 1 11 0M12 3.5v4.5M5 8.5l1.6 1.6M19 8.5l-1.6 1.6"/></symbol>
+    <symbol id="i-code" viewBox="0 0 24 24"><path d="m8.5 7.5-4.5 4.5 4.5 4.5M15.5 7.5l4.5 4.5-4.5 4.5"/></symbol>
+    <symbol id="i-today" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="3.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></symbol>
+  </svg>
+
   <div id="ball" title="点击展开 · 右键直接语音通话 · 按住拖动">
-    <div id="orb"><i class="sw sw1"></i><i class="sw sw2"></i><i class="sw sw3"></i><i class="sw sw4"></i><i class="sw sw5"></i></div>
+    <div id="orb" class="orb" aria-hidden="true">
+      <i class="o-halo"></i>
+      <div class="o-body"><div class="o-breathe">
+        <div class="o-core"><i class="o-flow"></i><i class="o-fast"></i><i class="o-blob"></i><i class="o-depth"></i><i class="o-tint"></i><i class="o-sheen"></i></div>
+        <i class="o-face"></i>
+      </div></div>
+      <i class="o-ring"></i>
+      <i class="o-sweep"></i>
+    </div>
     <div id="calldot" title="语音通话进行中"></div>
     <div id="eye" title="打开对话"></div>
   </div>
@@ -383,19 +46,19 @@ body.show-settings #settings{display:flex}
       <span id="ptitle">J.A.R.V.I.S.</span>
       <span id="pstate">连接中…</span>
       <span class="sp"></span>
-      <button class="hbtn" id="callbtn" title="语音通话">📞</button>
-      <button class="hbtn" id="meetbtn" title="会议纪要">🎙</button>
-      <button class="hbtn" id="boardbtn" title="任务台">📋</button>
-      <button class="hbtn" id="setbtn" title="设置">⚙</button>
-      <button class="hbtn" id="clearbtn" title="清空快捷对话">↺</button>
-      <button class="hbtn" id="minbtn" title="收起为悬浮球">—</button>
+      <button class="hbtn" id="callbtn" title="语音通话" aria-label="语音通话"><svg class="jv-icon"><use href="#i-phone"/></svg></button>
+      <button class="hbtn" id="meetbtn" title="会议纪要" aria-label="会议纪要"><svg class="jv-icon"><use href="#i-mic"/></svg></button>
+      <button class="hbtn" id="boardbtn" title="任务台" aria-label="任务台"><svg class="jv-icon"><use href="#i-list"/></svg></button>
+      <button class="hbtn" id="setbtn" title="设置" aria-label="设置"><svg class="jv-icon"><use href="#i-sliders"/></svg></button>
+      <button class="hbtn" id="clearbtn" title="清空快捷对话" aria-label="清空快捷对话"><svg class="jv-icon"><use href="#i-trash"/></svg></button>
+      <button class="hbtn" id="minbtn" title="收起为悬浮球" aria-label="收起为悬浮球"><svg class="jv-icon"><use href="#i-minus"/></svg></button>
     </div>
     <div id="plog"><div class="empty">正在取回最近的对话…</div></div>
     <button id="clipbar" style="display:none"></button>
     <div id="quickbar">
-      <button id="qb-close" title="关闭">✕</button>
+      <button id="qb-close" title="关闭" aria-label="关闭划词条"><svg class="jv-icon" style="width:12px;height:12px"><use href="#i-close"/></svg></button>
       <div id="qb-preview"></div>
-      <div id="qb-actions">
+      <div id="qb-actions" role="group" aria-label="划词动作">
         <button data-act="translate">翻译</button>
         <button data-act="explain">解释</button>
         <button data-act="rewrite">改写</button>
@@ -404,39 +67,45 @@ body.show-settings #settings{display:flex}
     </div>
     <div id="pinput">
       <textarea id="box" rows="1" placeholder="小声吩咐一句…（Enter 发送）"></textarea>
-      <button id="send" title="发送">↑</button>
+      <button id="send" title="发送" aria-label="发送"><svg class="jv-icon i-up"><use href="#i-up"/></svg><svg class="jv-icon i-stop"><use href="#i-stop"/></svg></button>
     </div>
 
     <div id="board">
       <div class="s-head">
-        <button class="hbtn" id="boardback" title="返回">←</button>
-        <span class="s-title">任 务 台</span>
+        <button class="hbtn" id="boardback" title="返回" aria-label="返回"><svg class="jv-icon"><use href="#i-back"/></svg></button>
+        <span class="s-title">任务台</span>
         <span class="sp"></span>
-        <button class="hbtn" id="boardrefresh" title="刷新">↻</button>
+        <button class="hbtn" id="boardrefresh" title="刷新" aria-label="刷新"><svg class="jv-icon"><use href="#i-refresh"/></svg></button>
       </div>
       <div class="s-body" id="board-body">
-        <div class="b-sec"><div class="b-title">⌨ Claude Code 编程进度</div><div id="b-coding" class="b-list"></div></div>
-        <div class="b-sec"><div class="b-title">📅 今日日程</div><div id="b-sched" class="b-list"></div></div>
-        <div class="b-sec"><div class="b-title">☑ 待办事项</div><div id="b-todos" class="b-list"></div></div>
-        <div class="b-sec"><div class="b-title">🕊 飞书</div><div class="b-list b-off">未接入 · 需要企业应用凭证（app_id / secret）</div></div>
-        <div class="b-sec"><div class="b-title">💼 企业微信</div><div class="b-list b-off">未接入 · 需要企业应用凭证（corp_id / secret）</div></div>
+        <div class="b-sec"><div class="b-title">编程进度 · Claude Code</div><div id="b-coding" class="b-list"></div></div>
+        <div class="b-sec"><div class="b-title">今日日程</div><div id="b-sched" class="b-list"></div></div>
+        <div class="b-sec"><div class="b-title">待办事项</div><div id="b-todos" class="b-list"></div></div>
+        <div class="b-sec"><div class="b-title">飞书</div><div class="b-list b-off">未接入 · 需要企业应用凭证（app_id / secret）</div></div>
+        <div class="b-sec"><div class="b-title">企业微信</div><div class="b-list b-off">未接入 · 需要企业应用凭证（corp_id / secret）</div></div>
       </div>
     </div>
 
     <div id="voice" role="dialog" aria-label="语音通话">
       <div class="s-head">
-        <button class="hbtn" id="v-min" title="收起为悬浮球（通话继续）">—</button>
-        <span class="s-title">语 音 通 话</span>
+        <button class="hbtn" id="v-min" title="收起为悬浮球（通话继续）" aria-label="收起为悬浮球"><svg class="jv-icon"><use href="#i-minus"/></svg></button>
+        <span class="s-title">语音通话</span>
         <span class="sp"></span>
       </div>
       <div id="v-body">
+        <div id="v-scenes"></div>
         <div id="v-status">
-          <span id="v-orb"></span>
+          <div id="v-orb" class="orb" aria-hidden="true">
+            <i class="o-halo"></i>
+            <div class="o-body"><div class="o-breathe">
+              <div class="o-core"><i class="o-flow"></i><i class="o-fast"></i><i class="o-blob"></i><i class="o-depth"></i><i class="o-tint"></i><i class="o-sheen"></i></div>
+            </div></div>
+            <i class="o-ring"></i>
+            <i class="o-sweep"></i>
+          </div>
           <span id="v-phase">接通中…</span>
-          <span id="v-anim" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
           <span id="v-emotion" title="语气感知" style="display:none"></span>
         </div>
-        <div id="v-scenes"></div>
         <div id="v-hint"></div>
         <div id="v-heard"><span id="v-final"></span><span id="v-interim"></span></div>
         <div id="v-tools"></div>
@@ -447,16 +116,16 @@ body.show-settings #settings{display:flex}
           <button id="v-send">发送</button>
         </div>
         <div id="v-actions">
-          <button id="v-interrupt" style="display:none">✋ 打断</button>
-          <button id="v-hangup">📵 挂断</button>
+          <button id="v-interrupt" style="display:none">打断</button>
+          <button id="v-hangup">挂断</button>
         </div>
       </div>
     </div>
 
     <div id="meeting" role="dialog" aria-label="会议纪要">
       <div class="s-head">
-        <button class="hbtn" id="m-min" title="收起为悬浮球（监控继续）">—</button>
-        <span class="s-title">会 议 纪 要</span>
+        <button class="hbtn" id="m-min" title="收起为悬浮球（监控继续）" aria-label="收起为悬浮球"><svg class="jv-icon"><use href="#i-minus"/></svg></button>
+        <span class="s-title">会议纪要</span>
         <span class="sp"></span>
       </div>
       <div id="m-body">
@@ -467,14 +136,14 @@ body.show-settings #settings{display:flex}
           <span id="m-count"></span>
         </div>
         <div id="m-live" style="display:none">
-          <div class="m-live-title">⚡ 实时要点</div>
+          <div class="m-live-title">实时要点</div>
           <div id="m-live-body"></div>
         </div>
         <div id="m-captions"><div class="m-empty">连接后开始实时转写：你的发言标「我」，对方标「对方」（飞书/腾讯会议/Zoom/微信语音通话等任何出声软件都能录）。</div></div>
         <div id="m-notice" role="alert" style="display:none"></div>
         <div id="m-minutes" style="display:none"></div>
         <div id="m-actions">
-          <button id="m-stop">⏹ 结束并生成纪要</button>
+          <button id="m-stop">结束并生成纪要</button>
           <button id="m-close" style="display:none">关闭面板</button>
         </div>
       </div>
@@ -482,112 +151,166 @@ body.show-settings #settings{display:flex}
 
     <div id="settings">
       <div class="s-head">
-        <button class="hbtn" id="backbtn" title="返回">←</button>
-        <span class="s-title">设 置</span>
+        <button class="hbtn" id="backbtn" title="返回" aria-label="返回"><svg class="jv-icon"><use href="#i-back"/></svg></button>
+        <span class="s-title">设置</span>
       </div>
       <div class="s-body">
-        <label class="s-row">
-          <span>开机自启</span>
-          <input type="checkbox" id="s-autolaunch">
-        </label>
-        <div class="s-row s-col">
-          <span>全局唤醒快捷键</span>
-          <div class="hk-line">
-            <button type="button" id="hk-rec" class="hk-field">点击这里，然后按下组合键</button>
-            <button type="button" class="hbtn hk-x" id="hk-clear" title="停用快捷键">✕</button>
-          </div>
-          <div class="s-hint" id="s-hotkey-state"></div>
-        </div>
-        <div class="s-row s-col">
-          <span>划词问快捷键（选中文字后按它，弹出翻译/解释/改写）</span>
-          <input type="text" id="s-quickask" placeholder="如 Alt+Q，留空停用" maxlength="64">
-          <div class="s-hint" id="s-quickask-state"></div>
-        </div>
-        <label class="s-row">
-          <span>语音唤醒「贾维斯」</span>
-          <input type="checkbox" id="s-wakeword">
-        </label>
-        <div class="s-row s-col" style="margin-top:-10px">
-          <div class="s-hint">开启后本机持续监听人声（静音零上传）；检测到一段话才送云端判断是否喊了「贾维斯」，命中即接通语音通话。</div>
-          <div class="s-hint" id="s-wakeword-state"></div>
-        </div>
-        <div class="s-row s-col">
-          <span>悬浮球样式</span>
-          <select id="s-ballstyle">
-            <option value="moss">MOSS 能量核</option>
-            <option value="mini">极简暗球</option>
-            <option value="img">自定义图片</option>
-          </select>
-          <div id="s-imgrow" style="display:none">
-            <button type="button" id="s-imgpick">选择图片…</button>
-            <img id="s-imgprev" alt="">
-          </div>
-          <label class="s-slider">
-            <span>大小</span>
-            <input type="range" id="s-ballsize" min="44" max="120" step="4">
-            <em id="s-ballsize-v">64px</em>
-          </label>
-          <input type="file" id="s-imgfile" accept="image/*" style="display:none">
-        </div>
-        <div class="s-row s-col">
-          <span>服务器地址</span>
-          <input type="text" id="s-server" placeholder="https://jws.gkgeek-set.cn">
-        </div>
-        <div class="s-row s-col api-setting">
-          <span>语音与晨报</span>
-          <div class="api-grid">
-            <label>通话音色<select id="s-voice"></select></label>
-            <label class="s-slider" style="display:flex">
-              <span>语速</span>
-              <input type="range" id="s-speed" min="0.5" max="2" step="0.05" value="1">
-              <em id="s-speed-v">1.00×</em>
+        <section class="s-group">
+          <h3 class="s-group-title">通用</h3>
+          <div class="s-card">
+            <label class="s-row">
+              <span>开机自启</span>
+              <input type="checkbox" class="jv-switch" id="s-autolaunch">
             </label>
-            <label>晨报电台（留空关闭）<input type="time" id="s-radio"></label>
-            <div class="api-risk">音色与语速影响你的语音通话答复（与网页端共用）。晨报电台每天定时把「天气+日程+待办」做成语音条+文字发到微信——需先在微信里对贾维斯说「提醒发给我」。</div>
-            <div class="api-actions" style="grid-template-columns:1fr"><button type="button" id="s-voice-save">保存语音设置</button></div>
-            <div class="s-hint" id="s-voice-state"></div>
+            <label class="s-row">
+              <span>语音唤醒「贾维斯」</span>
+              <input type="checkbox" class="jv-switch" id="s-wakeword">
+            </label>
+            <div class="s-row s-col s-sub">
+              <div class="s-note">开启后本机持续监听人声（静音零上传）；检测到一段话才送云端判断是否喊了「贾维斯」，命中即接通语音通话。</div>
+              <div class="s-hint" id="s-wakeword-state"></div>
+            </div>
           </div>
-        </div>
-        <div class="s-row s-col api-setting">
-          <span>模型 API</span>
-          <div class="api-grid">
-            <label>Provider<select id="api-provider"></select></label>
-            <label>Base URL<input type="text" id="api-base"></label>
-            <label>模型<input type="text" id="api-model" maxlength="200"></label>
-            <label>API Key<input type="password" id="api-key" autocomplete="new-password" placeholder="密钥不会回显或保存在桌面"></label>
-            <label class="api-check" id="api-keep-row"><input type="checkbox" id="api-keep">保留同一 Provider / Origin 的现有 Key</label>
-            <label>当前口令<input type="password" id="api-password" autocomplete="current-password"></label>
-            <button type="button" class="api-link" id="api-key-link">打开官方 API Key 申请页</button>
-            <div class="api-actions"><button type="button" id="api-test">测试</button><button type="button" id="api-save">保存并应用</button><button type="button" id="api-restore">恢复环境配置</button></div>
-            <div class="api-risk">测试会产生极少量模型费用；第三方中转可读取问题、上下文和输出，请使用低额度、可吊销的 Key。</div>
-            <div class="s-hint" id="api-state"></div>
+        </section>
+
+        <section class="s-group">
+          <h3 class="s-group-title">快捷键</h3>
+          <div class="s-card">
+            <div class="s-row s-col">
+              <span>全局唤醒</span>
+              <div class="hk-line">
+                <button type="button" id="hk-rec" class="hk-field">点击这里，然后按下组合键</button>
+                <button type="button" class="hbtn hk-x" id="hk-clear" title="停用快捷键" aria-label="停用快捷键"><svg class="jv-icon" style="width:14px;height:14px"><use href="#i-close"/></svg></button>
+              </div>
+              <div class="s-hint" id="s-hotkey-state"></div>
+            </div>
+            <div class="s-row s-col">
+              <span>划词问<small>选中文字后按它，弹出翻译 / 解释 / 改写</small></span>
+              <input type="text" id="s-quickask" placeholder="如 Alt+Q，留空停用" maxlength="64">
+              <div class="s-hint" id="s-quickask-state"></div>
+            </div>
           </div>
-        </div>
-        <div class="s-row s-col api-setting" id="integration-setting" hidden>
-          <span>联网数据源 · Owner</span>
-          <div class="api-grid">
-            <label>数据源<select id="integration-name"><option value="searxng">SearXNG</option><option value="tavily">Tavily</option><option value="pandascore">PandaScore</option></select></label>
-            <label class="api-check"><input type="checkbox" id="integration-enabled">启用</label>
-            <label id="integration-base-row">Base URL<input type="text" id="integration-base"></label>
-            <label id="integration-key-row" hidden>API Key<input type="password" id="integration-key" autocomplete="new-password"></label>
-            <label class="api-check" id="integration-keep-row" hidden><input type="checkbox" id="integration-keep">保留现有 Key</label>
-            <label>Owner 当前口令<input type="password" id="integration-password" autocomplete="current-password"></label>
-            <div class="api-actions"><button type="button" id="integration-test">测试</button><button type="button" id="integration-save">保存</button><button type="button" id="integration-restore">恢复环境配置</button></div>
-            <div class="s-hint" id="integration-state"></div>
+        </section>
+
+        <section class="s-group">
+          <h3 class="s-group-title">外观</h3>
+          <div class="s-card">
+            <div class="s-row s-col">
+              <span>主题<small>默认深色，与网页端一致；选了即生效</small></span>
+              <select id="s-theme" class="seg-src" aria-label="主题">
+                <option value="dark">深色</option>
+                <option value="light">浅色</option>
+                <option value="system">跟随系统</option>
+              </select>
+            </div>
+            <div class="s-row s-col">
+              <span>悬浮球</span>
+              <select id="s-ballstyle" class="seg-src" aria-label="悬浮球样式">
+                <option value="moss">AI 光球</option>
+                <option value="mini">极简</option>
+                <option value="img">自定义图片</option>
+              </select>
+              <div id="s-imgrow" style="display:none">
+                <button type="button" id="s-imgpick">选择图片…</button>
+                <img id="s-imgprev" alt="">
+              </div>
+              <label class="s-slider">
+                <span>大小</span>
+                <input type="range" id="s-ballsize" min="44" max="120" step="4">
+                <em id="s-ballsize-v">64px</em>
+              </label>
+              <input type="file" id="s-imgfile" accept="image/*" style="display:none">
+            </div>
           </div>
-        </div>
-        <div class="s-row s-col wx-setting">
-          <span>个人微信</span>
-          <div id="wx-area"></div>
-          <div class="s-hint" id="wx-state">正在读取微信桥状态…</div>
-          <div class="wx-risk">建议使用专用小号；第三方接入存在账号风险，勿群发或营销。</div>
-        </div>
+        </section>
+
+        <section class="s-group">
+          <h3 class="s-group-title">连接</h3>
+          <div class="s-card">
+            <div class="s-row s-col">
+              <span>服务器地址</span>
+              <input type="text" id="s-server" placeholder="https://jws.gkgeek-set.cn">
+            </div>
+          </div>
+        </section>
+
         <button id="s-save">保存并应用</button>
         <div class="s-hint" id="s-msg"></div>
+
+        <section class="s-group api-setting">
+          <h3 class="s-group-title">语音与晨报</h3>
+          <div class="s-card"><div class="s-row s-col">
+            <div class="api-grid">
+              <label>通话音色<select id="s-voice"></select></label>
+              <label class="s-slider" style="display:flex">
+                <span>语速</span>
+                <input type="range" id="s-speed" min="0.5" max="2" step="0.05" value="1">
+                <em id="s-speed-v">1.00×</em>
+              </label>
+              <label>晨报电台（留空关闭）<input type="time" id="s-radio"></label>
+              <div class="api-risk">音色与语速影响你的语音通话答复（与网页端共用）。晨报电台每天定时把「天气+日程+待办」做成语音条+文字发到微信——需先在微信里对贾维斯说「提醒发给我」。</div>
+              <div class="api-actions" style="grid-template-columns:1fr"><button type="button" id="s-voice-save">保存语音设置</button></div>
+              <div class="s-hint" id="s-voice-state"></div>
+            </div>
+          </div></div>
+        </section>
+
+        <section class="s-group api-setting">
+          <h3 class="s-group-title">模型 API</h3>
+          <div class="s-card"><div class="s-row s-col">
+            <div class="api-grid">
+              <label>Provider<select id="api-provider"></select></label>
+              <label>Base URL<input type="text" id="api-base"></label>
+              <label>模型<input type="text" id="api-model" maxlength="200"></label>
+              <label>API Key<input type="password" id="api-key" autocomplete="new-password" placeholder="密钥不会回显或保存在桌面"></label>
+              <label class="api-check" id="api-keep-row"><input type="checkbox" id="api-keep">保留同一 Provider / Origin 的现有 Key</label>
+              <label>当前口令<input type="password" id="api-password" autocomplete="current-password"></label>
+              <button type="button" class="api-link" id="api-key-link">打开官方 API Key 申请页</button>
+              <div class="api-actions"><button type="button" id="api-test">测试</button><button type="button" id="api-save">保存并应用</button><button type="button" id="api-restore">恢复环境配置</button></div>
+              <div class="api-risk">测试会产生极少量模型费用；第三方中转可读取问题、上下文和输出，请使用低额度、可吊销的 Key。</div>
+              <div class="s-hint" id="api-state"></div>
+            </div>
+          </div></div>
+        </section>
+
+        <section class="s-group api-setting" id="integration-setting" hidden>
+          <h3 class="s-group-title">联网数据源 · Owner</h3>
+          <div class="s-card"><div class="s-row s-col">
+            <div class="api-grid">
+              <label>数据源<select id="integration-name"><option value="searxng">SearXNG</option><option value="tavily">Tavily</option><option value="pandascore">PandaScore</option></select></label>
+              <label class="api-check"><input type="checkbox" id="integration-enabled">启用</label>
+              <label id="integration-base-row">Base URL<input type="text" id="integration-base"></label>
+              <label id="integration-key-row" hidden>API Key<input type="password" id="integration-key" autocomplete="new-password"></label>
+              <label class="api-check" id="integration-keep-row" hidden><input type="checkbox" id="integration-keep">保留现有 Key</label>
+              <label>Owner 当前口令<input type="password" id="integration-password" autocomplete="current-password"></label>
+              <div class="api-actions"><button type="button" id="integration-test">测试</button><button type="button" id="integration-save">保存</button><button type="button" id="integration-restore">恢复环境配置</button></div>
+              <div class="s-hint" id="integration-state"></div>
+            </div>
+          </div></div>
+        </section>
+
+        <section class="s-group wx-setting">
+          <h3 class="s-group-title">个人微信</h3>
+          <div class="s-card"><div class="s-row s-col">
+            <div id="wx-area"></div>
+            <div class="s-hint" id="wx-state">正在读取微信桥状态…</div>
+            <div class="wx-risk">建议使用专用小号；第三方接入存在账号风险，勿群发或营销。</div>
+          </div></div>
+        </section>
+
         <div class="s-hint" id="s-about"></div>
       </div>
     </div>
+
     <div id="desktop-login" aria-live="polite">
+      <div class="orb login-orb" aria-hidden="true">
+        <i class="o-halo"></i>
+        <div class="o-body"><div class="o-breathe">
+          <div class="o-core"><i class="o-flow"></i><i class="o-blob"></i><i class="o-depth"></i><i class="o-sheen"></i></div>
+        </div></div>
+      </div>
+      <div class="login-hello">你好，我是贾维斯</div>
+      <div class="login-sub">登录后，桌面与网页共用同一份记忆</div>
       <form id="desktop-login-form" class="desktop-login-card">
         <h2>身份验证</h2>
         <label>用户名<input id="desktop-username" autocomplete="username" required></label>
@@ -609,6 +332,7 @@ body.show-settings #settings{display:flex}
   <script src="voice-audio.js"></script>
   <script src="voice-call.js"></script>
   <script src="voice-ball.js"></script>
+  <script src="orb-motion.js"></script>
   <script src="wake-word.js"></script>
   <script src="meeting.js"></script>
   <script src="quick-ask.js"></script>

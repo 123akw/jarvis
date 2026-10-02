@@ -105,11 +105,18 @@ const TOOL_INFO = {
 }
 const toolLabel = name => TOOL_INFO[name] ? `${TOOL_INFO[name][0]} ${TOOL_INFO[name][1]}` : `⚙ ${name}`
 
-const EMPTY_HTML = `<div class="empty">这里是桌面快捷通道。有什么吩咐？</div>
+/* 空态：小光球 + 问候 + 三张建议卡（与网页端新对话空态同一套） */
+const ORB_IDLE_HTML = '<div class="orb orb--hero" aria-hidden="true"><i class="o-halo"></i><div class="o-body"><div class="o-breathe">'
+  + '<div class="o-core"><i class="o-flow"></i><i class="o-blob"></i><i class="o-depth"></i><i class="o-sheen"></i></div></div></div></div>'
+const qIcon = id => `<span class="q-ico"><svg class="jv-icon"><use href="#${id}"/></svg></span>`
+const EMPTY_HTML = `<div class="empty">${ORB_IDLE_HTML}
+  <div class="empty-title">有什么吩咐？</div>
+  <div class="empty-sub">桌面快捷通道 · 与网页端分开记录</div>
+</div>
 <div class="qchips">
-  <button data-q="给我今日晨报">☀ 今日晨报</button>
-  <button data-q="我在做什么任务？">⌨ 编程进度</button>
-  <button data-q="今天有什么安排和待办？">📅 今日安排</button>
+  <button data-q="给我今日晨报">${qIcon('i-sunrise')}<span class="q-text"><b>今日晨报</b><small>天气、日程与待办，一次说清</small></span></button>
+  <button data-q="我在做什么任务？">${qIcon('i-code')}<span class="q-text"><b>编程进度</b><small>Claude Code 会话与提交</small></span></button>
+  <button data-q="今天有什么安排和待办？">${qIcon('i-today')}<span class="q-text"><b>今日安排</b><small>今天的日程和待办</small></span></button>
 </div>`
 
 async function loadHistory() {
@@ -137,7 +144,7 @@ async function ask() {
   if (!text || busy) return
   box.value = ''; box.style.height = 'auto'
   clipbar.style.display = 'none'
-  busy = true; send.textContent = '■'; send.title = '停止生成'
+  busy = true; send.classList.add('is-stop'); send.title = '停止生成'
   document.body.classList.add('busy')
   state.textContent = '思考中…'
   const empty = log.querySelector('.empty'); if (empty) empty.remove()
@@ -185,7 +192,7 @@ async function ask() {
     stopPaint()
     if (!r.ok && !r.cancelled) throw new Error('链路中断')
     const stick = nearBottom()
-    el.innerHTML = md(raw) || '<span style="color:var(--dim)">（无回复）</span>'
+    el.innerHTML = md(raw) || '<span class="muted">（无回复）</span>'
     if (stick) log.scrollTop = log.scrollHeight
   } catch (e) {
     stopPaint()
@@ -193,7 +200,7 @@ async function ask() {
     sys(e.message)
   } finally {
     currentStream = null
-    busy = false; send.textContent = '↑'; send.title = '发送'
+    busy = false; send.classList.remove('is-stop'); send.title = '发送'
     document.body.classList.remove('busy')
     if (!document.body.classList.contains('needs-login')) state.textContent = '在线'
     box.focus()
@@ -241,18 +248,18 @@ $('#minbtn').addEventListener('click', async () => {
 let clearArmTimer = null   // 清空是删整条 desktop 线程，误触代价高：第一击进确认态
 $('#clearbtn').addEventListener('click', async () => {
   const btn = $('#clearbtn')
+  const disarm = () => { btn.classList.remove('armed'); btn.title = '清空快捷对话' }
   if (!clearArmTimer) {
-    btn.textContent = '↺?'
+    btn.classList.add('armed')
     btn.title = '再点一次确认清空'
-    btn.style.color = 'var(--alert)'
     clearArmTimer = setTimeout(() => {
       clearArmTimer = null
-      btn.textContent = '↺'; btn.title = '清空快捷对话'; btn.style.color = ''
+      disarm()
     }, 3000)
     return
   }
   clearTimeout(clearArmTimer); clearArmTimer = null
-  btn.textContent = '↺'; btn.title = '清空快捷对话'; btn.style.color = ''
+  disarm()
   try {
     await api('deleteThread', { thread_id: THREAD })
     log.innerHTML = '<div class="empty">已清空。有什么吩咐？</div>'
@@ -273,7 +280,8 @@ log.addEventListener('click', e => {  // 空态快捷芯片 / 来源链接 / 代
     }
     return
   }
-  const q = e.target && e.target.dataset && e.target.dataset.q
+  const chip = e.target.closest && e.target.closest('[data-q]')   // 建议卡里有图标/小字，点到子元素也算
+  const q = chip && chip.dataset.q
   if (q) { box.value = q; ask() }
 })
 
@@ -357,6 +365,18 @@ const VOICE_PHASE_LABEL = {
 }
 let activeCall = null
 let voiceScenes = []
+/* 光球「说话」态随 TTS 播放音量起伏（orb-motion.js 只在 speaking 时跑帧）；
+ * 听/想/空闲的律动与流转全是 CSS 关键帧，主线程零开销。 */
+let voicePlayer = null
+const ORB_TARGETS = ['#orb', '#v-orb'].map(sel => ({ body: $(`${sel} .o-body`), halo: $(`${sel} .o-halo`) }))
+const reducedMotionQuery = (() => {
+  try { return window.matchMedia('(prefers-reduced-motion: reduce)') } catch { return null }
+})()
+const orbMotion = window.JWSOrbMotion ? window.JWSOrbMotion.createOrbMotion({
+  targets: () => ORB_TARGETS,
+  getRms: () => (voicePlayer && voicePlayer.level ? voicePlayer.level() : 0),
+  reducedMotion: () => Boolean(reducedMotionQuery && reducedMotionQuery.matches),
+}) : null
 const EMOTION_EMOJI = {
   happy: '😊', sad: '😢', angry: '😠', surprised: '😲',
   fearful: '😨', disgusted: '😒', neutral: '🙂',
@@ -379,8 +399,9 @@ function renderVoicePhase(p) {
   voiceEl.className = p
   $('#v-phase').textContent = VOICE_PHASE_LABEL[p] || p
   $('#v-interrupt').style.display = p === 'speaking' ? '' : 'none'
-  // 收起面板继续通话时，悬浮球按听/想/说三态变色动效
+  // 收起面板继续通话时，悬浮球按听/想/说三态切换光球表现（聆听律动 / 思考加速流转 / 说话随音量起伏）
   if (window.JWSVoiceBall) window.JWSVoiceBall.applyBallPhase(document.body.classList, p)
+  if (orbMotion) orbMotion.setPhase(p)
   renderVoiceHint()
 }
 function renderVoiceHint() {
@@ -416,7 +437,7 @@ async function startVoiceCall() {
   activeCall = window.JWSVoiceCall.createVoiceCall({
     url,
     createWebSocket: u => new WebSocket(u),
-    player: window.JWSVoiceAudio.createPcmPlayer(),
+    player: (voicePlayer = window.JWSVoiceAudio.createPcmPlayer()),
     pcmSupported: window.JWSVoiceAudio.pcmStreamSupported(),
     startMicStream: window.JWSVoiceAudio.startMicStream,
     isMicError: window.JWSVoiceAudio.isMicError,
@@ -459,6 +480,8 @@ function endVoiceCall() {
   if (activeCall) { activeCall.hangup(); activeCall = null }
   document.body.classList.remove('show-voice', 'on-call')
   if (window.JWSVoiceBall) window.JWSVoiceBall.applyBallPhase(document.body.classList, 'closed')
+  if (orbMotion) orbMotion.setPhase('closed')
+  voicePlayer = null
   void syncWakeWord().catch(() => {})   // 恢复唤醒监听
 }
 
@@ -963,6 +986,44 @@ $('#s-ballstyle').addEventListener('change', () => {
   $('#s-imgrow').style.display = $('#s-ballstyle').value === 'img' ? '' : 'none'
 })
 
+/* 分段控件（网页端同款）：真正的取值留在隐藏的 <select class="seg-src">，其余逻辑照常读写 .value；
+ * 这里只负责外观与点击——点一段就改 select 并派发 change。程序里改 .value 后调 syncSegments()。 */
+function mountSegmented(select) {
+  const seg = document.createElement('div')
+  seg.className = 'jv-seg'
+  seg.setAttribute('role', 'radiogroup')
+  seg.setAttribute('aria-label', select.getAttribute('aria-label') || '')
+  for (const opt of select.options) {
+    const b = document.createElement('button')
+    b.type = 'button'
+    b.dataset.value = opt.value
+    b.textContent = opt.textContent
+    b.setAttribute('role', 'radio')
+    seg.append(b)
+  }
+  const sync = () => seg.querySelectorAll('button').forEach(b => {
+    b.setAttribute('aria-checked', String(b.dataset.value === select.value))
+  })
+  seg.addEventListener('click', e => {
+    const b = e.target.closest && e.target.closest('button')
+    if (!b || b.dataset.value === select.value) return
+    select.value = b.dataset.value
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  select.addEventListener('change', sync)
+  select.after(seg)
+  sync()
+  return sync
+}
+const segmentSyncs = [...document.querySelectorAll('select.seg-src')].map(mountSegmented)
+const syncSegments = () => segmentSyncs.forEach(fn => fn())
+
+/* 主题：本机外观偏好（theme.js），选了即生效，不必点「保存并应用」 */
+const themeCtl = window.JWSTheme ? window.JWSTheme.current() : null
+$('#s-theme').value = themeCtl ? themeCtl.pref() : 'dark'
+syncSegments()
+$('#s-theme').addEventListener('change', () => { if (themeCtl) themeCtl.set($('#s-theme').value) })
+
 /* ---------- 接入个人微信（复用服务器 /api/wechat/*，桌面走令牌鉴权） ---------- */
 let wxController = null
 function renderWx(s = {}) {
@@ -1132,6 +1193,8 @@ async function openSettings() {
   $('#s-ballsize').value = s.ballSize || 64
   $('#s-ballsize-v').textContent = (s.ballSize || 64) + 'px'
   $('#s-ballstyle').value = s.ballStyle || 'moss'
+  $('#s-theme').value = themeCtl ? themeCtl.pref() : 'dark'
+  syncSegments()
   $('#s-imgrow').style.display = (s.ballStyle === 'img') ? '' : 'none'
   const savedImg = localStorage.getItem('jws_ball_img')
   if (savedImg) { $('#s-imgprev').src = savedImg; $('#s-imgprev').style.display = '' }

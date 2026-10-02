@@ -154,13 +154,30 @@ registerProcessor('${WORKLET_NAME}', JwsPcmCapture)
     return out
   }
 
+  const ENVELOPE_STEP = 0.05 // 播放音量包络的窗长（秒）：悬浮球「说话」态按它随音量起伏
+
+  /** 一块 PCM 的音量包络：每 ENVELOPE_STEP 秒一个 RMS（隔点取样，够看又省） */
+  function envelopeOf(f32, sampleRate, step = ENVELOPE_STEP) {
+    const per = Math.max(1, Math.round(sampleRate * step))
+    const out = new Float32Array(Math.ceil(f32.length / per))
+    for (let w = 0; w < out.length; w++) {
+      const end = Math.min(f32.length, (w + 1) * per)
+      let sum = 0
+      let n = 0
+      for (let i = w * per; i < end; i += 2) { sum += f32[i] * f32[i]; n++ }
+      out[w] = n ? Math.sqrt(sum / n) : 0
+    }
+    return out
+  }
+
   /**
    * PCM16 小端单声道排队播放器（TTS 下行）。createContext 可注入，测试给 fake AudioContext。
    * enqueue 按块顺播；stop 全停清队；onIdle 在队列放空时回调（回合结束回到「听」态用）。
    * warm 在接通时预建并 resume 上下文：首句音频到达时输出设备已在运行，不算进首音频延迟。
+   * level() 返回此刻正在播的那一小段的 RMS（入队时预算包络，不往音频图里插分析节点）。
    */
   function createPcmPlayer({ createContext } = {}) {
-    const state = { ctx: null, nextTime: 0, sources: new Set(), sampleRate: 24000, idle: null }
+    const state = { ctx: null, nextTime: 0, sources: new Set(), sampleRate: 24000, idle: null, env: [] }
     function ensureCtx() {
       if (!state.ctx) {
         const make = createContext || (() => {
@@ -189,6 +206,9 @@ registerProcessor('${WORKLET_NAME}', JwsPcmCapture)
         const at = Math.max(ctx.currentTime + 0.02, state.nextTime || 0)
         src.start(at)
         state.nextTime = at + buffer.duration
+        // 包络按播放时间排队：先丢已播完的，再挂这一块（整句一次性下发也只是几百个小数组）
+        while (state.env.length && state.env[0].end <= ctx.currentTime) state.env.shift()
+        state.env.push({ at, end: at + buffer.duration, vals: envelopeOf(f32, state.sampleRate) })
         state.sources.add(src)
         src.onended = () => {
           state.sources.delete(src)
@@ -202,14 +222,25 @@ registerProcessor('${WORKLET_NAME}', JwsPcmCapture)
         for (const s of state.sources) { try { s.stop() } catch { /* 已停 */ } }
         state.sources.clear()
         state.nextTime = 0
+        state.env = []
       },
       playing() { return state.sources.size > 0 },
+      level() {
+        const ctx = state.ctx
+        if (!ctx) return 0
+        const t = ctx.currentTime
+        while (state.env.length && state.env[0].end <= t) state.env.shift()
+        const seg = state.env[0]
+        if (!seg || t < seg.at) return 0
+        const idx = Math.min(seg.vals.length - 1, Math.floor((t - seg.at) / ENVELOPE_STEP))
+        return seg.vals[idx] || 0
+      },
       onIdle(cb) { state.idle = cb },
       close() { try { if (state.ctx && state.ctx.close) state.ctx.close() } catch { /* 已关 */ } },
     }
   }
 
-  return { TARGET_SAMPLE_RATE, FRAME_SAMPLES, pcmStreamSupported, isMicError,
+  return { TARGET_SAMPLE_RATE, FRAME_SAMPLES, ENVELOPE_STEP, pcmStreamSupported, isMicError,
     startStreamCapture, startMicStream, startSystemAudioStream, createPcmPlayer, pcm16ToFloat32,
-    WORKLET_SOURCE }
+    envelopeOf, WORKLET_SOURCE }
 })

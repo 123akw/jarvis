@@ -1,0 +1,623 @@
+/* =====================================================================
+ * 贾维斯桌面悬浮窗 ——「安静的未来感」，与网页端同一套设计语言。
+ * 设计 token 移植自 web-src/src/styles.css（名字保持一致，改动请两边同步）；
+ * 暗色为默认，亮色走 body.light（theme.js：跟随系统 / 手动切换）。
+ *
+ * 关于玻璃：窗口是透明无边框窗口（main.js transparent:true），但 Chromium 的
+ * backdrop-filter 只能采样页面自己画出来的内容，采样不到窗口背后的桌面。所以面板
+ * 本体用近乎不透明的 --jv-window；backdrop-filter 只用在「下面真有内容滚过」的
+ * 浮层上（顶栏、子页标题栏），那里的毛玻璃才是真的。
+ * ===================================================================== */
+:root{
+  color-scheme:dark;
+  --jv-bg:#0B0B0F;
+  --jv-surface:rgba(30,30,36,.62);
+  --jv-surface-2:rgba(255,255,255,.065);
+  --jv-border:rgba(255,255,255,.09);
+  --jv-text:#F5F5F7;
+  --jv-text-2:rgba(235,235,245,.66);
+  --jv-text-3:rgba(235,235,245,.40);
+  --jv-accent:#0A84FF;
+  --jv-ai-gradient:linear-gradient(135deg,#3B82F6,#8B5CF6,#EC4899,#F59E0B);
+  --jv-radius-lg:20px;
+  --jv-radius-md:12px;
+  --jv-radius-sm:8px;
+  --jv-ease:cubic-bezier(.2,.8,.2,1);
+  --jv-font:-apple-system,"SF Pro Text","PingFang SC","HarmonyOS Sans SC",system-ui,sans-serif;
+  --jv-font-display:-apple-system,"SF Pro Display","PingFang SC","HarmonyOS Sans SC",system-ui,sans-serif;
+  --jv-mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;  /* 只用于代码与时间 */
+  --jv-dur:280ms;
+  --jv-blur:saturate(180%) blur(24px);
+  --jv-elevated:rgba(36,36,42,.86);
+  --jv-hover:rgba(255,255,255,.05);
+  --jv-pressed:rgba(255,255,255,.10);
+  --jv-accent-soft:rgba(10,132,255,.22);
+  --jv-success:#30D158;
+  --jv-danger:#FF453A;
+  --jv-warn:#FFB340;
+  --jv-scrim:rgba(0,0,0,.48);
+  --jv-code-bg:rgba(0,0,0,.28);
+  --jv-scroll:rgba(255,255,255,.14);
+  --jv-shadow:0 10px 30px rgba(0,0,0,.35);
+  --jv-shadow-float:0 1px 0 rgba(255,255,255,.05) inset,0 24px 60px rgba(0,0,0,.5),0 2px 8px rgba(0,0,0,.3);
+  /* 桌面端专用 */
+  --jv-window:rgba(17,17,21,.97);         /* 面板本体：透明窗口里不能指望背景模糊 */
+  --jv-window-solid:#111115;              /* 盖在面板上的子页：必须完全不透明，不透出底下的对话 */
+  --jv-window-glow:rgba(94,92,230,.14);   /* 顶部一抹 AI 紫，与网页端 .hud 背景同源 */
+  --jv-bar:rgba(17,17,21,.72);            /* 顶栏/标题栏毛玻璃底色 */
+  --jv-seg-on:rgba(255,255,255,.13);
+  --jv-seg-shadow:0 1px 3px rgba(0,0,0,.25);
+  --jv-capsule-shadow:0 8px 24px rgba(0,0,0,.32),0 1px 0 rgba(255,255,255,.05) inset;
+}
+body.light{
+  color-scheme:light;
+  --jv-bg:#F5F5F7;
+  --jv-surface:rgba(255,255,255,.72);
+  --jv-surface-2:rgba(118,118,128,.10);
+  --jv-border:rgba(0,0,0,.08);
+  --jv-text:#1D1D1F;
+  --jv-text-2:rgba(60,60,67,.76);
+  --jv-text-3:rgba(60,60,67,.6);
+  --jv-accent:#007AFF;
+  --jv-elevated:rgba(255,255,255,.86);
+  --jv-hover:rgba(0,0,0,.04);
+  --jv-pressed:rgba(0,0,0,.08);
+  --jv-accent-soft:rgba(0,122,255,.18);
+  --jv-success:#248A3D;
+  --jv-danger:#D70015;
+  --jv-warn:#C93400;
+  --jv-scrim:rgba(0,0,0,.2);
+  --jv-code-bg:rgba(0,0,0,.03);
+  --jv-scroll:rgba(0,0,0,.16);
+  --jv-shadow:0 10px 30px rgba(0,0,0,.08);
+  --jv-shadow-float:0 1px 0 rgba(255,255,255,.7) inset,0 24px 60px rgba(0,0,0,.12),0 2px 8px rgba(0,0,0,.06);
+  --jv-window:rgba(246,246,248,.97);
+  --jv-window-solid:#F6F6F8;
+  --jv-window-glow:rgba(0,122,255,.07);
+  --jv-bar:rgba(246,246,248,.74);
+  --jv-seg-on:#fff;
+  --jv-seg-shadow:0 1px 3px rgba(0,0,0,.12);
+  --jv-capsule-shadow:0 8px 24px rgba(0,0,0,.08),0 1px 0 rgba(255,255,255,.7) inset;
+}
+
+*{margin:0;padding:0;box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;background:transparent;overflow:hidden}
+body{font-family:var(--jv-font);font-size:14px;line-height:1.5;color:var(--jv-text);
+  -webkit-font-smoothing:antialiased;-webkit-user-select:none;user-select:none}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--jv-accent);outline-offset:2px}
+input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
+.mono{font-family:var(--jv-mono);font-variant-numeric:tabular-nums}
+
+@keyframes jv-fade{from{opacity:0}}
+@keyframes jv-rise{from{opacity:0;transform:translateY(6px)}}
+@keyframes jv-pop{from{opacity:0;transform:translateY(8px) scale(.985)}}
+@keyframes jv-breathe{50%{transform:scale(.72);opacity:.6}}
+@keyframes jv-dot{50%{opacity:.45}}
+@keyframes blink{50%{opacity:0}}
+
+/* 线性图标（与网页端 Icon.jsx 同一网格与描边） */
+.jv-icon{width:18px;height:18px;flex:none;display:block;fill:none;stroke:currentColor;stroke-width:1.7;
+  stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+
+/* =====================================================================
+ * AI 光球 —— 网页端 Presence 的 CSS 版移植（不引入 three / WebGL）
+ * 约定：持续动画只动 transform / opacity（合成线程），不动 filter、box-shadow、背景位置。
+ * 空闲态只有 3 个合成层在转（流光 / 光斑 / 呼吸），旧版 MOSS 能量核是 5 层 blur+混色。
+ * 三态：聆听=律动（脉冲+涟漪环，冷蓝）；思考=加速流转（快流光+绕边扫光，紫）；
+ *       说话=随音量起伏（JS 按播放音量写 .o-body/.o-halo，暖粉金）。
+ * ===================================================================== */
+.orb{position:relative;flex:none;pointer-events:none;
+  --o-pad:7%;--o-halo:-24%;--o-ring:-5%;--o-sweep:-3%;
+  --o-deep:#0b0d1d;--o-deep-a:rgb(11 13 29 / .58);--o-deep-b:rgb(11 13 29 / .24)}
+body.light .orb{--o-deep:#eef0fb;--o-deep-a:rgb(238 240 251 / .5);--o-deep-b:rgb(238 240 251 / .18)}
+.orb i{display:block;position:absolute;border-radius:50%;font-style:normal}
+.o-body,.o-breathe{position:absolute;inset:0;border-radius:50%}
+.o-halo{inset:var(--o-halo);opacity:.5;
+  background:radial-gradient(circle closest-side,rgb(139 92 246 / .5),rgb(59 130 246 / .2) 58%,transparent);
+  transition:opacity .5s var(--jv-ease)}
+body.light .o-halo{background:radial-gradient(circle closest-side,rgb(139 92 246 / .3),rgb(59 130 246 / .12) 58%,transparent)}
+.o-breathe{animation:o-breathe 6s ease-in-out infinite;transition:transform .45s var(--jv-ease)}
+/* 圆形裁剪只靠 overflow:hidden + border-radius：Chromium 合成器走「快速圆角」着色器裁剪，
+ * 不像 mask-image 那样每帧多一个离屏渲染面（常驻悬浮球每帧都在付这笔账） */
+.o-core{position:absolute;inset:var(--o-pad);border-radius:50%;overflow:hidden;background:var(--o-deep)}
+.o-core i{inset:0}
+.o-core .o-flow,.o-core .o-fast{inset:-22%}
+.o-flow{opacity:.92;background:conic-gradient(from 0deg,#3B82F6,#8B5CF6,#EC4899,#F59E0B,#3B82F6);
+  animation:o-rot 18s linear infinite}
+.o-fast{opacity:0;background:conic-gradient(from 90deg,#8B5CF6,#3B82F6,#22D3EE,#EC4899,#8B5CF6);
+  animation:o-rot 1.6s linear infinite paused;transition:opacity .45s var(--jv-ease)}
+.o-blob{background:radial-gradient(circle at 30% 28%,rgb(59 130 246 / .95),transparent 46%),
+  radial-gradient(circle at 72% 68%,rgb(236 72 153 / .8),transparent 44%);
+  animation:o-rot 11s linear infinite reverse}
+.o-tint{opacity:0;background:var(--o-tint,transparent);transition:opacity .45s var(--jv-ease)}
+.o-depth{background:radial-gradient(circle at 50% 52%,var(--o-deep-a) 0,var(--o-deep-b) 44%,transparent 72%)}
+.o-sheen{background:radial-gradient(circle at 33% 25%,rgb(255 255 255 / .5),rgb(255 255 255 / 0) 30%)}
+.orb .o-face{inset:var(--o-pad);display:none}
+.o-ring{inset:var(--o-ring);opacity:0;border:1.5px solid rgb(125 211 252 / .95)}
+.o-sweep{inset:var(--o-sweep);opacity:0;
+  background:conic-gradient(from 0deg,transparent 0 52%,rgb(196 181 253 / .25) 70%,rgb(255 255 255 / .95) 93%,transparent 100%);
+  -webkit-mask:radial-gradient(closest-side,transparent 80%,#000 85%,#000 96%,transparent 100%);
+  animation:o-rot 1.1s linear infinite paused;transition:opacity .4s var(--jv-ease)}
+@keyframes o-rot{to{transform:rotate(1turn)}}
+@keyframes o-breathe{0%,100%{transform:scale(.975)}50%{transform:scale(1.025)}}
+@keyframes o-pulse{0%,100%{transform:scale(.95)}50%{transform:scale(1.05)}}
+@keyframes o-ripple{from{transform:scale(.8);opacity:.95}to{transform:scale(1);opacity:0}}
+
+/* 聆听：律动——球体 1.4 秒一拍地胀缩，同拍从球边荡出一圈冷蓝涟漪 */
+:is(body.voice-listening #orb,#voice.listening #v-orb){
+  --o-tint:radial-gradient(circle at 50% 36%,rgb(56 189 248 / .92),rgb(59 130 246 / .55) 48%,transparent 78%)}
+:is(body.voice-listening #orb,#voice.listening #v-orb) .o-breathe{animation:o-pulse 1.4s ease-in-out infinite}
+:is(body.voice-listening #orb,#voice.listening #v-orb) .o-ring{opacity:1;animation:o-ripple 1.4s ease-out infinite}
+:is(body.voice-listening #orb,#voice.listening #v-orb) .o-tint{opacity:.78}
+:is(body.voice-listening #orb,#voice.listening #v-orb) .o-halo{opacity:.85;
+  background:radial-gradient(circle closest-side,rgb(56 189 248 / .55),rgb(59 130 246 / .22) 58%,transparent)}
+
+/* 思考：加速流转——快流光淡入盖住慢流光，一道亮弧绕球边飞转；球体微收（凝神） */
+:is(body.voice-thinking #orb,body.busy:not(.voice-listening):not(.voice-speaking) #orb,#voice.thinking #v-orb){
+  --o-tint:radial-gradient(circle at 50% 50%,rgb(167 139 250 / .8),rgb(139 92 246 / .45) 50%,transparent 80%)}
+:is(body.voice-thinking #orb,body.busy:not(.voice-listening):not(.voice-speaking) #orb,#voice.thinking #v-orb) .o-fast{
+  opacity:.88;animation-play-state:running}
+:is(body.voice-thinking #orb,body.busy:not(.voice-listening):not(.voice-speaking) #orb,#voice.thinking #v-orb) .o-sweep{
+  opacity:1;animation-play-state:running}
+:is(body.voice-thinking #orb,body.busy:not(.voice-listening):not(.voice-speaking) #orb,#voice.thinking #v-orb) .o-breathe{
+  animation:none;transform:scale(.94)}
+:is(body.voice-thinking #orb,body.busy:not(.voice-listening):not(.voice-speaking) #orb,#voice.thinking #v-orb) .o-tint{opacity:.5}
+:is(body.voice-thinking #orb,body.busy:not(.voice-listening):not(.voice-speaking) #orb,#voice.thinking #v-orb) .o-halo{
+  opacity:.68;background:radial-gradient(circle closest-side,rgb(167 139 250 / .6),rgb(139 92 246 / .22) 58%,transparent)}
+
+/* 说话：随音量起伏——缩放与光晕由 orb-motion.js 按 TTS 播放包络逐帧写入；配色转暖 */
+:is(body.voice-speaking #orb,#voice.speaking #v-orb){
+  --o-tint:radial-gradient(circle at 50% 64%,rgb(251 191 36 / .9),rgb(236 72 153 / .62) 46%,transparent 80%)}
+:is(body.voice-speaking #orb,#voice.speaking #v-orb) .o-breathe{animation:none}
+:is(body.voice-speaking #orb,#voice.speaking #v-orb) .o-tint{opacity:.78}
+:is(body.voice-speaking #orb,#voice.speaking #v-orb) .o-halo{opacity:.82;
+  background:radial-gradient(circle closest-side,rgb(236 72 153 / .58),rgb(245 158 11 / .26) 58%,transparent)}
+
+/* =====================================================================
+ * 悬浮球（收起态）：窗口 = 球径 + 8px，光晕刚好铺满窗口、边缘淡到全透明，不会被窗口裁出硬边
+ * ===================================================================== */
+:root{--ball:64px}
+#ball{position:fixed;right:4px;top:4px;width:var(--ball);height:var(--ball);border-radius:50%;cursor:grab;
+  transition:transform .24s var(--jv-ease)}
+#ball:active{cursor:grabbing}
+#ball:hover{transform:scale(1.04)}
+body.expanded #ball{display:none}
+#ball .orb{position:absolute;inset:0;--o-pad:4px;--o-halo:-4px;--o-ring:-3px;--o-sweep:-2px}
+#eye{position:absolute;inset:0;z-index:3;border-radius:50%;pointer-events:none}
+
+/* 极简 / 自定义图片：换掉球芯，状态靠光晕颜色、涟漪环、扫光弧表达；空闲时完全静止（零动画） */
+body.ball-mini #orb .o-core,body.ball-img #orb .o-core{display:none}
+body.ball-mini #orb .o-face,body.ball-img #orb .o-face{display:block}
+body.ball-mini #orb .o-breathe,body.ball-img #orb .o-breathe{animation:none}
+body.ball-mini #orb .o-halo,body.ball-img #orb .o-halo{opacity:.32}
+body.ball-mini #orb .o-face{background:radial-gradient(circle at 34% 28%,#3A404B,#17191F 64%,#0C0D10);
+  box-shadow:inset 0 0 0 1px rgb(255 255 255 / .1),inset 0 -6px 12px rgb(0 0 0 / .45)}
+body.light.ball-mini #orb .o-face{background:radial-gradient(circle at 34% 28%,#FFFFFF,#ECEDF2 62%,#D6D8E0);
+  box-shadow:inset 0 0 0 1px rgb(0 0 0 / .08),inset 0 -6px 12px rgb(0 0 0 / .08)}
+body.ball-mini #orb .o-face::after{content:'';position:absolute;left:37%;top:37%;width:26%;height:26%;border-radius:50%;
+  background:var(--jv-ai-gradient);transition:opacity .4s var(--jv-ease)}
+body.ball-mini.voice-listening #orb .o-face::after{background:linear-gradient(135deg,#38BDF8,#3B82F6)}
+body.ball-mini.voice-thinking #orb .o-face::after{background:linear-gradient(135deg,#A78BFA,#7C3AED)}
+body.ball-mini.voice-speaking #orb .o-face::after{background:linear-gradient(135deg,#F59E0B,#EC4899)}
+body.ball-img #orb .o-face{background:var(--ball-img) center/cover no-repeat;
+  box-shadow:inset 0 0 0 1.5px rgb(255 255 255 / .38)}
+
+/* 通话 / 会议进行中：右上角红点（系统红 + 白描边，任何壁纸上都看得见） */
+#calldot{display:none;position:absolute;right:0;top:0;width:24%;height:24%;z-index:4;border-radius:50%;
+  background:var(--jv-danger);box-shadow:0 0 0 1.5px rgb(255 255 255 / .92),0 1px 3px rgb(0 0 0 / .4);
+  animation:jv-dot 1.6s ease-in-out infinite;pointer-events:none}
+body.on-call #calldot,body.on-meeting #calldot{display:block}
+
+/* =====================================================================
+ * 面板（展开态）
+ * ===================================================================== */
+#panel{display:none;position:fixed;inset:6px;flex-direction:column;overflow:hidden;border-radius:18px;
+  background:radial-gradient(520px 280px at 50% -14%,var(--jv-window-glow),transparent 64%),var(--jv-window);
+  border:1px solid var(--jv-border);
+  box-shadow:0 1px 0 rgba(255,255,255,.05) inset,0 3px 6px rgba(0,0,0,.22)}
+body.light #panel{box-shadow:0 1px 0 #fff inset,0 3px 6px rgba(0,0,0,.08)}
+body.expanded #panel{display:flex;animation:jv-pop .26s var(--jv-ease)}
+
+/* 滚动条：细、圆、悬浮式 */
+#panel ::-webkit-scrollbar{width:10px;height:10px}
+#panel ::-webkit-scrollbar-track{background:transparent}
+#panel ::-webkit-scrollbar-thumb{background:var(--jv-scroll);border-radius:10px;border:3px solid transparent;background-clip:content-box}
+#panel ::-webkit-scrollbar-thumb:hover{background-color:var(--jv-text-3)}
+
+/* 顶栏：浮在对话流上方的毛玻璃（消息滚过时真模糊） */
+#phead{-webkit-app-region:drag;position:absolute;left:0;right:0;top:0;z-index:3;height:52px;
+  display:flex;align-items:center;gap:2px;padding:0 8px 0 16px;
+  background:var(--jv-bar);-webkit-backdrop-filter:var(--jv-blur);backdrop-filter:var(--jv-blur);
+  border-bottom:1px solid var(--jv-border)}
+#mini-eye{width:10px;height:10px;border-radius:50%;flex:none;background:var(--jv-ai-gradient)}
+body.busy #mini-eye{animation:jv-breathe 1.4s ease-in-out infinite}
+#ptitle{margin:0 6px 0 8px;font-family:var(--jv-font-display);font-size:12px;font-weight:600;letter-spacing:.22em;
+  color:var(--jv-text);opacity:.88;white-space:nowrap}
+#pstate{display:inline-flex;align-items:center;gap:5px;flex:none;height:20px;padding:0 8px 0 7px;border-radius:999px;
+  background:var(--jv-surface-2);color:var(--jv-text-3);font-size:11.5px;white-space:nowrap;overflow:hidden}
+#pstate::before{content:'';width:6px;height:6px;flex:none;border-radius:50%;background:var(--jv-success)}
+body.needs-login #pstate::before{background:var(--jv-text-3)}
+body.busy #pstate::before{background:var(--jv-ai-gradient);animation:jv-breathe 1.4s ease-in-out infinite}
+#phead .sp,.s-head .sp{flex:1}
+.hbtn{-webkit-app-region:no-drag;position:relative;width:30px;height:30px;flex:none;display:grid;place-items:center;
+  border:none;border-radius:9px;background:transparent;color:var(--jv-text-2);font-size:14px;line-height:1;
+  transition:background-color .15s var(--jv-ease),color .15s var(--jv-ease)}
+.hbtn:hover{background:var(--jv-hover);color:var(--jv-text)}
+.hbtn:active{background:var(--jv-pressed)}
+.hbtn .jv-icon{width:17px;height:17px}
+/* 清空是删整条桌面线程：第一击进确认态（红底），3 秒内再点才清 */
+#clearbtn.armed{background:color-mix(in srgb,var(--jv-danger) 16%,transparent);color:var(--jv-danger)}
+
+/* 对话流 */
+#plog{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:68px 16px 10px;
+  display:flex;flex-direction:column;gap:16px}
+#plog>*{flex-shrink:0}   /* 内容超高时滚动，而不是把带 overflow:hidden 的工具条压扁 */
+.m-user{align-self:flex-end;max-width:86%;background:var(--jv-surface-2);color:var(--jv-text);
+  border-radius:18px 18px 6px 18px;padding:8px 13px;font-size:14px;line-height:1.62;white-space:pre-wrap;
+  word-break:break-word;-webkit-user-select:text;user-select:text;animation:jv-rise .28s var(--jv-ease)}
+.m-ai{align-self:stretch;font-size:14px;line-height:1.72;color:var(--jv-text);overflow-wrap:anywhere;
+  -webkit-user-select:text;user-select:text;animation:jv-rise .28s var(--jv-ease)}
+.muted{color:var(--jv-text-3)}
+.tool{align-self:flex-start;display:inline-flex;align-items:center;max-width:100%;margin-bottom:-8px;padding:3px 10px;
+  border-radius:12px;background:var(--jv-surface-2);color:var(--jv-text-2);font-size:12px;line-height:1.6;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sys{align-self:center;max-width:94%;padding:6px 12px;border-radius:12px;font-size:12.5px;line-height:1.55;text-align:center;
+  color:var(--jv-danger);background:color-mix(in srgb,var(--jv-danger) 10%,transparent);animation:jv-fade .24s var(--jv-ease)}
+
+/* Markdown（对话回答 + 会议纪要共用，与网页端 .jbody 同规格） */
+:is(.m-ai,#m-minutes) p{margin:6px 0}
+:is(.m-ai,#m-minutes)>:first-child{margin-top:0}
+:is(.m-ai,#m-minutes)>:last-child{margin-bottom:0}
+:is(.m-ai,#m-minutes) :is(h1,h2,h3,h4){margin:14px 0 4px;color:var(--jv-text);font-weight:600;line-height:1.4;font-size:15px}
+:is(.m-ai,#m-minutes) h1{font-size:17px}
+:is(.m-ai,#m-minutes) :is(b,strong){color:var(--jv-text);font-weight:600}
+:is(.m-ai,#m-minutes) :is(ul,ol){margin:6px 0 6px 20px}
+:is(.m-ai,#m-minutes) li{margin:3px 0}
+:is(.m-ai,#m-minutes) li::marker{color:var(--jv-text-3)}
+:is(.m-ai,#m-minutes) code{font-family:var(--jv-mono);font-size:.86em;color:var(--jv-text);background:var(--jv-surface-2);
+  padding:1px 5px;border-radius:6px}
+:is(.m-ai,#m-minutes) pre{font-family:var(--jv-mono);font-size:12px;line-height:1.6;margin:8px 0;padding:10px 12px;overflow-x:auto;
+  background:var(--jv-code-bg);border:1px solid var(--jv-border);border-radius:var(--jv-radius-md)}
+:is(.m-ai,#m-minutes) pre code{background:none;padding:0;border-radius:0;font-size:inherit}
+:is(.m-ai,#m-minutes) a{color:var(--jv-accent);text-decoration:underline;text-underline-offset:3px;
+  text-decoration-color:color-mix(in srgb,var(--jv-accent) 40%,transparent);word-break:break-all}
+:is(.m-ai,#m-minutes) blockquote{margin:8px 0;padding:2px 0 2px 12px;border-left:3px solid var(--jv-border);color:var(--jv-text-2)}
+:is(.m-ai,#m-minutes) hr{border:none;height:1px;background:var(--jv-border);margin:14px 0}
+:is(.m-ai,#m-minutes) table{display:block;width:max-content;max-width:100%;overflow-x:auto;border-collapse:separate;border-spacing:0;
+  margin:10px 0;font-size:13px;line-height:1.55;border:1px solid var(--jv-border);border-radius:var(--jv-radius-md)}
+:is(.m-ai,#m-minutes) :is(th,td){padding:6px 12px;text-align:left;border-bottom:1px solid var(--jv-border)}
+:is(.m-ai,#m-minutes) tr:last-child td{border-bottom:none}
+:is(.m-ai,#m-minutes) th{background:var(--jv-surface-2);color:var(--jv-text-2);font-weight:600;font-size:12.5px;white-space:nowrap}
+:is(.m-ai,#m-minutes) input[type=checkbox]{accent-color:var(--jv-accent);margin-right:5px;vertical-align:-2px}
+:is(.m-ai,#m-minutes) del{color:var(--jv-text-3)}
+.codeblock{margin:8px 0;border:1px solid var(--jv-border);border-radius:var(--jv-radius-md);background:var(--jv-code-bg);overflow:hidden}
+.codebar{display:flex;align-items:center;justify-content:space-between;padding:4px 6px 4px 12px;border-bottom:1px solid var(--jv-border)}
+.codelang{font-family:var(--jv-mono);font-size:11px;color:var(--jv-text-3)}
+.codecopy{border:none;background:none;color:var(--jv-text-3);font-size:12px;padding:2px 8px;border-radius:6px}
+.codecopy:hover{color:var(--jv-text);background:var(--jv-hover)}
+:is(.m-ai,#m-minutes) .codeblock pre{border:none;border-radius:0;margin:0;background:none}
+.hljs{color:var(--jv-text);background:none}
+.hljs-keyword,.hljs-literal,.hljs-selector-tag,.hljs-section{color:#FF7AB2}
+.hljs-string,.hljs-attr,.hljs-selector-attr,.hljs-regexp{color:#FF8170}
+.hljs-number,.hljs-symbol,.hljs-meta{color:#D9C97C}
+.hljs-comment,.hljs-quote{color:var(--jv-text-3);font-style:italic}
+.hljs-title,.hljs-name,.hljs-attribute{color:#6BDFFF}
+.hljs-built_in,.hljs-type,.hljs-variable{color:#DABAFF}
+body.light :is(.hljs-keyword,.hljs-literal,.hljs-selector-tag,.hljs-section){color:#AD3DA4}
+body.light :is(.hljs-string,.hljs-attr,.hljs-selector-attr,.hljs-regexp){color:#D12F1B}
+body.light :is(.hljs-number,.hljs-symbol,.hljs-meta){color:#272AD8}
+body.light :is(.hljs-title,.hljs-name,.hljs-attribute){color:#0B4F79}
+body.light :is(.hljs-built_in,.hljs-type,.hljs-variable){color:#804FB8}
+.caret{display:inline-block;width:7px;height:1.05em;border-radius:2px;background:var(--jv-text-2);vertical-align:-3px;
+  margin-left:2px;animation:blink 1s steps(1) infinite}
+
+/* 空态：小光球 + 一句问候 + 三张建议卡（网页端 .chat-empty / .ce-chip 的窄屏版） */
+#plog .empty{margin:auto 0 0;padding:6px 0 4px;display:flex;flex-direction:column;align-items:center;text-align:center;
+  color:var(--jv-text-3);font-size:13px;animation:jv-fade .4s var(--jv-ease)}
+.orb--hero{width:64px;height:64px;margin:4px auto 20px}
+.empty-title{font-family:var(--jv-font-display);font-size:21px;font-weight:600;letter-spacing:-.01em;color:var(--jv-text)}
+.empty-sub{margin-top:4px;font-size:13px;color:var(--jv-text-3)}
+.qchips{display:flex;flex-direction:column;gap:8px;margin:18px 0 auto;animation:jv-fade .4s var(--jv-ease)}
+.qchips button{display:flex;align-items:center;gap:12px;width:100%;padding:11px 14px;text-align:left;border-radius:14px;
+  background:var(--jv-surface);border:1px solid var(--jv-border);color:var(--jv-text);
+  transition:transform .24s var(--jv-ease),background-color .2s var(--jv-ease)}
+.qchips button:hover{background:var(--jv-surface-2);transform:translateY(-1px)}
+.qchips button:active{transform:scale(.99)}
+.q-ico{width:32px;height:32px;flex:none;display:grid;place-items:center;border-radius:10px;background:var(--jv-surface-2);color:var(--jv-text-2)}
+.q-text{display:flex;flex-direction:column;gap:1px;min-width:0}
+.q-text b{font-size:14px;font-weight:500}
+.q-text small{font-size:12px;color:var(--jv-text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* 剪贴板一键问：输入胶囊上方的一条轻卡 */
+#clipbar{flex:none;margin:0 12px 6px;padding:8px 12px;border:1px solid var(--jv-border);border-radius:12px;
+  background:var(--jv-surface);color:var(--jv-text-2);font-size:12.5px;text-align:left;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;animation:jv-rise .24s var(--jv-ease)}
+#clipbar:hover{background:var(--jv-surface-2);color:var(--jv-text)}
+
+/* ⌥Q 划词条：浮起卡片 + 分段式三动作 */
+#quickbar{flex:none;display:none;position:relative;flex-direction:column;gap:9px;margin:0 12px 6px;padding:10px 12px 12px;
+  border-radius:16px;background:var(--jv-elevated);border:1px solid var(--jv-border);box-shadow:var(--jv-capsule-shadow);
+  animation:jv-rise .24s var(--jv-ease)}
+body.show-quickbar #quickbar{display:flex}
+#qb-preview{padding-right:26px;color:var(--jv-text-2);font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#qb-actions{display:flex;gap:2px;padding:3px;border-radius:11px;background:var(--jv-surface-2)}
+#qb-actions button{flex:1;height:30px;border:none;border-radius:8px;background:none;color:var(--jv-text);
+  font-size:13px;font-weight:500;transition:background-color .15s var(--jv-ease)}
+#qb-actions button:hover{background:var(--jv-seg-on);box-shadow:var(--jv-seg-shadow)}
+#qb-actions button:active{transform:scale(.98)}
+#qb-auth{align-self:flex-start;border:none;background:none;padding:0;color:var(--jv-accent);font-size:12px;text-align:left}
+#qb-auth:hover{text-decoration:underline;text-underline-offset:3px}
+#qb-close{position:absolute;right:8px;top:7px;width:22px;height:22px;display:grid;place-items:center;border:none;border-radius:50%;
+  background:var(--jv-surface-2);color:var(--jv-text-2);font-size:10px}
+#qb-close:hover{background:var(--jv-pressed);color:var(--jv-text)}
+
+/* 输入胶囊（网页端 .inputbar2） */
+#pinput{flex:none;display:flex;align-items:flex-end;gap:6px;margin:2px 12px 12px;padding:5px 5px 5px 15px;border-radius:22px;
+  background:var(--jv-elevated);border:1px solid var(--jv-border);box-shadow:var(--jv-capsule-shadow);
+  transition:border-color .2s var(--jv-ease)}
+#pinput:focus-within{border-color:color-mix(in srgb,var(--jv-text) 22%,transparent)}
+#box{flex:1;min-width:0;align-self:center;background:transparent;border:none;outline:none;color:var(--jv-text);
+  font-size:14px;line-height:1.5;resize:none;max-height:96px;padding:6px 0;caret-color:var(--jv-accent);
+  -webkit-user-select:text;user-select:text}
+#box::placeholder{color:var(--jv-text-3)}
+#send{width:32px;height:32px;flex:none;display:grid;place-items:center;border:none;border-radius:50%;
+  background:var(--jv-accent);color:#fff;transition:transform .2s var(--jv-ease),background-color .2s var(--jv-ease)}
+#send:active{transform:scale(.94)}
+#send .i-stop{display:none}
+#send.is-stop{background:var(--jv-text);color:var(--jv-window)}
+#send.is-stop .i-up{display:none}
+#send.is-stop .i-stop{display:block}
+#pinput:has(#box:placeholder-shown) #send:not(.is-stop){background:var(--jv-surface-2);color:var(--jv-text-3)}
+
+/* =====================================================================
+ * 登录覆盖层：口令仅提交给 preload，不进入 localStorage
+ * ===================================================================== */
+#desktop-login{display:none;position:absolute;inset:0;z-index:20;padding:24px;flex-direction:column;align-items:center;justify-content:center;
+  background:radial-gradient(420px 300px at 50% 18%,var(--jv-window-glow),transparent 70%),var(--jv-window-solid)}
+body.needs-login #desktop-login{display:flex}
+.login-orb{width:84px;height:84px;margin:0 auto 18px}
+.login-hello{font-family:var(--jv-font-display);font-size:22px;font-weight:600;letter-spacing:-.01em;color:var(--jv-text)}
+.login-sub{margin:4px 0 18px;font-size:13px;color:var(--jv-text-3)}
+.desktop-login-card{width:min(330px,100%);display:grid;gap:12px;padding:18px 18px 16px;border-radius:var(--jv-radius-lg);
+  background:var(--jv-surface);border:1px solid var(--jv-border);box-shadow:var(--jv-shadow)}
+.desktop-login-card h2{font-size:12.5px;font-weight:500;letter-spacing:.12em;text-align:center;color:var(--jv-text-3)}
+.desktop-login-card label{display:grid;gap:6px;color:var(--jv-text-2);font-size:12.5px;font-weight:500}
+.desktop-login-card input{min-width:0;height:38px;padding:0 12px;border-radius:10px;border:1px solid transparent;
+  background:var(--jv-surface-2);color:var(--jv-text);font-size:14px;outline:none;-webkit-user-select:text;user-select:text}
+.desktop-login-card input:focus{border-color:var(--jv-accent);box-shadow:0 0 0 3px var(--jv-accent-soft)}
+.desktop-login-card button[type=submit]{height:40px;margin-top:4px;border:0;border-radius:12px;background:var(--jv-text);color:var(--jv-window);
+  font-size:14px;font-weight:600;letter-spacing:.08em}
+.desktop-login-card button[type=submit]:active{transform:scale(.99)}
+.desktop-login-server{display:grid;grid-template-columns:1fr auto;gap:6px}
+.desktop-login-server button{height:38px;padding:0 12px;border:0;border-radius:10px;background:var(--jv-surface-2);color:var(--jv-text);
+  font-size:13px;font-weight:500}
+.desktop-login-server button:hover{background:var(--jv-pressed)}
+.desktop-login-error,.desktop-login-state{min-height:16px;color:var(--jv-danger);font-size:12px}
+.desktop-login-error:empty,.desktop-login-state:empty{min-height:0;margin-top:-6px}
+.desktop-login-state.ok{color:var(--jv-success)}
+.desktop-login-state.bad{color:var(--jv-danger)}
+
+/* =====================================================================
+ * 子页通用（任务台 / 语音通话 / 会议纪要 / 设置）：同一块窗口底 + 毛玻璃标题栏
+ * ===================================================================== */
+#board,#voice,#meeting,#settings{display:none;position:absolute;inset:0;flex-direction:column;
+  background:radial-gradient(520px 280px at 50% -14%,var(--jv-window-glow),transparent 64%),var(--jv-window-solid);
+  animation:jv-fade .2s var(--jv-ease)}
+#board,#settings{z-index:5}
+#voice,#meeting{z-index:6}
+body.show-board #board,body.show-voice #voice,body.show-meeting #meeting,body.show-settings #settings{display:flex}
+.s-head{-webkit-app-region:drag;position:relative;z-index:2;flex:none;height:52px;display:flex;align-items:center;gap:6px;padding:0 10px;
+  background:var(--jv-bar);-webkit-backdrop-filter:var(--jv-blur);backdrop-filter:var(--jv-blur);border-bottom:1px solid var(--jv-border)}
+.s-title{font-family:var(--jv-font-display);font-size:15px;font-weight:600;color:var(--jv-text);letter-spacing:.01em}
+.s-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:14px 16px 22px;display:flex;flex-direction:column;gap:20px}
+
+/* 卡片 / 分组（网页端 .today-card / 设置中心的窄屏版） */
+.s-group{display:flex;flex-direction:column;gap:7px}
+.s-group-title{padding:0 4px;font-size:12.5px;font-weight:600;color:var(--jv-text-3)}
+.s-card{display:flex;flex-direction:column;border-radius:14px;background:var(--jv-surface);border:1px solid var(--jv-border);overflow:hidden}
+.s-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:46px;padding:10px 14px;font-size:14px}
+.s-card>.s-row+.s-row{border-top:1px solid var(--jv-border)}
+.s-row.s-col{flex-direction:column;align-items:stretch;gap:8px}
+.s-row>span{color:var(--jv-text)}
+.s-row>span small{display:block;margin-top:1px;font-size:12px;color:var(--jv-text-3)}
+.s-note{font-size:12px;line-height:1.6;color:var(--jv-text-3)}
+.s-row.s-sub{padding-top:0;min-height:0;border-top:none!important;margin-top:-4px}
+.s-hint{font-size:12px;line-height:1.5;color:var(--jv-text-3)}
+.s-hint:empty{display:none}
+.s-hint.ok{color:var(--jv-success)}
+.s-hint.bad{color:var(--jv-danger)}
+.s-hint.wait{color:var(--jv-warn)}
+#s-msg,#s-about{padding:0 4px;text-align:center}
+
+/* 表单控件：40px 级字段、半透明填充、聚焦一圈强调色光环 */
+.s-row select,.s-row input[type=text],.s-row input[type=password],.s-row input[type=time],.api-grid select,.api-grid input[type=text],
+.api-grid input[type=password],.api-grid input[type=time]{width:100%;min-width:0;height:36px;padding:0 11px;border-radius:9px;
+  border:1px solid transparent;background:var(--jv-surface-2);color:var(--jv-text);font-size:13.5px;outline:none;
+  -webkit-user-select:text;user-select:text}
+:is(.s-row,.api-grid) :is(select,input[type=text],input[type=password],input[type=time]):focus{
+  border-color:var(--jv-accent);box-shadow:0 0 0 3px var(--jv-accent-soft)}
+:is(.s-row,.api-grid) input:is([type=text],[type=password]):read-only{opacity:.65}   /* 复选框天生 :read-only，别误伤开关 */
+:is(.s-row,.api-grid) input[type=time]{font-family:var(--jv-mono);font-variant-numeric:tabular-nums}
+input[type=range]{accent-color:var(--jv-accent)}
+
+/* 开关（iOS 式）：appearance:none 的复选框，语义与键盘可达性不变 */
+.jv-switch{appearance:none;-webkit-appearance:none;position:relative;flex:none;width:40px;height:24px;border-radius:12px;
+  background:var(--jv-pressed);cursor:pointer;transition:background-color .2s var(--jv-ease)}
+.jv-switch::before{content:'';position:absolute;left:2px;top:2px;width:20px;height:20px;border-radius:50%;background:#fff;
+  box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .22s var(--jv-ease)}
+.jv-switch:checked{background:var(--jv-success)}
+.jv-switch:checked::before{transform:translateX(16px)}
+body.light .jv-switch:not(:checked){background:rgba(120,120,128,.24)}
+
+/* 分段控件（网页端 .provider-tabs）：真正的取值仍在隐藏的 <select> 上，renderer 照常读写 */
+.seg-src{display:none!important}
+.jv-seg{display:flex;gap:2px;padding:3px;border-radius:11px;background:var(--jv-surface-2)}
+.jv-seg button{flex:1;height:30px;padding:0 10px;border:none;border-radius:8px;background:none;color:var(--jv-text-2);
+  font-size:13px;font-weight:500;white-space:nowrap;transition:background-color .18s var(--jv-ease),color .18s var(--jv-ease)}
+.jv-seg button:hover{color:var(--jv-text)}
+.jv-seg button[aria-checked=true]{background:var(--jv-seg-on);color:var(--jv-text);box-shadow:var(--jv-seg-shadow)}
+
+/* 主按钮 / 次按钮 */
+#s-save{flex:none;height:40px;border:none;border-radius:12px;background:var(--jv-accent);color:#fff;font-size:14px;font-weight:600;
+  transition:opacity .2s var(--jv-ease),transform .2s var(--jv-ease)}
+#s-save:hover{opacity:.92}
+#s-save:active{transform:scale(.99)}
+
+.s-slider{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--jv-text-2)}
+.s-slider input[type=range]{flex:1;min-width:0}
+.s-slider em{font-style:normal;font-variant-numeric:tabular-nums;color:var(--jv-text);min-width:46px;text-align:right}
+#s-imgrow{display:flex;align-items:center;gap:10px}
+#s-imgpick{height:32px;padding:0 14px;border:none;border-radius:9px;background:var(--jv-surface-2);color:var(--jv-text);font-size:13px;font-weight:500}
+#s-imgpick:hover{background:var(--jv-pressed)}
+#s-imgprev{width:40px;height:40px;border-radius:50%;object-fit:cover;box-shadow:0 0 0 1px var(--jv-border);display:none}
+
+/* 快捷键录制框 */
+.hk-line{display:flex;gap:6px;align-items:stretch}
+.hk-field{flex:1;min-width:0;height:40px;border:1px solid transparent;border-radius:10px;background:var(--jv-surface-2);
+  color:var(--jv-text);font-size:15px;font-weight:500;letter-spacing:.14em;text-align:center;transition:border-color .2s var(--jv-ease)}
+.hk-field:hover{background:var(--jv-pressed)}
+.hk-field.rec{border-color:var(--jv-accent);box-shadow:0 0 0 3px var(--jv-accent-soft);color:var(--jv-accent);
+  letter-spacing:.04em;font-size:13.5px;animation:jv-dot 1.4s ease-in-out infinite}
+.hk-field.off{color:var(--jv-text-3);letter-spacing:.02em;font-size:13px;font-weight:400}
+.hk-x{height:40px;width:40px;background:var(--jv-surface-2)}
+
+/* 服务端设置（语音 / 模型 API / 联网数据源）：卡片里的纵向表单 */
+.api-grid{display:grid;gap:10px}
+.api-grid label{display:grid;gap:6px;color:var(--jv-text-2);font-size:12.5px;font-weight:500}
+.api-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.api-actions button,.api-link{height:34px;padding:0 8px;border:none;border-radius:9px;background:var(--jv-surface-2);color:var(--jv-text);
+  font-size:13px;font-weight:500;white-space:nowrap}
+.api-actions button:hover,.api-link:hover{background:var(--jv-pressed)}
+#api-save,#integration-save,#s-voice-save{background:var(--jv-accent);color:#fff}
+#api-save:hover,#integration-save:hover,#s-voice-save:hover{background:var(--jv-accent);opacity:.92}
+.api-link{width:100%;color:var(--jv-accent)}
+.api-risk{padding:9px 11px;border-radius:10px;background:var(--jv-surface-2);color:var(--jv-text-2);font-size:12px;line-height:1.65}
+.api-check{display:flex!important;align-items:center;gap:8px!important;color:var(--jv-text)!important;font-weight:400!important;font-size:13px!important}
+.api-check input{width:16px;height:16px;flex:none;accent-color:var(--jv-accent)}
+#wx-area{display:grid;place-items:center;gap:10px}
+#wx-area:empty{display:none}
+#wx-area button{width:100%;height:36px;border:none;border-radius:10px;background:var(--jv-surface-2);color:var(--jv-text);
+  font-size:13.5px;font-weight:500}
+#wx-area button:hover{background:var(--jv-pressed)}
+#wx-area #wx-connect{background:var(--jv-accent);color:#fff}
+#wx-area #wx-disc{color:var(--jv-danger);background:color-mix(in srgb,var(--jv-danger) 12%,transparent)}
+#wx-qr{display:block;width:200px;height:200px;object-fit:contain;padding:10px;border-radius:16px;background:#fff;box-shadow:var(--jv-shadow)}
+.wx-risk{font-size:12px;line-height:1.6;color:var(--jv-text-3)}
+
+/* =====================================================================
+ * 任务台
+ * ===================================================================== */
+#board-body{gap:12px}
+.b-sec{flex:none;padding:12px 14px;border-radius:14px;background:var(--jv-surface);border:1px solid var(--jv-border)}
+.b-title{margin-bottom:6px;font-size:13px;font-weight:600;color:var(--jv-text-2)}
+.b-list{font-size:13.5px;line-height:1.6;color:var(--jv-text)}
+.b-list .row{display:flex;align-items:flex-start;gap:10px;padding:6px 0;border-bottom:1px solid var(--jv-border)}
+.b-list .row:last-child{border-bottom:none}
+.b-list .tag{flex:none;min-width:42px;padding-top:1px;font-family:var(--jv-mono);font-variant-numeric:tabular-nums;font-size:12px;
+  color:var(--jv-accent);white-space:nowrap}
+.b-list .tag.on{font-family:var(--jv-font);color:var(--jv-success);font-weight:500}
+.b-list .txt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.b-list .txt b{font-weight:600}
+.b-list .sub{margin-top:2px;font-size:12px;color:var(--jv-text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.b-off{color:var(--jv-text-3);font-size:12.5px}
+.b-empty{color:var(--jv-text-3);font-size:13px}
+.b-tick{appearance:none;-webkit-appearance:none;flex:none;width:18px;height:18px;margin-top:2px;border-radius:50%;
+  border:1.5px solid var(--jv-text-3);background:transparent center/12px no-repeat;cursor:pointer;
+  transition:border-color .2s var(--jv-ease),background-color .2s var(--jv-ease)}
+.b-tick:hover{border-color:var(--jv-accent)}
+.b-tick:checked,.b-tick:disabled{border-color:var(--jv-accent);background-color:var(--jv-accent);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12.5 4.5 4.5L19 7.5'/%3E%3C/svg%3E")}
+
+/* =====================================================================
+ * 语音通话（网页端 VoiceCall 的窄屏版：居中光球 + 状态 + 胶囊按钮）
+ * ===================================================================== */
+#v-body{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px 18px 16px;overflow-y:auto;text-align:center}
+#v-scenes{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
+#v-scenes:empty{display:none}
+#v-scenes button{height:28px;padding:0 11px;border-radius:999px;border:1px solid var(--jv-border);background:var(--jv-surface-2);
+  color:var(--jv-text-2);font-size:12px}
+#v-scenes button:hover{color:var(--jv-text);background:var(--jv-pressed)}
+#v-scenes button.on{border-color:color-mix(in srgb,var(--jv-accent) 70%,transparent);background:var(--jv-accent-soft);color:var(--jv-text)}
+#v-status{display:flex;flex-direction:column;align-items:center;gap:6px}
+#v-orb{width:108px;height:108px;margin:18px auto 14px}
+#v-phase{font-size:15px;font-weight:600;color:var(--jv-text)}
+#voice.connecting #v-phase,#voice.closed #v-phase{color:var(--jv-text-2)}
+#v-emotion{height:22px;display:inline-flex;align-items:center;padding:0 9px;border-radius:999px;background:var(--jv-surface-2);
+  color:var(--jv-text-2);font-size:12px;white-space:nowrap}
+#v-hint{font-size:12px;color:var(--jv-text-3);min-height:0}
+#v-hint:empty{display:none}
+#v-heard{font-size:14px;line-height:1.65;color:var(--jv-text-2)}
+#v-heard:has(span:empty+span:empty){display:none}
+#v-final{color:var(--jv-text-2)}
+#v-interim{color:var(--jv-text-3)}
+#v-tools{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
+#v-tools:empty{display:none}
+#v-tools span{height:24px;display:inline-flex;align-items:center;padding:0 10px;border-radius:12px;background:var(--jv-surface-2);
+  color:var(--jv-text-2);font-size:12px}
+#v-reply{flex:1;min-height:48px;width:100%;overflow-y:auto;font-size:14.5px;line-height:1.72;color:var(--jv-text);
+  text-align:left;white-space:pre-wrap;-webkit-user-select:text;user-select:text}
+#v-notice{width:100%;padding:9px 12px;border-radius:12px;font-size:12.5px;line-height:1.6;text-align:left;
+  color:var(--jv-warn);background:color-mix(in srgb,var(--jv-warn) 10%,transparent)}
+#v-typebar{width:100%;display:flex;align-items:center;gap:6px;padding:4px 4px 4px 14px;border-radius:22px;
+  background:var(--jv-elevated);border:1px solid var(--jv-border);box-shadow:var(--jv-capsule-shadow)}
+#v-typebar input{flex:1;min-width:0;height:32px;border:none;background:none;outline:none;color:var(--jv-text);font-size:14px;
+  -webkit-user-select:text;user-select:text}
+#v-typebar input::placeholder{color:var(--jv-text-3)}
+#v-typebar button{height:32px;padding:0 14px;border:none;border-radius:16px;background:var(--jv-accent);color:#fff;font-size:13px;font-weight:500}
+#v-actions{display:flex;gap:12px;justify-content:center;padding-top:4px}
+#v-actions button,#m-actions button{height:40px;min-width:96px;padding:0 22px;border:none;border-radius:20px;
+  background:var(--jv-surface-2);color:var(--jv-text);font-size:14px;font-weight:500;transition:transform .2s var(--jv-ease)}
+#v-actions button:hover,#m-actions button:hover{background:var(--jv-pressed)}
+#v-actions button:active,#m-actions button:active{transform:scale(.97)}
+#v-hangup{background:var(--jv-danger)!important;color:#fff!important}
+#v-hangup:hover{opacity:.92}
+
+/* =====================================================================
+ * 会议纪要
+ * ===================================================================== */
+#m-body{flex:1;min-height:0;display:flex;flex-direction:column;gap:10px;padding:14px 16px 16px;overflow:hidden}
+#m-status{flex:none;display:flex;align-items:center;gap:10px;min-height:44px;padding:0 14px;border-radius:14px;
+  background:var(--jv-surface);border:1px solid var(--jv-border);font-size:13.5px}
+#m-dot{width:9px;height:9px;border-radius:50%;flex:none;background:var(--jv-text-3)}
+#meeting.recording #m-dot{background:var(--jv-danger);animation:jv-dot 1.4s ease-in-out infinite}
+#meeting.summarizing #m-dot{background:var(--jv-warn);animation:jv-dot .9s ease-in-out infinite}
+#meeting.done #m-dot{background:var(--jv-success)}
+#m-phase{min-width:0;color:var(--jv-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#m-vu{display:flex;gap:3px;align-items:flex-end;height:14px;flex:none}
+#m-vu i{width:4px;height:14px;border-radius:2px;background:var(--jv-surface-2);position:relative;overflow:hidden}
+#m-vu i::after{content:'';position:absolute;left:0;right:0;bottom:0;height:var(--vu,0%);border-radius:2px;
+  background:var(--jv-accent);transition:height .12s}
+#m-vu-sys::after{background:#BF5AF2!important}
+#m-count{margin-left:auto;flex:none;font-size:12px;font-variant-numeric:tabular-nums;color:var(--jv-text-3)}
+#m-live{flex:none;padding:10px 14px;border-radius:14px;background:color-mix(in srgb,var(--jv-warn) 8%,transparent);
+  border:1px solid color-mix(in srgb,var(--jv-warn) 22%,transparent)}
+.m-live-title{margin-bottom:4px;font-size:12px;font-weight:600;color:var(--jv-warn)}
+#m-live-body{font-size:13px;line-height:1.7;white-space:pre-wrap;max-height:120px;overflow-y:auto;color:var(--jv-text)}
+#m-captions{flex:1;min-height:80px;overflow-y:auto;padding:12px 14px;border-radius:14px;background:var(--jv-surface);
+  border:1px solid var(--jv-border);font-size:13.5px;line-height:1.7;color:var(--jv-text);-webkit-user-select:text;user-select:text}
+#m-captions .m-line{padding:3px 0}
+#m-captions .m-line b{display:inline-block;margin-right:7px;padding:0 7px;border-radius:6px;background:var(--jv-surface-2);
+  font-size:11.5px;font-weight:600;line-height:20px;color:var(--jv-text-2);vertical-align:1px}
+#m-captions .m-part{padding:3px 0;color:var(--jv-text-3)}
+#m-captions .m-empty{color:var(--jv-text-3);font-size:12.5px;line-height:1.7}
+#m-notice{flex:none;display:flex;flex-direction:column;gap:2px;padding:9px 12px;border-radius:12px;font-size:12.5px;line-height:1.6;
+  color:var(--jv-warn);background:color-mix(in srgb,var(--jv-warn) 10%,transparent)}
+#m-minutes{flex:1;min-height:0;overflow-y:auto;padding:12px 14px;border-radius:14px;background:var(--jv-surface);
+  border:1px solid var(--jv-border);font-size:13.5px;line-height:1.7;-webkit-user-select:text;user-select:text}
+#m-actions{flex:none;display:flex;gap:12px;justify-content:center;padding-top:2px}
+#m-stop{color:var(--jv-danger)!important;background:color-mix(in srgb,var(--jv-danger) 12%,transparent)!important}
+#meeting.done #m-stop,#meeting.error #m-stop,#meeting.closed #m-stop{display:none}
+
+/* =====================================================================
+ * 系统开了「减少动态效果」：一切持续动画停在静帧，状态只靠颜色 / 光晕 / 静态环与弧区分；
+ * 说话态的音量律动由 orb-motion.js 同样跳过。
+ * ===================================================================== */
+@media (prefers-reduced-motion:reduce){
+  .orb,.orb *,#calldot,#mini-eye,#pstate::before,.caret,.hk-field.rec,#m-dot{animation:none!important;transition:none!important}
+  :is(body.voice-listening #orb,#voice.listening #v-orb) .o-ring{opacity:.9;transform:scale(.9)}
+  #panel,#board,#voice,#meeting,#settings,.m-user,.m-ai,.sys,#plog .empty,.qchips,#clipbar,#quickbar{animation:none!important}
+  #ball,.qchips button,.jv-switch,.jv-switch::before,.jv-seg button{transition:none!important}
+}
