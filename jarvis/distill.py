@@ -9,8 +9,8 @@ tenant_profile（与 profile_remember 工具同一存储，内容级去重）。
 import datetime
 import logging
 import os
-import threading
 
+from jarvis.periodic import PeriodicWorker
 from jarvis.tenancy import TenantStore, tenant_scope
 
 log = logging.getLogger("jarvis")
@@ -50,8 +50,10 @@ def parse_facts(raw: str) -> list[str]:
     return facts[:MAX_FACTS]
 
 
-class NightlyDistiller:
+class NightlyDistiller(PeriodicWorker):
     """到点取对话 → 模型提炼 → 写画像；依赖全注入，pytest 可确定性直测。"""
+
+    thread_name = "jarvis-distill"
 
     def __init__(self, *, owner_getter=None, collect=None, compose=None,
                  remember=None, store_factory=None, now_fn=None, interval: float = 60.0):
@@ -61,9 +63,7 @@ class NightlyDistiller:
         self._remember = remember
         self._store_factory = store_factory or TenantStore
         self._now = now_fn or datetime.datetime.now
-        self._interval = interval
-        self._stop = threading.Event()
-        self._thread: threading.Thread | None = None
+        super().__init__(interval)
 
     def _mark_done(self, owner, today: str) -> None:
         try:
@@ -76,10 +76,7 @@ class NightlyDistiller:
         """跑一轮，返回本轮新写入画像条数；任何异常只告警不外抛。"""
         if not self._owner_getter or not self._collect or not self._compose or not self._remember:
             return 0
-        try:
-            owner = self._owner_getter()
-        except Exception:
-            return 0
+        owner = self._resolve_owner(self._owner_getter)
         if owner is None:
             return 0
         now = self._now()
@@ -125,17 +122,3 @@ class NightlyDistiller:
             log.info("distill wrote %d profile fact(s)", written)
         return written
 
-    def _loop(self) -> None:
-        while not self._stop.wait(self._interval):
-            self.scan_once()
-
-    def start(self) -> None:
-        if self._thread is not None:
-            return
-        self._stop.clear()
-        self._thread = threading.Thread(target=self._loop, daemon=True, name="jarvis-distill")
-        self._thread.start()
-
-    def stop(self) -> None:
-        self._stop.set()
-        self._thread = None

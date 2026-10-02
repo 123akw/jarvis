@@ -2,7 +2,7 @@
 import datetime
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
-from jarvis.tenancy import TenantStore
+from jarvis.tenancy import MAX_ITEM_ID, TenantStore, canonical_when
 
 _FMT = "%Y-%m-%d %H:%M"
 
@@ -15,7 +15,7 @@ class ScheduleAddArgs(BaseModel):
 
 
 class ScheduleDelArgs(BaseModel):
-    schedule_id: int = Field(ge=1, description="要删除的日程编号（schedule_list 返回的行首数字）")
+    schedule_id: int = Field(ge=1, le=MAX_ITEM_ID, description="要删除的日程编号（schedule_list 返回的行首数字）")
 
 
 def all_schedule() -> list[dict]:
@@ -40,7 +40,7 @@ def schedule_add(title: str, when: str) -> str:
     """新增一条有明确时间点的日程安排。适用于开会、约见、提醒这类「几点要做什么」；
     没有具体时间点的事项该用 todo_add，随手记的信息该用 memo_add。"""
     try:
-        datetime.datetime.strptime(when, _FMT)
+        when = canonical_when(when)   # 补零入库，否则提醒扫描的字典序比较会错窗
     except ValueError:
         return f"时间「{when}」不合法，需要 YYYY-MM-DD HH:MM 格式，例如 2026-08-12 09:00。"
     sid = TenantStore().add_schedule(title, when)["id"]

@@ -6,7 +6,7 @@
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from jarvis.tenancy import TenantStore
+from jarvis.tenancy import MAX_ITEM_ID, TenantStore
 
 
 class ProfileRememberArgs(BaseModel):
@@ -15,7 +15,7 @@ class ProfileRememberArgs(BaseModel):
 
 
 class ProfileForgetArgs(BaseModel):
-    profile_id: int = Field(ge=1, description="要忘记的画像编号（profile_list 返回的行首数字）")
+    profile_id: int = Field(ge=1, le=MAX_ITEM_ID, description="要忘记的画像编号（profile_list 返回的行首数字）")
 
 
 def all_profile() -> list[dict]:
@@ -28,6 +28,8 @@ def profile_remember(fact: str) -> str:
     """记住一条关于领导的长期画像（称呼偏好、饮食习惯、工作背景、家人朋友等稳定事实）。
     领导明确说「记住我…」，或聊天中透露了稳定的个人信息/偏好时使用；
     一次性的事项应该用 memo/todo/schedule，不要存进画像。"""
+    if not fact.strip():
+        return "画像内容不能为空，请告诉我具体要记住什么。"
     item = TenantStore().add_profile(fact)
     if item["existed"]:
         return f"这条我已经记着了（编号 {item['id']}）：{item['content']}"

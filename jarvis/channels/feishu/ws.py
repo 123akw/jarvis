@@ -41,6 +41,7 @@ _HS_STATUS, _HS_MSG, _HS_AUTH = "handshake-status", "handshake-msg", "handshake-
 _AUTH_FAILED, _FORBIDDEN, _EXCEED_CONN_LIMIT = 514, 403, 1000040350
 _RETRYABLE_ENDPOINT_CODES = {1, 1000040343}  # system busy / internal error
 FATAL_RETRY_SECONDS = 600  # 凭据/配置类错误：慢速重试，管理员改完后台无需重启服务
+MIN_RECONNECT_SECONDS = 1.0   # 任何重连之间的最小间隔
 FRAGMENT_TTL_SECONDS = 5
 
 
@@ -175,8 +176,10 @@ class LongConnection:
                     delay = self._rng() * self.reconnect_nonce if failures == 1 else self.reconnect_interval
                 log.warning("feishu long connection dropped: %s", type(exc).__name__)
             ever_connected = ever_connected or self._session_open
-            if delay > 0 and not self._stop.is_set():
-                self._stop.wait(delay)
+            if not self._stop.is_set():
+                # 平台下发 ReconnectNonce=0 且连上即断时，抖动为 0 会零间隔重连（实测每秒上万次），
+                # 留一个最小间隔
+                self._stop.wait(max(MIN_RECONNECT_SECONDS, delay))
         self._on_state("stopped", "")
 
     # ---- 取连接地址 ----

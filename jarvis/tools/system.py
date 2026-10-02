@@ -20,5 +20,10 @@ def sys_query(command: str) -> str:
     cmd = command.strip()
     if cmd not in _WHITELIST:
         return f"已拒绝执行「{command}」：不在白名单（date、uptime、df -h、ls）内。"
-    out = subprocess.run(shlex.split(cmd), capture_output=True, text=True, timeout=10)
+    try:
+        out = subprocess.run(shlex.split(cmd), capture_output=True, text=True, timeout=10)
+    except subprocess.TimeoutExpired:
+        return f"「{cmd}」执行超时（10 秒），服务器可能正忙，稍后再查。"
+    except OSError as exc:
+        return f"「{cmd}」在这台服务器上无法执行（{type(exc).__name__}）。"
     return out.stdout or out.stderr or "（无输出）"

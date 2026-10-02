@@ -43,7 +43,8 @@ class VisionError(RuntimeError):
 def _call(content: list, http_post=None) -> str:
     key = os.getenv("DASHSCOPE_API_KEY", "").strip()
     if not key:
-        raise VisionError("图像识别未配置（缺 DASHSCOPE_API_KEY）")
+        log.warning("vision disabled: DASHSCOPE_API_KEY is not configured")
+        raise VisionError("图像识别服务未配置，暂时看不了图片，请联系管理员开通")
     body = {
         "model": os.getenv("JARVIS_DASHSCOPE_VL_MODEL", DEFAULT_VL_MODEL),
         "input": {"messages": [{"role": "user", "content": content}]},

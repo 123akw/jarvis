@@ -159,7 +159,7 @@ pwdlib==0.3.1
     # via jarvis (pyproject.toml)
 pycparser==3.0
     # via cffi
-pypdf==6.16.0
+pypdf==6.19.0
     # via jarvis (pyproject.toml)
 python-dateutil==2.9.0.post0
     # via
@@ -226,7 +226,7 @@ typing-inspection==0.4.3
     #   pydantic
 tzlocal==5.4.4
     # via dateparser
-urllib3==2.7.0
+urllib3==2.8.0
     # via
     #   courlan
     #   htmldate

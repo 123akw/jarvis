@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from jarvis import config
+from jarvis.db import ClosingConnection
 
 
 class TenantScopeError(RuntimeError):
@@ -54,6 +55,20 @@ def _now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat()
 
 
+WHEN_FORMAT = "%Y-%m-%d %H:%M"
+MAX_ITEM_ID = 2**63 - 1   # SQLite INTEGER 上限；超界 id 会 OverflowError
+
+
+def canonical_when(value: str) -> str:
+    """把日程时间规范成补零的「YYYY-MM-DD HH:MM」；不合法抛 ValueError。
+
+    strptime 接受「2026-1-2 3:04」这类不补零写法，但提醒扫描（due_reminders）按
+    字典序比较 when_at，原样入库会让提醒落进错误窗口（永不提醒或提前提醒）。
+    用 isoformat 而非 strftime：%Y 在部分平台不给四位年份补零。"""
+    parsed = dt.datetime.strptime(str(value).strip(), WHEN_FORMAT)
+    return parsed.isoformat(sep=" ", timespec="minutes")
+
+
 @dataclass(frozen=True)
 class TenantThread:
     alias: str
@@ -71,7 +86,7 @@ class TenantStore:
 
     def _connect(self) -> sqlite3.Connection:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(self.path, timeout=5, isolation_level=None)
+        connection = sqlite3.connect(self.path, timeout=5, isolation_level=None, factory=ClosingConnection)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         path_key = str(self.path)
@@ -374,6 +389,10 @@ class TenantStore:
 
     def add_schedule(self, title: str, when: str, *, owner_id: str | None = None, legacy_id: int | None = None) -> dict:
         owner = self._owner(owner_id)
+        try:
+            when = canonical_when(when)
+        except ValueError:
+            pass  # 入口已校验；这里只做规范化兜底，不改变既有调用方的容错行为
         with self._connect() as c:
             c.execute("BEGIN IMMEDIATE")
             try:

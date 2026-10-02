@@ -114,7 +114,7 @@ def test_tool_status_is_shown_then_replaced_by_final_answer(tmp_path):
     env.send("今天天气")
 
     updates = env.fake.cards["card-1"]["updates"]
-    assert any("正在调用工具：web_search" in u for u in updates)
+    assert any("正在联网搜索" in u for u in updates)
     assert updates[-1] == "今天晴。"  # 工具前的「我查一下。」不进最终答案
 
 

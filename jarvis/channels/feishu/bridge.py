@@ -49,16 +49,15 @@ UNBIND_COMMANDS = frozenset({"解绑", "解除绑定", "/unbind"})
 
 EMPTY_REPLY = "（贾维斯没有生成文本回复。）"
 NOT_READY_REPLY = "（贾维斯还在启动，请稍后再试。）"
+_BIND_STEPS = "请打开贾维斯网页 → 头像菜单 → 飞书，生成 6 位绑定码，然后在这里发送「绑定 123456」"
 UNBOUND_REPLY = (
-    "你好，我是贾维斯。这个飞书账号还没有绑定贾维斯账号，暂时不能对话。\n"
-    "绑定方法：登录贾维斯后领取 6 位绑定码（网页接口 POST /api/feishu/bind-code，"
-    "或请管理员在服务器上运行 python -m jarvis.channels.feishu bind-code <用户名>），"
-    "然后私聊我发送「绑定 123456」。绑定码 10 分钟内有效。"
+    "你好，我是贾维斯。这个飞书账号还没绑定贾维斯账号，暂时不能对话。\n"
+    f"{_BIND_STEPS}（换成你的绑定码，10 分钟内有效）。"
 )
-STALE_BINDING_REPLY = "你绑定的贾维斯账号已停用或不存在，请重新领取绑定码后发送「绑定 123456」。"
-BIND_IN_GROUP_REPLY = "为避免绑定码泄露，请私聊我完成绑定。"
+STALE_BINDING_REPLY = f"你绑定的贾维斯账号已停用或不存在。{_BIND_STEPS}，重新绑定即可。"
+BIND_IN_GROUP_REPLY = "为避免绑定码泄露，请私聊我发送「绑定 123456」完成绑定。"
 BIND_LOCKED_REPLY = "绑定码错误次数过多，请一小时后再试。"
-BIND_INVALID_REPLY = "绑定码无效或已过期，请重新领取（10 分钟内有效）。"
+BIND_INVALID_REPLY = "绑定码不对或已过期。请回到贾维斯网页 → 头像菜单 → 飞书，重新生成一个再发给我。"
 UNBIND_REPLY = "已解除这个飞书账号与贾维斯账号的绑定。"
 UNBIND_NONE_REPLY = "这个飞书账号目前没有绑定贾维斯账号。"
 AUDIO_REPLY = "（暂时还听不了飞书语音消息，请改发文字。）"
@@ -299,12 +298,35 @@ def image_extension(data: bytes, content_type: str) -> str:
     return {"image/png": "png", "image/webp": "webp", "image/bmp": "bmp", "image/heic": "heic"}.get(content_type, "jpg")
 
 
+# 工具名 → 进度提示里的中文（与网页 web-src/src/toolInfo.js 同口径）
+TOOL_LABELS = {
+    "now": "看时间", "calc": "计算", "weather": "查天气", "weather_here": "查本地天气",
+    "my_location": "查位置", "coding_status": "查编程进度", "memo_add": "记备忘", "memo_list": "查备忘",
+    "memo_del": "删备忘", "profile_remember": "记住画像", "profile_list": "查画像",
+    "profile_forget": "忘记画像", "schedule_add": "加日程", "schedule_list": "查日程",
+    "schedule_del": "删日程", "todo_add": "加待办", "todo_list": "查待办", "todo_done": "完成待办",
+    "sys_query": "系统查询", "web_search": "联网搜索", "web_extract": "读取网页",
+    "movie_ratings": "查电影评分", "esports_scores": "查电竞比分", "ticket_search": "查票务",
+    "meeting_start": "开始会议纪要", "meeting_stop": "结束会议纪要",
+}
+
+
+def tool_label(name: str) -> str:
+    return TOOL_LABELS.get(name, "处理")
+
+
 def humanize_failure(exc: Exception) -> str:
-    """技术异常 → 人话；异常类名只进日志。"""
+    """技术异常 → 人话；异常类名只进日志。飞书里多是普通成员，配置细节（主密钥、Provider、
+    API Key）对他们没有可操作性，统一指向管理员。"""
     from jarvis.provider_settings import ProviderSettingsError
 
     if isinstance(exc, ProviderSettingsError):
-        return f"（{exc.message}）"
+        log.warning("feishu reply blocked by provider config: %s", exc.code)
+        if exc.code == "RATE_LIMITED":
+            return "（模型服务正忙，请稍等一分钟再发我一次。）"
+        if exc.code == "TIMEOUT":
+            return "（模型响应超时了，稍后再把这条消息发我一次。）"
+        return "（贾维斯的模型配置暂时不可用，我先答不了；请联系管理员在贾维斯网页的设置里检查模型配置。）"
     if isinstance(exc, TimeoutError) or "timeout" in type(exc).__name__.lower():
         return "（联网检索或模型响应超时了，稍后再把这条消息发我一次。）"
     return "（我这边刚才没处理成功，请稍后再试一次；如果反复失败，请让管理员在网页端检查模型与联网配置。）"
@@ -360,7 +382,7 @@ class CardStream:
         if len(body) > CARD_MAX_CHARS:
             body = body[:CARD_MAX_CHARS] + "…"
         if tool:
-            body = (body + "\n\n" if body else "") + f"*正在调用工具：{tool}…*"
+            body = (body + "\n\n" if body else "") + f"*正在{tool_label(tool)}…*"
         self.push(body, force=bool(tool))
 
     def finish(self, text: str, summary: str) -> bool:

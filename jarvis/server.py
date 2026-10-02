@@ -13,24 +13,26 @@ import time
 import threading
 import uuid
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Path as PathParam, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import AIMessageChunk, ToolMessage
 from pydantic import BaseModel, SecretStr
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from jarvis import __version__, config, distill, heartbeat, mailer, meeting, reminders, wechat
 from jarvis.accounts import AccountStore, Principal, csrf_token, session_secret_configured
 from jarvis.channels import feishu
-from jarvis.graph import build_agent, heal_dangling_tool_calls
+from jarvis.graph import ThreadBusyError, build_agent, heal_dangling_tool_calls, thread_turn
 from jarvis.provider_runtime import AgentRuntimeManager, probe_integration
 from jarvis.provider_settings import (
     ProviderSettingsError, ResolvedLLM, SecretStore, credential_scope,
     normalize_base_url, normalize_searxng_url,
 )
-from jarvis.tenancy import TenantMigrationError, TenantStore, tenant_scope
+from jarvis.tenancy import MAX_ITEM_ID, TenantMigrationError, TenantStore, canonical_when, tenant_scope
 from jarvis.tools import TOOLS
 from jarvis.tools.location import get_location, refresh_location
 from jarvis.voice.gateway import register_voice
@@ -44,8 +46,12 @@ from jarvis.tools.todo import all_todos
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """恢复持久微信桥并启动日程提醒扫描；退出时停线程但不删除 Token。"""
-    wechat.resume_on_boot()
-    feishu.start()  # 未配置 FEISHU_APP_ID/SECRET 时为 disabled，不起线程
+    _start_weak_password_scan()
+    _check_timezone()
+    # 渠道各自隔离启动：任何一个起不来（凭据文件不可读、配置错）都只记日志，
+    # 不能让整个网页服务启动失败（此前 resume_on_boot 抛 PermissionError 即全站起不来）。
+    _safe_start("wechat", wechat.resume_on_boot)
+    _safe_start("feishu", feishu.start)  # 未配置 FEISHU_APP_ID/SECRET 时为 disabled，不起线程
     scanner = None
     radio = None
     distiller = None
@@ -226,10 +232,78 @@ _login_limiter = LoginAttemptLimiter()
 _settings_limiter = LoginAttemptLimiter(attempts=10, spray_attempts=50, window_seconds=60)
 
 
+def _check_timezone(now_fn=None) -> bool:
+    """日程提醒、晨报、夜间蒸馏、now 工具都按服务器本地时间计算；时区不是北京时间时整体偏移，
+    且没有任何报错。启动时自检一次，不对就 WARNING。"""
+    now = (now_fn or (lambda: datetime.datetime.now().astimezone()))()
+    offset = now.utcoffset()
+    if offset == datetime.timedelta(hours=8):
+        return True
+    hours = (offset or datetime.timedelta()).total_seconds() / 3600
+    log.warning("服务器时区是 UTC%+g 而不是北京时间（UTC+8）：日程提醒、晨报、夜间蒸馏会整体偏移，"
+                "请在服务环境里设置 TZ=Asia/Shanghai 后重启", hours)
+    return False
+
+
+def _safe_start(name: str, starter) -> None:
+    try:
+        starter()
+    except Exception as exc:
+        log.error("%s channel failed to start: %s", name, type(exc).__name__, exc_info=exc)
+
+
+def _start_weak_password_scan() -> None:
+    """启动时后台核查默认/弱口令并打 WARNING（Argon2 逐个校验要几秒，不挡启动）。"""
+    if os.getenv("JARVIS_WEAK_PASSWORD_SCAN", "1") == "0":
+        return
+
+    def scan() -> None:
+        try:
+            _accounts.scan_weak_passwords()
+        except Exception as exc:  # 核查失败只少一条告警，绝不影响服务
+            log.warning("weak password scan failed: %s", type(exc).__name__)
+
+    threading.Thread(target=scan, name="jarvis-password-audit", daemon=True).start()
+
+
+# 路径里的条目编号：SQLite INTEGER 是 64 位，超界数字此前直接 OverflowError → 500
+ItemId = Annotated[int, PathParam(ge=1, le=MAX_ITEM_ID)]
+
+# 聊天入口护栏：会议追问会把纪要+6000 字转写注入一条消息，上限要留足余量
+MAX_CHAT_CHARS = 50_000
+MAX_THREAD_ID_CHARS = 128
+TURN_WAIT_SECONDS = 90.0   # 同一会话上一轮还在答时，新消息最多排队等这么久
+_BUSY_MESSAGE = "上一条消息还在处理中，请等它答完再发"
+# 后台任务（_service_invoke）的别名线程：照常注册（蒸馏豁免依赖它），但不进会话侧栏、
+# 不接受网页直接写入——它们的 checkpoint 每次用完即删，点开永远是空的。
+SERVICE_THREAD_ALIASES = frozenset({"radio", "heartbeat", "distill", "meeting"})
+
+
 @app.exception_handler(RequestValidationError)
 async def invalid_request(_request: Request, _error: RequestValidationError):
     """Avoid FastAPI's default echo of invalid request fields, including passwords."""
     return JSONResponse({"error": "请求格式不正确"}, status_code=422, headers={"Cache-Control": "no-store"})
+
+
+_HTTP_ERROR_TEXT = {404: "接口不存在", 405: "请求方法不对"}
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_error(_request: Request, error: StarletteHTTPException):
+    """框架层 404/405 等也回中文 JSON（默认是英文 {"detail": "Not Found"}）。"""
+    message = _HTTP_ERROR_TEXT.get(error.status_code) or (
+        error.detail if isinstance(error.detail, str) and error.detail else "请求失败")
+    return JSONResponse({"error": message}, status_code=error.status_code,
+                        headers=getattr(error, "headers", None))
+
+
+@app.exception_handler(Exception)
+async def unhandled_error(request: Request, error: Exception):
+    """兜底：未捕获异常回人话 JSON，不回裸文本 Internal Server Error，也不泄露细节。
+    （Starlette 发完响应会继续上抛，uvicorn 照常打印完整堆栈，这里只补一行定位信息。）"""
+    log.error("unhandled error on %s %s: %s", request.method, request.url.path, type(error).__name__)
+    return JSONResponse({"error": "服务器开小差了，请稍后再试"}, status_code=500,
+                        headers={"Cache-Control": "no-store"})
 
 
 @app.exception_handler(ProviderSettingsError)
@@ -287,7 +361,7 @@ def _deny() -> JSONResponse:
 
 
 def _csrf_deny() -> JSONResponse:
-    return JSONResponse({"error": "CSRF 校验失败"}, status_code=403, headers={"Cache-Control": "no-store"})
+    return JSONResponse({"error": "页面已过期，请刷新后重试"}, status_code=403, headers={"Cache-Control": "no-store"})
 
 
 def _sensitive_json(content: object, status_code: int = 200) -> JSONResponse:
@@ -326,6 +400,8 @@ def _sse(obj: dict) -> str:
 
 
 def _public_runtime_error(error: Exception) -> str:
+    if isinstance(error, ThreadBusyError):
+        return _BUSY_MESSAGE
     if isinstance(error, ProviderSettingsError):
         return error.message
     return "模型或网络请求失败，请检查当前 API 配置后重试"
@@ -404,6 +480,8 @@ def session(request: Request):
         "username": principal.username,
         "role": principal.role,
         "expires_at": _accounts.expiry_for(principal),
+        # 弱口令/默认口令提示位（供前端提醒改密）；只提示，不改密、不锁号
+        "password_weak": _accounts.password_weak(principal.user_id),
     }
     if principal.transport == "web":
         response["csrf_token"] = csrf_token(token, principal.session_id)
@@ -433,7 +511,7 @@ def _owner_for_write(request: Request) -> Principal | JSONResponse:
     if not principal:
         return _sensitive_json({"error": "未登录"}, 401)
     if not _write_authorized(request):
-        return _sensitive_json({"error": "CSRF 校验失败"}, 403)
+        return _sensitive_json({"error": "页面已过期，请刷新后重试"}, 403)
     if not principal.is_owner:
         return _sensitive_json({"error": "权限不足"}, 403)
     return principal
@@ -526,7 +604,7 @@ def threads(request: Request):
         return _deny()
     try:
         with tenant_scope(principal.user_id):
-            return _tenant_store().list_threads()
+            return [t for t in _tenant_store().list_threads() if t["id"] not in SERVICE_THREAD_ALIASES]
     except TenantMigrationError:
         return _sensitive_json({"error": "个人数据迁移失败"}, 503)
 
@@ -726,7 +804,7 @@ def todo_create(request: Request, body: PanelItemIn):
 
 
 @app.patch("/api/todos/{item_id}")
-def todo_patch(request: Request, item_id: int, body: TodoPatchIn):
+def todo_patch(request: Request, item_id: ItemId, body: TodoPatchIn):
     principal, err = _panel_write(request)
     if err:
         return err
@@ -741,7 +819,7 @@ def todo_patch(request: Request, item_id: int, body: TodoPatchIn):
 
 
 @app.delete("/api/todos/{item_id}")
-def todo_delete(request: Request, item_id: int):
+def todo_delete(request: Request, item_id: ItemId):
     principal, err = _panel_write(request)
     if err:
         return err
@@ -772,7 +850,7 @@ def memo_create(request: Request, body: PanelItemIn):
 
 
 @app.delete("/api/memos/{item_id}")
-def memo_delete(request: Request, item_id: int):
+def memo_delete(request: Request, item_id: ItemId):
     principal, err = _panel_write(request)
     if err:
         return err
@@ -795,19 +873,19 @@ def schedule_create(request: Request, body: ScheduleCreateIn):
     if not title:
         return JSONResponse({"error": "内容不能为空"}, status_code=422)
     try:
-        datetime.datetime.strptime(body.when, "%Y-%m-%d %H:%M")
+        when = canonical_when(body.when)
     except ValueError:
         return JSONResponse({"error": "时间需要 YYYY-MM-DD HH:MM 格式"}, status_code=422)
     try:
         with tenant_scope(principal.user_id):
-            item = _tenant_store().add_schedule(title, body.when)
+            item = _tenant_store().add_schedule(title, when)
     except TenantMigrationError:
         return _sensitive_json({"error": "个人数据迁移失败"}, 503)
     return {"ok": True, "id": item["id"]}
 
 
 @app.delete("/api/schedule/{item_id}")
-def schedule_delete(request: Request, item_id: int):
+def schedule_delete(request: Request, item_id: ItemId):
     principal, err = _panel_write(request)
     if err:
         return err
@@ -882,6 +960,10 @@ def upload_document(request: Request, body: UploadIn):
     if err:
         return err
     name = Path(body.name).name.strip() or "文档"
+    from jarvis import documents
+    # 先按编码长度拦超限文件：此前 30MB 也要先整段解码（多占一份内存）才报超限
+    if len(body.content_b64) > (documents.MAX_UPLOAD_BYTES + 2) // 3 * 4 + 4:
+        return JSONResponse({"error": "文件超过 10MB 上限"}, status_code=422)
     try:
         import base64 as b64_mod
         data = b64_mod.b64decode(body.content_b64, validate=True)
@@ -901,7 +983,6 @@ def upload_document(request: Request, body: UploadIn):
             return JSONResponse({"error": str(exc)}, status_code=422)
         return {"ok": True, "kind": "image" if image_ext else "video", "name": name,
                 "chars": len(text), "truncated": False, "text": text}
-    from jarvis import documents
     try:
         text = documents.extract_text(name, data)
     except documents.DocumentError as exc:
@@ -951,7 +1032,6 @@ def _heartbeat_compose(owner, content: str, now) -> str:
 
 # ---------- 夜间记忆蒸馏：把最近一天的对话浓缩进长期画像 ----------
 
-_DISTILL_SERVICE_ALIASES = {"radio", "heartbeat", "distill", "meeting"}  # 服务线程不参与蒸馏
 _DISTILL_MAX_CHARS = 6000
 
 
@@ -963,7 +1043,7 @@ def _distill_collect(owner) -> str:
     with tenant_scope(owner.user_id):
         store = _tenant_store()
         recent = [t for t in store.list_threads()
-                  if t["id"] not in _DISTILL_SERVICE_ALIASES and (t["updated"] or "") >= cutoff]
+                  if t["id"] not in SERVICE_THREAD_ALIASES and (t["updated"] or "") >= cutoff]
         with _bundle_for(owner.user_id) as bundle:
             for t in recent:
                 thread = store.get_thread(t["id"])
@@ -1119,7 +1199,7 @@ def profile_create(request: Request, body: PanelItemIn):
 
 
 @app.delete("/api/profile/{item_id}")
-def profile_delete(request: Request, item_id: int):
+def profile_delete(request: Request, item_id: ItemId):
     principal, err = _panel_write(request)
     if err:
         return err
@@ -1157,11 +1237,24 @@ def _chunk_text(content) -> str:
     return ""
 
 
+def _chat_input_error(message: str, thread_id: str) -> str:
+    """聊天入口参数校验：返回人话错误（空串表示通过）。挡在模型和建线程之前。"""
+    if not message.strip():
+        return "消息不能为空"
+    if len(message) > MAX_CHAT_CHARS:
+        return f"消息太长了（上限 {MAX_CHAT_CHARS} 字），请精简或分几次发送"
+    if not thread_id.strip() or len(thread_id) > MAX_THREAD_ID_CHARS or thread_id in SERVICE_THREAD_ALIASES:
+        return "会话编号无效，请刷新页面后重试"
+    return ""
+
+
 @app.post("/api/chat")
 def chat(request: Request, body: ChatIn):
     principal = _write_authorized(request)
     if not principal:
         return _csrf_deny() if _authed(request) else _deny()
+    if problem := _chat_input_error(body.message, body.thread_id):
+        return JSONResponse({"error": problem}, status_code=422)
     try:
         with tenant_scope(principal.user_id):
             _tenant_store()
@@ -1179,7 +1272,8 @@ def chat(request: Request, body: ChatIn):
         seen_calls: set[str] = set()
         call_started: dict[str, float] = {}
         try:
-            with tenant_scope(principal.user_id):
+            with tenant_scope(principal.user_id), \
+                    thread_turn(thread.checkpoint_thread_id, TURN_WAIT_SECONDS):
                 with _bundle_for(principal.user_id) as bundle:
                     heal_dangling_tool_calls(bundle.agent, thread.checkpoint_thread_id)
                     stream = bundle.agent.stream(
@@ -1206,6 +1300,8 @@ def chat(request: Request, body: ChatIn):
                             if text:
                                 yield _sse({"type": "token", "text": text})
             yield _sse({"type": "done"})
+        except ThreadBusyError:
+            yield _sse({"type": "error", "message": _BUSY_MESSAGE})
         except Exception as e:  # 不把上游响应、URL 或凭据带回前端
             log.exception("chat stream failed: %s", type(e).__name__)
             yield _sse({"type": "error", "message": _public_runtime_error(e)})
@@ -1253,8 +1349,12 @@ def oai_chat(request: Request, body: OAIChatIn):
     text = _oai_user_text(body.messages)
     if not text.strip():
         return JSONResponse({"error": {"message": "empty user message"}}, status_code=400)
+    if len(text) > MAX_CHAT_CHARS:
+        return JSONResponse({"error": {"message": "user message too long"}}, status_code=400)
     # 多轮记忆在贾维斯侧（按线程），外部只需传最后一句
-    alias = request.headers.get("x-thread-id", "openai")
+    alias = request.headers.get("x-thread-id", "").strip() or "openai"
+    if len(alias) > MAX_THREAD_ID_CHARS:
+        return JSONResponse({"error": {"message": "invalid x-thread-id"}}, status_code=400)
     try:
         with tenant_scope(principal.user_id):
             _tenant_store()
@@ -1265,10 +1365,17 @@ def oai_chat(request: Request, body: OAIChatIn):
     created = int(time.time())
 
     if not body.stream:
-        with tenant_scope(principal.user_id):
-            with _bundle_for(principal.user_id) as bundle:
-                heal_dangling_tool_calls(bundle.agent, thread.checkpoint_thread_id)
-                result = bundle.agent.invoke({"messages": [{"role": "user", "content": text}]}, config={"configurable": {"thread_id": thread.checkpoint_thread_id}})
+        try:
+            with tenant_scope(principal.user_id), \
+                    thread_turn(thread.checkpoint_thread_id, TURN_WAIT_SECONDS):
+                with _bundle_for(principal.user_id) as bundle:
+                    heal_dangling_tool_calls(bundle.agent, thread.checkpoint_thread_id)
+                    result = bundle.agent.invoke({"messages": [{"role": "user", "content": text}]}, config={"configurable": {"thread_id": thread.checkpoint_thread_id}})
+        except ThreadBusyError:
+            return JSONResponse({"error": {"message": _BUSY_MESSAGE}}, status_code=409)
+        except Exception as e:  # 此前直接 500 裸文本；外部客户端需要可解析的 OpenAI 风格错误
+            log.exception("openai-compatible chat failed: %s", type(e).__name__)
+            return JSONResponse({"error": {"message": _public_runtime_error(e)}}, status_code=502)
         reply = _chunk_text(result["messages"][-1].content)
         return {
             "id": rid, "object": "chat.completion", "created": created, "model": "jarvis",
@@ -1286,7 +1393,8 @@ def oai_chat(request: Request, body: OAIChatIn):
             }, ensure_ascii=False) + "\n\n"
         yield chunk({"role": "assistant"})
         try:
-            with tenant_scope(principal.user_id):
+            with tenant_scope(principal.user_id), \
+                    thread_turn(thread.checkpoint_thread_id, TURN_WAIT_SECONDS):
                 with _bundle_for(principal.user_id) as bundle:
                     heal_dangling_tool_calls(bundle.agent, thread.checkpoint_thread_id)
                     stream = bundle.agent.stream({"messages": [{"role": "user", "content": text}]}, config={"configurable": {"thread_id": thread.checkpoint_thread_id}}, stream_mode="messages")
@@ -1295,7 +1403,10 @@ def oai_chat(request: Request, body: OAIChatIn):
                             t = _chunk_text(ck.content)
                             if t:
                                 yield chunk({"content": t})
+        except ThreadBusyError:
+            yield chunk({"content": f"（{_BUSY_MESSAGE}）"})
         except Exception as e:
+            log.exception("openai-compatible stream failed: %s", type(e).__name__)
             yield chunk({"content": f"（{_public_runtime_error(e)}）"})
         yield chunk({}, finish="stop")
         yield "data: [DONE]\n\n"
@@ -1708,7 +1819,7 @@ def meetings_list(request: Request):
 
 
 @app.get("/api/meetings/{item_id}")
-def meeting_detail(request: Request, item_id: int):
+def meeting_detail(request: Request, item_id: ItemId):
     principal, _token = _request_principal(request)
     if not principal:
         return _deny()
@@ -1723,7 +1834,7 @@ def meeting_detail(request: Request, item_id: int):
 
 
 @app.post("/api/meetings/{item_id}/email")
-def meeting_email(request: Request, item_id: int):
+def meeting_email(request: Request, item_id: ItemId):
     """把已保存的纪要（重新）发送到当前收件邮箱。"""
     principal, err = _panel_write(request)
     if err:
@@ -1879,7 +1990,7 @@ def voice_wake(request: Request, body: WakeCheckIn):
 
 
 @app.post("/api/meetings/{item_id}/todos")
-def meeting_import_todos(request: Request, item_id: int):
+def meeting_import_todos(request: Request, item_id: ItemId):
     """把纪要「待办事项」里属于我的条目一键导入任务台（去重，别人的任务不导）。"""
     principal, err = _panel_write(request)
     if err:
@@ -1913,7 +2024,7 @@ class SpeakerRenameIn(BaseModel):
 
 
 @app.patch("/api/meetings/{item_id}/speaker")
-def meeting_rename_speaker(request: Request, item_id: int, body: SpeakerRenameIn):
+def meeting_rename_speaker(request: Request, item_id: ItemId, body: SpeakerRenameIn):
     """说话人改名（对标飞书妙记）：把「对方1」全局改成真名，转写与纪要一起改。"""
     principal, err = _panel_write(request)
     if err:

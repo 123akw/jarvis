@@ -1,12 +1,16 @@
 """LangGraph 底座：ReAct agent + SQLite 持久记忆。"""
+from contextlib import contextmanager
+import logging
 import os
 import sqlite3
+import threading
 
 import httpx
 from langchain_core.messages import RemoveMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.sqlite import SqliteSaver as _LangGraphSqliteSaver
-from langgraph.prebuilt import create_react_agent
+from langgraph.prebuilt import ToolNode, create_react_agent
+from langgraph.prebuilt.tool_node import ToolInvocationError
 
 from jarvis import config
 from jarvis.prompts import compose_system_prompt
@@ -31,6 +35,22 @@ HISTORY_TURN_STEP = 8
 FULL_TOOL_TURNS = 2
 OLD_TOOL_RESULT_CHARS = 800
 _TRUNCATED_NOTE = "\n[较早的工具结果已截断]"
+
+
+log = logging.getLogger(__name__)
+
+
+def tool_error_text(error: Exception) -> str:
+    """工具抛出的任何异常都转成一条 status=error 的 ToolMessage 交还模型。
+
+    LangGraph 默认只兜参数校验错（ToolInvocationError），其余异常会穿透 agent.invoke：
+    本轮失败、checkpoint 停在「已声明 tool_calls、结果未写回」，线程随之中毒（历史事故）。
+    这里只给模型类名级信息——异常正文可能带上游 URL 或凭据，不进上下文。"""
+    if isinstance(error, ToolInvocationError):
+        return error.message
+    log.warning("tool failed: %s", type(error).__name__)
+    return (f"工具执行失败（{type(error).__name__}）。不要用相同参数重试；"
+            "请直接用人话告诉主人这一步没成功，并给出替代办法。")
 
 
 def history_char_budget() -> int:
@@ -157,10 +177,53 @@ def build_agent(
 
     return create_react_agent(
         model,
-        tools,
+        ToolNode(tools, handle_tool_errors=tool_error_text),
         prompt=dynamic_prompt,
         checkpointer=checkpointer,
     )
+
+
+class ThreadBusyError(RuntimeError):
+    """同一会话线程上一轮还没结束，等待超时。"""
+
+
+# 每个 checkpoint 线程一把回合锁（引用计数，用完即从表里摘掉，表不会无界增长）。
+_TURN_LOCKS: dict[str, list] = {}   # thread_id -> [Lock, 等待/持有者计数]
+_TURN_LOCKS_GUARD = threading.Lock()
+
+
+def _turn_lock_count() -> int:
+    with _TURN_LOCKS_GUARD:
+        return len(_TURN_LOCKS)
+
+
+@contextmanager
+def thread_turn(thread_id: str, timeout: float = 90.0):
+    """同一 checkpoint 线程的回合串行化（自愈 + 整轮流式都要在锁内）。
+
+    实测：同一线程同时发两条消息，两轮从同一个 checkpoint 起跑、各自落盘，后写的
+    覆盖先写的——历史里丢一条回答；更糟的是后到的一轮开头的 heal_dangling_tool_calls
+    会把前一轮「在途」的 tool_calls 当成悬空调用删掉。不同线程互不影响。
+    等待超过 timeout 秒抛 ThreadBusyError，由调用方转成人话。
+    """
+    with _TURN_LOCKS_GUARD:
+        entry = _TURN_LOCKS.get(thread_id)
+        if entry is None:
+            entry = _TURN_LOCKS[thread_id] = [threading.Lock(), 0]
+        entry[1] += 1
+    acquired = False
+    try:
+        acquired = entry[0].acquire(timeout=max(0.0, timeout))
+        if not acquired:
+            raise ThreadBusyError(thread_id)
+        yield
+    finally:
+        if acquired:
+            entry[0].release()
+        with _TURN_LOCKS_GUARD:
+            entry[1] -= 1
+            if entry[1] <= 0 and _TURN_LOCKS.get(thread_id) is entry:
+                del _TURN_LOCKS[thread_id]
 
 
 def heal_dangling_tool_calls(agent, thread_id: str) -> None:
@@ -195,7 +258,30 @@ def heal_dangling_tool_calls(agent, thread_id: str) -> None:
                 if message_item.type == "tool"
                 and getattr(message_item, "tool_call_id", None) in call_ids
             )
+        if not removals:
+            return
+        # 崩在工具节点时，已完成的工具结果只在 pending writes 里（get_state 视图可见，
+        # checkpoint 本体没有）：对它们发 RemoveMessage 会抛「ID doesn't exist」，此前被
+        # 静默吞掉，线程从此每轮报错。只删本体里真实存在的消息；pending writes 随新
+        # checkpoint 一起作废。
+        persisted = _persisted_message_ids(agent, config)
+        if persisted is not None:
+            removals = [item for item in removals if item.id in persisted]
         if removals:
             agent.update_state(config, {"messages": removals})
-    except Exception:
-        return
+            log.info("healed %d dangling message(s) on thread %s", len(removals), thread_id)
+    except Exception as exc:
+        log.warning("heal dangling tool calls failed: %s", type(exc).__name__)
+
+
+def _persisted_message_ids(agent, config) -> set | None:
+    """checkpoint 本体（不含 pending writes）里的消息 id；读不到返回 None（按旧逻辑全删）。"""
+    checkpointer = getattr(agent, "checkpointer", None)
+    get_tuple = getattr(checkpointer, "get_tuple", None)
+    if not callable(get_tuple):
+        return None
+    saved = get_tuple(config)
+    if saved is None:
+        return set()
+    messages = (saved.checkpoint.get("channel_values") or {}).get("messages") or []
+    return {getattr(message, "id", None) for message in messages}

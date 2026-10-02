@@ -72,6 +72,8 @@ def weather(city: str) -> str:
         return _forecast_lines(spot["latitude"], spot["longitude"], spot["name"])
     except httpx.HTTPError as e:
         return f"天气服务暂时连不上（{type(e).__name__}），稍后再试。"
+    except (ValueError, KeyError, TypeError, IndexError, ImportError) as e:
+        return f"天气服务返回的数据异常（{type(e).__name__}），稍后再试。"
 
 
 @tool
@@ -86,3 +88,5 @@ def weather_here() -> str:
         return _forecast_lines(loc["lat"], loc["lon"], label)
     except httpx.HTTPError as e:
         return f"天气服务暂时连不上（{type(e).__name__}），稍后再试。"
+    except (ValueError, KeyError, TypeError, IndexError, ImportError) as e:
+        return f"天气服务返回的数据异常（{type(e).__name__}），稍后再试。"

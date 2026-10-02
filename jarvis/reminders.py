@@ -9,8 +9,8 @@ tenant_reminders_sent；重启不重复轰炸，改期后的同一日程会按�
 """
 import datetime
 import logging
-import threading
 
+from jarvis.periodic import PeriodicWorker
 from jarvis.tenancy import TenantStore, tenant_scope
 
 _FMT = "%Y-%m-%d %H:%M"
@@ -37,13 +37,15 @@ RADIO_PROMPT = (
 )
 
 
-class MorningRadio:
+class MorningRadio(PeriodicWorker):
     """晨报电台：每天到点用 Agent 生成晨报，经微信推送（语音条+文字）。
 
     只服务唯一 active Owner（与微信桥一致）。为控制成本：
     - 推送通道不可用（桥没连 / 没绑「提醒发给我」）时根本不生成；
     - 生成后推送失败也记为当日已发，绝不反复烧模型和 TTS。
     """
+
+    thread_name = "jarvis-radio"
 
     def __init__(self, *, owner_getter=None, compose=None, push_voice=None,
                  push_available=None, store_factory=None, now_fn=None, interval: float = 60.0):
@@ -53,17 +55,12 @@ class MorningRadio:
         self._push_available = push_available or (lambda: True)
         self._store_factory = store_factory or TenantStore
         self._now = now_fn or datetime.datetime.now
-        self._interval = interval
-        self._stop = threading.Event()
-        self._thread: threading.Thread | None = None
+        super().__init__(interval)
 
     def scan_once(self) -> bool:
         if not self._owner_getter or not self._compose or not self._push_voice:
             return False
-        try:
-            owner = self._owner_getter()
-        except Exception:
-            return False
+        owner = self._resolve_owner(self._owner_getter)
         if owner is None:
             return False
         now = self._now()
@@ -108,24 +105,12 @@ class MorningRadio:
             pass
         return sent
 
-    def _loop(self) -> None:
-        while not self._stop.wait(self._interval):
-            self.scan_once()
-
-    def start(self) -> None:
-        if self._thread is not None:
-            return
-        self._stop.clear()
-        self._thread = threading.Thread(target=self._loop, daemon=True, name="jarvis-radio")
-        self._thread.start()
-
-    def stop(self) -> None:
-        self._stop.set()
-        self._thread = None
 
 
-class ReminderScanner:
+class ReminderScanner(PeriodicWorker):
     """微信通道的到点扫描线程；store/owner/push/now 全部可注入，便于确定性测试。"""
+
+    thread_name = "jarvis-reminders"
 
     def __init__(self, *, store_factory=None, owner_getter=None, push_wechat=None,
                  now_fn=None, interval: float = 30.0):
@@ -133,18 +118,13 @@ class ReminderScanner:
         self._owner_getter = owner_getter
         self._push_wechat = push_wechat
         self._now = now_fn or datetime.datetime.now
-        self._interval = interval
-        self._stop = threading.Event()
-        self._thread: threading.Thread | None = None
+        super().__init__(interval)
 
     def scan_once(self) -> int:
         """扫一轮微信通道，返回本轮成功推送条数；任何异常只告警不外抛。"""
         if not self._owner_getter or not self._push_wechat:
             return 0
-        try:
-            owner = self._owner_getter()
-        except Exception:
-            return 0
+        owner = self._resolve_owner(self._owner_getter)
         if owner is None:
             return 0
         floor, ceiling = reminder_window(self._now())
@@ -166,17 +146,3 @@ class ReminderScanner:
             log.warning("reminder scan failed: %s", type(exc).__name__)
         return sent
 
-    def _loop(self) -> None:
-        while not self._stop.wait(self._interval):
-            self.scan_once()
-
-    def start(self) -> None:
-        if self._thread is not None:
-            return
-        self._stop.clear()
-        self._thread = threading.Thread(target=self._loop, daemon=True, name="jarvis-reminders")
-        self._thread.start()
-
-    def stop(self) -> None:
-        self._stop.set()
-        self._thread = None

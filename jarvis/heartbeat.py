@@ -8,15 +8,20 @@ data/HEARTBEAT.md 是一份纯文本「关注清单」——主人手写（或�
 """
 import datetime
 import logging
+import math
 import os
 import threading
 
 from jarvis import config
+from jarvis.periodic import PeriodicWorker
 
 log = logging.getLogger("jarvis")
 
 HEARTBEAT_FILE = "HEARTBEAT.md"
 DEFAULT_INTERVAL = 30 * 60.0   # 30 分钟一轮；打扰过频改这里，不必关开关
+MIN_INTERVAL = 60.0           # 配置护栏：设成 0 曾让模型调用陷入死循环（0.5 秒 74 万次）
+MAX_INTERVAL = 86400.0        # Event.wait 不接受 inf，且一天一轮已是下限频率
+MAX_PENDING_PER_USER = 20     # 领取箱上限：长期无人领取时只留最新的，旧的先进先出
 PASS_TOKEN = "PASS"
 
 HEARTBEAT_PROMPT = (
@@ -41,19 +46,24 @@ class PendingOutbox:
     def __init__(self):
         self._lock = threading.Lock()
         self._items: dict[str, list[dict]] = {}
+        self._seq = 0   # 全局递增：裁剪旧条目后按长度编号会撞 id
 
     def put(self, user_id: str, title: str, when: str) -> None:
         with self._lock:
             queue = self._items.setdefault(user_id, [])
-            queue.append({"id": f"heartbeat-{when}-{len(queue)}", "when": when, "title": title})
+            self._seq += 1
+            queue.append({"id": f"heartbeat-{when}-{self._seq}", "when": when, "title": title})
+            del queue[:-MAX_PENDING_PER_USER]
 
     def drain(self, user_id: str) -> list[dict]:
         with self._lock:
             return self._items.pop(user_id, [])
 
 
-class HeartbeatScanner:
+class HeartbeatScanner(PeriodicWorker):
     """读清单 → 模型裁量 → 双通道推送；依赖全部可注入，pytest 可确定性直测。"""
+
+    thread_name = "jarvis-heartbeat"
 
     def __init__(self, *, owner_getter=None, compose=None, push_wechat=None,
                  outbox=None, path_fn=heartbeat_path, now_fn=None,
@@ -64,18 +74,13 @@ class HeartbeatScanner:
         self._outbox = outbox
         self._path_fn = path_fn
         self._now = now_fn or datetime.datetime.now
-        self._interval = interval
-        self._stop = threading.Event()
-        self._thread: threading.Thread | None = None
+        super().__init__(interval)
 
     def scan_once(self) -> bool:
         """跑一轮，返回是否真的推送了消息；任何异常只告警不外抛、不崩服务。"""
         if not self._owner_getter or not self._compose:
             return False
-        try:
-            owner = self._owner_getter()
-        except Exception:
-            return False
+        owner = self._resolve_owner(self._owner_getter)
         if owner is None:
             return False
         try:
@@ -112,20 +117,6 @@ class HeartbeatScanner:
             log.info("heartbeat pushed: %s", message[:60])
         return delivered
 
-    def _loop(self) -> None:
-        while not self._stop.wait(self._interval):
-            self.scan_once()
-
-    def start(self) -> None:
-        if self._thread is not None:
-            return
-        self._stop.clear()
-        self._thread = threading.Thread(target=self._loop, daemon=True, name="jarvis-heartbeat")
-        self._thread.start()
-
-    def stop(self) -> None:
-        self._stop.set()
-        self._thread = None
 
 
 def maybe_create(**kwargs) -> HeartbeatScanner | None:
@@ -136,4 +127,10 @@ def maybe_create(**kwargs) -> HeartbeatScanner | None:
         interval = float(os.getenv("JARVIS_HEARTBEAT_INTERVAL", "") or DEFAULT_INTERVAL)
     except ValueError:
         interval = DEFAULT_INTERVAL
-    return HeartbeatScanner(interval=interval, **kwargs)
+    if math.isnan(interval):
+        interval = DEFAULT_INTERVAL
+    clamped = min(MAX_INTERVAL, max(MIN_INTERVAL, interval))
+    if clamped != interval:
+        log.warning("JARVIS_HEARTBEAT_INTERVAL=%s 超出 %d–%d 秒，已按 %d 秒执行",
+                    os.getenv("JARVIS_HEARTBEAT_INTERVAL"), MIN_INTERVAL, MAX_INTERVAL, clamped)
+    return HeartbeatScanner(interval=clamped, **kwargs)
