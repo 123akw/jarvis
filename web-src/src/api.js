@@ -223,6 +223,15 @@ export function currentCsrf() {
   return csrfToken
 }
 
+/** 对话请求的 HTTP 错误 → 给人看的说明（原来一律是「请求失败」） */
+function chatHttpError(status, reason) {
+  if (status === 403) return '登录状态校验没通过，请刷新页面后再试'
+  if (status === 413) return '这条消息太长了，删减一些再发'
+  if (status === 429) return '请求太频繁了，请稍等片刻再试'
+  if (status >= 500) return reason || '服务暂时不可用，请稍后重试'
+  return reason || `请求失败（HTTP ${status}）`
+}
+
 /** SSE 流式对话，逐事件产出 {type, ...}；location 为浏览器定位 {lat, lon}，可空 */
 export async function* chatStream(message, location = null, threadId = 'web', signal = null) {
   const r = await fetch('/api/chat', {
@@ -232,7 +241,11 @@ export async function* chatStream(message, location = null, threadId = 'web', si
     signal,
   })
   if (r.status === 401) { csrfToken = ''; throw new Error('401') }
-  if (!r.ok) throw new Error('请求失败')
+  if (!r.ok) {
+    let reason = ''
+    try { reason = (await r.json())?.error || '' } catch { /* 网关错误页不是 JSON */ }
+    throw Object.assign(new Error(chatHttpError(r.status, reason)), { status: r.status })
+  }
   const reader = r.body.getReader()
   const dec = new TextDecoder()
   let buf = ''

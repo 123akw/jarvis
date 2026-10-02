@@ -182,7 +182,7 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
   const rootRef = useRef(null)
   const abortRef = useRef(null)
   const fileRef = useRef()
-  const [uploading, setUploading] = useState(false)
+  const [uploading, setUploading] = useState('')   // 正在解析的文件名（空串=没有在传）
   const [uploadErr, setUploadErr] = useState('')
   const stickRef = useRef(true)     // 视口是否贴底（贴底才自动跟随）
   const tokBuf = useRef('')         // 尚未刷到界面的 token
@@ -310,7 +310,9 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
       flushTokens()
       if (err.message === '401') { onExpired?.(); return }
       if (err.name !== 'AbortError' && !ctrl.signal.aborted) {
-        patchLast(m => ({ ...m, error: `链路中断：${err.message}` }))
+        // fetch / 读流的网络异常是 TypeError（Failed to fetch / network error / Load failed），说人话
+        const text = err instanceof TypeError ? '网络中断，回答没能完整送达' : (err.message || '出了点问题')
+        patchLast(m => ({ ...m, error: text }))
       }
     } finally {
       abortRef.current = null
@@ -333,7 +335,7 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
     if (!file || busy || uploading) return
     setUploadErr('')
     if (file.size > 10 * 1024 * 1024) { setUploadErr('文件超过 10MB 上限'); return }
-    setUploading(true)
+    setUploading(file.name || '文件')
     try {
       const b64 = await new Promise((resolve, reject) => {
         const reader = new FileReader()
@@ -342,6 +344,7 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
         reader.readAsDataURL(file)
       })
       const doc = await uploadDocument(file.name, b64)
+      setUploading('')   // 解析完成：进度条让位给随后发出的消息与「思考中」
       if (doc.kind === 'image') {
         await send(`我发了一张图片《${doc.name}》，以下是对画面的识别描述，请基于它先简要回应，我可能会继续追问图里的细节。\n\n【图片内容】\n${doc.text}\n【图片内容结束】`)
       } else if (doc.kind === 'video') {
@@ -354,7 +357,7 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
       if (err.message === '401') { onExpired?.(); return }
       setUploadErr(err.message || '上传失败')
     } finally {
-      setUploading(false)
+      setUploading('')
     }
   }
 
@@ -386,12 +389,13 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
         </div>
       </div>
       <div className="inputwrap">
-        {uploadErr && <div className="upload-err">⚠ {uploadErr}</div>}
+        {uploading ? <div className="upload-note" role="status"><span className="today-spinner" aria-hidden="true" />正在读取《{uploading}》…</div> : null}
+        {uploadErr && <div className="upload-err" role="alert">⚠ {uploadErr}</div>}
         <div className="inputbar2">
           <input ref={fileRef} type="file" accept=".pdf,.docx,.txt,.md,.jpg,.jpeg,.png,.webp,.bmp,.mp4,.mov" style={{ display: 'none' }}
             aria-label="选择文档" onChange={onPickFile} />
           <button className={`jv-icon-btn round${uploading ? ' loading' : ''}`} onClick={() => fileRef.current?.click()}
-            disabled={busy || uploading}
+            disabled={busy || Boolean(uploading)}
             title="上传文档（PDF / Word / TXT / MD / 图片 / 视频）" aria-label="上传文档"><Icon name="clip" /></button>
           <textarea ref={boxRef} value={input} rows={1}
             onChange={e => { setInput(e.target.value); autoGrow() }}

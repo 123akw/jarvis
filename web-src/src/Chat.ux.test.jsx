@@ -99,6 +99,19 @@ describe('对话体验', () => {
     expect(btn).toHaveTextContent('已复制')
   })
 
+  it('网络中断时用人话说明（不再显示「链路中断：Failed to fetch」）并可重试', async () => {
+    // eslint-disable-next-line require-yield
+    async function* offline() { throw new TypeError('Failed to fetch') }
+    chatStream.mockImplementation(offline)
+    render(<Chat threadId="t1" />)
+    await screen.findByPlaceholderText(/吩咐一句/)
+    send('在吗')
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('网络中断')
+    expect(alert).not.toHaveTextContent('Failed to fetch')
+    expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument()
+  })
+
   it('本地新建的会话（fresh）不去拉历史：避免每次「新对话」都打一个 404', async () => {
     render(<Chat threadId="t-new" fresh />)
     await screen.findByPlaceholderText(/吩咐一句/)

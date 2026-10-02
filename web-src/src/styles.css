@@ -358,8 +358,9 @@ body.light .jbody .hljs-built_in,body.light .jbody .hljs-type,body.light .jbody 
 .inputwrap{position:absolute;left:0;right:0;bottom:0;z-index:2;padding:30px 16px 18px;pointer-events:none;
   background:linear-gradient(to bottom,transparent,var(--jv-bg) 58%)}
 .inputwrap>*{pointer-events:auto}
-.upload-err{max-width:calc(var(--jv-read) + 16px);margin:0 auto 8px;padding:8px 14px;border-radius:12px;font-size:13px;
+.upload-err,.upload-note{max-width:calc(var(--jv-read) + 16px);margin:0 auto 8px;padding:8px 14px;border-radius:12px;font-size:13px;
   color:var(--jv-danger);background:var(--jv-elevated);-webkit-backdrop-filter:var(--jv-blur);backdrop-filter:var(--jv-blur)}
+.upload-note{display:flex;align-items:center;gap:10px;color:var(--jv-text-2);animation:jv-rise .24s var(--jv-ease)}
 .inputbar2{max-width:calc(var(--jv-read) + 16px);margin:0 auto;display:flex;align-items:flex-end;gap:4px;padding:6px;
   border-radius:26px;background:var(--jv-elevated);-webkit-backdrop-filter:var(--jv-blur);backdrop-filter:var(--jv-blur);
   border:1px solid var(--jv-border);box-shadow:var(--jv-shadow-float)}
