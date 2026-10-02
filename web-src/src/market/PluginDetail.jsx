@@ -122,9 +122,12 @@ export default function PluginDetail({ catalog, pluginId, picked, onToggle, onOp
   const needs = needsOf(p)
   const related = relatedPlugins(catalog.plugins, p)
   const link = sourceLink(p)
+  const power = p.kind === 'skill' ? '1 套方法' : p.kind === 'step' ? '流程积木'
+    : p.tools.length ? `${p.tools.length} 个工具` : p.kind === 'mcp' ? '远程工具' : '—'
   const facts = [
     ['来源', SOURCE_LABEL[src]],
     ['类型', KIND_LABEL[p.kind]],
+    ['能力', power],
     ['分类', catName],
     ['版本', p.version ? `v${p.version}` : '—'],
     ['许可证', p.license || (p.builtin ? '随平台' : '未声明')],
@@ -189,7 +192,7 @@ export default function PluginDetail({ catalog, pluginId, picked, onToggle, onOp
 
       {p.examples.length ? (
         <Section id="jvm-d-try" title="试试这样问" aside={<span className="jvm-d-hint">点一下复制</span>}>
-          <ul className="jvm-d-examples">{p.examples.map(ex => <Example key={ex} text={ex} onAsk={onAskAI} />)}</ul>
+          <ul className="jvm-d-examples">{p.examples.slice(0, 3).map(ex => <Example key={ex} text={ex} onAsk={onAskAI} />)}</ul>
         </Section>
       ) : null}
 

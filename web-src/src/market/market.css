@@ -27,6 +27,7 @@
   scroll-padding-top:calc(var(--jvm-top-h) + 56px);
 }
 .jvm.is-market{--jvm-top-h:calc(108px + env(safe-area-inset-top))}
+.jvm.has-sheet{overflow-y:hidden}
 body.light .jvm{
   --m-card:#fff;
   --m-card-2:#fff;
@@ -176,16 +177,6 @@ body.light .jvm-ambient i{opacity:.6}
 
 /* 帮我推荐：手机上收成一行 */
 .jvm-helper{position:relative;padding:18px;border-radius:22px;background:var(--m-card);border:1px solid var(--m-line);box-shadow:var(--m-card-shadow)}
-.jvm-helper.is-folded{padding:0;overflow:hidden}
-.jvm-helper-fold{width:100%;display:flex;align-items:center;gap:12px;padding:12px 14px 12px 12px;border:0;background:none;color:inherit;
-  font:inherit;text-align:left;transition:background-color .2s}
-.jvm-helper-fold:hover{background:var(--jv-hover)}
-.jvm-helper-orb{flex:none;width:38px;height:38px;display:grid;place-items:center;border-radius:12px;color:#fff;background:var(--jv-ai-gradient);
-  box-shadow:0 6px 18px -8px rgb(139 92 246 / .8)}
-.jvm-helper-fold-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
-.jvm-helper-fold .jvm-helper-title{font-size:15px}
-.jvm-helper-fold .jvm-helper-sub{margin:0;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.jvm-helper-chev{color:var(--jv-text-3);flex:none}
 .jvm-helper-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .jvm-helper-close{width:32px;height:32px;display:grid;place-items:center;border:0;border-radius:50%;background:var(--m-tile);color:var(--jv-text-2)}
 .jvm-helper-close .jv-icon{transform:rotate(-90deg)}
@@ -502,6 +493,8 @@ body.light .jvm-tray-icons i{background:#F0F0F4;box-shadow:0 0 0 2px #fff}
 body.light .jvm-rec-list li{background:#F6F6F9}
 .jvm-rec-icon{flex:none;width:34px;height:34px;display:grid;place-items:center;border-radius:10px;font-size:19px;background:var(--m-card-2)}
 .jvm-rec-name{flex:1;min-width:0;display:flex;align-items:center;gap:6px;font-size:14.5px;font-weight:600}
+.jvm-rec-name a{color:inherit;text-decoration:none;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.jvm-rec-name a:hover{text-decoration:underline;text-underline-offset:3px}
 .jvm-rec-in{font-size:11.5px;color:var(--m-ok);white-space:nowrap}
 .jvm-rec-sub{margin-top:16px;font-size:13px;font-weight:600;color:var(--jv-text-2)}
 .jvm-rec-sub span{margin-left:6px;font-weight:400;color:var(--jv-text-3)}
@@ -755,7 +748,9 @@ body.light .jvm-phone-glow{background:radial-gradient(closest-side,color-mix(in 
   .jvm-detail-grab{display:none}
   .jvm-detail-bar{height:12px}
   .jvm-detail-scroll{padding:12px 28px 28px}
-  .jvm-d-facts{margin-left:-28px;margin-right:-28px;padding-left:28px;padding-right:28px}
+  .jvm-d-facts{margin-left:-28px;margin-right:-28px;padding-left:20px;padding-right:20px}
+  .jvm-d-facts>div{flex:1 1 0;min-width:0;padding:2px 6px}
+  .jvm-d-facts dd{max-width:100%;overflow:hidden;text-overflow:ellipsis;font-size:13.5px}
   .jvm-d-related{margin:0 -28px;padding:0 28px 4px;scroll-padding:0 28px;grid-auto-columns:minmax(200px,46%)}
   .jvm-detail-foot{padding:14px 20px 14px 28px}
   .jvm-toast{bottom:104px}

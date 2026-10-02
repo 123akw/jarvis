@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import Icon from '../Icon.jsx'
 import Presence, { prefersReducedMotion } from '../Presence.jsx'
 import { DESC_MAX, recommendedIds } from './model.js'
+import { detailHref, linkClick } from './PluginCard.jsx'
 
 const WAIT_LINES = ['正在了解你的行当…', '从插件市场里挑合适的…', '顺手排一条流程…']
 
@@ -44,7 +45,7 @@ function FlowChain({ flow, byId }) {
   )
 }
 
-function Result({ rec, catalog, picked, onToggle, onAddAll }) {
+function Result({ rec, catalog, picked, onToggle, onAddAll, onOpen }) {
   const byId = new Map(catalog.plugins.map(p => [p.id, p]))
   const plugins = rec.plugins.map(id => byId.get(id)).filter(Boolean)
   const pickedSet = new Set(picked)
@@ -64,7 +65,12 @@ function Result({ rec, catalog, picked, onToggle, onAddAll }) {
             return (
               <li key={p.id} className={on ? 'is-on' : ''}>
                 <span className="jvm-rec-icon" aria-hidden="true">{p.icon}</span>
-                <span className="jvm-rec-name">{p.name}{p.tier === 'pro' ? <span className="jvm-badge is-pro">专业版</span> : null}</span>
+                <span className="jvm-rec-name">
+                  {onOpen ? (
+                    <a href={detailHref(p.id)} onClick={e => linkClick(e, () => onOpen(p.id))}>{p.name}</a>
+                  ) : p.name}
+                  {p.tier === 'pro' ? <span className="jvm-badge is-pro">专业版</span> : null}
+                </span>
                 {on ? <span className="jvm-rec-in">已在工具箱</span> : null}
                 <button type="button" className={`jvm-add is-mini${on ? ' is-on' : ''}`} aria-pressed={on}
                   aria-label={on ? `移出工具箱：${p.name}` : `加入工具箱：${p.name}`} onClick={() => onToggle(p.id)}>
@@ -89,9 +95,9 @@ function Result({ rec, catalog, picked, onToggle, onAddAll }) {
 }
 
 /** 「帮我推荐」：选职业，或用一句话描述 → 推荐插件与流程，一键全部加入。市场里的辅助，不是前置步骤。
- *  手机上默认收成一行（让插件先露出来），点开才展开；宽屏常驻右侧。 */
+ *  手机上默认不展开（让插件先露出来），首屏「一句话帮我推荐」点开，右上角可收起；宽屏常驻右侧。 */
 export default function Recommend({ catalog, draft, recState, onPickProfession, onDescription, onDescribe, onToggle, onAddAll,
-  open = true, collapsible = false, onOpenChange, descRef }) {
+  collapsible = false, onOpenChange, descRef, onOpen }) {
   const { profession, description, recommendation } = draft
   const recRef = useRef(null)
   // 手机上结果区可能在一屏外：开始推荐时把它滚进视野，让人看到「正在挑」
@@ -102,21 +108,6 @@ export default function Recommend({ catalog, draft, recState, onPickProfession, 
   const submit = e => {
     e.preventDefault()
     if (description.trim() && recState.status !== 'loading') onDescribe()
-  }
-  if (collapsible && !open) {
-    return (
-      <section className="jvm-helper is-folded" aria-labelledby="jvm-helper-title">
-        <button type="button" className="jvm-helper-fold" aria-expanded="false" aria-controls="jvm-helper-body"
-          onClick={() => onOpenChange?.(true)}>
-          <span className="jvm-helper-orb" aria-hidden="true"><Icon name="sparkles" size={17} /></span>
-          <span className="jvm-helper-fold-text">
-            <span id="jvm-helper-title" className="jvm-helper-title">帮我推荐</span>
-            <span className="jvm-helper-sub">{recommendation ? '看看上次的推荐结果' : '选个职业，或一句话说说你的情况'}</span>
-          </span>
-          <Icon name="chevron" size={16} className="jvm-helper-chev" />
-        </button>
-      </section>
-    )
   }
   return (
     <section className="jvm-helper" id="jvm-helper" aria-labelledby="jvm-helper-title">
@@ -163,7 +154,7 @@ export default function Recommend({ catalog, draft, recState, onPickProfession, 
           </div>
         ) : null}
         {recState.status !== 'loading' && recommendation ? (
-          <Result rec={recommendation} catalog={catalog} picked={draft.picked} onToggle={onToggle} onAddAll={onAddAll} />
+          <Result rec={recommendation} catalog={catalog} picked={draft.picked} onToggle={onToggle} onAddAll={onAddAll} onOpen={onOpen} />
         ) : null}
       </div>
     </section>

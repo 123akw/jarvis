@@ -343,12 +343,12 @@ export default function Market({ session, onAuthed }) {
   const helper = data ? (
     <Recommend catalog={data} draft={draft} recState={rec} onPickProfession={pickProfession}
       onDescription={description => setDraft(d => ({ ...d, description }))} onDescribe={describe}
-      onToggle={toggle} onAddAll={addAll} descRef={descRef}
-      collapsible={!wide} open={wide || recOpen || rec.status !== 'idle'} onOpenChange={setRecOpen} />
+      onToggle={toggle} onAddAll={addAll} onOpen={openDetail} descRef={descRef}
+      collapsible={!wide} onOpenChange={setRecOpen} />
   ) : null
 
   return (
-    <div className={`jvm is-${step}${inFlow ? ' in-flow' : ''}${q ? ' is-searching' : ''}`} ref={scrollRef}
+    <div className={`jvm is-${step}${inFlow ? ' in-flow' : ''}${q ? ' is-searching' : ''}${detailId && data ? ' has-sheet' : ''}`} ref={scrollRef}
       style={accent ? { '--jvm-glow': accent } : undefined}>
       <div className="jvm-ambient" aria-hidden="true"><i /></div>
       <header className={`jvm-top${topCenter && step === 'market' ? ' has-search' : ''}`}>
