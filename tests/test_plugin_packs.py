@@ -59,7 +59,10 @@ def _pack(folder: Path, manifest: dict, code: str | None = None):
 # ---------- 迁移 ----------
 
 def test_migrated_catalog_matches_round13_snapshot_in_order():
-    current = [{key: item[key] for key in SNAPSHOT_KEYS} for item in plugins.PLUGINS if item["builtin"]][:22]
+    # 第十五轮起官方插件按类别插在中间（packs/order.json），这 22 个彼此的先后和内容仍与第十三轮一致
+    snapshot_ids = {row["id"] for row in _snapshot()}
+    current = [{key: item[key] for key in SNAPSHOT_KEYS} for item in plugins.PLUGINS
+               if item["builtin"] and item["id"] in snapshot_ids]
     assert current == _snapshot()
     for item in plugins.PLUGINS:
         if item["id"] in {row["id"] for row in _snapshot()}:
