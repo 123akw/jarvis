@@ -1,0 +1,25 @@
+{
+  "id": "trip_plan",
+  "name": "旅行攻略",
+  "version": "1.0.0",
+  "icon": "🧳",
+  "category": "life",
+  "summary": "按天数、预算和同行人排行程，附预算表和行前清单",
+  "kind": "skill",
+  "tier": "free",
+  "price": 0,
+  "professions": [],
+  "examples": [
+    "帮我排个三天两晚的周边游行程",
+    "带老人出去玩五天，行程怎么排轻松点",
+    "人均预算两千，帮我列个预算表"
+  ],
+  "entry": null,
+  "tools": [],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "license": "MIT-0",
+  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/trip_plan"
+}

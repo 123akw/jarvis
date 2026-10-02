@@ -408,7 +408,11 @@ def load_json(path: Path) -> dict:
 
 def raw_manifest(folder: Path, *, builtin: bool) -> dict:
     """读出「我们格式」的原始清单：plugin.json（自有格式或 Agent Plugins 格式自动映射），
-    第三方的纯技能目录（只有 SKILL.md）按技能内容补一份。"""
+    第三方的纯技能目录（只有 SKILL.md）按技能内容补一份。
+
+    MCP 服务（第十五轮契约第 2 节）：自有格式与 Agent Plugins 格式都认插件根目录的 mcp.json / .mcp.json
+    （或 plugin.json 的 mcpServers），完整读进 ``mcp_servers``（含 url / headers 模板），validate 再生成给人看的
+    ``extras.mcp``；工具来自 MCP 服务，清单里的 tools 写 [] 即可。"""
     path = manifest_path(folder)
     if path is None:
         if builtin or not (folder / SKILL_FILE).is_file():

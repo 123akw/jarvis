@@ -571,9 +571,12 @@ def activate(pack, state: dict) -> None:
         pack.status, pack.reason = NEEDS_REVIEW, "工具清单有变化，需要管理员确认"
         return
     archived = record.get("tools")
-    if not isinstance(archived, list):
+    if not isinstance(archived, list):   # 还没拿到过工具清单：后台去连（免 Key 的插件装好即可用），连上前暂不可用
         if record.get("last_error"):
             pack.fail(f"连不上 MCP 服务：{record['last_error']}", "管理员可在插件管理里「测试连接」重试")
+        else:
+            pack.fail("正在连接 MCP 服务、拉取工具清单，稍等片刻",
+                      "还没拿到工具清单：服务启动时会在后台自动连接；管理员也可以在插件管理里点「测试连接」")
         schedule_check(pack.id)
         return
     by_name = {server["name"]: server for server in usable}
@@ -619,6 +622,8 @@ def _background_check(root: Path, plugin_id: str) -> None:
             return
         pack = loader.registry().by_id.get(plugin_id)
         if pack is None or not is_mcp(pack.manifest) or pack.status in ("disabled", NEEDS_CONFIG, NEEDS_REVIEW):
+            return
+        if not usable_servers(pack.manifest):
             return
         m = pack.manifest
         values, _ = resolve_values(plugin_id, m.get("config") or [], root=root)

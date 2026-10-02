@@ -106,10 +106,12 @@ def _profession(id, name, icon, summary, plugins, flows, persona, greeting, chip
 
 
 # 模板流程只用新账号一定能跑通的积木（不靠飞书绑定、不靠 Owner），一律以「生成网页」收尾
+# 职业套餐最多 7 个插件：推荐上限 8 个（MAX_PLUGINS），留一个位置给用户描述里点名的插件；
+# 第十五轮在末尾补了官方技能 / 工具插件，需要 Key 的 MCP 插件不进套餐
 PROFESSIONS: tuple[dict, ...] = (
     _profession(
         "shop_owner", "个体店主 / 微商", "🏪", "进货、上新、排班和老客，小店的事都能交代",
-        ("memo", "todo", "schedule", "weather", "search", "memory"),
+        ("memo", "todo", "schedule", "weather", "search", "memory", "social_post"),
         (_flow("new_arrival", "上新文案", "说说新品卖点，一键写成朋友圈文案并生成网页",
                ("input_text", {"label": "说说新品是什么、卖点有哪些"}),
                ("ai_extract", {"task": "改写", "instruction": "写成适合发朋友圈的上新文案，口语化，带两三个表情"}),
@@ -119,7 +121,7 @@ PROFESSIONS: tuple[dict, ...] = (
         ("明天天气适合搞活动吗", "记一下：周三补货牛奶", "帮我写条上新朋友圈")),
     _profession(
         "freelancer", "自由职业者", "🧑‍💻", "接单、交付、回款，一个人也安排得明明白白",
-        ("schedule", "todo", "memo", "search", "recall", "feishu"),
+        ("schedule", "todo", "memo", "search", "recall", "feishu", "contract_check"),
         (_flow("client_brief", "客户需求整理", "客户发来的一大段需求，拆成待办并生成清单页",
                ("input_text", {"label": "把客户发来的需求贴进来"}), ("ai_extract", {"task": "待办"}),
                ("to_todo", {}), ("web_page", {"title": "客户需求清单"})),),
@@ -128,7 +130,7 @@ PROFESSIONS: tuple[dict, ...] = (
         ("今天有哪些安排", "记一下：周五前交初稿", "上次那个客户的报价是多少")),
     _profession(
         "project_manager", "项目经理", "📊", "资料、会议、进度和风险，一处看全",
-        ("schedule", "todo", "meeting", "feishu", "recall", "search"),
+        ("schedule", "todo", "meeting", "feishu", "recall", "search", "work_report"),
         (_flow("project_archive", "项目资料归档", "上传项目资料，拆分提炼要点，生成待办与网页",
                ("input_file", {}), ("split_file", {"mode": "chapter", "max_parts": 8}),
                ("ai_extract", {"task": "要点"}), ("to_todo", {}), ("web_page", {"title": "项目资料要点"})),),
@@ -137,7 +139,7 @@ PROFESSIONS: tuple[dict, ...] = (
         ("这周还有哪些事没完成", "开始记会议纪要", "明天上午10点项目评审")),
     _profession(
         "sales", "销售 / 经纪人", "🤝", "记住每位客户的情况，跟进不掉链子",
-        ("schedule", "todo", "memory", "recall", "feishu"),
+        ("schedule", "todo", "memory", "recall", "feishu", "service_reply", "loan_calc"),
         (_flow("visit_notes", "拜访纪要", "随口说说拜访情况，整理出跟进事项并生成网页",
                ("input_text", {"label": "把今天拜访客户的情况随便说说"}), ("ai_extract", {"task": "待办"}),
                ("to_todo", {}), ("web_page", {"title": "拜访跟进"})),),
@@ -146,7 +148,7 @@ PROFESSIONS: tuple[dict, ...] = (
         ("今天要拜访谁", "记住：李总爱喝普洱", "上次和张经理聊到哪了")),
     _profession(
         "teacher", "老师", "📚", "备课、课表、家校沟通，琐事交给它",
-        ("schedule", "todo", "memo", "search"),
+        ("schedule", "todo", "memo", "search", "essay_review", "official_doc", "study_plan"),
         (_flow("courseware", "课件提炼", "上传课件，按章节提炼要点，生成给学生看的网页",
                ("input_file", {}), ("split_file", {"mode": "chapter", "max_parts": 8}),
                ("ai_extract", {"task": "要点"}), ("web_page", {"title": "课件要点"})),),
@@ -155,7 +157,7 @@ PROFESSIONS: tuple[dict, ...] = (
         ("明天有几节课", "记一下：周四开家长会", "帮我查查这个知识点怎么讲")),
     _profession(
         "student", "学生", "🎒", "作业、复习、查资料，学习不掉队",
-        ("todo", "schedule", "search", "recall"),
+        ("todo", "schedule", "search", "recall", "study_plan", "resume_helper", "interview_coach"),
         (_flow("quick_read", "资料速读", "上传一份资料，几秒钟读出摘要并生成网页",
                ("input_file", {}), ("ai_extract", {"task": "摘要"}), ("web_page", {"title": "资料速读"})),),
         "你是学生的学习助手：拆作业、排复习计划、查资料讲概念，讲解简洁、举例通俗。",
@@ -163,7 +165,7 @@ PROFESSIONS: tuple[dict, ...] = (
         ("这周有哪些作业要交", "提醒我周日复习高数", "帮我查下这个概念")),
     _profession(
         "creator", "内容创作者", "🎥", "追热点、攒素材、排选题，灵感不再溜走",
-        ("search", "memo", "movies", "todo"),
+        ("search", "memo", "movies", "todo", "video_script", "social_post"),
         (_flow("topic_material", "选题素材", "贴一段素材或方向，提炼可写的角度并生成网页",
                ("input_text", {"label": "贴一段素材，或写下想做的选题方向"}), ("ai_extract", {"task": "要点"}),
                ("web_page", {"title": "选题素材"})),),
@@ -172,7 +174,7 @@ PROFESSIONS: tuple[dict, ...] = (
         ("最近有啥热点值得做", "记个选题：打工人带饭", "这部新片口碑怎么样")),
     _profession(
         "office", "行政 / HR", "🗂️", "通知、会议、流程，琐碎事务有条不紊",
-        ("schedule", "todo", "meeting", "feishu"),
+        ("schedule", "todo", "meeting", "feishu", "official_doc", "meeting_notes", "workday_calc"),
         (_flow("notice", "通知下发", "说说要通知的事，改写成正式通知并生成网页",
                ("input_text", {"label": "说说要通知什么事、时间地点、谁参加"}),
                ("ai_extract", {"task": "改写", "instruction": "改写成正式、简洁的内部通知，写清时间地点和注意事项"}),

@@ -15,6 +15,7 @@
   "steps": ["word_out"],
   "requires": ["files"],
   "python_packages": ["python-docx"],
+  "license": "MIT-0",
   "author": "JWS-Agent",
   "homepage": "",
   "source": {"type": "builtin"}

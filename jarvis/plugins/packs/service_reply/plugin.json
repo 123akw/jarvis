@@ -1,0 +1,21 @@
+{
+  "id": "service_reply",
+  "name": "客服回复话术",
+  "version": "1.0.0",
+  "icon": "💬",
+  "category": "communication",
+  "summary": "催付、退换、差评、砍价，先共情再给办法，回得体面",
+  "kind": "skill",
+  "tier": "free",
+  "price": 0,
+  "professions": ["shop_owner", "sales", "freelancer"],
+  "examples": ["顾客说发货太慢了，帮我回一下", "收到一条差评，怎么回比较好", "客人一直砍价，怎么说不得罪人"],
+  "entry": null,
+  "tools": [],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "license": "MIT-0",
+  "author": "JWS-Agent",
+  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/service_reply"
+}

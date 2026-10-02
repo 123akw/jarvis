@@ -15,6 +15,7 @@
   "steps": [],
   "requires": ["files"],
   "python_packages": ["pypdf"],
+  "license": "MIT-0",
   "author": "JWS-Agent",
   "homepage": "",
   "source": {"type": "builtin"}

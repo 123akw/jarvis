@@ -1,0 +1,21 @@
+{
+  "id": "workday_calc",
+  "name": "日期工作日",
+  "version": "1.0.0",
+  "icon": "📆",
+  "category": "efficiency",
+  "summary": "算工作日、往后数几个工作日，自动扣掉节假日和调休",
+  "kind": "tool",
+  "tier": "free",
+  "price": 0,
+  "professions": ["office", "project_manager", "freelancer", "teacher", "student"],
+  "examples": ["今天到月底还有几个工作日", "从下周一起往后数 10 个工作日是哪天", "今年国庆怎么放假，哪天调休上班"],
+  "entry": "tools.py",
+  "tools": ["workday_calc_count", "workday_calc_add", "workday_calc_holidays"],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "license": "MIT-0",
+  "author": "JWS-Agent",
+  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/workday_calc"
+}

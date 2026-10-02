@@ -170,7 +170,8 @@ def test_agent_tool_names_are_sanitized_and_unique():
 def test_discovery_archives_tools_and_binds_them(tmp_path, fake, owner):
     plugin_id = _install(tmp_path, "fake_srv", fake.url)
     entry = plugins.get_plugin(plugin_id)
-    assert entry["status"] == "ok" and entry["tools"] == [] and entry["mcp"] is True   # 还没连过：先没有工具
+    assert entry["status"] == "unavailable" and entry["tools"] == [] and entry["mcp"] is True   # 还没拿到工具清单
+    assert "MCP" in entry["reason"]
     result = owner.post(f"/api/plugins/{plugin_id}/test").json()
     assert result["outcome"] == "archived" and result["status"] == "ok"
     entry = plugins.get_plugin(plugin_id)
@@ -397,8 +398,9 @@ def test_builtin_mcp_pack_loads(tmp_path, fake, monkeypatch):
     try:
         _write(target / "fake_builtin", fake.url, kind="mcp")
         loader.reload()
-        assert plugins.get_plugin("fake_builtin")["status"] == "ok"
+        assert plugins.get_plugin("fake_builtin")["status"] == "unavailable"
         mcp.test_connection("fake_builtin")
+        assert plugins.get_plugin("fake_builtin")["status"] == "ok"
         assert "fake_builtin__echo" in plugins.tools_for(["fake_builtin"])
         assert plugins.get_plugin("fake_builtin")["source"] == {"type": "builtin"}
     finally:

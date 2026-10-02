@@ -1,0 +1,21 @@
+{
+  "id": "tax_calc",
+  "name": "个税社保速算",
+  "version": "1.0.0",
+  "icon": "🧾",
+  "category": "life",
+  "summary": "月薪到手多少、年终奖交多少税，按现行政策一算就清楚",
+  "kind": "tool",
+  "tier": "free",
+  "price": 0,
+  "professions": ["office", "freelancer", "sales"],
+  "examples": ["月薪一万五，每个月到手大概多少", "年终奖三万六要交多少税", "年终奖单独计税和并入哪个划算"],
+  "entry": "tools.py",
+  "tools": ["tax_calc_salary", "tax_calc_bonus"],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "license": "MIT-0",
+  "author": "JWS-Agent",
+  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/tax_calc"
+}

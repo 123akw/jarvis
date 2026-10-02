@@ -1,0 +1,21 @@
+{
+  "id": "official_doc",
+  "name": "通知公文",
+  "version": "1.0.0",
+  "icon": "📑",
+  "category": "documents",
+  "summary": "通知、请示、函、邀请函，按常见公文格式一次写规范",
+  "kind": "skill",
+  "tier": "free",
+  "price": 0,
+  "professions": ["office", "teacher"],
+  "examples": ["帮我写一份放假通知", "写个请示，申请采购一批办公电脑", "给合作单位发个邀请函"],
+  "entry": null,
+  "tools": [],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "license": "MIT-0",
+  "author": "JWS-Agent",
+  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/official_doc"
+}

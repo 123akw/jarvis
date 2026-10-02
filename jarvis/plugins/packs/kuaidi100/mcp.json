@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "kuaidi100": {
+      "type": "streamable-http",
+      "url": "https://api.kuaidi100.com/mcp/streamable?key=${KUAIDI100_KEY}"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "id": "social_post",
+  "name": "朋友圈小红书文案",
+  "version": "1.0.0",
+  "icon": "📣",
+  "category": "communication",
+  "summary": "朋友圈三版、小红书笔记、社群群发，一次写好不踩极限词",
+  "kind": "skill",
+  "tier": "free",
+  "price": 0,
+  "professions": ["shop_owner", "creator", "sales", "freelancer"],
+  "examples": ["帮我写条朋友圈，店里今天上了新品", "写一篇小红书笔记分享这个好物", "这段促销文案帮我改改"],
+  "entry": null,
+  "tools": [],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "license": "MIT-0",
+  "author": "JWS-Agent",
+  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/social_post"
+}

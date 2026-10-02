@@ -1,0 +1,21 @@
+{
+  "id": "health_calc",
+  "name": "BMI与热量",
+  "version": "1.0.0",
+  "icon": "🥗",
+  "category": "life",
+  "summary": "算 BMI、看胖不胖，估每天消耗多少热量",
+  "kind": "tool",
+  "tier": "free",
+  "price": 0,
+  "professions": [],
+  "examples": ["身高 170 体重 75 公斤，算一下 BMI", "腰围 88 厘米算不算肥胖", "想减重的话每天吃多少热量合适"],
+  "entry": "tools.py",
+  "tools": ["health_calc_bmi", "health_calc_energy"],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "license": "MIT-0",
+  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/health_calc"
+}

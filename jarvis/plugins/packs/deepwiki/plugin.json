@@ -1,0 +1,28 @@
+{
+  "id": "deepwiki",
+  "name": "DeepWiki 问仓库",
+  "version": "1.0.0",
+  "icon": "📖",
+  "category": "info",
+  "summary": "问问 GitHub 开源项目是干嘛的、怎么用，免 Key",
+  "kind": "tool",
+  "tier": "free",
+  "price": 0,
+  "professions": [
+    "freelancer",
+    "student"
+  ],
+  "examples": [
+    "这个 GitHub 仓库是做什么的，怎么上手",
+    "这个开源项目的代码目录是怎么分的"
+  ],
+  "entry": null,
+  "tools": [],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "config": [],
+  "license": "MIT-0",
+  "author": "JWS-Agent",
+  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/deepwiki"
+}

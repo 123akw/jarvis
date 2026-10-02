@@ -1,0 +1,21 @@
+{
+  "id": "loan_calc",
+  "name": "房贷车贷计算",
+  "version": "1.0.0",
+  "icon": "🏠",
+  "category": "life",
+  "summary": "月供多少、利息多少、提前还款省多少，一问算清",
+  "kind": "tool",
+  "tier": "free",
+  "price": 0,
+  "professions": ["sales", "freelancer", "office"],
+  "examples": ["贷 100 万 30 年，利率 3.1%，月供多少", "等额本金和等额本息哪个划算", "房贷还了 3 年，提前还 20 万能省多少利息"],
+  "entry": "tools.py",
+  "tools": ["loan_calc_payment", "loan_calc_prepay"],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "license": "MIT-0",
+  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/loan_calc"
+}

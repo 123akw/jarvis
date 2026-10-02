@@ -1,0 +1,21 @@
+{
+  "id": "video_script",
+  "name": "短视频口播稿",
+  "version": "1.0.0",
+  "icon": "🎬",
+  "category": "communication",
+  "summary": "30 秒、60 秒口播稿，开头抓人，分镜字幕一起给",
+  "kind": "skill",
+  "tier": "free",
+  "price": 0,
+  "professions": ["creator", "shop_owner", "sales"],
+  "examples": ["帮我写个 30 秒的口播稿介绍新品", "写个一分钟的短视频脚本讲讲这个小技巧", "这段口播太平了，帮我改得抓人点"],
+  "entry": null,
+  "tools": [],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "license": "MIT-0",
+  "author": "JWS-Agent",
+  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/video_script"
+}
