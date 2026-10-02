@@ -4,11 +4,10 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('./api.js', () => ({ login: vi.fn() }))
-vi.mock('./Moss.jsx', () => ({ default: ({ spinup }) => <div aria-label="MOSS 3D" data-spinup={String(spinup)} /> }))
 
 import { login } from './api.js'
 import { INTRO_DONE_EVENT, setIntroPlaying } from './intro/registry.js'
-import Login, { LOGIN_FORM_KEY } from './Login.jsx'
+import Login from './Login.jsx'
 
 // 本 jsdom 环境不带 localStorage，按仓库惯例 stub 一个内存版
 function memoryStorage() {
@@ -21,7 +20,7 @@ function memoryStorage() {
   }
 }
 
-describe('登录页形态切换', () => {
+describe('登录页形态', () => {
   beforeEach(() => {
     vi.stubGlobal('localStorage', memoryStorage())
     login.mockReset()
@@ -32,33 +31,21 @@ describe('登录页形态切换', () => {
     document.body.classList.remove('light')
   })
 
-  it('默认是 J.A.R.V.I.S. 光球形态，不加载 MOSS', () => {
+  it('只有 J.A.R.V.I.S. 光球形态：没有形态开关，也没有 MOSS 语音', () => {
     render(<Login onAuthed={() => {}} />)
-    expect(screen.getByRole('radio', { name: 'J.A.R.V.I.S.' })).toHaveAttribute('aria-checked', 'true')
     expect(screen.getByRole('img', { name: /贾维斯/ })).toBeInTheDocument()
-    expect(screen.queryByLabelText('MOSS 3D')).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /MOSS 语音/ })).not.toBeInTheDocument()
+    expect(screen.getByText('J.A.R.V.I.S.')).toBeInTheDocument()
+    expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument()
+    expect(screen.queryByText(/MOSS/)).not.toBeInTheDocument()
   })
 
-  it('切到 MOSS：记住选择，3D 机头、语音开关回来；再切回光球', async () => {
-    const user = userEvent.setup()
-    render(<Login onAuthed={() => {}} />)
-    await user.click(screen.getByRole('radio', { name: 'MOSS' }))
-    expect(localStorage.getItem(LOGIN_FORM_KEY)).toBe('moss')
-    expect(await screen.findByLabelText('MOSS 3D')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /MOSS 语音/ })).toBeInTheDocument()
-    expect(screen.queryByRole('img', { name: /贾维斯/ })).not.toBeInTheDocument()
-    await user.click(screen.getByRole('radio', { name: 'J.A.R.V.I.S.' }))
-    expect(localStorage.getItem(LOGIN_FORM_KEY)).toBe('orb')
-    expect(screen.getByRole('img', { name: /贾维斯/ })).toBeInTheDocument()
-  })
-
-  it('上次选了 MOSS 就直接以 MOSS 形态打开，且固定暗色', async () => {
-    localStorage.setItem(LOGIN_FORM_KEY, 'moss')
+  it('旧数据里存过 MOSS 形态也照常打开光球，并跟随用户主题', () => {
+    localStorage.setItem('jv_login_form', 'moss')
     localStorage.setItem('jws_theme', 'light')
     render(<Login onAuthed={() => {}} />)
-    expect(await screen.findByLabelText('MOSS 3D')).toBeInTheDocument()
-    expect(document.body.classList.contains('light')).toBe(false)
+    expect(screen.getByRole('img', { name: /贾维斯/ })).toBeInTheDocument()
+    expect(screen.queryByText(/MOSS/)).not.toBeInTheDocument()
+    expect(document.body.classList.contains('light')).toBe(true)
   })
 
   it('光球形态跟随用户主题（亮色）', () => {
@@ -67,14 +54,12 @@ describe('登录页形态切换', () => {
     expect(document.body.classList.contains('light')).toBe(true)
   })
 
-  it('localStorage 不可用（隐私模式抛错）时照常渲染、照常切换', async () => {
+  it('localStorage 不可用（隐私模式抛错）时照常渲染', () => {
     const deny = () => { throw new Error('denied') }
     vi.stubGlobal('localStorage', { getItem: deny, setItem: deny, removeItem: deny, clear: deny })
-    const user = userEvent.setup()
     render(<Login onAuthed={() => {}} />)
-    expect(screen.getByRole('radio', { name: 'J.A.R.V.I.S.' })).toHaveAttribute('aria-checked', 'true')
-    await user.click(screen.getByRole('radio', { name: 'MOSS' }))
-    expect(await screen.findByLabelText('MOSS 3D')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: /贾维斯/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '接入系统' })).toBeEnabled()
   })
 })
 
@@ -118,6 +103,52 @@ describe('登录流程', () => {
     await waitFor(() => expect(login).toHaveBeenCalledTimes(2))
     expect(screen.getByRole('button', { name: '接入系统' })).toBeEnabled()
     expect(onAuthed).not.toHaveBeenCalled()
+  })
+})
+
+describe('地址栏 ?u= 预填用户名', () => {
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', memoryStorage())
+    login.mockReset()
+  })
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('只预填用户名、光标落到口令框；登录成功后从地址栏清掉 ?u=，其余参数保留', async () => {
+    window.history.replaceState(null, '', '/?intro=off&u=%E9%99%88%E6%80%BB#top')
+    const session = { authed: true, username: '陈总' }
+    login.mockResolvedValue(session)
+    const onAuthed = vi.fn()
+    const user = userEvent.setup()
+    render(<Login onAuthed={onAuthed} />)
+    expect(screen.getByLabelText('用户名')).toHaveValue('陈总')
+    expect(screen.getByLabelText('口令')).toHaveValue('')
+    expect(screen.getByLabelText('口令')).toHaveFocus()
+    await user.keyboard('pw')
+    await user.click(screen.getByRole('button', { name: '接入系统' }))
+    expect(login).toHaveBeenCalledWith('陈总', 'pw')
+    await waitFor(() => expect(onAuthed).toHaveBeenCalledTimes(1), { timeout: 2000 })
+    expect(window.location.search).toBe('?intro=off')
+    expect(window.location.hash).toBe('#top')
+  })
+
+  it('登录失败时 ?u= 留在地址栏；没有 ?u= 时照旧光标在用户名', async () => {
+    window.history.replaceState(null, '', '/?u=owner')
+    login.mockResolvedValue(null)
+    const user = userEvent.setup()
+    render(<Login onAuthed={() => {}} />)
+    await user.keyboard('wrong')
+    await user.click(screen.getByRole('button', { name: '接入系统' }))
+    expect(await screen.findByText('身份未确认，请重试')).toBeInTheDocument()
+    expect(window.location.search).toBe('?u=owner')
+    cleanup()
+    window.history.replaceState(null, '', '/')
+    render(<Login onAuthed={() => {}} />)
+    expect(screen.getByLabelText('用户名')).toHaveValue('')
+    expect(screen.getByLabelText('用户名')).toHaveFocus()
   })
 })
 

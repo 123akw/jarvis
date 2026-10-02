@@ -68,13 +68,12 @@ def test_compose_appends_slow_parts_after_static_prompt(monkeypatch, tmp_path):
     (tmp_path / "s" / "SKILL.md").write_text("# 小技能\n回答末尾加句号。", encoding="utf-8")
     store = TenantStore()
     store.set_pref("persona_address", "陈总")
-    store.set_pref("persona_style", "moss")
     store.add_profile("领导只喝茶")
     composed = compose_system_prompt()
     assert composed.startswith(SYSTEM_PROMPT)                         # 不变的部分在最前
     order = [composed.index(x) for x in ("## 人设设定", "## 关于领导", "## 附加技能")]
     assert order == sorted(order)
-    assert "称呼用户为「陈总」" in composed and prompts.PERSONA_MOSS in composed
+    assert "称呼用户为「陈总」" in composed
     assert "此刻" not in composed[len(SYSTEM_PROMPT):]                # 每轮变化的时间不进系统提示词
 
 

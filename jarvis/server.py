@@ -1214,13 +1214,18 @@ def radio_put(request: Request, body: RadioIn):
     return {"ok": True, "time": value}
 
 
-# ---------- 人设工坊：称呼 / 人格（J.A.R.V.I.S. ↔ MOSS）/ 语气 ----------
+# ---------- 人设工坊：称呼 / 语气（人格只有 J.A.R.V.I.S. 一种；MOSS 已下线） ----------
 
-PERSONA_STYLES = {"jarvis", "moss"}
+PERSONA_STYLES = {"jarvis"}
+
+
+def _persona_style(stored: str | None) -> str:
+    """旧数据里存着已下线人格（如 moss）的账号，读取时一律按 jarvis 处理。"""
+    return stored if stored in PERSONA_STYLES else "jarvis"
 
 
 class PersonaIn(BaseModel):
-    style: str
+    style: str = "jarvis"
     address: str = ""
     flavor: str = ""
 
@@ -1234,7 +1239,7 @@ def persona_get(request: Request):
         with tenant_scope(principal.user_id):
             store = _tenant_store()
             return {
-                "style": store.get_pref("persona_style") or "jarvis",
+                "style": _persona_style(store.get_pref("persona_style")),
                 "address": store.get_pref("persona_address") or "",
                 "flavor": store.get_pref("persona_flavor") or "",
             }
@@ -1248,7 +1253,8 @@ def persona_put(request: Request, body: PersonaIn):
     if err:
         return err
     if body.style not in PERSONA_STYLES:
-        return JSONResponse({"error": "人格只支持 jarvis / moss"}, status_code=422)
+        msg = "MOSS 人格已下线，目前只有 J.A.R.V.I.S. 一种人格" if body.style == "moss" else "人格只支持 J.A.R.V.I.S.（jarvis）"
+        return JSONResponse({"error": msg}, status_code=422)
     address = _clean_line(body.address, 12)
     flavor = _clean_line(body.flavor, 120)
     try:

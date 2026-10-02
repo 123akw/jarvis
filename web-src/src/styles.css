@@ -688,7 +688,6 @@ body.light .provider-tabs button.on{background:#fff;box-shadow:0 1px 3px rgba(0,
 .user-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
 
 /* 记忆与人设 */
-.persona-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .persona-foot{display:flex;align-items:center;gap:12px}
 .persona-state{font-size:12.5px;color:var(--jv-success)}
 .memory-hint{margin:0 0 10px;color:var(--jv-text-2);font-size:13.5px;line-height:1.75}
@@ -847,7 +846,6 @@ body.light .provider-tabs button.on{background:#fff;box-shadow:0 1px 3px rgba(0,
     border-radius:22px 22px 0 0;border-bottom:none;border-left:none;border-right:none;animation:jv-sheet-up .36s var(--jv-ease)}
   .jv-modal-head{padding:24px 14px 6px 20px}
   .jv-modal-body{padding:12px 20px calc(28px + env(safe-area-inset-bottom))}
-  .persona-grid{grid-template-columns:1fr}
   .fs-code{font-size:34px}
   .provider-actions{display:grid;grid-template-columns:1fr}
 }

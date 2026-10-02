@@ -16,7 +16,6 @@ vi.mock('./api.js', () => ({
   login: vi.fn(),
 }))
 vi.mock('./desktopWake.js', () => ({ pingDesktop: vi.fn(() => Promise.resolve(null)), desktopWindow: vi.fn() }))
-vi.mock('./Moss.jsx', () => ({ default: () => null }))
 
 import AccountMenu from './AccountMenu.jsx'
 import { getProviderSettings, getThreads, login } from './api.js'

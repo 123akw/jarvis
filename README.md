@@ -33,7 +33,7 @@
 <table>
 <tr>
 <td width="33%" valign="top"><b>💬 流式对话</b><br>完整 Markdown（来源链接、表格、代码高亮），可重答、编辑重发、导出；上传 PDF / Word / TXT 解析追问</td>
-<td width="33%" valign="top"><b>🧠 长期记忆</b><br>画像可查可删，每晚把当天对话蒸馏进长期画像；称呼语气可调，J.A.R.V.I.S. ↔ MOSS 双人格</td>
+<td width="33%" valign="top"><b>🧠 长期记忆</b><br>画像可查可删，每晚把当天对话蒸馏进长期画像；称呼与语气可调</td>
 <td width="33%" valign="top"><b>⏰ 主动找你</b><br>日程到点推送微信 / 飞书 / 桌面 / 网页，一键「稍后 10 分 / 完成」；渠道与免打扰自己定，该开口才开口</td>
 </tr>
 <tr>
@@ -59,7 +59,7 @@
 
 <table>
 <tr>
-<td align="center" width="50%"><img src="docs/assets/readme/web-login.png" alt="登录页：存在感光球与问候" width="100%"><br><sub>登录页：会呼吸的 AI 光球，可切到 MOSS 形态</sub></td>
+<td align="center" width="50%"><img src="docs/assets/readme/web-login.png" alt="登录页：存在感光球与问候" width="100%"><br><sub>登录页：会呼吸的 AI 光球与问候</sub></td>
 <td align="center" width="50%"><img src="docs/assets/readme/web-empty.png" alt="新对话空态：光球、问候与建议卡" width="100%"><br><sub>新对话：光球 + 问候 + 一键建议</sub></td>
 </tr>
 <tr>
@@ -190,7 +190,7 @@ flowchart LR
 - **导航**：账户、记忆、设置中心、微信、悬浮窗、主题收进右上角头像菜单；⌘K 命令面板可搜会话、直达任意设置。
 - **「今日」板**：日程、待办、备忘与会议纪要收在一处，宽屏常驻、窄屏浮层。
 - **AI 光球 Presence**：WebGL 光球贯穿登录页、新对话空态与语音通话，随听 / 想 / 说变化。
-- **登录页**：重新设计并保留 J.A.R.V.I.S. / MOSS 双形态切换，登录页 JS 1282 → 352KB。
+- **登录页**：重新设计并保留 J.A.R.V.I.S. / MOSS 双形态切换（MOSS 已在第十三轮删除），登录页 JS 1282 → 352KB。
 - 测试基线 **pytest 657 / vitest 133 / desktop 124**，全部通过。
 
 </details>

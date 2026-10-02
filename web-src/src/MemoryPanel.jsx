@@ -39,23 +39,22 @@ function ReceiptSwitch({ onExpired }) {
   )
 }
 
-/** 人设工坊：称呼 / J.A.R.V.I.S.↔MOSS 人格 / 语气口头禅 */
+/** 人设工坊：称呼 / 语气口头禅（人格只有 J.A.R.V.I.S. 一种，不再显示切换） */
 function PersonaSection({ onExpired }) {
-  const [style, setStyle] = useState('jarvis')
   const [address, setAddress] = useState('')
   const [flavor, setFlavor] = useState('')
   const [state, setState] = useState('')
 
   useEffect(() => {
     getPersona()
-      .then(p => { setStyle(p.style); setAddress(p.address); setFlavor(p.flavor) })
+      .then(p => { setAddress(p.address); setFlavor(p.flavor) })
       .catch(e => { if (e.message === '401') onExpired?.() })
   }, [])
 
   async function save() {
     setState('保存中…')
     try {
-      await savePersona(style, address.trim(), flavor.trim())
+      await savePersona('jarvis', address.trim(), flavor.trim())
       setState('已保存；新对话立即生效。')
     } catch (e) {
       if (e.message === '401') { onExpired?.(); return }
@@ -65,18 +64,10 @@ function PersonaSection({ onExpired }) {
 
   return (
     <div className="persona-box">
-      <div className="persona-grid">
-        <label>人格
-          <select aria-label="人格" value={style} onChange={e => setStyle(e.target.value)}>
-            <option value="jarvis">J.A.R.V.I.S. · 英式管家</option>
-            <option value="moss">MOSS · 冷静理性</option>
-          </select>
-        </label>
-        <label>怎么称呼你
-          <input aria-label="称呼" value={address} maxLength={12} placeholder="默认「领导」"
-            onChange={e => setAddress(e.target.value)} />
-        </label>
-      </div>
+      <label>怎么称呼你
+        <input aria-label="称呼" value={address} maxLength={12} placeholder="默认「领导」"
+          onChange={e => setAddress(e.target.value)} />
+      </label>
       <label className="persona-flavor">语气 / 口头禅（可选）
         <input aria-label="语气" value={flavor} maxLength={120}
           placeholder="例如：回答末尾偶尔加一句冷幽默"
