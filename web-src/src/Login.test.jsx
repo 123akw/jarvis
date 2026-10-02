@@ -106,6 +106,52 @@ describe('登录流程', () => {
   })
 })
 
+describe('地址栏 ?u= 预填用户名', () => {
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', memoryStorage())
+    login.mockReset()
+  })
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('只预填用户名、光标落到口令框；登录成功后从地址栏清掉 ?u=，其余参数保留', async () => {
+    window.history.replaceState(null, '', '/?intro=off&u=%E9%99%88%E6%80%BB#top')
+    const session = { authed: true, username: '陈总' }
+    login.mockResolvedValue(session)
+    const onAuthed = vi.fn()
+    const user = userEvent.setup()
+    render(<Login onAuthed={onAuthed} />)
+    expect(screen.getByLabelText('用户名')).toHaveValue('陈总')
+    expect(screen.getByLabelText('口令')).toHaveValue('')
+    expect(screen.getByLabelText('口令')).toHaveFocus()
+    await user.keyboard('pw')
+    await user.click(screen.getByRole('button', { name: '接入系统' }))
+    expect(login).toHaveBeenCalledWith('陈总', 'pw')
+    await waitFor(() => expect(onAuthed).toHaveBeenCalledTimes(1), { timeout: 2000 })
+    expect(window.location.search).toBe('?intro=off')
+    expect(window.location.hash).toBe('#top')
+  })
+
+  it('登录失败时 ?u= 留在地址栏；没有 ?u= 时照旧光标在用户名', async () => {
+    window.history.replaceState(null, '', '/?u=owner')
+    login.mockResolvedValue(null)
+    const user = userEvent.setup()
+    render(<Login onAuthed={() => {}} />)
+    await user.keyboard('wrong')
+    await user.click(screen.getByRole('button', { name: '接入系统' }))
+    expect(await screen.findByText('身份未确认，请重试')).toBeInTheDocument()
+    expect(window.location.search).toBe('?u=owner')
+    cleanup()
+    window.history.replaceState(null, '', '/')
+    render(<Login onAuthed={() => {}} />)
+    expect(screen.getByLabelText('用户名')).toHaveValue('')
+    expect(screen.getByLabelText('用户名')).toHaveFocus()
+  })
+})
+
 describe('登录页与进场动画的交接', () => {
   beforeEach(() => { vi.stubGlobal('localStorage', memoryStorage()) })
   afterEach(() => {

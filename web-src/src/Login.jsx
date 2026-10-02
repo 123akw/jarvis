@@ -15,6 +15,21 @@ function Ambient() {
   )
 }
 
+/** 地址栏 ?u=<用户名>：市场生成账号后带着它跳来登录页，只预填用户名（不碰口令） */
+const PREFILL_PARAM = 'u'
+function readPrefillUser() {
+  try { return (new URLSearchParams(window.location.search).get(PREFILL_PARAM) || '').trim().slice(0, 64) } catch { return '' }
+}
+/** 登录成功后把 ?u= 从地址栏清掉（其余参数与 hash 原样保留），不留历史记录 */
+function clearPrefillParam() {
+  try {
+    const url = new URL(window.location.href)
+    if (!url.searchParams.has(PREFILL_PARAM)) return
+    url.searchParams.delete(PREFILL_PARAM)
+    window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash)
+  } catch { /* 清不掉不影响登录 */ }
+}
+
 function greeting() {
   const h = new Date().getHours()
   if (h < 5) return '夜深了，领导。'
@@ -59,7 +74,8 @@ function useOrbSize() {
 
 /** 登录页：J.A.R.V.I.S. 光球 + 柔和背景光 + 玻璃登录卡。 */
 export default function Login({ onAuthed, notice = '' }) {
-  const [u, setU] = useState('')
+  const [u, setU] = useState(readPrefillUser)
+  const [prefilled] = useState(() => u !== '')   // 预填了用户名：光标直接落到口令框
   const [p, setP] = useState('')
   const [busy, setBusy] = useState(false)
   const [stage, setStage] = useState('idle') // idle | leaving（卡片退场）| bloom（光球扩散）
@@ -115,6 +131,7 @@ export default function Login({ onAuthed, notice = '' }) {
   }
 
   function succeed(session) {
+    clearPrefillParam()
     const reduced = prefersReducedMotion()
     const r = orbRef.current?.getBoundingClientRect()
     const origin = r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null
@@ -179,12 +196,12 @@ export default function Login({ onAuthed, notice = '' }) {
             <label className="jvl-field">
               <span>用户名</span>
               <input ref={userRef} value={u} onChange={e => { setU(e.target.value); setMissing(''); setHint(''); onKeyActivity() }}
-                autoComplete="username" autoFocus spellCheck={false} aria-invalid={missing === 'user' || undefined} />
+                autoComplete="username" autoFocus={!prefilled} spellCheck={false} aria-invalid={missing === 'user' || undefined} />
             </label>
             <label className="jvl-field">
               <span>口令</span>
               <input ref={passRef} type="password" value={p} onChange={e => { setP(e.target.value); setMissing(''); setHint(''); onKeyActivity() }}
-                autoComplete="current-password" aria-invalid={missing === 'pass' || undefined} />
+                autoComplete="current-password" autoFocus={prefilled} aria-invalid={missing === 'pass' || undefined} />
             </label>
             <button className="jvl-btn" disabled={busy || spinup}>
               <span>{spinup ? '正在接入…' : busy ? '验证中…' : '接入系统'}</span>
