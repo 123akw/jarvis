@@ -8,6 +8,8 @@
   --_r-md:var(--jv-radius-md,12px);
   --_veil:rgb(5 6 10 / .8);--_chip:rgb(255 255 255 / .06);--_field:rgb(255 255 255 / .05);
   position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  overscroll-behavior:none;
   background:var(--_veil);-webkit-backdrop-filter:blur(22px) saturate(140%);backdrop-filter:blur(22px) saturate(140%);
   color:var(--_text);font-family:var(--jv-font,-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif);
   animation:voice-fade .35s var(--_ease) both}
@@ -17,7 +19,7 @@ body.light .voice-overlay{
   --_veil:rgb(244 245 248 / .82);--_chip:rgb(15 18 30 / .05);--_field:rgb(15 18 30 / .04)}
 .voice-overlay .jv-edge{z-index:0}
 
-.voice-panel{position:relative;z-index:1;width:min(540px,92vw);max-height:100%;overflow-y:auto;
+.voice-panel{position:relative;z-index:1;width:min(540px,92vw);max-height:100%;overflow-y:auto;overscroll-behavior:contain;
   display:flex;flex-direction:column;align-items:center;gap:14px;padding:clamp(24px,5vh,56px) 8px;
   text-align:center;animation:voice-rise .5s var(--_ease) .05s both}
 .voice-panel::-webkit-scrollbar{width:0}
@@ -43,7 +45,7 @@ body.light .voice-overlay{
 
 /* 回答字幕：左对齐便于读长句；顶部渐隐提示可滚动 */
 .voice-reply{width:100%;font-size:16px;line-height:1.65;color:var(--_text);text-align:left;
-  max-height:min(200px,26vh);overflow-y:auto;padding:4px 4px 2px;
+  max-height:min(200px,26vh);overflow-y:auto;overscroll-behavior:contain;padding:4px 4px 2px;
   -webkit-mask-image:linear-gradient(180deg,transparent 0,#000 18px);mask-image:linear-gradient(180deg,transparent 0,#000 18px)}
 .voice-notice{width:100%;font-size:13px;line-height:1.5;color:#f59e0b;text-align:left;
   background:rgb(245 158 11 / .1);border:1px solid rgb(245 158 11 / .28);border-radius:var(--_r-md);padding:9px 12px}
@@ -83,8 +85,18 @@ body.light .voice-typebar button{color:#fff}
 @keyframes voice-rise{from{opacity:0;transform:translateY(14px) scale(.985)}}
 
 @media (max-width:520px){
-  .voice-panel{width:94vw;gap:12px}
+  .voice-panel{width:94vw;gap:12px;padding-bottom:max(20px,env(safe-area-inset-bottom))}
   .voice-reply{font-size:15px}
+  .voice-actions{gap:14px;margin-top:14px}
+  .voice-btn{height:52px;min-width:128px;font-size:15.5px}
+}
+/* 触屏：全屏模糊在中低端手机上每帧都要重算（光球一直在动），改成实色整屏（半透明会透出背后的对话字）；
+ * 输入框 16px 防 iOS 聚焦放大；场景小药丸补足点击高度 */
+@media (pointer:coarse){
+  .voice-overlay{--_veil:var(--jv-bg,#0B0B0F);-webkit-backdrop-filter:none;backdrop-filter:none}
+  body.light .voice-overlay{--_veil:var(--jv-bg,#F5F5F7)}
+  .voice-typebar input{font-size:16px}
+  .voice-scene{min-height:36px;padding:0 14px}
 }
 @media (prefers-reduced-motion:reduce){
   .voice-overlay,.voice-panel{animation:none}

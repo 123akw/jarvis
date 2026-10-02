@@ -153,6 +153,20 @@ describe('对话区接入', () => {
   })
   afterEach(cleanup)
 
+  it('超长的用户消息折叠显示、可展开，不再做成会吃掉滑动手势的内部滚动框', async () => {
+    const long = '很长的一段文档内容。'.repeat(80)
+    getHistory.mockResolvedValue([{ role: 'user', content: long }, { role: 'assistant', content: '收到。' }, { role: 'user', content: '短消息' }])
+    const { container } = render(<Chat threadId="t1" />)
+    await screen.findByText('短消息')
+    const [big, small] = container.querySelectorAll('.ubox')
+    expect(big).toHaveClass('clamped')
+    expect(small).not.toHaveClass('clamped')
+    const more = screen.getByRole('button', { name: '展开全文' })
+    fireEvent.click(more)
+    expect(big).not.toHaveClass('clamped')
+    expect(screen.getByRole('button', { name: '收起' })).toHaveAttribute('aria-expanded', 'true')
+  })
+
   it('流式回答进行中往上翻，后续 token 不会把视口拽回底部', async () => {
     let push
     async function* stream() {

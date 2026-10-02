@@ -80,7 +80,8 @@ body.light .jvl-switch-thumb{background:#fff;box-shadow:0 1px 3px rgb(20 24 40 /
 
 /* ---------- 主区：光球 → 问候 → 玻璃卡（光先亮，字再起，卡最后浮现） ---------- */
 .jvl-main{position:relative;z-index:2;height:100%;display:flex;flex-direction:column;align-items:center;
-  justify-content:center;gap:clamp(12px,2.2vh,22px);padding:64px 20px 32px}
+  justify-content:center;gap:clamp(12px,2.2vh,22px);
+  padding:64px max(20px,env(safe-area-inset-right)) calc(32px + env(safe-area-inset-bottom)) max(20px,env(safe-area-inset-left))}
 .jvl-orb{display:grid;place-items:center;margin-bottom:clamp(4px,2.2vh,26px);
   animation:jvl-orb-in 1.15s var(--_ease) both}
 .jvl-greet{text-align:center;animation:jvl-rise .8s var(--_ease) .38s both}
@@ -186,6 +187,13 @@ body.light .jvl-notice{color:#047857}
 }
 @media (max-width:480px){
   .jvl-brand{visibility:hidden}
+}
+/* 触屏：输入框 16px 防 iOS 聚焦放大；登录卡压在会漂移的背景光上，backdrop-filter 每帧重算，换成更实的底色 */
+@media (pointer:coarse){
+  .jvl-field input{font-size:16px}
+  .jvl-switch button{padding:9px 14px}
+  .jv-login:not(.form-moss) .jvl-card{background:rgb(24 25 32 / .9);-webkit-backdrop-filter:none;backdrop-filter:none}
+  body.light .jv-login:not(.form-moss) .jvl-card{background:rgb(255 255 255 / .9)}
 }
 @media (max-height:640px){
   .jvl-main{justify-content:flex-start;overflow-y:auto}

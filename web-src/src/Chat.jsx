@@ -127,6 +127,25 @@ function Thinking() {
   )
 }
 
+/** 用户消息气泡：太长的（贴进来的长文、上传文档的解析结果）先折叠，点「展开全文」看全部。
+ *  原来是 max-height + 气泡内部滚动：手机上手指落在气泡里，整次滑动都被它吃掉，对话翻不动。 */
+const LONG_CHARS = 600
+const LONG_LINES = 12
+function UserBubble({ text }) {
+  const [open, setOpen] = useState(false)
+  const long = text.length > LONG_CHARS || text.split('\n').length > LONG_LINES
+  return (
+    <div className="ucol">
+      <div className={`ubox${long && !open ? ' clamped' : ''}`}>{text}</div>
+      {long ? (
+        <button type="button" className="ubox-more" aria-expanded={open} onClick={() => setOpen(v => !v)}>
+          {open ? '收起' : '展开全文'}
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
 /** 单条消息行：memo 后流式刷新只重渲染正在生成的那一行，长对话不再整表重算 */
 const MsgRow = memo(function MsgRow({ m, prevUser, busy, onSend, onEdit }) {
   if (m.kind === 'user') {
@@ -136,7 +155,7 @@ const MsgRow = memo(function MsgRow({ m, prevUser, busy, onSend, onEdit }) {
           <CopyButton text={m.raw} title="复制这条消息" />
           <button type="button" className="abtn" title="编辑后重新发送" onClick={() => onEdit(m.raw)}>编辑</button>
         </div>
-        <div className="ubox">{m.raw}</div>
+        <UserBubble text={m.raw} />
       </div>
     )
   }
@@ -212,10 +231,10 @@ function EmptyState({ userName, onPick }) {
 }
 
 let nextId = 1
-/** 手机宽度只留短提示：长提示会折成两行被单行输入框截断，触屏也没有 Shift+Enter */
-const compactInput = () => typeof window !== 'undefined' && window.innerWidth <= 640
 /** 触屏设备不自动聚焦输入框：否则每次回答结束都会把软键盘弹出来挡住回答 */
 const touchFirst = () => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
+/** 手机宽度只留短提示：长提示会折成两行被单行输入框截断；触屏（含平板）也没有 Shift+Enter */
+const compactInput = () => typeof window !== 'undefined' && (window.innerWidth <= 640 || touchFirst())
 
 function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = null, userName = '', fresh = false }) {
   const [msgs, setMsgs] = useState([])
