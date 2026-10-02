@@ -68,7 +68,7 @@ def test_open_signup_returns_credentials_without_a_session_and_they_log_in(accou
     assert not set(password) & set("0O1lI")
     assert platform["accent"] == "#FF9F0A" and platform["plugins"] == PLATFORM["plugins"]
     assert platform["url"] == f"http://testserver/p/{platform['slug']}"
-    assert platform["home"]["greeting"] and len(platform["home"]["chips"]) == 3
+    assert platform["home"]["greeting"] and len(platform["home"]["chips"]) == 4
     # 生成的账号口令能登录，登录后看到的就是自己的平台
     member = _client(username, password)
     assert member.get("/api/session").json()["role"] == "Member"

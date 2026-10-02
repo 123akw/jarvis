@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { login, logout } from '../api.js'
 import Icon from '../Icon.jsx'
+import { clearPrefillParam, readPrefillUser, sameUser } from '../loginParam.js'
 import Presence, { prefersReducedMotion } from '../Presence.jsx'
 import { navigate } from '../routes.js'
 import { applyTheme, currentTheme } from '../theme.js'
@@ -37,18 +38,13 @@ function Clock({ className }) {
 }
 
 /** 分享链接里的 ?u=<用户名>：市场生成平台时带上，打开就预填 */
-function presetUser() {
-  try {
-    return (new URLSearchParams(window.location.search).get('u') || '').trim().slice(0, 64)
-  } catch {
-    return ''
-  }
-}
+const presetUser = readPrefillUser
 
 const orbSize = () => (typeof window !== 'undefined' && window.innerWidth <= 900 ? 96 : 160)
 
-/** 品牌化登录卡：与贾维斯登录页同一种形式（身份验证 · 用户名 · 口令 · 按钮），登录走 api.js 的 login */
-function LoginCard({ name, onAuthed }) {
+/** 品牌化登录卡：与贾维斯登录页同一种形式（身份验证 · 用户名 · 口令 · 按钮），登录走 api.js 的 login。
+ *  switchFrom：?u= 与这台设备当前登录的账号不一致时的当前用户名——说明一句，并可「继续使用」它（onKeep） */
+function LoginCard({ name, onAuthed, switchFrom = '', onKeep }) {
   const preset = useRef(presetUser()).current
   const [u, setU] = useState(preset)
   const [p, setP] = useState('')
@@ -91,6 +87,11 @@ function LoginCard({ name, onAuthed }) {
     <form className={`pfe-card${shaking ? ' shake' : ''}${leaving ? ' leaving' : ''}`} onSubmit={submit} aria-label={`登录${name}`}
       onAnimationEnd={e => { if (e.target === e.currentTarget) setShaking(false) }}>
       <div className="pfe-card-title">身份验证</div>
+      {switchFrom ? (
+        <div className="pfe-switch" role="status">
+          这台设备当前登录的是「{switchFrom}」，要切换到「{u.trim() || '新账号'}」请输入口令
+        </div>
+      ) : null}
       <label className="pfe-field">
         <span>用户名</span>
         <input ref={userRef} value={u} onChange={e => { setU(e.target.value); setHint('') }}
@@ -105,6 +106,9 @@ function LoginCard({ name, onAuthed }) {
         {leaving ? '正在进入…' : busy ? '验证中…' : '登录'}
       </button>
       <div className={`pfe-hint${hint ? ' show' : ''}`} aria-live="polite">{hint}</div>
+      {switchFrom && onKeep ? (
+        <button type="button" className="pfe-link" onClick={onKeep} disabled={busy || leaving}>继续使用 {switchFrom}</button>
+      ) : null}
     </form>
   )
 }
@@ -141,7 +145,10 @@ export default function PlatformEntry({ slug, session, onAuthed }) {
   const [state, setState] = useState('loading')   // loading | ok | missing | error
   const [retry, setRetry] = useState(0)
   const [guide, setGuide] = useState(false)
+  const [keep, setKeep] = useState(false)   // ?u= 与已登录账号不一致时，用户选了「继续使用」当前账号
   const install = useInstallPrompt()
+  const wanted = useRef(presetUser()).current
+  const switching = Boolean(session && wanted && !keep && !sameUser(wanted, session.username))
 
   useEffect(() => { applyTheme(currentTheme()) }, [])
   useEffect(() => {
@@ -195,7 +202,10 @@ export default function PlatformEntry({ slug, session, onAuthed }) {
             </section>
             <div className="pfe-card-wrap">
               {session === null ? <div className="pfe-card pfe-card--wait" aria-hidden="true" />
-                : session ? <SignedIn session={session} onAuthed={onAuthed} />
+                : switching ? (
+                  <LoginCard name={brand.name} onAuthed={onAuthed} switchFrom={session.username}
+                    onKeep={() => { clearPrefillParam(); setKeep(true) }} />
+                ) : session ? <SignedIn session={session} onAuthed={onAuthed} />
                   : <LoginCard name={brand.name} onAuthed={onAuthed} />}
               <button type="button" className="pfe-install" onClick={() => setGuide(true)}>
                 <Icon name="addbox" size={16} />装到手机主屏

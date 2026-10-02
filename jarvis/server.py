@@ -468,6 +468,11 @@ def login(request: Request, body: LoginIn):
         return JSONResponse({"error": "账号或口令不对"}, status_code=401, headers={"Cache-Control": "no-store"})
     _login_limiter.success(_client_address(request), body.username)
     _principal, token, _csrf = authenticated
+    # 这台浏览器原先登着别的会话（如扫码换号时还留着 admin）：新会话替换旧 cookie，旧会话同时作废
+    previous_cookie = request.cookies.get(_COOKIE, "")
+    previous = _accounts.principal_for_token(previous_cookie, "web") if previous_cookie else None
+    if previous is not None and previous.session_id != _principal.session_id:
+        _accounts.revoke_session(previous.session_id)
     resp = JSONResponse({"ok": True}, headers={"Cache-Control": "no-store"})
     resp.set_cookie(
         _COOKIE, token, max_age=30 * 86400, httponly=True, samesite="strict", path="/",

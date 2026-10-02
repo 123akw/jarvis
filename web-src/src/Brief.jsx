@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { ensureBrief, getBrief } from './api.js'
+import { ACCOUNT_KEYS, readAccount, writeAccount } from './accountStorage.js'
 import Icon from './Icon.jsx'
 
-const HIDE_KEY = 'jws_brief_hide'
-
+// 「今天不再显示」按账号记（jws_brief_hide:<用户名>）；存储不可用（隐私模式）时只在本次会话里隐藏
 function hiddenOn() {
-  try { return localStorage.getItem(HIDE_KEY) || '' } catch { return '' }
+  return readAccount(ACCOUNT_KEYS.briefHide) || ''
 }
 function hideOn(date) {
-  try { localStorage.setItem(HIDE_KEY, date) } catch { /* 隐私模式：只在本次会话里隐藏 */ }
+  writeAccount(ACCOUNT_KEYS.briefHide, date)
 }
 
 /** 今日简报卡：「今日」板顶部，默认一行（AI 写的那句总览），点开看 2–3 行细节。

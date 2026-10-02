@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getFeishuStatus, logout } from './api.js'
+import { ACCOUNT_KEYS, readAccount, setCurrentAccount, writeAccount } from './accountStorage.js'
 import AccountMenu from './AccountMenu.jsx'
 import AccountSettings from './AccountSettings.jsx'
 import WeakPasswordNotice from './WeakPasswordNotice.jsx'
@@ -75,6 +76,7 @@ function useOverlayFocus(shown, panelRef, toggleRef) {
 }
 
 export default function Hud({ session, onLogout }) {
+  setCurrentAccount(session?.username)   // 子组件（简报、弱口令提醒）的本地存储按这个账号区分
   const mode = useLayoutMode()
   const leftOverlay = mode === 'narrow'
   const todayOverlay = mode !== 'wide'
@@ -85,7 +87,8 @@ export default function Hud({ session, onLogout }) {
   // 本地新建、服务端还没有记录的会话：对话区据此跳过拉历史（否则每次「新对话」都换来一个 404）
   const freshRef = useRef(null)
   if (!freshRef.current) freshRef.current = new Set()
-  const [thread, setThread] = useState(() => localStorage.getItem('jws_thread') || 'web')
+  // 上次打开的会话按账号记（jws_thread:<用户名>）：换号登录不会落到上个账号的会话上
+  const [thread, setThread] = useState(() => readAccount(ACCOUNT_KEYS.thread, session?.username) || 'web')
   const [threadList, setThreadList] = useState([])
   const [leftOpen, setLeftOpen] = useState(() => mode !== 'narrow' && readPref('jws_sidebar', true))
   const [todayOpen, setTodayOpen] = useState(() => mode === 'wide' && readPref('jws_today', true))
@@ -117,7 +120,7 @@ export default function Hud({ session, onLogout }) {
     return () => applyTheme('dark')   // 退出 HUD（登出）回到暗色登录页
   }, [theme])
 
-  useEffect(() => { localStorage.setItem('jws_thread', thread) }, [thread])
+  useEffect(() => { writeAccount(ACCOUNT_KEYS.thread, thread, session?.username) }, [thread, session?.username])
   useEffect(() => trackKeyboard(), [])   // iOS 软键盘：主界面贴合键盘以上的可见区域（见 viewport.js）
 
   // 跨断点：进窄屏收起抽屉/浮层；回到宽屏按用户偏好恢复常驻

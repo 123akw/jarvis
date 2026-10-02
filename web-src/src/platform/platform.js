@@ -59,7 +59,10 @@ export function pluginMeta(id, byId = null) {
   }
 }
 
-/** 主页快捷问题：先取平台插件的示例（带插件图标和名字），再用职业主页的 chips 补齐，去重，最多 max 条 */
+/**
+ * 主页快捷问题：优先用服务端按这个智能体生成的 home.chips（名称、介绍、职业、已装插件 → 模型或规则，
+ * chip_plugins 给出每条对应的插件，用来配图标和插件名）；不足 max 条再用已装插件的示例补齐。去重，最多 max 条。
+ */
 export function homeChips(platform, byId = null, max = 4) {
   const out = []
   const seen = new Set()
@@ -69,14 +72,17 @@ export function homeChips(platform, byId = null, max = 4) {
     seen.add(t)
     out.push({ text: t, hint, icon })
   }
+  const owners = Array.isArray(platform?.home?.chip_plugins) ? platform.home.chip_plugins : []
+  ;(Array.isArray(platform?.home?.chips) ? platform.home.chips : []).forEach((c, i) => {
+    if (c && typeof c === 'object') { push(c.text, c.hint, c.icon); return }
+    const id = owners[i]
+    const m = id ? pluginMeta(id, byId) : null
+    push(c, m?.name || '', m?.icon || '')
+  })
   for (const id of platform?.plugins || []) {
     const m = pluginMeta(id, byId)
     if (m.kind === 'step') continue
     push(m.examples[0], m.name, m.icon)
-  }
-  for (const c of platform?.home?.chips || []) {
-    if (typeof c === 'string') push(c)
-    else if (c) push(c.text, c.hint, c.icon)
   }
   return out
 }
@@ -90,7 +96,7 @@ function timeGreeting(now = new Date()) {
   return '晚上好'
 }
 
-/** 主页问候：职业主页给的 greeting 优先，否则按平台名生成 */
+/** 主页问候：服务端按智能体生成的 home.greeting 优先，否则按平台名生成 */
 export function homeGreeting(platform, now = new Date()) {
   const g = String(platform?.home?.greeting || '').trim()
   if (g) return g

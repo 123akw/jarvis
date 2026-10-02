@@ -34,6 +34,7 @@ from pydantic import BaseModel, ConfigDict
 
 from jarvis import plugins as catalog
 from jarvis.plugins import recommend
+from jarvis import platform_home
 from jarvis import pwa
 from jarvis.accounts import AccountError, password_policy_error
 from jarvis.periodic import warn_throttled
@@ -267,21 +268,9 @@ class PlatformStore:
 # ---------- 对外视图 ----------
 
 def home_for(row: dict) -> dict:
-    """主页定制：有职业用职业的问候；快捷问题在职业套餐装全时用职业的，否则按装了的插件现拼
-    （删掉了天气就不该再出现「明天天气适合搞活动吗」）。"""
-    profession = catalog.get_profession(row.get("profession") or "")
-    installed = list(row.get("plugins") or ())
-    greeting = profession["home"]["greeting"] if profession else f"你好，我是「{row['name']}」，有什么可以帮你？"
-    if profession and set(profession["plugins"]) <= set(installed):
-        return {"greeting": greeting, "chips": list(profession["home"]["chips"])}
-    chips = []
-    for plugin_id in installed:
-        item = catalog.get_plugin(plugin_id)
-        if item and item["kind"] == "tool" and item["examples"]:
-            chips.append(item["examples"][0])
-        if len(chips) >= 3:
-            break
-    return {"greeting": greeting, "chips": chips}
+    """主页定制（问候 + 4 个快捷问题，见 jarvis/platform_home.py）：生成过就用生成的，否则现算规则版。
+    附 source（model / rules）与 chip_plugins（每个问题对应的插件 id）。"""
+    return platform_home.view(row)
 
 
 def public_view(row: dict) -> dict:
@@ -524,6 +513,18 @@ def register(app, *, accounts, request_principal, write_authorized, deny, csrf_d
             usable = False
         return recommend.Recommender(complete if usable else None)
 
+    def home_model():
+        # 主页生成同样只用服务器默认模型；没 key 返回 None（只走规则版，也不排后台任务）
+        try:
+            llm = environment_llm() if environment_llm is not None else None
+        except Exception:
+            return None
+        if llm is None or not llm.api_key:
+            return None
+        return lambda system, user: platform_home.model_complete(llm, system, user)
+
+    platform_home.configure(platform_home.HomeService(home_model))
+
     def migration_failed() -> JSONResponse:
         return _error("个人数据迁移失败", 503)
 
@@ -590,6 +591,7 @@ def register(app, *, accounts, request_principal, write_authorized, deny, csrf_d
             return platform_error(exc)
         except TenantMigrationError:
             return migration_failed()
+        platform_home.schedule(row)   # 主页问候与快捷问题在后台生成，不拖慢开号
         return _json({"username": user["username"], "password": password,
                       "platform": platform_view(row, public_base_url(request))}, 201)
 
@@ -604,6 +606,8 @@ def register(app, *, accounts, request_principal, write_authorized, deny, csrf_d
             row = PlatformStore().get(principal.user_id)
         except TenantMigrationError:
             return migration_failed()
+        if row:
+            platform_home.schedule(row)   # 旧智能体没生成过主页：这次先回规则版，后台补生成
         return _json({"platform": platform_view(row, public_base_url(request)) if row else None})
 
     def _writer(request: Request):
@@ -623,6 +627,7 @@ def register(app, *, accounts, request_principal, write_authorized, deny, csrf_d
             return platform_error(exc)
         except TenantMigrationError:
             return migration_failed()
+        platform_home.schedule(row)
         return _json({"platform": platform_view(row, public_base_url(request))}, 201)
 
     @app.put("/api/platform")
@@ -639,6 +644,7 @@ def register(app, *, accounts, request_principal, write_authorized, deny, csrf_d
             return migration_failed()
         if row is None:
             return _error("还没有智能体，先去智能体市场生成一个", 404)
+        platform_home.schedule(row)   # 名称 / 介绍 / 职业 / 插件改了才会真的重生成（按内容签名判断）
         return _json({"platform": platform_view(row, public_base_url(request))})
 
     # ---- 公开入口与 PWA ----

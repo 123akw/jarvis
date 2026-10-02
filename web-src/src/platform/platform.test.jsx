@@ -85,11 +85,26 @@ describe('平台工具函数', () => {
     expect(accentTokens('坏值').dark).toBe('#0A84FF')            // 非法色值回落默认蓝
   })
 
-  it('快捷问题：先取插件示例（带图标与插件名），流程积木不出题，再用职业 chips 补齐', () => {
+  it('快捷问题：优先用服务端按智能体生成的 home.chips（按 chip_plugins 配图标），不足再用插件示例补，流程积木不出题', () => {
     const chips = homeChips(PLATFORM, byId)
-    expect(chips.map(c => c.text)).toEqual(['明天下午3点和客户开会', '加个待办：周五交周报', '本周进度怎么样？'])
-    expect(chips[0]).toMatchObject({ icon: '📅', hint: '日程助手' })
+    expect(chips.map(c => c.text)).toEqual(['本周进度怎么样？', '明天下午3点和客户开会', '加个待办：周五交周报'])
+    expect(chips[0]).toMatchObject({ hint: '', icon: '' })                // 旧接口的纯文字 chips：用智能体图标
+    expect(chips[1]).toMatchObject({ icon: '📅', hint: '日程助手' })
     expect(homeChips({ plugins: ['weather'] }, null)[0].text).toBe('今天天气怎么样？')   // 目录拿不到用兜底表
+    const study = {
+      plugins: ['todo', 'schedule', 'search', 'recall'],
+      home: {
+        greeting: '今天想先搞定哪门课？', source: 'model',
+        chips: ['帮我查下这道题的解题思路', '记一下，晚上要写完作业', '提醒我明天早上背单词', '上次聊的复习方法再说一遍'],
+        chip_plugins: ['search', 'todo', 'schedule', 'recall'],
+      },
+    }
+    const got = homeChips(study, byId)
+    expect(got.map(c => c.text)).toEqual(study.home.chips)               // 4 条都用生成的，插件示例一条不混进来
+    expect(got[2]).toMatchObject({ icon: '📅', hint: '日程助手' })
+    expect(got[0]).toMatchObject({ icon: '🔎' })                          // 目录里没有的用兜底表的图标
+    const short = homeChips({ ...study, home: { ...study.home, chips: study.home.chips.slice(0, 2) } }, byId)
+    expect(short.map(c => c.text)).toEqual([...study.home.chips.slice(0, 2), '加个待办：周五交周报', '明天下午3点和客户开会'])
   })
 
   it('问候与链接：职业 greeting 优先，否则按平台名生成；链接优先用接口给的绝对地址', () => {
@@ -120,6 +135,25 @@ describe('平台主页（新对话空态）', () => {
     const flows = screen.getByRole('region', { name: '我的流程' })
     await user.click(within(flows).getByRole('button', { name: /项目资料归档/ }))
     expect(window.location.pathname).toBe('/flows')
+  })
+
+  it('按智能体生成的问候与快捷问题优先：学习助手不出现别的职业的示例', async () => {
+    const user = userEvent.setup()
+    const onPick = vi.fn()
+    const study = {
+      ...PLATFORM, name: '学习助手', tagline: '搜索学习资料', profession: 'student', plugins: ['todo', 'schedule', 'search', 'recall'],
+      home: {
+        greeting: '今天要查什么资料，还是要安排复习？', source: 'model',
+        chips: ['帮我查下这道题的解题思路', '记一下，晚上要写完作业', '提醒我明天早上背单词', '上次聊的复习方法再说一遍'],
+        chip_plugins: ['search', 'todo', 'schedule', 'recall'],
+      },
+    }
+    const { container } = render(<PlatformHome platform={study} plugins={byId} flows={[]} onPick={onPick} />)
+    expect(screen.getByRole('heading', { name: '今天要查什么资料，还是要安排复习？' })).toBeInTheDocument()
+    expect([...container.querySelectorAll('.ce-q')].map(n => n.textContent)).toEqual(study.home.chips)
+    expect(container.textContent).not.toMatch(/火锅|奶茶|王姐|客户开会/)
+    await user.click(screen.getByRole('button', { name: /提醒我明天早上背单词/ }))
+    expect(onPick).toHaveBeenCalledWith('提醒我明天早上背单词')
   })
 
   it('流程接口失败（flows=null）时不显示「我的流程」；没有流程时给「拼一个流程」', () => {
@@ -374,6 +408,19 @@ describe('/p/<slug> 平台入口', () => {
     render(<PlatformEntry slug="xw-pm" session={{ username: 'xiaowang' }} onAuthed={() => {}} />)
     await user.click(await screen.findByRole('button', { name: '进入我的智能体' }))
     expect(window.location.pathname).toBe('/')
+  })
+
+  it('?u= 与已登录账号不一致：给登录卡并说明当前登录的是谁，可「继续使用」当前账号', async () => {
+    window.history.replaceState({}, '', '/p/xw-pm?u=xiaowang')
+    routeFetch({ 'GET /api/p/xw-pm': [200, BRAND] })
+    const user = userEvent.setup()
+    render(<PlatformEntry slug="xw-pm" session={{ username: 'admin' }} onAuthed={() => {}} />)
+    expect(await screen.findByText('这台设备当前登录的是「admin」，要切换到「xiaowang」请输入口令')).toBeInTheDocument()
+    expect(screen.getByLabelText('用户名')).toHaveValue('xiaowang')
+    expect(screen.queryByRole('button', { name: '进入我的智能体' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: '继续使用 admin' }))
+    expect(screen.getByRole('button', { name: '进入我的智能体' })).toBeInTheDocument()
+    expect(window.location.search).toBe('')
   })
 
   it('平台不存在：友好的 404，可去市场；不注入 manifest', async () => {
