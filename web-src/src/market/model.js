@@ -50,8 +50,8 @@ const objList = v => (Array.isArray(v) ? v.filter(x => x && typeof x === 'object
 /** 工具清单：老目录是工具名字符串，MCP / 新目录可能带 {name, description} */
 function normTools(v) {
   return (Array.isArray(v) ? v : []).map(t => {
-    if (typeof t === 'string') return t ? { name: t, description: '' } : null
-    if (t && typeof t === 'object' && str(t.name)) return { name: t.name, description: str(t.description || t.summary) }
+    if (typeof t === 'string') return t ? { name: t, label: '', description: '' } : null
+    if (t && typeof t === 'object' && str(t.name)) return { name: t.name, label: str(t.label), description: str(t.description || t.summary) }
     return null
   }).filter(Boolean)
 }
@@ -93,7 +93,8 @@ function normPlugin(p) {
     summary: str(p.summary),
     description: str(p.description) || str(p.long_description) || str(extras.long_description),
     kind: isMcp ? 'mcp' : ['tool', 'channel', 'step', 'skill'].includes(p.kind) ? p.kind : 'tool',
-    tools: normTools(p.tools),
+    // MCP 插件另给 tool_info（带中文说明 label）：有就用它，详情页不再露出 deepwiki__ask_wiki_question 这类工具名
+    tools: normTools(Array.isArray(p.tool_info) && p.tool_info.length ? p.tool_info : p.tools),
     step: p.step && typeof p.step === 'object' ? p.step : null,
     requires: strList(p.requires),
     tier: p.tier === 'pro' ? 'pro' : 'free',
@@ -312,7 +313,8 @@ export function abilitiesOf(p, toolName = t => t.name) {
     objList(p.step.options).filter(o => str(o.label)).slice(0, 4).forEach(o => out.push({ id: `opt-${o.key}`, icon: '⚙️', text: `可以设置：${o.label}` }))
     return out
   }
-  const tools = p.tools.map(t => ({ id: t.name, icon: '', text: toolName(t), detail: t.description }))
+  // 有中文说明（MCP 的 tool_labels）时不再挂服务自带的英文原文，免得小白看到一段英文
+  const tools = p.tools.map(t => ({ id: t.name, icon: '', text: toolName(t), detail: t.label ? '' : t.description }))
   if (p.kind === 'mcp' && !tools.length) {
     return [{ id: 'mcp', icon: '🔌', text: `连接远程 MCP 服务${p.hosts.length ? `（${p.hosts.join('、')}）` : ''}，工具清单由服务提供` }]
   }

@@ -24,5 +24,10 @@
   "config": [],
   "license": "MIT-0",
   "author": "JWS-Agent",
-  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/deepwiki"
+  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/deepwiki",
+  "tool_labels": {
+    "ask_wiki_question": "就某个仓库直接提问",
+    "read_wiki_contents": "读取仓库文档正文",
+    "read_wiki_structure": "查看仓库文档目录"
+  }
 }

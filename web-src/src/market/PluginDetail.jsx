@@ -13,6 +13,7 @@ import {
 
 /** 工具名 → 人话：前端收录的用中文名，没收录的用工具自带的说明，再不行才露出工具名 */
 function toolText(t) {
+  if (t.label) return `🔧 ${t.label}`
   const label = toolLabel(t.name)
   if (!label.startsWith('⚙ ')) return label
   return t.description ? `🔧 ${t.description}` : `🔧 ${t.name}`
@@ -34,7 +35,9 @@ function needsOf(p) {
   if (p.kind === 'skill' && !p.permissions.length) {
     out.push({ id: 'skill', title: '只加做事方法，不运行代码', help: '技能是一段说明书，按外部资料对待，不能读你的文件、也不联网。', tone: 'ok' })
   }
-  return out
+  // 同一件事可能从 hosts 和 permissions 各来一条（如「联网：mcp.deepwiki.com」）：按标题去重，先到的留下
+  const seen = new Set()
+  return out.filter(x => !seen.has(x.title) && seen.add(x.title))
 }
 
 function Example({ text, onAsk }) {

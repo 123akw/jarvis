@@ -375,8 +375,12 @@ describe('目录模型：搜索、筛选、套装、徽标', () => {
     const amap = data.plugins.find(p => p.id === 'amap')
     expect(amap).toMatchObject({ kind: 'mcp', status: 'needs_config', hosts: ['mcp.amap.com'], configMissing: ['AMAP_KEY'], license: 'MIT-0' })
     expect(blockReason(amap)).toBe('需要管理员填写高德 Key')
-    expect(data.plugins.find(p => p.id === 'deepwiki').tools).toEqual([{ name: 'ask_question', description: '就这个仓库提一个问题' }])
-    expect(data.plugins.find(p => p.id === 'weather').tools[0]).toEqual({ name: 'weather', description: '' })
+    expect(data.plugins.find(p => p.id === 'deepwiki').tools).toEqual([{ name: 'ask_question', label: '', description: '就这个仓库提一个问题' }])
+    expect(data.plugins.find(p => p.id === 'weather').tools[0]).toEqual({ name: 'weather', label: '', description: '' })
+    // MCP 插件带 tool_info（中文 label）时优先用它，详情页不露出 deepwiki__xxx 工具名
+    const labeled = normalizeCatalog({ plugins: [{ id: 'dw', mcp: true, tools: ['dw__read_wiki_structure'],
+      tool_info: [{ name: 'dw__read_wiki_structure', label: '查看仓库文档目录', description: 'Get a list of topics' }] }] }).plugins[0]
+    expect(labeled.tools).toEqual([{ name: 'dw__read_wiki_structure', label: '查看仓库文档目录', description: 'Get a list of topics' }])
     // 老后端：mcp 只出现在 extras 里、没给 config 状态时不算「需要配置」
     const legacy = normalizeCatalog({ plugins: [{ id: 'x', extras: { mcp: [{ name: 'm', url: 'https://mcp.example.com/mcp' }] },
       config: [{ key: 'K', label: 'Key' }] }] }).plugins[0]

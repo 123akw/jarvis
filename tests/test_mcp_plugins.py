@@ -408,3 +408,25 @@ def test_builtin_mcp_pack_loads(tmp_path, fake, monkeypatch):
     finally:
         monkeypatch.undo()
         loader.reload()
+
+
+def test_catalog_tool_info_prefers_chinese_labels(monkeypatch):
+    """市场详情页「它能做什么」：清单 tool_labels 的中文说明优先，其次服务给的 title、说明首句。"""
+    from jarvis.plugins import loader as loader_mod
+    monkeypatch.setattr(mcp, "state_record", lambda plugin_id, root=None: {"tools": [
+        {"name": "dw__read_wiki_structure", "remote": "read_wiki_structure", "title": "",
+         "description": "Get a list of documentation topics. More text here."},
+        {"name": "dw__ask", "remote": "ask", "title": "Ask a question", "description": ""},
+    ]})
+    m = {"id": "dw", "extras": {"tool_labels": {"read_wiki_structure": "查看仓库文档目录"}}}
+    info = loader_mod._mcp_tool_info(m, ["dw__read_wiki_structure", "dw__ask", "dw__unknown"])
+    assert info[0] == {"name": "dw__read_wiki_structure", "label": "查看仓库文档目录",
+                       "description": "Get a list of documentation topics."}
+    assert info[1]["label"] == "Ask a question"
+    assert info[2] == {"name": "dw__unknown", "label": "", "description": ""}
+
+
+def test_manifest_keeps_tool_labels():
+    raw = json.loads((Path(__file__).resolve().parents[1] / "jarvis/plugins/packs/deepwiki/plugin.json").read_text("utf-8"))
+    assert raw["tool_labels"]["read_wiki_structure"] == "查看仓库文档目录"
+    assert mf._tool_labels({"a": "  一句 话 ", "": "x", "b": 3}) == {"a": "一句 话"}

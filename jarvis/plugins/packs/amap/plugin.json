@@ -34,5 +34,19 @@
   ],
   "license": "MIT-0",
   "author": "JWS-Agent",
-  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/amap"
+  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/amap",
+  "tool_labels": {
+    "maps_geo": "地址转经纬度",
+    "maps_regeocode": "经纬度转地址",
+    "maps_ip_location": "按 IP 粗略定位",
+    "maps_weather": "按城市查天气",
+    "maps_text_search": "关键词搜地点",
+    "maps_around_search": "搜附近的地点",
+    "maps_search_detail": "查地点详情",
+    "maps_direction_driving": "驾车路线规划",
+    "maps_direction_transit_integrated": "公交地铁路线规划",
+    "maps_direction_walking": "步行路线规划",
+    "maps_bicycling": "骑行路线规划",
+    "maps_distance": "测两点距离"
+  }
 }

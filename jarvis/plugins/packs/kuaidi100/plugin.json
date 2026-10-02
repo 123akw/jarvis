@@ -33,5 +33,12 @@
   ],
   "license": "MIT-0",
   "author": "JWS-Agent",
-  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/kuaidi100"
+  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/kuaidi100",
+  "tool_labels": {
+    "query_trace": "按单号查物流轨迹",
+    "auto_number": "按单号识别快递公司",
+    "estimate_time": "寄件前预估送达时间",
+    "estimate_time_with_logistic": "按在途轨迹预估到达",
+    "estimate_price": "估算运费"
+  }
 }

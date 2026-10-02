@@ -18,7 +18,8 @@ PLUGIN_KEYS = {"id", "name", "icon", "category", "summary", "kind", "tools", "st
 # 第十四轮插件包：目录项可以多带这些字段（来源、版本、加载状态）；pack 只出现在插件包提供的积木条目上
 EXTRA_KEYS = {"version", "author", "homepage", "source", "status", "reason", "builtin", "pack",
               "mcp", "hosts", "permissions",   # 第十五轮：MCP 插件的徽标、联网主机与权限
-              "license", "description", "privacy_url"}   # 第十五轮：插件详情页
+              "license", "description", "privacy_url",   # 第十五轮：插件详情页
+              "tool_info"}   # MCP 工具的中文说明（详情页「它能做什么」）
 
 
 def test_plugin_ids_kinds_and_shape_match_the_contract():

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import contextvars
 import copy
+import re
 import datetime as dt
 import importlib
 import importlib.metadata
@@ -199,6 +200,26 @@ def _mcp_management(pack) -> dict | None:
 
 
 # ---------- 插件与注册表 ----------
+
+
+def _mcp_tool_info(m: dict, bound: list[str]) -> list[dict]:
+    """MCP 插件已绑定工具的人话说明：清单里的 tool_labels → 服务给的 title → 说明首句（都没有就空串，前端退回工具名）。"""
+    try:
+        from jarvis.plugins import mcp as mcp_mod
+        archived = mcp_mod.state_record(m["id"]).get("tools") or []
+    except Exception:
+        archived = []
+    labels = (m.get("extras") or {}).get("tool_labels") or {}
+    by_name = {t.get("name"): t for t in archived if isinstance(t, dict)}
+    out = []
+    for name in bound:
+        t = by_name.get(name) or {}
+        remote = t.get("remote") or name.split("__", 1)[-1]
+        first = re.split(r"(?<=[。.!?！？])\s|\n", str(t.get("description") or "").strip(), maxsplit=1)[0]
+        out.append({"name": name, "label": labels.get(remote) or t.get("title") or "",
+                    "description": first[:160]})
+    return out
+
 
 @dataclass
 class Pack:
@@ -477,6 +498,8 @@ class Registry:
             "license": m.get("license") or "", "description": (m.get("extras") or {}).get("long_description", ""),
             "privacy_url": (m.get("extras") or {}).get("privacy_url", ""),
         }
+        if is_mcp:
+            entry["tool_info"] = _mcp_tool_info(m, [t.name for t in pack.tools])
         return entry
 
     def _step_entry(self, pack: Pack, step_id: str, spec) -> dict:

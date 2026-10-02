@@ -24,5 +24,9 @@
   "config": [],
   "license": "MIT-0",
   "author": "JWS-Agent",
-  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/context7"
+  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/context7",
+  "tool_labels": {
+    "resolve-library-id": "找到要查的编程库",
+    "query-docs": "查询这个库的文档与用法"
+  }
 }

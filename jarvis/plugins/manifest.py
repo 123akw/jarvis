@@ -143,6 +143,9 @@ def validate(raw, *, builtin: bool, folder: str | None = None) -> dict:
         raise ManifestError(f"timeout 要是 1–{int(MAX_TIMEOUT)} 秒")
 
     extras = _extras(raw.get("extras"))
+    labels = _tool_labels(raw.get("tool_labels")) or _tool_labels((raw.get("extras") or {}).get("tool_labels"))
+    if labels:
+        extras["tool_labels"] = labels
     servers = _mcp_servers(raw.get("mcp_servers")) if kind == "tool" and entry is None else []
     if servers:
         tools = []               # MCP 插件的工具由服务自动发现（存档在插件状态里），清单里写了也不用
@@ -210,6 +213,17 @@ def validate(raw, *, builtin: bool, folder: str | None = None) -> dict:
 
 _URL_RE = re.compile(r"^https?://[^\s<>\"']{1,300}$")
 _EXTRA_TEXT = {"format": 20, "license": 40, "logo": 120, "brand_color": 16, "long_description": 400}
+
+
+def _tool_labels(raw) -> dict:
+    """MCP 等外部工具的中文说明（远程工具名 → 一句话），给市场详情页「它能做什么」用；不合法的项直接丢掉。"""
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    for name, label in list(raw.items())[:40]:
+        if isinstance(name, str) and isinstance(label, str) and name.strip() and label.strip():
+            out[name.strip()[:128]] = " ".join(label.split())[:40]
+    return out
 
 
 def _extras(raw) -> dict:
