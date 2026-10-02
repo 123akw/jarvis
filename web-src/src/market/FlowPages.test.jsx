@@ -37,6 +37,19 @@ describe('起名页', () => {
     expect(phone).toHaveTextContent('2 个插件')
     expect(phone.style.getPropertyValue('--pa')).toBe('#FF375F')
     expect(screen.getByRole('radio', { name: '主题色 玫红' })).toBeChecked()
+    // 不再写「第 2 步」；色名不常显（只在 aria-label / title 里）
+    expect(screen.queryByText('第 2 步')).toBeNull()
+    expect(screen.queryByText('玫红')).toBeNull()
+  })
+
+  it('字数到上限 80% 才显示计数；名字输入框沿用 #jvm-step-title（换到这一步时 Market 把焦点放到这里）', () => {
+    const base = { name: '短名', icon: '✨', accent: ACCENTS[0].hex, tagline: '' }
+    const { rerender } = render(<Brand brand={base} accents={ACCENTS} onBrand={vi.fn()} profession={null} plugins={[]} />)
+    expect(screen.queryByText(/\/20$/)).toBeNull()
+    rerender(<Brand brand={{ ...base, name: '一二三四五六七八九十一二三四五六' }} accents={ACCENTS} onBrand={vi.fn()} profession={null} plugins={[]} />)
+    expect(screen.getByText('16/20')).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: '名字' })).toHaveAttribute('id', 'jvm-step-title')
+    expect(screen.getByRole('heading', { level: 1, name: '给你的智能体起个名字' })).toBeInTheDocument()
   })
 })
 
@@ -44,42 +57,53 @@ describe('结果页', () => {
   afterEach(() => { cleanup(); vi.restoreAllMocks() })
   const platform = { name: '奶茶店小管家', icon: '🧋', accent: '#FF375F', tagline: '记订单' }
 
-  it('账号口令卡是主角：单项复制、整体复制、存成图片；「去登录」是唯一主按钮', async () => {
+  it('单一焦点：标题「<名字> 已就绪」；账号卡两行 + 单项复制 + 警示；卡底「去登录」是唯一主按钮', async () => {
     const user = userEvent.setup()
     const writeText = vi.spyOn(navigator.clipboard, 'writeText')
     const onLogin = vi.fn()
     render(<Result platform={platform} plugins={PLUGINS} secret={{ username: 'u_1', password: 'pw-1' }} username="u_1"
       signedIn={false} onLogin={onLogin} onHome={vi.fn()} onReset={vi.fn()} />)
-    expect(screen.getByRole('heading', { level: 1, name: '奶茶店小管家' })).toHaveFocus()
+    expect(screen.getByRole('heading', { level: 1, name: '奶茶店小管家 已就绪' })).toHaveFocus()
     const key = screen.getByRole('region', { name: '专属账号与口令' })
+    expect(within(key).getByRole('note')).toHaveTextContent('口令只显示这一次')
     await user.click(within(key).getByRole('button', { name: '复制口令' }))
     expect(writeText).toHaveBeenLastCalledWith('pw-1')
-    await user.click(within(key).getByRole('button', { name: '复制账号和口令' }))
-    expect(writeText).toHaveBeenLastCalledWith('账号：u_1\n口令：pw-1')
-    expect(within(key).getByRole('button', { name: '存成图片' })).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: '去登录' }))
+    await user.click(within(key).getByRole('button', { name: '去登录' }))
     expect(onLogin).toHaveBeenCalled()
+    // 次要操作是一行文字按钮
+    await user.click(screen.getByRole('button', { name: '复制账号和口令' }))
+    expect(writeText).toHaveBeenLastCalledWith('账号：u_1\n口令：pw-1')
+    expect(await screen.findByRole('button', { name: '已复制' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '存成图片' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '再做一个' })).toBeInTheDocument()
     // 去掉了重复的说明
     expect(screen.queryByText(/智能体只用这些插件为你干活/)).toBeNull()
     expect(screen.queryByText(/添加到主屏幕/)).toBeNull()
   })
 
-  it('装了哪些插件：一行图标串 + 名字摘要，可展开成完整清单；二维码收进「在手机上打开」小卡', async () => {
+  it('装了哪些插件：叠放图标 +「查看 N 个插件」折叠；二维码收进「在手机上打开」折叠；口令不在时只剩一行说明', async () => {
     const user = userEvent.setup()
-    render(<Result platform={platform} plugins={PLUGINS} secret={null} username="u_1"
+    const many = Array.from({ length: 10 }, (_, i) => plug(`p${i}`, `插件${i}`, '🧩'))
+    render(<Result platform={platform} plugins={many} secret={null} username="u_1"
       signedIn={false} onLogin={vi.fn()} onHome={vi.fn()} onReset={vi.fn()} />)
     const box = screen.getByRole('region', { name: '装了这些插件' })
-    expect(box).toHaveTextContent('4 个')
-    expect(box).toHaveTextContent('日程提醒、待办清单、天气、随手记')
-    const list = box.querySelector('ul')
-    expect(list).not.toBeVisible()
-    const toggle = within(box).getByRole('button', { name: '展开' })
+    expect(box.querySelectorAll('.jvm-rp-stack i')).toHaveLength(9)   // 8 个 + 「+2」
+    expect(box.querySelector('.jvm-rp-stack .is-more')).toHaveTextContent('+2')
+    const toggle = within(box).getByRole('button', { name: '查看 10 个插件' })
+    expect(box.querySelector('ul')).not.toBeVisible()
     await user.click(toggle)
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
-    expect(within(box).getAllByRole('listitem')).toHaveLength(4)
+    expect(within(box).getAllByRole('listitem')).toHaveLength(10)
+
     const phone = screen.getByRole('region', { name: '在手机上打开' })
+    expect(within(phone).queryByRole('img')).toBeNull()
+    await user.click(within(phone).getByRole('button', { name: '在手机上打开' }))
     expect(within(phone).getByRole('img', { name: /在手机上打开的二维码：.*\/login\?u=u_1/ })).toBeInTheDocument()
-    // 口令已不在：只剩账号与一句说明
-    expect(screen.getByRole('region', { name: '专属账号' })).toHaveTextContent('u_1')
+
+    const gone = screen.getByRole('region', { name: '专属账号' })
+    expect(gone).toHaveTextContent('u_1')
+    expect(gone).toHaveTextContent('口令只在生成时显示一次')
+    expect(within(gone).getByRole('button', { name: '去登录' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '复制账号和口令' })).toBeNull()
   })
 })

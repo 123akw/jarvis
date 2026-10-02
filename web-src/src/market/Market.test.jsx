@@ -113,6 +113,7 @@ describe('智能体市场', () => {
 
     await user.click(screen.getByRole('button', { name: '下一步' }))
     expect(await screen.findByRole('heading', { name: '给你的智能体起个名字' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: '名字' })).toHaveFocus()   // 进页自动聚焦名字
     const go = screen.getByRole('button', { name: '生成我的智能体' })
     expect(go).toBeDisabled()
     expect(screen.getByText('给智能体起个名字就能生成')).toBeInTheDocument()
@@ -122,17 +123,18 @@ describe('智能体市场', () => {
     expect(screen.getByRole('figure', { name: /奶茶店小管家在手机里的样子/ })).toBeInTheDocument()
 
     await user.click(go)
-    expect(await screen.findByRole('heading', { name: '奶茶店小管家' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '奶茶店小管家 已就绪' })).toBeInTheDocument()
     const [req] = called(calls, 'POST', '/api/market/signup')
     expect(req.body).toEqual({ platform: { name: '奶茶店小管家', icon: '🧋', accent: '#FF375F', plugins: ['schedule', 'todo'] } })
 
     const secret = screen.getByRole('region', { name: '专属账号与口令' })
     expect(within(secret).getByText('naicha_7k2m')).toBeInTheDocument()
     expect(within(secret).getByText('Qe7v-X2pL-m9dK')).toBeInTheDocument()
-    expect(within(secret).getByText('只显示这一次，请保存')).toBeInTheDocument()
-    expect(within(secret).getByRole('button', { name: '复制账号和口令' })).toBeInTheDocument()
+    expect(within(secret).getByText('口令只显示这一次，请保存好')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '复制账号和口令' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: /装了这些插件/ })).toHaveTextContent('日程提醒')
-    // 二维码内容 = location.origin + loginHref(username)
+    // 二维码收在「在手机上打开」折叠里；内容 = location.origin + loginHref(username)
+    await user.click(screen.getByRole('button', { name: '在手机上打开' }))
     expect(screen.getByRole('img', { name: '在手机上打开的二维码：http://localhost/login?u=naicha_7k2m' })).toBeInTheDocument()
     expect(screen.queryByText(/\/p\/naicha-7k2m/)).not.toBeInTheDocument()
     // 口令不落盘
@@ -284,7 +286,7 @@ describe('智能体市场', () => {
     unmount()   // 模拟刷新：sessionStorage 还在，内存没了
 
     render(<Market session={false} />)
-    expect(await screen.findByRole('heading', { name: '奶茶店小管家' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '奶茶店小管家 已就绪' })).toBeInTheDocument()
     expect(screen.getByText('naicha_7k2m')).toBeInTheDocument()
     expect(screen.queryByText('Qe7v-X2pL-m9dK')).not.toBeInTheDocument()
     expect(screen.getByText(/口令只在生成时显示一次/)).toBeInTheDocument()

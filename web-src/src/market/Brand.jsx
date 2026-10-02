@@ -1,9 +1,10 @@
 import { ICONS, NAME_MAX, TAGLINE_MAX, greetingFor } from './model.js'
 import './flow-pages.css'
 
-/* 第 2 步：给智能体起名（第十七轮「少即是多」）。
- * 名字是主角：一个大输入框，左边的应用图标随图标 / 主题色实时变化；图标与主题色各是一行可横滑的小选择器；
- * 一句话介绍可选；右侧（手机上在下面）是一台小巧的手机预览。说明文字只留一句。 */
+/* 第 2 步：给智能体起名（第十七轮「少即是多」，对齐 docs/design/2026-10-market-references.md §5）：
+ * 标题一句（顶栏已有步骤条，不再写「第 2 步」）；名字输入框 48 高、进页自动聚焦，左侧小图标随图标 / 主题色实时变化；
+ * 图标 8×2 网格、主题色一排色块（色名只在 title / aria-label）；一句话介绍可选；字数到上限 80% 才显示计数。
+ * 右侧（手机上在下面）是一台小巧的手机预览；生成按钮只在底部 Dock 里，是全页唯一的主按钮。 */
 
 const DEFAULT_CHIPS = ['今天有什么安排？', '帮我记一下', '明天天气怎么样？']
 
@@ -50,64 +51,68 @@ export function PhonePreview({ brand, profession, plugins }) {
 }
 
 const same = (a, b) => String(a).toLowerCase() === String(b).toLowerCase()
+/** 字数到上限 80% 才显示计数（16/20、32/40） */
+const countOf = (v, max) => (v.length >= Math.ceil(max * 0.8) ? `${v.length}/${max}` : '')
 
-/** 给智能体起名：名字、图标、主题色、一句话介绍（可选） */
+/** 给智能体起名：名字、图标、主题色、一句话介绍（可选）。生成按钮只在底部 Dock 里 */
 export default function Brand({ brand, accents, onBrand, profession, plugins }) {
   const set = patch => onBrand({ ...brand, ...patch })
-  const accentName = accents.find(a => same(a.hex, brand.accent))?.name || ''
+  const nameCount = countOf(brand.name, NAME_MAX)
+  const tagCount = countOf(brand.tagline, TAGLINE_MAX)
   return (
-    <section className="jvm-step jvm-bp" aria-labelledby="jvm-step-title" style={{ '--pa': brand.accent }}>
+    <section className="jvm-step jvm-bp" aria-labelledby="jvm-bp-title" style={{ '--pa': brand.accent }}>
       <header className="jvm-bp-head">
-        <p className="jvm-bp-eyebrow">第 2 步</p>
-        <h1 id="jvm-step-title" className="jvm-bp-title" tabIndex={-1}>给你的智能体起个名字</h1>
-        <p className="jvm-bp-sub">以后随时能改。</p>
+        <h1 id="jvm-bp-title" className="jvm-bp-title" tabIndex={-1}>给你的智能体起个名字</h1>
       </header>
       <div className="jvm-bp-grid">
         <div className="jvm-bp-form">
-          <div className="jvm-bp-name">
-            <span className="jvm-bp-tile" aria-hidden="true">{brand.icon}</span>
-            <div className="jvm-bp-name-field">
-              <label htmlFor="jvm-bp-name-input" className="jvm-bp-label">名字</label>
-              <input id="jvm-bp-name-input" value={brand.name} maxLength={NAME_MAX} placeholder="比如：奶茶店小管家" autoComplete="off"
+          <div className="jvm-bp-field">
+            <div className="jvm-bp-label-row">
+              <label htmlFor="jvm-step-title" className="jvm-bp-label">名字</label>
+              {nameCount ? <span className="jvm-bp-count">{nameCount}</span> : null}
+            </div>
+            <div className="jvm-bp-name">
+              <span className="jvm-bp-tile" aria-hidden="true">{brand.icon}</span>
+              {/* id 沿用 Market 的约定：换到这一步时 Market 把焦点放到 #jvm-step-title——这里就是名字输入框（进页自动聚焦） */}
+              <input id="jvm-step-title" value={brand.name} maxLength={NAME_MAX} placeholder="比如：奶茶店小管家" autoComplete="off"
                 enterKeyHint="done" onChange={e => set({ name: e.target.value })} />
             </div>
-            <span className="jvm-bp-count" aria-hidden="true">{brand.name.length}/{NAME_MAX}</span>
           </div>
 
-          <div className="jvm-bp-looks">
-            <fieldset className="jvm-bp-row">
-              <legend className="jvm-bp-label">图标</legend>
-              <div className="jvm-bp-scroller">
-                {ICONS.map(icon => (
-                  <label key={icon} className={`jvm-bp-icon${brand.icon === icon ? ' is-on' : ''}`}>
-                    <input type="radio" name="jvm-icon" value={icon} checked={brand.icon === icon}
-                      onChange={() => set({ icon })} aria-label={`图标 ${icon}`} />
-                    <span aria-hidden="true">{icon}</span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-            <fieldset className="jvm-bp-row">
-              <legend className="jvm-bp-label">主题色{accentName ? <span aria-hidden="true"> · {accentName}</span> : null}</legend>
-              <div className="jvm-bp-scroller is-swatches">
-                {accents.map(a => (
-                  <label key={a.hex} className={`jvm-bp-swatch${same(a.hex, brand.accent) ? ' is-on' : ''}`} style={{ '--sw': a.hex }}
-                    title={a.name || a.hex}>
-                    <input type="radio" name="jvm-accent" value={a.hex} checked={same(a.hex, brand.accent)}
-                      onChange={() => set({ accent: a.hex })} aria-label={`主题色 ${a.name || a.hex}`} />
-                    <span aria-hidden="true" />
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-          </div>
+          <fieldset className="jvm-bp-field">
+            <legend className="jvm-bp-label">图标</legend>
+            <div className="jvm-bp-icons">
+              {ICONS.map(icon => (
+                <label key={icon} className={`jvm-bp-icon${brand.icon === icon ? ' is-on' : ''}`}>
+                  <input type="radio" name="jvm-icon" value={icon} checked={brand.icon === icon}
+                    onChange={() => set({ icon })} aria-label={`图标 ${icon}`} />
+                  <span aria-hidden="true">{icon}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
 
-          <div className="jvm-bp-tagline">
-            <label htmlFor="jvm-bp-tagline-input" className="jvm-bp-label">
-              一句话介绍<span className="jvm-bp-opt">可选</span>
-            </label>
-            <input id="jvm-bp-tagline-input" value={brand.tagline} maxLength={TAGLINE_MAX} placeholder="比如：记订单、排班、写上新文案"
-              autoComplete="off" enterKeyHint="done" onChange={e => set({ tagline: e.target.value })} />
+          <fieldset className="jvm-bp-field">
+            <legend className="jvm-bp-label">主题色</legend>
+            <div className="jvm-bp-swatches">
+              {accents.map(a => (
+                <label key={a.hex} className={`jvm-bp-swatch${same(a.hex, brand.accent) ? ' is-on' : ''}`} style={{ '--sw': a.hex }}
+                  title={a.name || a.hex}>
+                  <input type="radio" name="jvm-accent" value={a.hex} checked={same(a.hex, brand.accent)}
+                    onChange={() => set({ accent: a.hex })} aria-label={`主题色 ${a.name || a.hex}`} />
+                  <span aria-hidden="true" />
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          <div className="jvm-bp-field">
+            <div className="jvm-bp-label-row">
+              <label htmlFor="jvm-bp-tagline" className="jvm-bp-label">一句话介绍（可选）</label>
+              {tagCount ? <span className="jvm-bp-count">{tagCount}</span> : null}
+            </div>
+            <input id="jvm-bp-tagline" className="jvm-bp-input" value={brand.tagline} maxLength={TAGLINE_MAX}
+              placeholder="比如：记订单、排班、写上新文案" autoComplete="off" enterKeyHint="done" onChange={e => set({ tagline: e.target.value })} />
           </div>
         </div>
         <div className="jvm-bp-preview"><PhonePreview brand={brand} profession={profession} plugins={plugins} /></div>
