@@ -50,7 +50,7 @@ body.light{
   --jv-border:rgba(0,0,0,.08);
   --jv-text:#1D1D1F;
   --jv-text-2:rgba(60,60,67,.76);
-  --jv-text-3:rgba(60,60,67,.48);
+  --jv-text-3:rgba(60,60,67,.6);          /* .48 只有 2.5:1，提到 ≥3:1 */
   --jv-accent:#007AFF;
   --jv-elevated:rgba(255,255,255,.86);
   --jv-hover:rgba(0,0,0,.04);

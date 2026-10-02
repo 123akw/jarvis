@@ -476,7 +476,10 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
   }, [])
 
   const degraded = micState === 'denied' || micState === 'unsupported'
-  const presenceState = PHASE_PRESENCE[phase] || 'idle'
+  // 接通了但麦克风授权还没给（浏览器弹窗还挂着）：别说「我在听」，光球也别做聆听律动
+  const micPending = phase === 'listening' && micState === 'pending'
+  const presenceState = micPending ? 'idle' : (PHASE_PRESENCE[phase] || 'idle')
+  const phaseText = micPending ? '等待麦克风授权…' : (PHASE_LABEL[phase] || phase)
 
   // 全屏通话层是模态：焦点进来、Tab 不跑到背后、Esc 挂断，挂断后焦点回到通话按钮
   const overlayRef = useRef(null)
@@ -521,7 +524,7 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
           <Presence state={presenceState} getLevel={levelRef.current} size={orbSize} decorative />
         </div>
         <div className="voice-status">
-          <span className="voice-phase">{PHASE_LABEL[phase] || phase}</span>
+          <span className="voice-phase" aria-live="polite">{phaseText}</span>
           {emotion && (
             <span className="voice-emotion" title="语气感知（识别你说话的情绪）">
               {EMOTION_EMOJI[emotion.emotion] || ''} {emotion.label}

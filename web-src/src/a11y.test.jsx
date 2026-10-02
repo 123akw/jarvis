@@ -222,3 +222,28 @@ describe('登录失败后的焦点', () => {
     expect(screen.getByText('请输入口令')).toBeInTheDocument()
   })
 })
+
+describe('语音通话：麦克风授权中的状态', () => {
+  let ws
+  beforeEach(() => {
+    vi.stubGlobal('WebSocket', class extends MockWebSocket { constructor(u) { super(u); ws = this } })
+    vi.stubGlobal('AudioContext', MockAudioContext)
+  })
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+    delete window.webkitSpeechRecognition
+    delete navigator.mediaDevices
+  })
+
+  it('还没拿到麦克风授权时不说「我在听」，而是提示等待授权', async () => {
+    window.webkitSpeechRecognition = class { start() {} stop() {} }
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true, value: { getUserMedia: vi.fn(() => new Promise(() => {})) },
+    })
+    render(<VoiceCall onClose={() => {}} />)
+    act(() => { ws.readyState = 1; ws.onopen?.(); ws.onmessage?.({ data: JSON.stringify({ type: 'ready' }) }) })
+    expect(screen.getByText('等待麦克风授权…')).toBeInTheDocument()
+    expect(screen.queryByText('请讲，我在听')).toBeNull()
+  })
+})
