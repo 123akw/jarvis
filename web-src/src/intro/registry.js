@@ -2,9 +2,9 @@
  *
  * 选择规则（pickIntro）：
  *   ?intro=<name>  强制播放该方案（预览/评审用，每次刷新都播）
- *   ?intro=off     本次不播
- *   否则播 DEFAULT_INTRO，且同一浏览器会话只播一次；DEFAULT_INTRO 为 null 时不播
- *   prefers-reduced-motion 时不自动播（强制预览除外，方案自己负责降级）
+ *   ?intro=off     本次不播（截图 / 联调用）
+ *   否则每次整页打开或刷新都播 DEFAULT_INTRO（站内切页不重播）；DEFAULT_INTRO 为 null 时不播
+ *   prefers-reduced-motion 时照样播，由方案自己降级（awaken 只淡入静态终帧，≤1s）
  *
  * 方案组件契约：<Intro onDone={fn} authed={bool} />
  *   - 自己铺满视口（position:fixed; inset:0），背景与 --jv-bg 一致，结束时调 onDone()
@@ -18,7 +18,6 @@ export const INTROS = {
 }
 
 export const DEFAULT_INTRO = 'awaken'
-export const SEEN_KEY = 'jws_intro_seen'
 export const INTRO_DONE_EVENT = 'jv:intro-done'
 
 let playing = false
@@ -26,15 +25,9 @@ let playing = false
 export function introPlaying() { return playing }
 export function setIntroPlaying(v) { playing = !!v }
 
-export function pickIntro({ search = '', storage = null, reducedMotion = false, fallback = DEFAULT_INTRO } = {}) {
+export function pickIntro({ search = '', fallback = DEFAULT_INTRO } = {}) {
   const forced = new URLSearchParams(search).get('intro')
   if (forced === 'off') return null
   if (forced && INTROS[forced]) return forced
-  if (!fallback || !INTROS[fallback] || reducedMotion) return null
-  try { if (storage?.getItem(SEEN_KEY) === '1') return null } catch { /* 存储不可用：照常播一次 */ }
-  return fallback
-}
-
-export function markSeen(storage) {
-  try { storage?.setItem(SEEN_KEY, '1') } catch { /* 无痕模式：下次刷新会再播，可接受 */ }
+  return fallback && INTROS[fallback] ? fallback : null
 }

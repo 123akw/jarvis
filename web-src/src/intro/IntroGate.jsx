@@ -1,18 +1,10 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
-import { DEFAULT_INTRO, INTRO_DONE_EVENT, INTROS, markSeen, pickIntro, setIntroPlaying } from './registry.js'
+import { DEFAULT_INTRO, INTRO_DONE_EVENT, INTROS, pickIntro, setIntroPlaying } from './registry.js'
 import { introAllowed } from '../routes.js'
 import './intro.css'
 
 const SAFETY_MS = 8000
 const FADE_MS = 420
-
-function safeSessionStorage() {
-  try { return window.sessionStorage } catch { return null }
-}
-
-function prefersReducedMotion() {
-  try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches } catch { return false }
-}
 
 /** 进场播放期间空闲时预取登录页光球的 WebGL chunk：进场结束后登录页不必再懒加载 */
 let prefetchGL = () => import('../PresenceGL.js')
@@ -31,8 +23,8 @@ function whenIdle(cb) {
  *  开始淡出时派发 INTRO_DONE_EVENT，登录页收到后才播问候语和登录卡的入场。 */
 export default function IntroGate({ authed = false }) {
   const name = useMemo(() => pickIntro({
-    search: window.location.search, storage: safeSessionStorage(), reducedMotion: prefersReducedMotion(),
-    fallback: introAllowed(window.location.pathname, window.location.search) ? DEFAULT_INTRO : null,   // 只在市场首页播：登录页、主应用、品牌平台入口、流程页都不播
+    search: window.location.search,
+    fallback: introAllowed(window.location.pathname, window.location.search) ? DEFAULT_INTRO : null,   // 每次刷新都播；品牌智能体入口 /p/<slug> 不播
   }), [])
   const Intro = useMemo(() => (name ? lazy(INTROS[name]) : null), [name])
   // 同步标记「正在播」：登录页可能在下一个任务里就挂载，得在它读之前就位
@@ -44,7 +36,6 @@ export default function IntroGate({ authed = false }) {
 
   useEffect(() => {
     if (phase === 'playing') {
-      markSeen(safeSessionStorage())
       const timer = setTimeout(finish, SAFETY_MS)
       const onKey = () => finish()
       window.addEventListener('keydown', onKey)

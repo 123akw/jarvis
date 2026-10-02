@@ -62,7 +62,7 @@
 
 ## 界面一览
 
-<p align="center"><img src="docs/assets/readme/web-intro.png" alt="进场动画「唤醒」：边缘流光、光幕化作粒子、凝成光球、交给登录页" width="100%"><br><sub>进场动画「唤醒」：边缘流光 → 光幕化作粒子 → 凝成光球 → 无缝交给登录页（约 3.3 秒，每次打开浏览器播一次，点击即可跳过）</sub></p>
+<p align="center"><img src="docs/assets/readme/web-intro.png" alt="进场动画「唤醒」：边缘流光、光幕化作粒子、凝成光球、交给登录页" width="100%"><br><sub>进场动画「唤醒」：边缘流光 → 光幕化作粒子 → 凝成光球 → 无缝交给登录页（约 3.3 秒，每次打开或刷新都播，点击即可跳过）</sub></p>
 
 <table>
 <tr>

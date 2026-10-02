@@ -99,8 +99,9 @@ export function useRoute() {
   return route
 }
 
-/** 进场动画只在市场首页播：登录页、主应用、别人的品牌平台入口、流程页都不播 */
+/** 进场动画每次打开 / 刷新都播（市场、登录页、主应用、流程页都播）；
+ *  只有别人的品牌智能体入口 /p/<slug> 不播——那里是对方的名字和配色，不该冒出「我是贾维斯」 */
 export function introAllowed(pathname = '/', search = '') {
   const to = redirectFor(pathname, search)
-  return parseRoute(to ? to.split('?')[0] : pathname).name === 'market'
+  return parseRoute(to ? to.split('?')[0] : pathname).name !== 'platform'
 }

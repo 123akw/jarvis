@@ -83,14 +83,14 @@ describe('第十五轮路径约定', () => {
 })
 
 describe('进场动画', () => {
-  it('只在市场首页播：登录页、主应用、平台入口、流程页都不播', () => {
+  it('每次打开都播：市场、登录页、主应用、流程页都播；只有品牌智能体入口不播', () => {
     expect(introAllowed('/')).toBe(true)
     expect(introAllowed('/market')).toBe(true)          // 旧链接，跳到 / 后播
-    expect(introAllowed('/login')).toBe(false)
-    expect(introAllowed('/app')).toBe(false)
+    expect(introAllowed('/login')).toBe(true)
+    expect(introAllowed('/app')).toBe(true)
+    expect(introAllowed('/flows')).toBe(true)
+    expect(introAllowed('/', '?u=jvabc123')).toBe(true)   // 旧二维码会落到登录页
     expect(introAllowed('/p/ab12cd34')).toBe(false)
-    expect(introAllowed('/flows')).toBe(false)
-    expect(introAllowed('/', '?u=jvabc123')).toBe(false)   // 旧二维码会落到登录页
   })
 })
 

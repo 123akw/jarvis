@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import IntroGate, { setPrefetchLoader } from './IntroGate.jsx'
-import { INTRO_DONE_EVENT, introPlaying, SEEN_KEY, setIntroPlaying } from './registry.js'
+import { INTRO_DONE_EVENT, introPlaying, setIntroPlaying } from './registry.js'
 
 function setSearch(search) {
   window.history.replaceState(null, '', `/${search}`)
@@ -12,7 +12,6 @@ beforeEach(() => {
   vi.useFakeTimers()
   prefetch = vi.fn(() => Promise.resolve({}))
   setPrefetchLoader(prefetch)
-  try { window.sessionStorage.removeItem(SEEN_KEY) } catch { /* 无存储 */ }
 })
 afterEach(() => {
   cleanup()
@@ -21,20 +20,31 @@ afterEach(() => {
   setIntroPlaying(false)
 })
 
-describe('只在市场首页播', () => {
-  it('首次打开 /（市场）自动播；/login、/app、旧二维码 /?u= 都不播', () => {
-    window.history.replaceState(null, '', '/')
-    const first = render(<IntroGate />)
-    expect(first.container.querySelector('.jv-intro-gate')).not.toBeNull()
-    first.unmount()
-    for (const path of ['/login', '/app', '/?u=jvabc123']) {
-      window.sessionStorage.removeItem(SEEN_KEY)
+describe('每次打开 / 刷新都播', () => {
+  it('市场、登录页、主应用、流程页、旧二维码 /?u= 都播；同一会话再刷新也播', () => {
+    for (const path of ['/', '/', '/login', '/app', '/flows', '/?u=jvabc123', '/market']) {
       window.history.replaceState(null, '', path)
       const { container, unmount } = render(<IntroGate />)
-      expect(container.querySelector('.jv-intro-gate')).toBeNull()
-      expect(introPlaying()).toBe(false)
+      expect(container.querySelector('.jv-intro-gate'), path).not.toBeNull()
+      expect(introPlaying()).toBe(true)
       unmount()
+      setIntroPlaying(false)
     }
+  })
+
+  it('别人的品牌智能体入口 /p/<slug> 不播', () => {
+    window.history.replaceState(null, '', '/p/ab12cd34')
+    const { container } = render(<IntroGate />)
+    expect(container.querySelector('.jv-intro-gate')).toBeNull()
+    expect(introPlaying()).toBe(false)
+  })
+
+  it('系统开了「减弱动态效果」也播（由方案降级成静态淡入）', () => {
+    vi.stubGlobal('matchMedia', q => ({ matches: q.includes('reduce'), media: q, addEventListener() {}, removeEventListener() {} }))
+    window.history.replaceState(null, '', '/')
+    const { container } = render(<IntroGate />)
+    expect(container.querySelector('.jv-intro-gate')).not.toBeNull()
+    vi.unstubAllGlobals()
   })
 })
 
