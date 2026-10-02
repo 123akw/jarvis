@@ -34,7 +34,7 @@
 
 <table>
 <tr>
-<td width="33%" valign="top"><b>💬 流式对话</b><br>完整 Markdown（来源链接、表格、代码高亮），可重答、编辑重发、导出；上传 PDF / Word / TXT 解析追问</td>
+<td width="33%" valign="top"><b>💬 流式对话</b><br>完整 Markdown（来源链接、表格、代码高亮），可重答、编辑重发、导出；上传 PDF / Word / Excel / CSV 直接处理原文件</td>
 <td width="33%" valign="top"><b>🧠 长期记忆</b><br>画像可查可删，每晚把当天对话蒸馏进长期画像；称呼与语气可调</td>
 <td width="33%" valign="top"><b>⏰ 主动找你</b><br>日程到点推送微信 / 飞书 / 桌面 / 网页，一键「稍后 10 分 / 完成」；渠道与免打扰自己定，该开口才开口</td>
 </tr>
@@ -52,6 +52,11 @@
 <td valign="top"><b>📱 微信 · 飞书</b><br>扫码接入个人微信，发链接即总结；飞书机器人走长连接免公网回调，流式卡片回复</td>
 <td valign="top"><b>👥 多用户隔离</b><br>Owner 邀请制开号，对话、记忆、日程与模型 Provider 各自独立，Key 加密存储、永不回显</td>
 <td valign="top"><b>🧩 技能热加载</b><br>在 <code>skills/</code> 放一个 <code>SKILL.md</code> 就多一项技能，下一轮对话生效，无需重启</td>
+</tr>
+<tr>
+<td valign="top"><b>🏭 智能体工坊</b><br>在插件市场挑插件、起个名字，拿到专属账号口令；登录即是只用这些插件、以自己名字自称的智能体</td>
+<td valign="top"><b>🧱 积木流程</b><br>「输入 → 处理 → 输出」拼成一条链：上传资料、拆分、AI 提炼、生成 Excel / Word / 网页二维码</td>
+<td valign="top"><b>🔌 插件市场</b><br>插件独立封装、互不影响；PDF / Excel / Word 工具箱内置，管理员可从 GitHub / Gitee / zip 导入社区插件</td>
 </tr>
 </table>
 
@@ -74,6 +79,14 @@
 </tr>
 <tr>
 <td align="center" colspan="2"><img src="docs/assets/readme/web-mobile.png" alt="手机版：新对话、对话与「今日」板" width="88%"><br><sub>手机版（390×844）：新对话 · 对话 · 「今日」板</sub></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/assets/readme/web-market.png" alt="智能体市场：挑插件、帮我推荐" width="100%"><br><sub>智能体市场：挑插件进工具箱，或按职业 / 一句话推荐</sub></td>
+<td align="center"><img src="docs/assets/readme/web-flows.png" alt="积木流程运行完成" width="100%"><br><sub>积木流程：节点逐个亮起，跑完给出结果网页二维码</sub></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/assets/readme/web-agent-home-chips.png" alt="专属智能体主页" width="100%"><br><sub>专属智能体：问候与快捷问题按名称和插件生成</sub></td>
+<td align="center"><img src="docs/assets/readme/web-plugin-import.png" alt="导入插件的信任预览" width="100%"><br><sub>导入插件：来源、权限、许可证一目了然再安装</sub></td>
 </tr>
 </table>
 
