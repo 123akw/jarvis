@@ -3,7 +3,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
-import { AuroraPlane } from './ShaderBg.jsx'
+import { AuroraPlane } from './Aurora.jsx'
 
 const WHITE = '#DEE3E5'   // 机身漆面
 const WHITE2 = '#CFD5D8'  // 面板

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { currentCsrf, getVoiceSettings, voiceSocketUrl } from './api.js'
+import Presence, { EdgeGlow, rmsToLevel } from './Presence.jsx'
 import { toolLabel } from './toolInfo.js'
 import { isMicError, pcmStreamSupported, startMicStream } from './VoiceAudio.js'
 import './VoiceCall.css'
@@ -17,10 +19,30 @@ const VAD_VOICE_FRAMES = 2     // 连续 2 帧（约 200ms）确认开口 → �
 
 const speechCtor = () => window.SpeechRecognition || window.webkitSpeechRecognition
 
+// 通话阶段 → 光球状态（接通中也算「思考」：在忙，但还没在听）
+const PHASE_PRESENCE = {
+  connecting: 'thinking', listening: 'listening', thinking: 'thinking', speaking: 'speaking', closed: 'idle',
+}
+const ENV_WINDOW = 512 // 播放音量包络：每 512 样本（24kHz 下约 21ms）一个 RMS 点
+
 /** PCM16 → Float32：普通循环（比 Float32Array.from 逐样本回调快数倍，少占主线程）。 */
 export function pcm16ToFloat32(pcm) {
   const out = new Float32Array(pcm.length)
   for (let i = 0; i < pcm.length; i++) out[i] = pcm[i] / 32768
+  return out
+}
+
+/** 播放音量包络：每 win 个样本一个 RMS 点。只供光球律动读取，不进播放链路。 */
+export function rmsEnvelope(f32, win = ENV_WINDOW) {
+  const n = Math.ceil(f32.length / win)
+  const out = new Float32Array(n)
+  for (let i = 0; i < n; i++) {
+    const a = i * win
+    const b = Math.min(f32.length, a + win)
+    let sum = 0
+    for (let j = a; j < b; j++) sum += f32[j] * f32[j]
+    out[i] = Math.sqrt(sum / (b - a))
+  }
   return out
 }
 
@@ -64,7 +86,8 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
   const replyTextRef = useRef('')     // 回答全文的唯一真相：token 先进这里，按帧刷上屏
   const replyFrameRef = useRef(null)  // 已排的刷新帧
   const replyShownRef = useRef(false) // 本回合是否已有字上屏（首字不等帧）
-  const audioRef = useRef({ ctx: null, nextTime: 0, sources: new Set(), sampleRate: 24000 })
+  const audioRef = useRef({ ctx: null, nextTime: 0, sources: new Set(), sampleRate: 24000, env: [] })
+  const micLevelRef = useRef({ rms: 0, at: 0 }) // 最近一帧麦克风 RMS（推流模式），只供光球读
 
   phaseRef.current = phase
   micRef.current = micState
@@ -141,6 +164,8 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
     const at = Math.max(ctx.currentTime + 0.02, a.nextTime || 0)
     src.start(at)
     a.nextTime = at + buffer.duration
+    // 视觉：记下这一块的音量包络和开播时刻，光球按 ctx.currentTime 对齐读取
+    a.env.push({ at, step: ENV_WINDOW / (a.sampleRate || 24000), vals: rmsEnvelope(f32) })
     a.sources.add(src)
     src.onended = () => {
       a.sources.delete(src)
@@ -156,6 +181,18 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
     for (const s of a.sources) { try { s.stop() } catch { /* 已停 */ } }
     a.sources.clear()
     a.nextTime = 0
+    a.env.length = 0
+  }
+
+  /** 当前正在播放那一刻的输出音量（RMS）：按 AudioContext 时钟在包络里查，过期的块顺手丢掉。 */
+  function playbackRms() {
+    const a = audioRef.current
+    if (!a.ctx || !a.env.length) return 0
+    const t = a.ctx.currentTime
+    while (a.env.length && a.env[0].at + a.env[0].vals.length * a.env[0].step < t) a.env.shift()
+    const seg = a.env[0]
+    if (!seg || t < seg.at) return 0
+    return seg.vals[Math.floor((t - seg.at) / seg.step)] || 0
   }
 
   // ---- 上行 ----
@@ -357,7 +394,11 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
         onFrame: buf => {
           if (aliveRef.current && serverAsrRef.current) wsSendBinary(buf)
         },
-        onLevel: rms => { if (aliveRef.current) onMicLevel(rms) },
+        onLevel: rms => {
+          if (!aliveRef.current) return
+          micLevelRef.current = { rms, at: performance.now() }
+          onMicLevel(rms)
+        },
       })
       if (!aliveRef.current || !serverAsrRef.current) { handle.stop(); return }
       streamRef.current = handle
@@ -434,21 +475,28 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
   }, [])
 
   const degraded = micState === 'denied' || micState === 'unsupported'
+  const presenceState = PHASE_PRESENCE[phase] || 'idle'
+  const [orbSize] = useState(() => (window.innerHeight < 720 || window.innerWidth < 420 ? 128 : 168))
 
-  return (
-    <div className="voice-overlay" role="dialog" aria-label="语音通话">
+  // 光球/流光每帧读音量：听的时候是麦克风，说的时候是正在播放的那一段（函数引用稳定，不触发重渲染）
+  const levelRef = useRef(null)
+  if (!levelRef.current) {
+    levelRef.current = () => {
+      const p = phaseRef.current
+      if (p === 'speaking') return rmsToLevel(playbackRms(), 0.01, 0.22)
+      if (p === 'listening') {
+        const m = micLevelRef.current
+        return performance.now() - m.at < 400 ? rmsToLevel(m.rms) : 0
+      }
+      return 0
+    }
+  }
+
+  // 挂到 body：不受 Chat 所在层叠上下文限制，遮罩和边缘流光盖住整屏（含顶栏）
+  return createPortal(
+    <div className={`voice-overlay is-${phase}`} role="dialog" aria-label="语音通话">
+      <EdgeGlow state={presenceState} getLevel={levelRef.current} active={phase !== 'closed'} />
       <div className="voice-panel">
-        <div className="voice-status">
-          <span className={`voice-orb ${phase}`} data-testid="voice-orb" />
-          <span className="voice-phase">{PHASE_LABEL[phase] || phase}</span>
-          {phase === 'thinking' && <span className="voice-dots" aria-hidden="true"><i /><i /><i /></span>}
-          {phase === 'speaking' && <span className="voice-eq" aria-hidden="true"><i /><i /><i /><i /></span>}
-          {emotion && (
-            <span className="voice-emotion" title="语气感知（识别你说话的情绪）">
-              {EMOTION_EMOJI[emotion.emotion] || ''} {emotion.label}
-            </span>
-          )}
-        </div>
         {scenes.length > 1 && (
           <div className="voice-scenes" data-testid="voice-scenes">
             {scenes.map(s => (
@@ -459,6 +507,17 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
             ))}
           </div>
         )}
+        <div className={`voice-orb ${phase}`} data-testid="voice-orb" data-state={presenceState}>
+          <Presence state={presenceState} getLevel={levelRef.current} size={orbSize} decorative />
+        </div>
+        <div className="voice-status">
+          <span className="voice-phase">{PHASE_LABEL[phase] || phase}</span>
+          {emotion && (
+            <span className="voice-emotion" title="语气感知（识别你说话的情绪）">
+              {EMOTION_EMOJI[emotion.emotion] || ''} {emotion.label}
+            </span>
+          )}
+        </div>
         {micState === 'granted' && phase === 'listening' && (
           <div className="voice-hint">
             {inputMode === 'stream' ? '实时识别中，直接说话即可' : '说话停顿后自动发送'}
@@ -498,6 +557,7 @@ export default function VoiceCall({ threadId = 'voice', onClose, onExpired }) {
           <button className="voice-btn hangup" onClick={onClose}>挂断</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

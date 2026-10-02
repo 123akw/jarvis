@@ -1,0 +1,125 @@
+/* Presence 光球 / 屏幕边缘流光 / 登录光晕交接
+ * 约定：持续动画只用 transform / opacity（合成线程），不动 box-shadow、filter、背景位置。
+ * 颜色取 Apple Intelligence 式四色 AI 渐变（与 --jv-ai-gradient 一致）。 */
+
+.jv-presence{
+  --jvp-size:160px;
+  --jvp-c1:#3B82F6;--jvp-c2:#8B5CF6;--jvp-c3:#EC4899;--jvp-c4:#F59E0B;
+  --jvp-deep:#0b0d1d;--jvp-deep-a:rgb(11 13 29 / .82);--jvp-deep-b:rgb(11 13 29 / .45);
+  --jvp-ease:var(--jv-ease,cubic-bezier(.2,.8,.2,1));
+  position:relative;flex:none;width:var(--jvp-size);height:var(--jvp-size);
+  pointer-events:none;-webkit-user-select:none;user-select:none;
+}
+body.light .jv-presence{
+  --jvp-deep:#eef0fb;--jvp-deep-a:rgb(238 240 251 / .74);--jvp-deep-b:rgb(238 240 251 / .32);
+}
+.jv-presence i{display:block;font-style:normal}
+
+/* ---------- CSS 版（首屏 / 小尺寸 / 减弱动态） ---------- */
+.jvp-css{position:absolute;inset:0;transition:opacity .9s var(--jvp-ease)}
+.jvp-halo,.jvp-body,.jvp-breathe,.jvp-core,.jvp-core i,.jvp-halo i{position:absolute;border-radius:50%}
+.jvp-halo{inset:-40%;opacity:.5;transform:scale(1.03);transition:opacity .6s var(--jvp-ease)}
+.jvp-halo i{inset:0}
+.jvp-halo i:nth-child(1){background:radial-gradient(circle,rgb(139 92 246 / .42) 0,rgb(59 130 246 / .2) 34%,transparent 66%)}
+.jvp-halo i:nth-child(2){background:radial-gradient(circle at 36% 40%,rgb(236 72 153 / .26),transparent 40%);
+  animation:jvp-rot 19s linear infinite}
+.jvp-halo i:nth-child(3){background:radial-gradient(circle at 64% 62%,rgb(245 158 11 / .2),transparent 38%);
+  animation:jvp-rot 27s linear infinite reverse}
+body.light .jvp-halo i:nth-child(1){background:radial-gradient(circle,rgb(139 92 246 / .26) 0,rgb(59 130 246 / .12) 36%,transparent 66%)}
+
+.jvp-body{inset:0}
+.jvp-breathe{inset:0;animation:jvp-breathe 5.6s ease-in-out infinite}
+.jvp-core{inset:0;overflow:hidden;background:var(--jvp-deep);
+  /* 圆角裁剪交给合成器；isolation 防止内部层与页面混色 */
+  isolation:isolate;-webkit-mask-image:-webkit-radial-gradient(white,black)}
+.jvp-core i{inset:0}
+.jvp-flow{inset:-22% !important;opacity:.92;
+  background:conic-gradient(from 0deg,var(--jvp-c1),var(--jvp-c2),var(--jvp-c3),var(--jvp-c4),var(--jvp-c1));
+  animation:jvp-rot 13s linear infinite}
+.jvp-blob.b1{background:radial-gradient(circle at 30% 28%,rgb(59 130 246 / .95),transparent 46%);animation:jvp-rot 9s linear infinite}
+.jvp-blob.b2{background:radial-gradient(circle at 72% 66%,rgb(236 72 153 / .8),transparent 44%);animation:jvp-rot 12.5s linear infinite reverse}
+.jvp-blob.b3{background:radial-gradient(circle at 42% 80%,rgb(245 158 11 / .65),transparent 40%);animation:jvp-rot 17s linear infinite}
+/* 中心深、边缘亮：模拟球体的菲涅尔边缘光 */
+.jvp-depth{background:radial-gradient(circle at 50% 52%,var(--jvp-deep-a) 0,var(--jvp-deep-b) 44%,transparent 72%)}
+/* 思考扫光：一道亮弧绕球转，只在 thinking 时淡入（暂停而非移除动画，切换不跳） */
+.jvp-sweep{inset:-8% !important;opacity:0;
+  background:conic-gradient(from 0deg,transparent 0 62%,rgb(255 255 255 / .55) 88%,transparent 100%);
+  animation:jvp-rot 1.5s linear infinite paused;transition:opacity .5s var(--jvp-ease)}
+.jv-presence.is-thinking .jvp-sweep{opacity:.7;animation-play-state:running}
+.jvp-sheen{background:radial-gradient(circle at 33% 25%,rgb(255 255 255 / .5),rgb(255 255 255 / 0) 30%)}
+
+/* 状态的静态差异（CSS 版的音量律动由 JS 写 .jvp-body / .jvp-halo 的 transform/opacity） */
+.jv-presence.is-thinking .jvp-halo{opacity:.62}
+.jv-presence.is-listening .jvp-halo,.jv-presence.is-speaking .jvp-halo{opacity:.75}
+
+/* ---------- WebGL 版：画好第一帧后与 CSS 版交叉淡入，随后卸下 CSS 版 ---------- */
+.jvp-gl{position:absolute;left:50%;top:50%;width:180%;height:180%;transform:translate(-50%,-50%);
+  opacity:0;transition:opacity .9s var(--jvp-ease)}
+.jv-presence.gl-ready .jvp-gl{opacity:1}
+.jv-presence.gl-ready .jvp-css{opacity:0}
+.jv-presence.gl-done .jvp-css{display:none}
+
+@keyframes jvp-rot{to{transform:rotate(1turn)}}
+@keyframes jvp-breathe{0%,100%{transform:scale(.972)}50%{transform:scale(1.028)}}
+
+/* 减弱动态：一切静止，状态只靠扫光/光晕的明暗区分 */
+.jv-presence.is-reduced *{animation:none !important}
+.jv-presence.is-reduced .jvp-sweep{transition:none}
+@media (prefers-reduced-motion:reduce){
+  .jv-presence *{animation:none !important}
+}
+
+/* ---------- 屏幕边缘流光 ---------- */
+.jv-edge{position:fixed;inset:0;pointer-events:none;opacity:0;transition:opacity .8s var(--jv-ease,cubic-bezier(.2,.8,.2,1))}
+.jv-edge.on{opacity:1}
+.jve-k{position:absolute;inset:0;opacity:.32}
+.jve-s{position:absolute;display:block;overflow:hidden;--jve-d:clamp(34px,7vmin,84px)}
+.jve-s>b{position:absolute;display:block}
+.jve-t,.jve-b{left:0;right:0;height:var(--jve-d)}
+.jve-l,.jve-r{top:0;bottom:0;width:var(--jve-d)}
+.jve-t{top:0;transform-origin:50% 0;
+  -webkit-mask-image:linear-gradient(180deg,#000 0,rgb(0 0 0 / .42) 22%,transparent 100%);
+          mask-image:linear-gradient(180deg,#000 0,rgb(0 0 0 / .42) 22%,transparent 100%)}
+.jve-b{bottom:0;transform-origin:50% 100%;
+  -webkit-mask-image:linear-gradient(0deg,#000 0,rgb(0 0 0 / .42) 22%,transparent 100%);
+          mask-image:linear-gradient(0deg,#000 0,rgb(0 0 0 / .42) 22%,transparent 100%)}
+.jve-l{left:0;transform-origin:0 50%;
+  -webkit-mask-image:linear-gradient(90deg,#000 0,rgb(0 0 0 / .42) 22%,transparent 100%);
+          mask-image:linear-gradient(90deg,#000 0,rgb(0 0 0 / .42) 22%,transparent 100%)}
+.jve-r{right:0;transform-origin:100% 50%;
+  -webkit-mask-image:linear-gradient(270deg,#000 0,rgb(0 0 0 / .42) 22%,transparent 100%);
+          mask-image:linear-gradient(270deg,#000 0,rgb(0 0 0 / .42) 22%,transparent 100%)}
+/* 每条边一条两倍长的循环渐变带，平移半个周期即无缝；四边方向相接，颜色绕屏幕顺时针流 */
+.jve-t>b,.jve-b>b{top:0;bottom:0;left:0;width:200%;
+  background:linear-gradient(90deg,#3B82F6,#8B5CF6,#EC4899,#F59E0B,#3B82F6,#8B5CF6,#EC4899,#F59E0B,#3B82F6)}
+.jve-l>b,.jve-r>b{left:0;right:0;top:0;height:200%;
+  background:linear-gradient(180deg,#3B82F6,#8B5CF6,#EC4899,#F59E0B,#3B82F6,#8B5CF6,#EC4899,#F59E0B,#3B82F6)}
+.jve-t>b{animation:jve-x 9s linear infinite reverse}
+.jve-b>b{animation:jve-x 9s linear infinite}
+.jve-r>b{animation:jve-y 9s linear infinite reverse}
+.jve-l>b{animation:jve-y 9s linear infinite}
+@keyframes jve-x{to{transform:translateX(-50%)}}
+@keyframes jve-y{to{transform:translateY(-50%)}}
+.jv-edge.is-reduced .jve-s>b{animation:none}
+.jv-edge.is-reduced.is-idle .jve-k{opacity:.3}
+.jv-edge.is-reduced:not(.is-idle) .jve-k{opacity:.55}
+@media (prefers-reduced-motion:reduce){.jve-s>b{animation:none !important}}
+
+/* ---------- 光晕交接（登录成功 → 主界面） ----------
+ * 小元素 + 大倍数 scale：will-change 固定栅格分辨率，放大只是 GPU 拉伸（软光本就该糊），
+ * 不会为整屏光栅化一张巨图。 */
+.jv-bloom{position:fixed;z-index:80;width:360px;height:360px;margin:-180px 0 0 -180px;border-radius:50%;
+  pointer-events:none;will-change:transform,opacity;
+  background:radial-gradient(circle,rgb(196 181 253 / .95) 0,rgb(139 92 246 / .7) 18%,rgb(59 130 246 / .42) 38%,rgb(236 72 153 / .2) 56%,transparent 72%);
+  transform:scale(9);opacity:1}
+body.light .jv-bloom{background:radial-gradient(circle,rgb(255 255 255 / .98) 0,rgb(237 233 254 / .92) 30%,rgb(219 234 254 / .6) 50%,rgb(252 231 243 / .3) 62%,transparent 74%)}
+.jv-bloom.is-in{animation:jv-bloom-in .8s cubic-bezier(.55,0,.25,1) both}
+.jv-bloom.is-out{animation:jv-bloom-out .95s cubic-bezier(.2,.8,.2,1) both}
+@keyframes jv-bloom-in{from{transform:scale(.25);opacity:0}35%{opacity:1}to{transform:scale(9);opacity:1}}
+@keyframes jv-bloom-out{from{transform:scale(9);opacity:1}to{transform:scale(11);opacity:0}}
+@media (prefers-reduced-motion:reduce){
+  .jv-bloom.is-in{animation:jv-fade-in .25s both}
+  .jv-bloom.is-out{animation:jv-fade-out .3s both}
+}
+@keyframes jv-fade-in{from{opacity:0}}
+@keyframes jv-fade-out{to{opacity:0}}

@@ -139,6 +139,24 @@ describe('VoiceCall', () => {
     expect(MockAudioContext.sources[0].start).toHaveBeenCalled()
   })
 
+  it('中央光球跟随通话阶段：接通中→思考，在听→聆听，回答→律动，挂断→待命；四周有边缘流光', async () => {
+    window.webkitSpeechRecognition = MockRecognition
+    render(<VoiceCall onClose={() => {}} />)
+    const ws = lastSocket()
+    const orb = screen.getByTestId('voice-orb')
+    expect(orb).toHaveAttribute('data-state', 'thinking')
+    expect(document.querySelectorAll('.jv-edge .jve-s')).toHaveLength(4)
+    act(() => { ws.open(); ws.emit({ type: 'ready' }) })
+    expect(orb).toHaveAttribute('data-state', 'listening')
+    act(() => ws.emit({ type: 'turn_start' }))
+    expect(orb).toHaveAttribute('data-state', 'thinking')
+    act(() => ws.emitBinary(new Int16Array([800, -800, 400, -400]).buffer))
+    expect(orb).toHaveAttribute('data-state', 'speaking')
+    act(() => ws.onclose())
+    expect(orb).toHaveAttribute('data-state', 'idle')
+    expect(document.querySelector('.jv-edge')).not.toHaveClass('on')
+  })
+
   it('播放中开口或点打断：停掉本地播放并上行 interrupt', async () => {
     window.webkitSpeechRecognition = MockRecognition
     render(<VoiceCall onClose={() => {}} />)

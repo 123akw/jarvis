@@ -2,7 +2,7 @@ import '@testing-library/jest-dom/vitest'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import VoiceCall, { pcm16ToFloat32 } from './VoiceCall.jsx'
+import VoiceCall, { pcm16ToFloat32, rmsEnvelope } from './VoiceCall.jsx'
 
 // 推流采集模块打桩：测试直接驱动 onFrame/onLevel，覆盖「推流+字幕+VAD 打断+降级」链路
 const audioMock = vi.hoisted(() => ({
@@ -226,6 +226,18 @@ describe('VoiceCall 推流模式', () => {
 
     act(() => { ws.emit({ type: 'turn_start' }); ws.emit({ type: 'token', text: '新回合' }) })
     expect(screen.getByText('新回合')).toBeInTheDocument() // 新回合首字又是立即上屏，旧帧不串台
+  })
+
+  it('播放音量包络：按窗口算 RMS，末段不足一窗也算（只供光球律动）', () => {
+    const f32 = new Float32Array(1100)
+    f32.fill(0.5, 0, 512)          // 第一窗：恒定 0.5 → RMS 0.5
+    // 第二窗静音，第三窗只有 76 个样本
+    f32.fill(-0.25, 1024)
+    const env = rmsEnvelope(f32, 512)
+    expect(env).toHaveLength(3)
+    expect(env[0]).toBeCloseTo(0.5, 6)
+    expect(env[1]).toBe(0)
+    expect(env[2]).toBeCloseTo(0.25, 6)
   })
 
   it('PCM16 → Float32 换算正确（循环实现，替代逐样本回调）', () => {
