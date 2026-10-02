@@ -13,6 +13,7 @@ from jarvis.tools.location import coding_status, my_location
 from jarvis.tools.meeting import meeting_start, meeting_stop
 from jarvis.tools.memo import memo_add, memo_del, memo_list
 from jarvis.tools.profile import profile_forget, profile_list, profile_remember
+from jarvis.tools.recall import recall_history
 from jarvis.tools.schedule import schedule_add, schedule_del, schedule_list
 from jarvis.tools.search import WebSearchArgs, _validated_request, make_web_extract_tool
 from jarvis.tools.system import sys_query
@@ -30,6 +31,7 @@ _LOCAL_TOOLS = [
     todo_add, todo_list, todo_done,
     meeting_start, meeting_stop,
     sys_query,
+    recall_history,
 ]
 
 
@@ -105,5 +107,6 @@ __all__ = [
     "todo_add", "todo_list", "todo_done",
     "meeting_start", "meeting_stop",
     "sys_query",
+    "recall_history",
     "web_search", "web_extract", "movie_ratings", "esports_scores", "ticket_search",
 ]

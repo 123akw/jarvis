@@ -191,7 +191,7 @@ def test_brief_uses_prefs_not_new_tables(owner_id):
     with store._connect() as c:
         versions = [r[0] for r in c.execute("SELECT version FROM tenant_schema_migrations ORDER BY version")]
         tables = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    assert versions == [1, 2, 3]
+    assert versions[:3] == [1, 2, 3]   # 之后的版本属于别的功能（v4 翻旧账索引），简报本身不加版本
     assert not any("brief" in t for t in tables)
     assert json.loads(store.get_pref(briefing.PREF_KEY))["source"] == "model"
 
