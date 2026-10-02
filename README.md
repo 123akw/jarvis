@@ -121,6 +121,7 @@ JARVIS_SESSION_SECRET=<openssl rand -hex 32 的输出>
 .venv/bin/jarvis-web                       # 网页端 → http://127.0.0.1:7789
 .venv/bin/jarvis                           # 终端对话（可选）
 cd desktop && npm install && npm start     # macOS 桌面悬浮球（可选，需已有运行中的 Web 服务）
+cd desktop && npm run pack:mac && npm run install:mac   # 打包成「贾维斯.app」装进 ~/Applications，网页可一键唤起
 ```
 
 用 Owner 登录后，可在右上角头像菜单「账户设置 → 用户管理」邀请成员。动态网页提取、桌面端登录与服务器地址、自建 SearXNG、备份与回滚见 [部署指南](docs/deployment.md)，全部环境变量见 [配置参考](docs/configuration.md)。
