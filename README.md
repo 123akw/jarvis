@@ -55,6 +55,8 @@
 
 ## 界面一览
 
+<p align="center"><img src="docs/assets/readme/web-intro.png" alt="进场动画「唤醒」：边缘流光、光幕化作粒子、凝成光球、交给登录页" width="100%"><br><sub>进场动画「唤醒」：边缘流光 → 光幕化作粒子 → 凝成光球 → 无缝交给登录页（约 3.3 秒，每次打开浏览器播一次，点击即可跳过）</sub></p>
+
 <table>
 <tr>
 <td align="center" width="50%"><img src="docs/assets/readme/web-login.png" alt="登录页：存在感光球与问候" width="100%"><br><sub>登录页：会呼吸的 AI 光球，可切到 MOSS 形态</sub></td>
@@ -82,12 +84,12 @@
 <tr>
 <td align="center" colspan="3">
 <img src="docs/assets/readme/desktop-orb.png" alt="悬浮球待命" width="56">&emsp;<img src="docs/assets/readme/desktop-ball-listening.png" alt="听" width="56">&emsp;<img src="docs/assets/readme/desktop-ball-thinking.png" alt="想" width="56">&emsp;<img src="docs/assets/readme/desktop-ball-speaking.png" alt="说" width="56"><br>
-<sub>悬浮球：待命 · 听（青）· 想（琥珀）· 说（绿）</sub>
+<sub>悬浮球：待命 · 听（律动 + 冷蓝涟漪）· 想（亮弧流转）· 说（随音量起伏、转暖）</sub>
 </td>
 </tr>
 </table>
 
-<sub>网页截图为第九轮新界面，2026-10-02 在隔离演示环境实拍（桌面 1440×900、手机 390×844，均为 2 倍像素）；桌面端未改版，沿用 JWS_SHOT 自检模式实拍。数据均为虚构演示数据（对话由真实模型回答演示问题生成），无真实用户对话与凭据入图。提醒、记忆、会议纪要、设置中心等全部 24 张截图与拍摄说明见 [截图画廊](docs/features.md#截图画廊)。</sub>
+<sub>网页截图为第九轮新界面，2026-10-02 在隔离演示环境实拍（桌面 1440×900、手机 390×844，均为 2 倍像素）；桌面端为第十一轮改版后实拍（JWS_SHOT 自检外壳，独立资料目录）。数据均为虚构演示数据（对话由真实模型回答演示问题生成），无真实用户对话与凭据入图。提醒、记忆、会议纪要、设置中心等全部 24 张截图与拍摄说明见 [截图画廊](docs/features.md#截图画廊)。</sub>
 
 ## 快速开始
 
@@ -139,6 +141,32 @@ flowchart LR
 网页与桌面端经 SSE 流式输出；每个入口使用独立的 `thread_id`，LangGraph 检查点落在 SQLite，重启后仍能接着聊。工具分层与搜索来源边界见 [架构说明](docs/architecture.md)。
 
 ## 最新动态
+
+<details open>
+<summary><b>第十一轮 · 2026-10-02</b>　进场动画 · 一句话速记 · 记忆回执 · 今日简报 · 桌面端改版 · 安全加固</summary>
+
+<img src="docs/assets/readme/web-today-features.png" alt="「今日」板：AI 简报卡、记忆整理提示与一句话速记预览" width="300" align="right">
+
+- **进场动画「唤醒」**：Apple 式边缘流光与逐字显影，光幕化作粒子汇聚成光球，无缝交给登录页；原生 WebGL，gzip 约 9KB，60fps。
+- **一句话速记**：在「今日」板写「明天下午3点 复盘」，边打字边预览，自动成为日程；不带时间就是待办，可撤销，⌘K 里也能用。
+- **记忆回执**：贾维斯记住或忘记什么，回答下方留一行「✓ 已记住 · 撤销」；夜间整理的记忆第二天在「今日」板提示。
+- **今日简报卡**：「今日」板顶部一行 AI 简报，每人每天最多调用一次模型，失败退回规则摘要。
+- **桌面悬浮窗改版**：与网页同一套设计语言，悬浮球改为光球三态，空闲 CPU 13.9% → 6.1%。
+- **安全加固**：cryptography 50.0.2（依赖漏洞清零），建号 / 改口令强制强口令，过期会话定期清理，Heartbeat 夜间静默与去重。
+- 测试基线 **pytest 898 / vitest 304 / desktop 137**，全部通过。
+
+<br clear="right">
+</details>
+
+<details>
+<summary><b>第十轮 · 2026-10-02</b>　全功能 QA · 飞书绑定面板 · 弱口令提醒</summary>
+
+- **网页端**：修复 12 个问题（弹窗焦点陷阱、键盘选会话、通话 Esc 挂断、亮色对比度、报错文案等）；新增「思考中」小光球与飞书绑定面板（绑定码、倒计时、一键复制、解绑）。
+- **后端**：修复工具异常穿透、`calc` 超大幂运算卡死全站、同线程并发丢回答、微信长轮询静默退出、后台线程混入会话侧栏等问题；四个定时线程统一为 `PeriodicWorker`。
+- **安全**：检测默认 / 弱口令并在网页顶部提醒修改；pypdf、urllib3 升级修复高危 DoS。
+- 测试基线 **pytest 765 / vitest 184 / desktop 124**，全部通过。
+
+</details>
 
 <details>
 <summary><b>第九轮 · 2026-10-02</b>　网页端界面改版 · AI 光球 · ⌘K 命令面板 · 「今日」板</summary>

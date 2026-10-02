@@ -613,3 +613,11 @@
 - 存储：连接及时关闭（232 条 ResourceWarning → 0）、迁移检查缓存、审计表索引、上传先按长度拦截；启动时校验服务器时区。
 - 网页：键盘焦点与弹窗焦点陷阱、今日板打磨、飞书绑定面板、出错与上传说人话、弱口令横幅（`/api/session` 的 `password_weak`）；pypdf → 6.19.0、urllib3 → 2.8.0。
 - 基线 pytest 765 / vitest 184 / desktop 124。
+
+# 第十一轮（2026-10-02）：进场动画 + 首批新功能 + 桌面改版 + 安全加固
+
+- 进场动画「唤醒」（`web-src/src/intro/awaken/`）：方案 A 粒子汇聚 + 方案 B 光幕结合，三方案并行原型后由用户选定；IntroGate 统一跳过 / 8s 兜底 / 每会话一次 / reduced-motion 不播；光球全局时钟 presenceClock 让交接花纹连续，登录卡收到 `jv:intro-done` 后才入场，播放期间预取 PresenceGL。gzip 约 9KB，60fps。
+- 新功能（`docs/proposals/2026-10-feature-ideas.md` 首批 3 项）：一句话速记（纯前端中文时间解析 `quickAdd.js`）、记忆回执（SSE `tool_result.memory` + `/api/memory*`）、今日简报卡（`jarvis/briefing.py`，`/api/brief`，每人每天 ≤1 次模型）。无 schema 变更，全部用 tenant_prefs。
+- 桌面端改版：与网页同一套 token，悬浮光球三态，设置新增主题项；空闲 CPU 13.9% → 6.1%。
+- 安全：cryptography 45.0.7 → 50.0.2（旧密文兼容回归测试，pip-audit 0 条）；建号 / 改口令弱口令 400、重名 409；SessionJanitor 每 6 小时清过期会话；Heartbeat 静默时段 `JARVIS_HEARTBEAT_QUIET_HOURS` 与 24 小时去重。
+- 基线 pytest 898 / vitest 304 / desktop 137。
