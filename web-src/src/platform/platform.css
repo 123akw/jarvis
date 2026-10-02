@@ -221,6 +221,9 @@ body.light .pfe-card{box-shadow:0 24px 60px -24px rgb(40 44 80 / .28)}
 .pfe-btn:disabled{opacity:.6}
 .pfe-hint{min-height:16px;margin-top:-4px;font-size:12px;text-align:center;color:var(--jv-danger);opacity:0;transition:opacity .2s}
 .pfe-hint.show{opacity:1}
+/* 换号说明：?u= 与这台设备当前登录的账号不一致 */
+.pfe-switch{padding:8px 11px;border-radius:10px;font-size:12.5px;line-height:1.5;color:var(--jv-text-2);
+  background:var(--jv-accent-soft);border:1px solid color-mix(in srgb,var(--jv-accent) 24%,transparent)}
 .pfe-who{display:flex;align-items:center;gap:12px;padding:8px 2px 2px}
 .pfe-who-name{min-width:0;font-size:16px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pfe-link{align-self:center;height:36px;padding:0 10px;border:none;background:none;color:var(--jv-text-3);font-size:13px}

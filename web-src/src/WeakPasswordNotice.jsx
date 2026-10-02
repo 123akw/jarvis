@@ -1,9 +1,9 @@
 import { useState } from 'react'
+import { ACCOUNT_KEYS, readAccount, writeAccount } from './accountStorage.js'
 
-const DISMISS_KEY = 'jws_weak_pw_dismissed'
-
+// 「稍后」按账号记（sessionStorage 的 jws_weak_pw_dismissed:<用户名>）：换个弱口令账号登录照样提醒
 function readDismissed() {
-  try { return sessionStorage.getItem(DISMISS_KEY) === '1' } catch { return false }
+  return readAccount(ACCOUNT_KEYS.weakDismissed) === '1'
 }
 
 /** 弱口令提醒：服务端 /api/session 返回 password_weak=true 时出现。
@@ -12,7 +12,7 @@ export default function WeakPasswordNotice({ weak, onFix }) {
   const [dismissed, setDismissed] = useState(readDismissed)
   if (!weak || dismissed) return null
   const later = () => {
-    try { sessionStorage.setItem(DISMISS_KEY, '1') } catch { /* 无痕模式：仅本页隐藏 */ }
+    writeAccount(ACCOUNT_KEYS.weakDismissed, '1')   // 无痕模式写不进：仅本页隐藏
     setDismissed(true)
   }
   return (

@@ -197,7 +197,7 @@ describe('HUD 布局：顶栏减负后入口仍全部可达', () => {
     await user.click(screen.getByRole('option', { name: /写周报/ }))
     expect(screen.getByLabelText('chat')).toHaveAttribute('data-thread', 'b')
     expect(document.querySelector('.tb-title')).toHaveTextContent('写周报')
-    expect(localStorage.setItem).toHaveBeenCalledWith('jws_thread', 'b')
+    expect(localStorage.setItem).toHaveBeenCalledWith('jws_thread:owner', 'b')
 
     await user.click(screen.getByRole('button', { name: '命令面板' }))
     await user.keyboard('{ArrowDown}{Escape}')

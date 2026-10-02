@@ -31,7 +31,7 @@ describe('HUD 交互细节', () => {
   let store
   beforeEach(() => {
     setWidth(1440)
-    store = new Map([['jws_thread', 'a']])
+    store = new Map([['jws_thread:owner', 'a']])
     vi.stubGlobal('localStorage', {
       getItem: vi.fn(k => (store.has(k) ? store.get(k) : null)),
       setItem: vi.fn((k, v) => store.set(k, String(v))),
