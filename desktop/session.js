@@ -1,6 +1,8 @@
 /* Main-process-only authenticated API gateway. This module deliberately has no Electron import. */
 'use strict'
 
+const { MAX_DOWNLOAD_BYTES, filenameFromDisposition } = require('./file-download.js')
+
 const MAX_EVENT_BYTES = 64 * 1024
 const MAX_STREAM_BYTES = 2 * 1024 * 1024
 const MAX_STREAM_EVENTS = 4096
@@ -168,9 +170,23 @@ function createSessionGateway({ fetchImpl, safeStorage, fs, path, dataDir, serve
   /* 语音通话 WebSocket：仅主进程使用。authToken 给 webRequest 握手头注入，
      令牌不经过渲染进程；voiceCallUrl 是唯一允许注入的精确地址。 */
   function authToken() { load(); return token }
+  /* 文件空间下载（对话里的 /api/files/<id>）：只收已校验的 id，带桌面令牌取回内容，令牌不出主进程 */
+  async function downloadFile(fileId) {
+    if (typeof fileId !== 'string' || !/^[A-Za-z0-9_-]{8,64}$/.test(fileId)) throw new Error('file id is not allowed')
+    load()
+    if (!token) return { ok: false, status: 401 }
+    const response = await fetchImpl(`${serverUrl}/api/files/${fileId}`, { method: 'GET', headers: { 'X-JWS-Token': token } })
+    if (response.status === 401) { clear(); return { ok: false, status: 401 } }
+    if (!response.ok) return { ok: false, status: response.status }
+    const header = name => (response.headers && typeof response.headers.get === 'function' ? response.headers.get(name) : '') || ''
+    if (Number(header('content-length')) > MAX_DOWNLOAD_BYTES) return { ok: false, status: 413 }
+    const data = Buffer.from(await response.arrayBuffer())
+    if (data.length > MAX_DOWNLOAD_BYTES) return { ok: false, status: 413 }
+    return { ok: true, status: response.status, data, filename: filenameFromDisposition(header('content-disposition')) }
+  }
   function voiceCallUrl() { return serverUrl.replace(/^http/, 'ws') + '/api/voice/call' }
   function meetingStreamUrl() { return serverUrl.replace(/^http/, 'ws') + '/api/meeting/stream' }
-  return { login, exchange, request, stream, clear, load, setServer, server: () => serverUrl, authToken, voiceCallUrl, meetingStreamUrl }
+  return { login, exchange, request, stream, clear, load, setServer, server: () => serverUrl, authToken, voiceCallUrl, meetingStreamUrl, downloadFile }
 }
 
 function replaceSessionGateway({ currentGateway, previousSettings, nextSettings, createGateway, persistSettings }) {

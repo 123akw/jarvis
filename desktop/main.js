@@ -13,6 +13,7 @@ const { createSessionGateway, replaceSessionGateway } = require('./session.js')
 const { createApiHandlers } = require('./ipc-api.js')
 const { assertTrustedSender, hardenWindow, validateSettingsPatch } = require('./security.js')
 const { isAllowedProviderLink } = require('./provider-links.js')
+const { fileIdFromLink, safeFileName, uniqueDownloadPath } = require('./file-download.js')
 const { createWakeServer, parseHandoffUrl } = require('./wake-server.js')
 const { buildAppInfo, restartApp } = require('./app-info.js')
 const { buildTrayMenuTemplate, wireTray } = require('./tray-setup.js')
@@ -449,6 +450,18 @@ ipcMain.handle('open-external-link', async (event, url) => {
   await shell.openExternal(parsed.toString())  // 回答里的来源链接交给系统浏览器
   return true
 })
+// 对话里文件空间的下载链接：主进程带令牌下载，存进「下载」并在访达里选中
+ipcMain.handle('download-file', async (event, href) => {
+  trusted(event)
+  const fileId = fileIdFromLink(href)
+  if (!fileId) throw new Error('link is not allowed')
+  const result = await gateway().downloadFile(fileId)
+  if (!result.ok) return { ok: false, status: result.status }
+  const target = uniqueDownloadPath(app.getPath('downloads'), safeFileName(result.filename, `jarvis-${fileId}`), file => fs.existsSync(file))
+  await fs.promises.writeFile(target, result.data, { flag: 'wx' })
+  shell.showItemInFolder(target)
+  return { ok: true, name: path.basename(target) }
+})
 ipcMain.handle('get-settings', event => {
   trusted(event)
   const s = loadSettings()
@@ -668,8 +681,13 @@ app.whenReady().then(() => {
   startWakeServer()
   protocolInbox.receive(protocolLinkFromArgv(process.argv))  // Windows/Linux 冷启动经 argv 带链接
   protocolInbox.open()
-  // 打包版：已勾开机自启就把登录项指向当前这份应用（顺带清掉开发版留下的 LaunchAgent）
-  if (app.isPackaged && s.openAtLogin) { try { setAutoLaunch(true) } catch {} }
+  // 打包版：登录项跟着设置走——已勾就指向当前这份应用（顺带清掉开发版的 LaunchAgent），没勾但系统里还挂着就撤掉
+  if (app.isPackaged) {
+    try {
+      if (s.openAtLogin) setAutoLaunch(true)
+      else if (app.getLoginItemSettings().openAtLogin) setAutoLaunch(false)
+    } catch { /* 登录项登记失败不影响启动 */ }
+  }
   startReminderPolling()
   startCommandPolling()
   // 自检截图模式：JWS_SHOT=/path/out.png [JWS_SHOT_VIEW=settings] npm start
