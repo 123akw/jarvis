@@ -89,7 +89,7 @@ describe('智能体市场', () => {
     store = memoryStorage()
     vi.stubGlobal('sessionStorage', store)
     vi.stubGlobal('localStorage', memoryStorage())
-    window.history.replaceState({}, '', '/market')
+    window.history.replaceState({}, '', '/')
   })
   afterEach(() => {
     cleanup()
@@ -132,13 +132,14 @@ describe('智能体市场', () => {
     expect(within(secret).getByText('只显示这一次，请保存')).toBeInTheDocument()
     expect(within(secret).getByRole('button', { name: '复制账号和口令' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: /装了这些插件/ })).toHaveTextContent('日程提醒')
-    expect(screen.getByRole('img', { name: /在手机上打开的二维码：http:\/\/localhost\/\?u=naicha_7k2m/ })).toBeInTheDocument()
+    // 二维码内容 = location.origin + loginHref(username)
+    expect(screen.getByRole('img', { name: '在手机上打开的二维码：http://localhost/login?u=naicha_7k2m' })).toBeInTheDocument()
     expect(screen.queryByText(/\/p\/naicha-7k2m/)).not.toBeInTheDocument()
     // 口令不落盘
     expect(store.dump()).not.toContain('Qe7v-X2pL-m9dK')
 
     await user.click(screen.getByRole('button', { name: '去登录' }))
-    expect(window.location.pathname + window.location.search).toBe('/?u=naicha_7k2m')
+    expect(window.location.pathname + window.location.search).toBe('/login?u=naicha_7k2m')
     expect(onAuthed).not.toHaveBeenCalled()
     expect(called(calls, 'POST', '/api/logout')).toHaveLength(0)
   })
@@ -147,6 +148,9 @@ describe('智能体市场', () => {
     const calls = mockApi()
     const user = userEvent.setup()
     render(<Market session={false} />)
+    // 手机上「帮我推荐」默认收起：首屏的「一句话帮我推荐」展开它
+    await user.click(await screen.findByRole('button', { name: '一句话帮我推荐' }))
+    await waitFor(() => expect(screen.getByRole('textbox', { name: '用一句话描述你的情况' })).toHaveFocus())
     await user.click(await screen.findByRole('radio', { name: /开店的/ }))
     expect(await screen.findByText('开店最费心的是记事和排班。')).toBeInTheDocument()
     expect(called(calls, 'POST', '/api/market/recommend')[0].body).toEqual({ profession: 'shop_owner' })
@@ -170,6 +174,7 @@ describe('智能体市场', () => {
     mockApi({ 'POST /api/market/recommend': () => (fail ? json({ error: 'Too Many Requests' }, 429) : json({ plugins: ['todo'], flows: [], reason: '好了', source: 'model' })) })
     const user = userEvent.setup()
     render(<Market session={false} />)
+    await user.click(await screen.findByRole('button', { name: /帮我推荐/, expanded: false }))
     await user.click(await screen.findByRole('radio', { name: /老师/ }))
     expect(await screen.findByRole('alert')).toHaveTextContent('操作太频繁了，歇一会儿再试')
     fail = false
@@ -254,7 +259,7 @@ describe('智能体市场', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: '退出当前账号，去登录' }))
-    await waitFor(() => expect(window.location.search).toBe('?u=naicha_7k2m'))
+    await waitFor(() => expect(window.location.pathname + window.location.search).toBe('/login?u=naicha_7k2m'))
     expect(called(calls, 'POST', '/api/logout')).toHaveLength(1)
     expect(onAuthed).toHaveBeenCalledWith(false)
   })
