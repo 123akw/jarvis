@@ -38,7 +38,7 @@ cd web-src && npx vitest run   # 网页端（React + Vite）
 cd desktop && node --test      # macOS 桌面端（Electron）
 ```
 
-当前测试基线（第八轮，2026-10-02）：**pytest 657 / vitest 100 / desktop 117**，全部通过。网页端源码在 `web-src/`，`npm run build` 的产物输出到 `jarvis/web/` 并随仓库提交。
+当前测试基线（第九轮，2026-10-02）：**pytest 657 / vitest 133 / desktop 124**，全部通过。网页端源码在 `web-src/`，`npm run build` 的产物输出到 `jarvis/web/` 并随仓库提交。
 
 ## 项目结构
 

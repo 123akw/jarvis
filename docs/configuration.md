@@ -35,7 +35,7 @@
 | `JARVIS_SMTP_HOST` / `JARVIS_SMTP_PORT` | 发邮件必需 / 否 | 无 / `465` | 会议纪要发信的 SMTP 服务器；465 走 SSL，其他端口走 STARTTLS。未配置时纪要仍生成保存，只是不发邮件 |
 | `JARVIS_SMTP_USER` / `JARVIS_SMTP_PASSWORD` | 发邮件必需 | 无 | 发信账号与授权码（QQ 邮箱用「设置→账户」生成的授权码，不是登录密码） |
 | `JARVIS_SMTP_FROM` | 否 | 同 `JARVIS_SMTP_USER` | 发件人地址 |
-| `JARVIS_MEETING_MAIL_TO` | 否 | `1539598168@qq.com` | 会议纪要默认收件邮箱；每用户可在网页「⚙ API → 桌面与会议」覆盖 |
+| `JARVIS_MEETING_MAIL_TO` | 否 | `1539598168@qq.com` | 会议纪要默认收件邮箱；每用户可在网页「设置中心 → 桌面与会议」覆盖 |
 | `JARVIS_WAKE_WORDS` | 否 | `贾维斯,佳维斯,…,jarvis` | 语音唤醒词匹配表（逗号分隔，含同音兜底） |
 | `JARVIS_DASHSCOPE_VL_MODEL` | 否 | `qwen3-vl-flash` | 聊天发图/短视频的视觉理解模型（同用 `DASHSCOPE_API_KEY`） |
 | `JARVIS_LOG_LEVEL` | 否 | `WARNING` | 设为 `INFO` 可看到心跳/提醒/蒸馏等后台线程的推送日志 |
@@ -67,7 +67,7 @@
 
 ## 多用户 Provider / API 设置
 
-- 网页顶栏 **⚙ API** 与桌面端 **设置 → 模型 API** 都可以选择 OpenAI、DeepSeek、阿里云百炼、SiliconFlow 或自定义 OpenAI 兼容 HTTPS 地址。官方 Provider 只接受其官方 API 主机；自定义中转禁止 HTTP、URL 凭据、查询参数和片段。
+- 网页 **头像菜单 → 设置中心 → 模型 API**（也可 ⌘K 直达）与桌面端 **设置 → 模型 API** 都可以选择 OpenAI、DeepSeek、阿里云百炼、SiliconFlow 或自定义 OpenAI 兼容 HTTPS 地址。官方 Provider 只接受其官方 API 主机；自定义中转禁止 HTTP、URL 凭据、查询参数和片段。
 - 每个用户只管理自己的模型 Provider、Base URL、模型名和 Key；Owner 额外管理全局 SearXNG、Tavily 与 PandaScore。Member 无法读取或修改其他账号配置，也不能管理全局联网数据源。
 - API Key 永不回显到网页或桌面端。托管设置使用 AES-GCM 加密并按用户、Provider、Origin 与 generation 绑定；每次测试、保存或恢复都要求当前账号口令，修改采用 generation 冲突保护。
 - Provider 设置保存后只影响当前账号的新 Agent 会话；已经打开的网页、桌面窗口或旧登录会话应退出并重新登录，再新建对话验证模型切换。

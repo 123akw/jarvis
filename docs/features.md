@@ -10,10 +10,11 @@
 
 ### 对话与任务
 
-- **网页对话**：流式聊天（完整 Markdown 渲染：可点来源链接 / 表格 / 代码高亮），消息可重答、编辑重发、失败重试；配可勾选、可增删的今日日程 / 待办 / 备忘任务台，支持上传 PDF / Word / TXT 文档解析追问。
+- **网页对话**：流式聊天（完整 Markdown 渲染：可点来源链接 / 表格 / 代码高亮），消息可重答、编辑重发、失败重试；右侧「今日」板集中可勾选、可增删的日程 / 待办 / 备忘与会议纪要（宽屏常驻、窄屏浮层）；右上角头像菜单收拢全部设置，⌘K 命令面板可搜会话、直达任意设置；支持上传 PDF / Word / TXT 文档解析追问。
 - **图片 / 短视频识别**：聊天 📎 直接发图片（≤10MB）或短视频（≤7MB），qwen3-vl 转成详细描述注入对话，可连续追问画面细节；截图里的文字、表格会被逐字转录。
 - **工具调用透明**：每次工具调用以中文名+图标展示，带耗时与成败，点开可看结果摘要。
-- **暗色 / 亮色双主题**：默认赛博 HUD 暗色，一键切换亮色办公风；会话可一键导出为 Markdown。
+- **暗色 / 亮色双主题**：苹果式设计系统，默认暗色，头像菜单或 ⌘K 一键切换亮色；会话可一键导出为 Markdown。
+- **AI 存在感光球**：WebGL 光球 Presence 出现在登录页、新对话空态与语音通话里，随听 / 想 / 说变化；登录页保留 J.A.R.V.I.S. ↔ MOSS 双形态切换。
 - **免费搜索链**：SearXNG → DDGS 免费降级，结果带时间与来源；Tavily 可选。
 
 ### 记忆与主动性
@@ -25,19 +26,19 @@
 
 ### 语音
 
-- **语音通话**：网页端点 📞 直接开口说话，贾维斯用语音回答；音色与语速每用户可选。
+- **语音通话**：网页端点输入框旁的声波按钮直接开口说话，贾维斯用语音回答；音色与语速每用户可选。
 - **通话场景模式**：语音通话面板一键切换 9 种情景——管家模式、故事时间、晚安电台、解忧树洞、面试陪练、辩论擂台、英语陪练、口语翻译、玄学茶话；切换即换说话风格并带开场白，选择记为个人偏好。
 - **语气情绪感知**：通话中把你刚说的话旁路送情绪识别（qwen3-asr-flash 固定附带的 7 类情绪，零额外配置），面板显示「😢 低落」等徽标，贾维斯下一句自然照应你的情绪。
 - **语音唤醒**（默认开启）：直接喊「贾维斯」即亮球接通语音通话——本地 VAD 圈出人声段才送云端识别（静音零请求零上传），命中唤醒词（含同音兜底，`JARVIS_WAKE_WORDS` 可改）立即应答；通话与会议期间自动暂停判定。
 
 ### 会议纪要
 
-- **会议纪要**：对贾维斯说「监控会议」（或点桌面 🎙 / 托盘菜单），桌面端同时采集你的麦克风与系统回环声音（飞书等会议里对方的发言），双路实时转写标注「我 / 对方」，开会过程中面板顶部滚动「⚡ 实时要点」（每积累若干发言增量小结一次，对标飞书妙记）；会后自动跑离线**说话人分离**把「对方」细分为 对方1/对方2（paraformer-v2 diarization，分不出就保持原样），整理成含「气氛与情绪」小节的 Markdown 纪要，存档并**自动发送到指定邮箱**；网页任务台可回看、重发邮件、**一键把属于我的待办导入任务台**、**就这场会议继续追问**、以及把「对方N」**改名成真实称呼**（全局替换转写与纪要）。因为走系统回环采集，**不挑会议软件**：飞书、腾讯会议、Zoom、钉钉、微信（Mac 端语音通话）等任何出声的软件都能录——这是市面六大纪要产品（腾讯会议/妙记/听悟/讯飞/Zoom/钉钉）都未产品化的空白。
+- **会议纪要**：对贾维斯说「监控会议」（或点桌面 🎙 / 托盘菜单），桌面端同时采集你的麦克风与系统回环声音（飞书等会议里对方的发言），双路实时转写标注「我 / 对方」，开会过程中面板顶部滚动「⚡ 实时要点」（每积累若干发言增量小结一次，对标飞书妙记）；会后自动跑离线**说话人分离**把「对方」细分为 对方1/对方2（paraformer-v2 diarization，分不出就保持原样），整理成含「气氛与情绪」小节的 Markdown 纪要，存档并**自动发送到指定邮箱**；网页「今日」板可回看、重发邮件、**一键把属于我的待办导入待办清单**、**就这场会议继续追问**、以及把「对方N」**改名成真实称呼**（全局替换转写与纪要）。因为走系统回环采集，**不挑会议软件**：飞书、腾讯会议、Zoom、钉钉、微信（Mac 端语音通话）等任何出声的软件都能录——这是市面六大纪要产品（腾讯会议/妙记/听悟/讯飞/Zoom/钉钉）都未产品化的空白。
 
 ### 桌面端
 
 - **桌面端**：macOS 常驻悬浮球，⌥Space 一键唤出快捷聊天，右键悬浮球直接接通语音通话；通话中收起面板，球随 听（青）/想（琥珀）/说（绿）三态变色。系统托盘左键切窗、右键弹菜单（含会议纪要、悬浮球显隐、显示当前版本的一键重启）；任意 App 选中文字按 ⌥Q 弹出「翻译 / 解释 / 改写」划词条（授予辅助功能权限可自动取词，未授权走剪贴板降级）。
-- **网页控悬浮窗**：网页「⚙ API → 桌面与会议」可一键显示 / 隐藏桌面悬浮球（同机秒级生效，跨机 10 秒内下发），还有二次确认的「彻底关闭桌面端」。
+- **网页控悬浮窗**：网页「头像菜单 → 设置中心 → 桌面与会议」可一键显示 / 隐藏桌面悬浮球（同机秒级生效，跨机 10 秒内下发），还有二次确认的「彻底关闭桌面端」。
 
 ### 渠道与多用户
 
@@ -61,13 +62,13 @@
 | --- | --- | --- | --- | --- |
 | 中文自然语言对话与 26 项工具 | ✅ | ✅ | ✅ | ✅（文本消息） |
 | 流式展示 | ✅ SSE 逐字输出并展示工具调用 | ✅ SSE 逐字输出并展示工具调用 | — 单次完整返回 | — 消息式回复 |
-| 语音通话 | ✅ 📞 实时语音问答，可降级打字通话 | — | — | 🚧 语音消息开发中 |
+| 语音通话 | ✅ 实时语音问答，可降级打字通话 | — | — | 🚧 语音消息开发中 |
 | 记忆线程 | 每个会话独立 `thread_id` | 固定 `desktop` 线程 | 默认 `main`，可用 `--thread` 指定 | 每个联系人独立 `wx-<联系人>` 线程 |
-| 日程、待办、备忘 | 对话操作 + 任务台展示 | 对话操作 + 日程 / 待办任务台展示 | 对话操作 | 对话操作 |
+| 日程、待办、备忘 | 对话操作 + 「今日」板展示 | 对话操作 + 日程 / 待办任务台展示 | 对话操作 | 对话操作 |
 | 实时搜索 | ✅ 免费默认可用 | ✅ 免费默认可用 | ✅ 免费默认可用 | ✅ 免费默认可用 |
 | 天气定位 | 浏览器定位优先，公网 IP 兜底 | 使用服务端已有定位；也可直接说城市 | 使用服务端已有定位；也可直接说城市 | 使用服务端已有定位；也可直接说城市 |
 | 会话历史管理 | 新建、回放、删除 | 最近历史、清空快捷线程 | 由线程持久化 | 由联系人线程持久化 |
-| 个人微信扫码管理 | 顶栏“微信” | 设置 → 个人微信 | — | 自身即消息入口 |
+| 个人微信扫码管理 | 头像菜单「接入个人微信」 | 设置 → 个人微信 | — | 自身即消息入口 |
 | Provider / API 设置 | 每个账号独立设置模型 | 设置中独立设置模型 | 使用当前 Owner 配置 | 使用唯一 Owner 配置 |
 
 四种入口共享服务端同一套 `SearchService` 后端与降级链。默认 DDGS 无需付费 key；希望优先控制搜索实例时可选自建 SearXNG，但它不是使用实时搜索的必要条件。
@@ -78,11 +79,11 @@
 
 ### 语音通话怎么用
 
-点输入框旁的 **📞** 进入通话，浏览器会申请麦克风授权；同意后直接开口说话，说话停顿自动断句，贾维斯边生成边用语音回答并同步文字字幕。拒绝授权或浏览器不支持语音识别时，自动降级为「打字通话」——输入文字，贾维斯照样用语音回答；关闭通话面板后，文字聊天完全不受影响。答复的音色与语速在顶栏「⚙ API → 语音」按用户设置（网页与桌面通话共用），同页可开启每天定时的「晨报电台」。微信语音消息支持仍在开发中。
+点输入框右侧的**语音通话**按钮（声波图标）进入通话，浏览器会申请麦克风授权；同意后直接开口说话，说话停顿自动断句，贾维斯边生成边用语音回答并同步文字字幕。拒绝授权或浏览器不支持语音识别时，自动降级为「打字通话」——输入文字，贾维斯照样用语音回答；关闭通话面板后，文字聊天完全不受影响。答复的音色与语速在「头像菜单 → 设置中心 → 语音」按用户设置（网页与桌面通话共用），同页可开启每天定时的「晨报电台」。微信语音消息支持仍在开发中。
 
 ### 会议纪要怎么用
 
-开会前对贾维斯说「帮我监控会议」（网页 / 桌面 / 语音通话里都行），或直接点桌面端面板的 **🎙**、托盘菜单「会议纪要」。macOS 桌面端会同时采集你的麦克风（标「我」）与系统回环声音（飞书等会议里对方的发言，标「对方」），面板实时滚动双路字幕；说「停止监控会议」或点「⏹ 结束并生成纪要」后，服务端先做离线说话人分离（把「对方」细分为 对方1/对方2；分不出自动保持原样），再整理成含「气氛与情绪」小节的 Markdown 纪要，发送到「⚙ API → 桌面与会议」里配置的邮箱（默认见 `JARVIS_MEETING_MAIL_TO`），网页右侧任务台可回看与重发；点开一场会议还可以「⇩ 导入待办」（只导负责人是我的，去重）、「💬 就这场会议追问」（纪要+转写整包进对话，可连续追问细节）、「✎ 改名」（把对方1 改成张总，转写纪要全局替换）。
+开会前对贾维斯说「帮我监控会议」（网页 / 桌面 / 语音通话里都行），或直接点桌面端面板的 **🎙**、托盘菜单「会议纪要」。macOS 桌面端会同时采集你的麦克风（标「我」）与系统回环声音（飞书等会议里对方的发言，标「对方」），面板实时滚动双路字幕；说「停止监控会议」或点「⏹ 结束并生成纪要」后，服务端先做离线说话人分离（把「对方」细分为 对方1/对方2；分不出自动保持原样），再整理成含「气氛与情绪」小节的 Markdown 纪要，发送到「设置中心 → 桌面与会议」里配置的邮箱（默认见 `JARVIS_MEETING_MAIL_TO`），网页「今日」板的会议纪要卡片可回看与重发；点开一场会议还可以「⇩ 导入待办」（只导负责人是我的，去重）、「💬 就这场会议追问」（纪要+转写整包进对话，可连续追问细节）、「✎ 改名」（把对方1 改成张总，转写纪要全局替换）。
 
 三人以上会议同样支持：离线声纹分离按 speaker 自动编号 对方1/对方2/对方3…，纪要还会从上下文推断称呼（如「对方2（张总）」，推不出保持编号绝不瞎猜）。面板上的双条电平柱（青=我 / 金=对方）用来自检声道：对方柱不动说明会议软件没出声或屏幕录制权限没给。首次使用需在 系统设置 → 隐私与安全性 → 屏幕录制 里勾选本应用；服务端 `.env` 需配好 `JARVIS_SMTP_*` 才能发信（见 [配置参考](configuration.md#环境变量)）。
 
@@ -153,50 +154,98 @@
 
 ## 截图画廊
 
-![JWS-Agent 网页端：Markdown 渲染与可交互任务台](assets/readme/web-dashboard.png)
+网页端为第九轮改版后的新界面：苹果式设计系统、右上角头像菜单 + ⌘K 命令面板、「今日」板、AI 存在感光球 Presence，以及保留 J.A.R.V.I.S. / MOSS 双形态的新登录页。
+
+![JWS-Agent 网页端：一句话安排出差，自动写入日程与待办并列出行李清单](assets/readme/web-chat.png)
+
+<p align="center"><sub>一句话安排出差：工具调用（当前时间 / 加日程 / 加待办）以中文 chip 展示耗时与成败，回答用表格列出行李清单，并结合长期画像提醒避开花生</sub></p>
+
+### 登录与新对话
 
 <table>
   <tr>
-    <td align="center" width="50%"><strong>日程到点主动提醒（微信 / 桌面 / 网页三通道）</strong></td>
-    <td align="center" width="50%"><strong>亮色主题一键切换</strong></td>
+    <td align="center" width="50%"><strong>登录页：会呼吸的 AI 光球（WebGL）</strong></td>
+    <td align="center" width="50%"><strong>MOSS 形态：悬挂机头 + 台词弹窗</strong></td>
+  </tr>
+  <tr>
+    <td><img src="assets/readme/web-login.png" alt="JWS-Agent 登录页：存在感光球与问候" width="100%"></td>
+    <td><img src="assets/readme/web-login-moss.png" alt="JWS-Agent 登录页 MOSS 形态" width="100%"></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>新对话：光球 + 问候 + 一键建议</strong></td>
+    <td align="center"><strong>亮色主题：代码高亮，头像菜单或 ⌘K 一键切换</strong></td>
+  </tr>
+  <tr>
+    <td><img src="assets/readme/web-empty.png" alt="JWS-Agent 新对话空态" width="100%"></td>
+    <td><img src="assets/readme/web-light-theme.png" alt="JWS-Agent 亮色主题" width="100%"></td>
+  </tr>
+</table>
+
+### 导航与「今日」板
+
+<table>
+  <tr>
+    <td align="center" width="50%"><strong>⌘K 命令面板：搜会话、直达所有设置</strong></td>
+    <td align="center" width="50%"><strong>头像菜单：账户、记忆、设置、微信、悬浮窗、主题</strong></td>
+  </tr>
+  <tr>
+    <td><img src="assets/readme/web-command-palette.png" alt="JWS-Agent ⌘K 命令面板" width="100%"></td>
+    <td><img src="assets/readme/web-account-menu.png" alt="JWS-Agent 头像菜单" width="100%"></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>「今日」板：日程 · 待办 · 备忘，可勾选可增删</strong></td>
+    <td align="center"><strong>会议纪要：回看、重发邮件、导入待办、追问、说话人改名</strong></td>
+  </tr>
+  <tr>
+    <td><img src="assets/readme/web-today.png" alt="JWS-Agent「今日」板" width="100%"></td>
+    <td><img src="assets/readme/web-meetings-card.png" alt="JWS-Agent 会议纪要卡片与纪要回看" width="100%"></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>日程到点主动提醒（微信 / 桌面 / 网页三通道）</strong></td>
+    <td align="center"><strong>语音通话：光球随听 / 想 / 说变化，9 种场景一键切换</strong></td>
   </tr>
   <tr>
     <td><img src="assets/readme/web-reminder.png" alt="JWS-Agent 日程主动提醒弹条" width="100%"></td>
-    <td><img src="assets/readme/web-light-theme.png" alt="JWS-Agent 亮色主题" width="100%"></td>
+    <td><img src="assets/readme/web-voice-scenes.png" alt="JWS-Agent 语音通话与场景模式" width="100%"></td>
   </tr>
+</table>
+
+### 记忆、设置与账户
+
+<table>
   <tr>
-    <td align="center"><strong>记忆与人设：画像可查可删、MOSS 人格切换</strong></td>
-    <td align="center"><strong>语音音色 / 语速 / 晨报电台</strong></td>
+    <td align="center" width="50%"><strong>记忆与人设：画像可查可删，J.A.R.V.I.S. / MOSS 人格切换</strong></td>
+    <td align="center" width="50%"><strong>设置中心 · 模型 API：每个账号独立 Provider，密钥不回显</strong></td>
   </tr>
   <tr>
     <td><img src="assets/readme/web-memory.png" alt="JWS-Agent 记忆与人设面板" width="100%"></td>
-    <td><img src="assets/readme/web-voice-settings.png" alt="JWS-Agent 语音设置页签" width="100%"></td>
+    <td><img src="assets/readme/web-provider-settings.png" alt="JWS-Agent 设置中心模型 API 页签" width="100%"></td>
   </tr>
   <tr>
-    <td align="center"><strong>每个账号独立的 Provider / API 设置</strong></td>
-    <td align="center"><strong>Owner 用户管理与角色控制</strong></td>
+    <td align="center"><strong>设置中心 · 语音：音色 / 语速 / 晨报电台</strong></td>
+    <td align="center"><strong>设置中心 · 桌面与会议：控悬浮球 + 纪要收件邮箱</strong></td>
   </tr>
   <tr>
-    <td><img src="assets/readme/web-provider-settings.png" alt="JWS-Agent 每用户 Provider 与 API 设置" width="100%"></td>
-    <td><img src="assets/readme/web-account-settings.png" alt="JWS-Agent Owner 用户管理" width="100%"></td>
+    <td><img src="assets/readme/web-voice-settings.png" alt="JWS-Agent 设置中心语音页签" width="100%"></td>
+    <td><img src="assets/readme/web-desktop-meeting-settings.png" alt="JWS-Agent 设置中心桌面与会议页签" width="100%"></td>
   </tr>
   <tr>
-    <td align="center"><strong>会议纪要：任务台回看、一键重发邮件</strong></td>
-    <td align="center"><strong>「桌面与会议」：控悬浮球 + 纪要收件邮箱</strong></td>
-  </tr>
-  <tr>
-    <td><img src="assets/readme/web-meetings-card.png" alt="JWS-Agent 会议纪要卡片与纪要回看" width="100%"></td>
-    <td><img src="assets/readme/web-desktop-meeting-settings.png" alt="JWS-Agent 桌面与会议设置页签" width="100%"></td>
-  </tr>
-  <tr>
-    <td align="center"><strong>语音通话 9 种场景模式一键切换</strong></td>
+    <td align="center"><strong>账户设置：Owner 用户管理与角色控制</strong></td>
     <td align="center"><strong>桌面端会议监控：我 / 对方双路实时字幕</strong></td>
   </tr>
   <tr>
-    <td><img src="assets/readme/web-voice-scenes.png" alt="JWS-Agent 语音通话场景模式" width="100%"></td>
+    <td><img src="assets/readme/web-account-settings.png" alt="JWS-Agent 账户设置与用户管理" width="100%"></td>
     <td align="center"><img src="assets/readme/desktop-meeting.png" alt="JWS-Agent 桌面会议纪要面板" width="52%"></td>
   </tr>
 </table>
+
+### 手机版
+
+<p align="center"><img src="assets/readme/web-mobile.png" alt="JWS-Agent 手机版：新对话、对话与「今日」板" width="88%"></p>
+
+<p align="center"><sub>390×844 竖屏：新对话空态 · 对话（宽表格可横向滑动）· 「今日」板浮层</sub></p>
+
+### macOS 桌面端
 
 <table>
   <tr>
@@ -222,7 +271,11 @@
   </tr>
 </table>
 
-### 截图说明
+### 拍摄说明
 
-- 网页截图为 2026-08-14 与 2026-08-25 在隔离演示环境实拍：日程、待办、备忘、记忆画像、会议纪要与对话内容均为虚构演示数据，API Key、口令、二维码与真实对话均未进入图片（账户管理图沿用 2026-08-13 生产演示实拍；「桌面与会议」图中的桌面探活状态为本机真实探测结果）。
-- 桌面截图为 JWS_SHOT 自检模式实拍（三态图为 2026-08-19 新增）；无真实对话与凭据入图。
+- **网页截图**（17 张）：2026-10-02 用第九轮代码在隔离演示环境实拍。本地服务 + 临时数据目录 + 演示账号「领导」，Playwright 驱动 Chromium，桌面视口 1440×900、手机 390×844，均为 2 倍像素（Retina）；WebGL 光球等待 3 秒以上淡入后再截图。
+- **演示数据**：日程、待办、备忘、记忆画像、会话标题、会议纪要、成员账号与定位（上海）均为虚构；会议收件邮箱为占位地址 `demo@example.com`，SMTP 也是占位配置（截图过程未发任何邮件）。API Key、口令、二维码、真实对话与服务器地址均未入图。
+- **真实模型回答**：主图「杭州出差」与亮色主题「Python 筛待办」两段对话由 DeepSeek 实时生成，工具调用 chip 来自真实流式事件；其余画面的对话内容是这两段的历史回放。
+- **语音通话图**：界面与场景目录为真实页面，通话事件（识别结果、工具调用、语音回答）由 Playwright 模拟 WebSocket 下发，用于展示「回答中」状态。
+- **桌面截图**：桌面端本轮未改版，沿用 JWS_SHOT 自检模式实拍（三态图为 2026-08-19 新增）；无真实对话与凭据入图。
+- 单张 PNG 不超过 1.2MB；登录页背景带胶片颗粒，用 libimagequant 量化压缩，其余为无损 PNG。
