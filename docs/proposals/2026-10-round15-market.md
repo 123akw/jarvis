@@ -28,6 +28,17 @@
 - 调用：超时（默认 30 秒）、结果截断（约 8000 字）、异常转人话；MCP 返回的内容一律当「外部资料」，不当指令。
 - 市场里 MCP 插件带「MCP」徽标，权限写「联网：<主机名>」。管理员也可以在插件管理里**直接添加一个 MCP 服务**（填名称、图标、地址、请求头 / Key），不必先建仓库。
 
+### 2.1 实现补充（C，已落地；以下是对上面契约的细化与改动）
+
+- **清单写法**：MCP 插件的 `plugin.json` 写 `kind: "tool"`（也接受 `"mcp"`，加载时规整成 `tool`）、`entry: null`、`tools: []`（写了也忽略，工具靠发现）。服务定义读插件根目录的 `mcp.json`，也认 `.mcp.json` 和 `plugin.json` 里的 `mcpServers`（对象或相对路径）。每个插件最多 3 个服务；`type` 认 `streamable-http`（`http` 是别名）和 `sse`；有 `command` 或 `type: "stdio"` 的服务拒绝，原因写明。
+- **config**：每项 `{key, label, secret(默认 true), required(默认 true), help, placeholder}`，最多 10 项；url / headers 里用到但没声明的 `${KEY}` 自动补成「必填密钥」。替换时 url 里的值按查询参数编码；可选项没配时，含它的请求头整个去掉。
+- **存放**：配置在 `$JARVIS_DATA_DIR/plugins/_config.json`（0600），密钥项 AES-GCM 加密，主密钥优先用 `JARVIS_SECRETS_KEY`，没配时退回同目录自动生成的 `_secret.key`（插件管理里会提示建议配主密钥）；接口只回「已配置」与（≥12 位时）末四位。工具清单存档在 `_state.json` 的 `mcp` 段（工具、指纹、待确认的变化）。
+- **状态**：插件状态多了 `needs_config`（缺必填配置）与 `needs_review`（工具清单有变化，待确认，不绑定任何工具）。还没拿到过工具清单的 MCP 插件先是 `unavailable`（原因「正在连接 MCP 服务」），服务启动时后台自动连接（免 Key 的装好即可用）；`JARVIS_MCP_AUTOCONNECT=0` 可关，测试环境（`JARVIS_ENV=test`）默认关。
+- **工具名**：`<插件id>__<工具名>`，驼峰拆开、清洗成 `[a-z0-9_]`、总长 ≤ 64、重名加 `_2`。工具说明末尾注明「来自 MCP 服务「名称」· 主机」。
+- **市场目录字段**（`/api/market/catalog`）：`mcp: true`、`hosts: ["mcp.amap.com"]`、`permissions: [{key: "network", label: "联网：mcp.amap.com", level: "warn"}]`、`status: "needs_config"` + `reason`、`tools` 为发现到的工具名；另给所有条目加了 `license`、`description`、`privacy_url`。
+- **接口**（仅 Owner，写操作要 CSRF）：`POST /api/plugins/{id}/config` `{values, clear}`（留空 = 不改，保存后自动测试连接）、`POST /api/plugins/{id}/test`、`POST /api/plugins/{id}/approve` `{fingerprint}`、`POST /api/plugins/mcp/preview` `{name, url, icon?, summary?, category?, transport?, headers?: [{name, value}], key?: {value, mode: bearer|header|query, name}}` → 预览后照旧走 `POST /api/plugins/import/confirm`。`GET /api/plugins` 每行多一个 `mcp` 字段（服务、配置项视图、工具、待确认的差异）。直接添加时查询参数里像密钥的值（key / token …）和所有请求头都转成 `${占位符}` 加密保存，`mcp.json` 里不落明文。
+- **以后「每个账号自己的 Key」**：`mcp.resolve_values(plugin_id, items, user_id=…)` 是扩展点，现在只读全站配置。
+
 ## 3 平台自己的开源插件（D）
 
 - 官方插件放在 `jarvis/plugins/packs/<id>/`（随平台发布，市场「官方」页签），每个插件 `plugin.json` 写 `"license": "MIT-0"`、`"author": "JWS-Agent"`，`jarvis/plugins/packs/LICENSE` 用 MIT-0（与插件模板一致）。

@@ -99,7 +99,9 @@ def _flows_for(profession_id: str | None, plugins: list[str]) -> list[dict]:
 
 
 def _allowed(plugin_ids, owner: bool) -> list[str]:
-    return [pid for pid in plugin_ids if owner or pid not in OWNER_ONLY]
+    # 第十五轮：还没配置的 MCP 插件（needs_config）在市场里不可加入，也不推荐
+    needs_config = {item["id"] for item in PLUGINS if item.get("status") == "needs_config"}
+    return [pid for pid in plugin_ids if (owner or pid not in OWNER_ONLY) and pid not in needs_config]
 
 
 def rules(profession: str | None = None, description: str = "", *, owner: bool = False) -> dict:

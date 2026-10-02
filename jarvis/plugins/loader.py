@@ -97,9 +97,11 @@ def read_state(root: Path | None = None) -> dict:
     disabled = raw.get("disabled") if isinstance(raw, dict) else None
     installed = raw.get("installed") if isinstance(raw, dict) else None
     sources = raw.get("sources") if isinstance(raw, dict) else None
+    mcp = raw.get("mcp") if isinstance(raw, dict) else None     # 第十五轮：MCP 插件的工具清单存档（见 mcp.py）
     return {"disabled": sorted({x for x in disabled or [] if isinstance(x, str)}),
             "installed": {k: v for k, v in (installed or {}).items() if isinstance(k, str) and isinstance(v, dict)},
-            "sources": {k: v for k, v in (sources or {}).items() if isinstance(k, str) and isinstance(v, dict)}}
+            "sources": {k: v for k, v in (sources or {}).items() if isinstance(k, str) and isinstance(v, dict)},
+            "mcp": {k: v for k, v in (mcp or {}).items() if isinstance(k, str) and isinstance(v, dict)}}
 
 
 def write_state(state: dict, root: Path | None = None) -> None:
@@ -180,6 +182,22 @@ def sandbox_tool(spec: dict, *, folder: Path, entry: str, plugin_name: str, time
     return tool
 
 
+def _mcp_hosts(m: dict) -> list[str]:
+    from jarvis.plugins import mcp
+    return mcp.hosts(m)
+
+
+def _mcp_management(pack) -> dict | None:
+    if not pack.manifest or not pack.manifest.get("mcp_servers"):
+        return None
+    try:
+        from jarvis.plugins import mcp
+        return mcp.management_info(pack)
+    except Exception as exc:   # 管理清单不能因为一个插件的状态读不出来就整个失败
+        log.warning("mcp management info for %s failed: %s", pack.id, type(exc).__name__)
+        return None
+
+
 # ---------- 插件与注册表 ----------
 
 @dataclass
@@ -188,7 +206,7 @@ class Pack:
     folder: Path
     builtin: bool
     manifest: dict | None = None
-    status: str = "ok"            # ok / unavailable / disabled
+    status: str = "ok"            # ok / unavailable / disabled / needs_config / needs_review（后两种只有 MCP 插件）
     reason: str = ""
     detail: str = ""
     tools: list = field(default_factory=list)        # 包装后的工具（只有带入口的插件才有）
@@ -339,6 +357,13 @@ class Registry:
             pack.status, pack.reason = "disabled", "已停用"
             return
         self._activate(pack, core_tools, core_steps)
+        if pack.status == "ok" and m.get("mcp_servers"):   # MCP 工具名是发现来的，加载后再查一次冲突
+            clash = next((t.name for t in pack.tools if t.name in claimed_tools or t.name in core_tools), None)
+            if clash:
+                pack.fail(f"名称冲突：MCP 工具名「{clash}」已被占用，后加载的这个没有启用")
+                return
+            for tool in pack.tools:
+                claimed_tools[tool.name] = m["name"]
 
     def _finish(self, core_steps: dict) -> None:
         # 合成积木条目的 id 不能撞上后面才出现的插件 id
@@ -366,10 +391,9 @@ class Registry:
             except mf.ManifestError as exc:
                 pack.fail(str(exc))
             return
-        if m["entry"] is None and not m["tools"] and m["extras"].get("mcp"):
-            names = "、".join(server["name"] for server in m["extras"]["mcp"][:3] if server.get("name"))
-            pack.fail(f"需要 MCP 支持（下一步）：这个插件的工具来自 MCP 服务{('「' + names + '」') if names else ''}，"
-                      "贾维斯还不能连接")
+        if m["entry"] is None and m.get("mcp_servers"):   # 第十五轮：远程 MCP 服务提供的工具
+            from jarvis.plugins import mcp
+            mcp.activate(pack, self.state)
             return
         if m["entry"] is None:
             unknown = [t for t in m["tools"] if t not in core_tools]
@@ -436,15 +460,24 @@ class Registry:
             spec = core_steps.get(m["id"]) or pack.steps.get(m["id"])
             step = _step_meta(spec) if spec is not None else copy.deepcopy(_FALLBACK_STEPS.get(m["id"]))
         price = PRO_PRICE if m["tier"] == "pro" else 0
-        return {
+        is_mcp = bool(m.get("mcp_servers"))
+        hosts = _mcp_hosts(m) if is_mcp else []
+        entry = {
             "id": m["id"], "name": m["name"], "icon": m["icon"], "category": m["category"], "summary": m["summary"],
-            "kind": m["kind"], "tools": list(m["tools"]), "step": step, "requires": list(m["requires"]),
+            "kind": m["kind"], "tools": [t.name for t in pack.tools] if is_mcp else list(m["tools"]), "step": step,
+            "requires": list(m["requires"]),
             "tier": m["tier"], "price": price, "professions": list(m["professions"]), "examples": list(m["examples"]),
             "available": True,
             "version": m["version"], "author": m["author"], "homepage": m["homepage"],
             "source": copy.deepcopy(m["source"]), "builtin": pack.builtin,
-            "status": "ok" if pack.status == "ok" else "unavailable", "reason": pack.reason,
+            "status": pack.status if pack.status in ("ok", "needs_config") else "unavailable", "reason": pack.reason,
+            # 第十五轮：MCP 插件带「MCP」徽标（mcp: true），权限写「联网：<主机名>」；详情页用的说明、许可证、隐私政策
+            "mcp": is_mcp, "hosts": hosts,
+            "permissions": [{"key": "network", "label": f"联网：{host}", "level": "warn"} for host in hosts],
+            "license": m.get("license") or "", "description": (m.get("extras") or {}).get("long_description", ""),
+            "privacy_url": (m.get("extras") or {}).get("privacy_url", ""),
         }
+        return entry
 
     def _step_entry(self, pack: Pack, step_id: str, spec) -> dict:
         """带入口的插件提供的积木：流程编辑器按 kind=step 认积木，所以给它一条独立条目。"""
@@ -499,7 +532,10 @@ class Registry:
                 "reason": pack.reason, "detail": pack.detail, "tools": list(m.get("tools") or []),
                 "steps": list(m.get("steps") or []), "installed_at": pack.installed.get("installed_at", ""),
                 "sandboxed": not pack.builtin and m.get("entry") is not None,
+                "mcp": _mcp_management(pack),
             })
+            if rows[-1]["mcp"]:
+                rows[-1]["tools"] = [t["name"] for t in rows[-1]["mcp"]["tools"]]
         return rows
 
 
