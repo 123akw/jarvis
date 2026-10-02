@@ -218,6 +218,8 @@ export default function Toolbox({ plugins, onRemove, onMove, onReorder, onAdd, o
     const t = setTimeout(() => setTipOn(v => (v === tip ? null : v)), TIP_MS)
     return () => clearTimeout(t)
   }, [tip])
+  // 步骤提示 / 报错一变就让位：不能被 2.6 秒的短提示盖住
+  useEffect(() => { if (hint) setTipOn(null) }, [hint])
   useEffect(() => {
     if (!undo) return undefined
     const t = setTimeout(() => setUndo(v => (v === undo ? null : v)), UNDO_MS)
@@ -266,7 +268,8 @@ export default function Toolbox({ plugins, onRemove, onMove, onReorder, onAdd, o
 
   const slot = (isOver && dragging?.tone === 'ok') || landing ? (dragging?.icon || landing?.icon || '') : null
   const cue = cueOf(dragging, isOver, n)
-  const showTip = !dragging && tipOn
+  // 有步骤提示 / 报错时，只让「拒绝原因」短暂顶一下（它回应的是刚才的松手），用法提示不抢
+  const showTip = !dragging && tipOn && (!hint || tipOn.tone !== 'info')
   return (
     <>
       <div className={`jvm-dock${dragging ? ' is-receiving' : ''}${mini && !dragging ? ' is-mini' : ''}`} role="region" aria-label="工具箱"

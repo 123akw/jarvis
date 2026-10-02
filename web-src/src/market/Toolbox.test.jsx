@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { moveItem } from './dnd/engine.js'
-import { DndRoot } from './dnd/index.jsx'
+import { DndRoot, useDragSource } from './dnd/index.jsx'
 import Toolbox from './Toolbox.jsx'
 
 /* 工具箱（Dock + 抽屉）：拖动排序、拖出 / 拖到删除区移除、撤销、键盘替代、播报、手机收起。
@@ -281,5 +281,31 @@ describe('手机：Dock 往下滚收起、往上滚展开', () => {
     scrollTo(600)
     scrollTo(900)
     expect(dock).not.toHaveClass('is-mini')
+  })
+})
+
+describe('Dock 上方的提示让位于步骤提示 / 报错', () => {
+  function Card() {
+    const { dragProps } = useDragSource({ id: 'weekly', label: '周报写手', icon: '🗓️' })
+    return <div data-testid="card" {...dragProps}>周报写手</div>
+  }
+  function Page({ hint }) {
+    return (
+      <DndRoot onAdd={() => {}}>
+        <Card />
+        <Toolbox plugins={[PLUGINS.todo]} onRemove={() => {}} onMove={() => {}} onClear={() => {}} onOpen={() => {}} hint={hint} />
+      </DndRoot>
+    )
+  }
+
+  it('第一次悬停的用法提示不盖住报错；没有报错时照常提示', () => {
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem() {}, removeItem() {} })
+    const { rerender } = render(<Page hint="生成失败：网络断了，再试一次" />)
+    fireEvent.pointerEnter(screen.getByTestId('card'), { pointerType: 'mouse' })
+    expect(screen.getByRole('status')).toHaveTextContent('生成失败')
+    expect(screen.queryByText(/拖到这里/)).toBeNull()
+    rerender(<Page hint="" />)
+    expect(screen.queryByText('生成失败：网络断了，再试一次')).toBeNull()
+    vi.unstubAllGlobals()
   })
 })
