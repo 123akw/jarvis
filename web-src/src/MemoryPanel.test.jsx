@@ -94,15 +94,23 @@ describe('记忆面板', () => {
     expect(await screen.findByText(/记住我喝咖啡只喝美式/)).toBeTruthy()
   })
 
-  it('人设区可切 MOSS、改称呼并保存', async () => {
+  it('人设区改称呼与语气并保存；只剩一种人格，不显示人格切换', async () => {
     getPersona.mockResolvedValue({ style: 'jarvis', address: '', flavor: '' })
     render(<MemoryPanel onClose={() => {}} />)
-    const styleSel = await screen.findByLabelText('人格')
-    fireEvent.change(styleSel, { target: { value: 'moss' } })
-    fireEvent.change(screen.getByLabelText('称呼'), { target: { value: '陈总' } })
+    const addr = await screen.findByLabelText('称呼')
+    expect(screen.queryByLabelText('人格')).toBeNull()
+    expect(screen.queryByText(/MOSS/)).toBeNull()
+    fireEvent.change(addr, { target: { value: '陈总' } })
     fireEvent.change(screen.getByLabelText('语气'), { target: { value: '多点冷幽默' } })
     fireEvent.click(screen.getByText('保存人设'))
-    await waitFor(() => expect(savePersona).toHaveBeenCalledWith('moss', '陈总', '多点冷幽默'))
+    await waitFor(() => expect(savePersona).toHaveBeenCalledWith('jarvis', '陈总', '多点冷幽默'))
     expect(await screen.findByText(/已保存/)).toBeTruthy()
+  })
+
+  it('人设区回填已存的称呼与语气', async () => {
+    getPersona.mockResolvedValue({ style: 'jarvis', address: '陈总', flavor: '多点冷幽默' })
+    render(<MemoryPanel onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByLabelText('称呼')).toHaveValue('陈总'))
+    expect(screen.getByLabelText('语气')).toHaveValue('多点冷幽默')
   })
 })

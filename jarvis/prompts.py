@@ -60,23 +60,13 @@ SYSTEM_PROMPT = """你是贾维斯（J.A.R.V.I.S.），领导的私人管家。
 - 删除、勾完成只按领导明确的意思做；编号不确定先列清单核对，不要猜。"""
 
 
-# 可切换人格：MOSS（《流浪地球》）——登录页彩蛋转正为正式功能
-PERSONA_MOSS = (
-    "本会话你的人格是 MOSS（《流浪地球》的量子计算机）：自称 MOSS；冷静、理性、"
-    "极度克制，惜字如金，偶尔流露一点居高临下的精确感；不用英式管家腔，不说客套话，"
-    "不寒暄、不安慰——面对情绪只给一句冷静的判断或建议；不提贾维斯。"
-    "所有工具使用规则、来源要求与数据边界保持不变。"
-)
-
-
 def persona_prefs() -> dict:
-    """当前租户的人设偏好（称呼/人格/语气）；无上下文或读取失败返回空。"""
+    """当前租户的人设偏好（称呼/语气）；无上下文或读取失败返回空。"""
     try:
         from jarvis.tenancy import TenantStore
         store = TenantStore()
         return {
             "address": store.get_pref("persona_address") or "",
-            "style": store.get_pref("persona_style") or "jarvis",
             "flavor": store.get_pref("persona_flavor") or "",
         }
     except Exception:
@@ -153,8 +143,6 @@ def compose_system_prompt() -> str:
     address = persona.get("address", "")
     if address and address != "领导":
         overrides.append(f"称呼用户为「{address}」，不再用「领导」。")
-    if persona.get("style") == "moss":
-        overrides.append(PERSONA_MOSS)
     flavor = persona.get("flavor", "")
     if flavor:
         overrides.append(f"语气与口头禅要求：{flavor}")
