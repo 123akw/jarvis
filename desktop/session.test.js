@@ -309,3 +309,21 @@ test('desktop command/window/meeting/wake operations validate bodies and hit the
   await assert.rejects(() => instance.request('voiceWakeCheck', { audio_b64: 'x', extra: 1 }), /field/i)
   await assert.rejects(() => instance.request('desktopCommands', { junk: true }), /empty/i)
 })
+
+test('reminder snooze/done operations validate bodies and post only the ring time', async () => {
+  const { instance, calls } = gateway()
+  await instance.login('admin', 'pw')
+
+  await instance.request('reminderSnooze', { id: 3, at: '2026-10-02 15:00', minutes: 10 })
+  assert.ok(calls.at(-1).url.endsWith('/api/reminders/3/snooze'))
+  assert.equal(calls.at(-1).options.method, 'POST')
+  assert.deepEqual(JSON.parse(calls.at(-1).options.body), { at: '2026-10-02 15:00', minutes: 10 })
+  await instance.request('reminderDone', { id: 3, at: '2026-10-02 15:00' })
+  assert.ok(calls.at(-1).url.endsWith('/api/reminders/3/done'))
+  assert.deepEqual(JSON.parse(calls.at(-1).options.body), { at: '2026-10-02 15:00' })
+
+  await assert.rejects(() => instance.request('reminderDone', { id: 'heartbeat-1', at: '2026-10-02 15:00' }), /reminder id/i)
+  await assert.rejects(() => instance.request('reminderDone', { id: 3, at: '明天' }), /reminder time/i)
+  await assert.rejects(() => instance.request('reminderSnooze', { id: 3, at: '2026-10-02 15:00', minutes: 999 }), /snooze/i)
+  await assert.rejects(() => instance.request('reminderDone', { id: 3, at: '2026-10-02 15:00', path: '../x' }), /field/i)
+})

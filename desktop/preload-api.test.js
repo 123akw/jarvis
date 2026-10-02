@@ -49,3 +49,17 @@ test('preload stream uses fixed IPC channels, forwards incrementally, and cancel
   await api.streamDone(id)
   assert.deepEqual(calls.map(call => call[0]), ['api-stream-start', 'api-stream-cancel'])
 })
+
+test('reminder-open events pass through only well-formed reminder payloads', () => {
+  const ipc = new EventEmitter()
+  const api = createEventApi(ipc)
+  const seen = []
+  const stop = api.onReminderOpen(item => seen.push(item))
+  ipc.emit('reminder-open', {}, { id: 3, at: '2026-10-02 15:00', when: '2026-10-02 15:00', title: '项目复盘', extra: 'x' })
+  ipc.emit('reminder-open', {}, { id: '3', at: '', when: '', title: '' })
+  ipc.emit('reminder-open', {}, null)
+  assert.deepEqual(seen, [{ id: 3, at: '2026-10-02 15:00', when: '2026-10-02 15:00', title: '项目复盘' }])
+  stop()
+  ipc.emit('reminder-open', {}, { id: 4, at: '', when: '', title: 'x' })
+  assert.equal(seen.length, 1)
+})

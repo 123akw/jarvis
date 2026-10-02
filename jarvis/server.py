@@ -23,7 +23,7 @@ from langchain_core.messages import AIMessageChunk, ToolMessage
 from pydantic import BaseModel, SecretStr
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from jarvis import __version__, config, distill, heartbeat, mailer, meeting, reminders, wechat
+from jarvis import __version__, config, delivery, distill, heartbeat, mailer, meeting, reminders, wechat
 from jarvis.accounts import (
     AccountError, AccountStore, Principal, SessionJanitor, csrf_token, session_secret_configured,
 )
@@ -64,6 +64,7 @@ async def lifespan(_app: FastAPI):
         compose=_heartbeat_compose,
         push_wechat=wechat.push_text,
         outbox=_heartbeat_outbox,
+        deliver=_notifier.send,   # 按账号的送达渠道与免打扰分发（jarvis/delivery.py）
     )
     if hb is not None:
         hb.start()
@@ -71,6 +72,9 @@ async def lifespan(_app: FastAPI):
         scanner = reminders.ReminderScanner(
             owner_getter=_accounts.unique_active_owner,
             push_wechat=wechat.push_text,
+            push_feishu=feishu.push_text,
+            feishu_users=feishu.bound_users,
+            notifier=_notifier,
         )
         scanner.start()
         radio = reminders.MorningRadio(
@@ -78,6 +82,8 @@ async def lifespan(_app: FastAPI):
             compose=_radio_compose,
             push_voice=wechat.push_voice_then_text,
             push_available=wechat.push_available,
+            push_feishu=feishu.push_text,
+            feishu_ready=feishu.push_ready,
         )
         radio.start()
         distiller = distill.NightlyDistiller(
@@ -587,9 +593,11 @@ def reminders_pending(request: Request):
     try:
         with tenant_scope(principal.user_id):
             store = _tenant_store()
+            if not delivery.load_prefs(store).allows(channel):
+                return {"items": []}   # 用户在设置里关掉了这个渠道：不弹也不记账
             due = store.due_reminders(floor=floor, ceiling=ceiling, channel=channel)
             for item in due:
-                store.mark_reminded(item["id"], item["when"], channel)
+                store.mark_reminded(item["id"], item["at"], channel)
     except TenantMigrationError:
         return _sensitive_json({"error": "个人数据迁移失败"}, 503)
     # 心跳主动唤醒共用本端点送达：领取即清，谁先轮询谁收到
@@ -1010,6 +1018,16 @@ def upload_document(request: Request, body: UploadIn):
 # ---------- Heartbeat 主动唤醒：定期读关注清单，模型裁量后主动开口 ----------
 
 _heartbeat_outbox = heartbeat.PendingOutbox()
+
+
+def _wechat_user() -> str | None:
+    owner = _accounts.unique_active_owner()
+    return owner.user_id if owner is not None else None
+
+
+# 巡检等非日程主动消息的统一出口：按账号渠道分发、免打扰期间先攒着（jarvis/delivery.py）
+_notifier = delivery.Notifier(push_wechat=wechat.push_text, wechat_user=_wechat_user,
+                              push_feishu=feishu.push_text, outbox=_heartbeat_outbox)
 
 
 def _service_invoke(owner_id: str, alias: str, title: str, prompt: str) -> str:
@@ -1608,7 +1626,36 @@ feishu.register(
     app, bundle_for=_bundle_for, chunk_text=_chunk_text, tenant_store=_tenant_store,
     accounts=_accounts, request_principal=_request_principal,
     write_authorized=_write_authorized, deny=_deny, csrf_deny=_csrf_deny,
+    quick_reply=lambda user_id, text: _reminder_quick_reply(user_id, "feishu", text),
 )
+
+
+# ---- 主动送达（F5 可操作的提醒 + F6 送达与免打扰）：逻辑在 jarvis/delivery.py / reminders.py ----
+
+def _reminder_quick_reply(user_id: str, channel: str, text: str) -> str | None:
+    """微信 / 飞书里回「稍后」「好了」：作用于该渠道最近一条提醒；不是短语就返回 None 交给模型。"""
+    if reminders.parse_quick_reply(text) is None:
+        return None   # 绝大多数消息在这里就放行，不碰数据库
+    with tenant_scope(user_id):
+        return reminders.handle_quick_reply(_tenant_store(), channel, text, datetime.datetime.now())
+
+
+def _wechat_quick_reply(text: str) -> str | None:
+    owner = _accounts.unique_active_owner()
+    return _reminder_quick_reply(owner.user_id, "wechat", text) if owner is not None else None
+
+
+def _delivery_channel_status(principal) -> dict:
+    return {
+        "wechat": principal.is_owner and wechat.push_bound(),
+        "feishu": feishu.status().get("configured", False) and feishu.get_bridge().bindings.count_for(principal.user_id) > 0,
+    }
+
+
+wechat.set_quick_reply(_wechat_quick_reply)
+delivery.register(app, request_principal=_request_principal, panel_write=_panel_write,
+                  tenant_store=lambda: _tenant_store(), deny=_deny,
+                  channel_status=_delivery_channel_status)
 
 
 def run() -> None:

@@ -1,0 +1,8 @@
+/* 设置中心 › 语音 › 「主动找你」：送达渠道 + 免打扰。只用 --jv-* token，跟随深浅色。 */
+.delivery-pane{margin-top:24px;padding-top:20px;border-top:1px solid var(--jv-border)}
+.delivery-title{margin:0;font-size:13px;font-weight:600;letter-spacing:.02em;color:var(--jv-text)}
+.delivery-channels{display:flex;flex-wrap:wrap;gap:10px 20px;min-width:0;margin:0;padding:0;border:0}
+.delivery-channels legend{float:left;width:100%;margin:0 0 10px;padding:0;font-size:13px;font-weight:500;color:var(--jv-text-2)}
+.delivery-dnd{display:flex;align-items:center;gap:10px}
+.delivery-dnd input{flex:1;min-width:0}
+.delivery-dnd span{flex:none;color:var(--jv-text-3)}

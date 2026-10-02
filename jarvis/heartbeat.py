@@ -11,6 +11,9 @@ data/HEARTBEAT.md 是一份纯文本「关注清单」——主人手写（或�
   日程到点提醒走 reminders.py，不受影响。
 - 24 小时去重：同一内容（或只差标点、语气词的高度相似内容）推过一次就不再推；推送记录落盘
   （data/heartbeat-sent.json），服务重启后仍然有效。数字不同（时间、金额、数量）一律视为不同提醒。
+
+服务端注入 deliver 时（jarvis/delivery.py 的 Notifier），送达改按账号的渠道设置走，并遵守账号
+自己的免打扰：期间产生的消息先攒着，结束后合并成一条（不注入时保持微信 + 领取箱的老路径）。
 """
 import datetime
 import difflib
@@ -188,8 +191,9 @@ class HeartbeatScanner(PeriodicWorker):
     def __init__(self, *, owner_getter=None, compose=None, push_wechat=None,
                  outbox=None, path_fn=heartbeat_path, now_fn=None,
                  interval: float = DEFAULT_INTERVAL, quiet_hours=DEFAULT_QUIET_HOURS,
-                 sent_log: SentLog | None = None):
+                 sent_log: SentLog | None = None, deliver=None):
         self._owner_getter = owner_getter
+        self._deliver = deliver   # (user_id, message, now) -> bool：送出或已攒下
         self._compose = compose
         self._push_wechat = push_wechat
         self._outbox = outbox
@@ -236,12 +240,17 @@ class HeartbeatScanner(PeriodicWorker):
                      time.strftime("%m-%d %H:%M", time.localtime(duplicate["ts"])), message[:60])
             return False
         delivered = False
-        if self._push_wechat is not None:
+        if self._deliver is not None:
+            try:
+                delivered = bool(self._deliver(owner.user_id, message, now))
+            except Exception as exc:
+                log.warning("heartbeat deliver failed: %s", type(exc).__name__)
+        if self._deliver is None and self._push_wechat is not None:
             try:
                 delivered = bool(self._push_wechat(f"🔔 {message}"))
             except Exception as exc:
                 log.warning("heartbeat wechat push failed: %s", type(exc).__name__)
-        if self._outbox is not None:
+        if self._deliver is None and self._outbox is not None:
             try:
                 self._outbox.put(owner.user_id, message, now.strftime("%Y-%m-%d %H:%M"))
                 delivered = True

@@ -23,6 +23,14 @@ function createEventApi(ipcRenderer) {
         if (typeof text === 'string' && text) callback(text.slice(0, 500))
       })
     },
+    onReminderOpen(callback) {
+      // 点系统通知展开后的提醒条：只收形状正确的载荷（主进程已按白名单裁剪）
+      return subscribe('reminder-open', (_event, item) => {
+        if (!item || typeof item !== 'object' || !Number.isInteger(item.id)) return
+        if (typeof item.at !== 'string' || typeof item.when !== 'string' || typeof item.title !== 'string') return
+        callback({ id: item.id, at: item.at.slice(0, 16), when: item.when.slice(0, 16), title: item.title.slice(0, 200) })
+      })
+    },
   }
 }
 

@@ -412,25 +412,95 @@ class TenantStore:
         owner = self._owner(owner_id)
         with self._connect() as c: return bool(c.execute("DELETE FROM tenant_schedule WHERE owner_id=? AND id=?", (owner, item_id)).rowcount)
 
+    # tenant_reminders_sent 是提醒的「账本」，一次提醒 = (日程 id, 响铃时刻 at)，不加表：
+    # - channel 为 web/desktop/wechat/feishu：该通道已送达过这次提醒；
+    # - channel 为 snooze：「稍后」排的一次再响，when_at 即新的响铃时刻（日程本身的时间不动）；
+    # - channel 为 ack:done / ack:snooze：这次提醒已在某个通道被「完成」/「稍后」，其他通道不再催。
     def due_reminders(self, *, floor: str, ceiling: str, channel: str, owner_id: str | None = None) -> list[dict]:
-        """到点且该通道尚未提醒过的日程：floor < when_at <= ceiling（格式固定，字典序即时间序）。"""
+        """到点、该通道尚未送达、也没在任何通道处理过的提醒：floor < at <= ceiling（格式固定，字典序即时间序）。
+
+        返回 {id, title, when, at}：when 是日程时间，at 是这次响铃时刻（「稍后」再响时晚于 when）。"""
         owner = self._owner(owner_id)
         with self._connect() as c:
             rows = c.execute(
-                "SELECT s.id, s.title, s.when_at FROM tenant_schedule s"
-                " WHERE s.owner_id=? AND s.when_at>? AND s.when_at<=?"
-                " AND NOT EXISTS (SELECT 1 FROM tenant_reminders_sent r"
-                "   WHERE r.owner_id=s.owner_id AND r.schedule_id=s.id AND r.when_at=s.when_at AND r.channel=?)"
-                " ORDER BY s.when_at, s.id",
-                (owner, floor, ceiling, channel)).fetchall()
-        return [{"id": r["id"], "title": r["title"], "when": r["when_at"]} for r in rows]
+                "SELECT id, title, when_at, at FROM ("
+                "  SELECT s.id, s.title, s.when_at, s.when_at AS at FROM tenant_schedule s"
+                "   WHERE s.owner_id=? AND s.when_at>? AND s.when_at<=?"
+                "  UNION"
+                "  SELECT s.id, s.title, s.when_at, z.when_at AS at FROM tenant_reminders_sent z"
+                "   JOIN tenant_schedule s ON s.owner_id=z.owner_id AND s.id=z.schedule_id"
+                "   WHERE z.owner_id=? AND z.channel='snooze' AND z.when_at>? AND z.when_at<=?"
+                ") d WHERE NOT EXISTS (SELECT 1 FROM tenant_reminders_sent r"
+                "   WHERE r.owner_id=? AND r.schedule_id=d.id AND r.when_at=d.at AND (r.channel=? OR r.channel LIKE 'ack:%'))"
+                " ORDER BY at, id",
+                (owner, floor, ceiling, owner, floor, ceiling, owner, channel)).fetchall()
+        return [{"id": r["id"], "title": r["title"], "when": r["when_at"], "at": r["at"]} for r in rows]
 
     def mark_reminded(self, schedule_id: int, when_at: str, channel: str, *, owner_id: str | None = None) -> None:
+        """when_at 传这次提醒的响铃时刻（due_reminders 返回的 at）。"""
         owner = self._owner(owner_id)
         with self._connect() as c:
             c.execute("INSERT OR IGNORE INTO tenant_reminders_sent(owner_id,schedule_id,when_at,channel,sent_at) VALUES(?,?,?,?,?)",
                       (owner, schedule_id, when_at, channel, _now()))
             c.commit()
+
+    def ack_reminder(self, schedule_id: int, at: str, action: str, *, until: str | None = None,
+                     owner_id: str | None = None) -> dict:
+        """处理一次提醒（action=done|snooze），幂等、先到先得，「完成」压过「稍后」。
+
+        返回 {status: done|snoozed|missing|stale, title, until?, already}：
+        - missing：日程已删；stale：at 不是这条日程的任何一次响铃（日程改过期）；
+        - 同一次提醒重复「稍后」返回第一次排好的 until，不会越推越晚；
+        - 「完成」顺带撤掉还没响的「稍后」，「完成」之后再点「稍后」不生效。"""
+        if action not in ("done", "snooze") or (action == "snooze" and not until):
+            raise ValueError(action)
+        owner = self._owner(owner_id)
+        with self._connect() as c:
+            c.execute("BEGIN IMMEDIATE")
+            try:
+                result = self._ack_locked(c, owner, schedule_id, at, action, until)
+                c.commit()
+            except Exception:
+                c.rollback(); raise
+        return result
+
+    @staticmethod
+    def _ack_locked(c: sqlite3.Connection, owner: str, schedule_id: int, at: str, action: str, until: str | None) -> dict:
+        row = c.execute("SELECT title, when_at FROM tenant_schedule WHERE owner_id=? AND id=?", (owner, schedule_id)).fetchone()
+        if not row:
+            return {"status": "missing", "title": "", "already": False}
+        title = row["title"]
+        ledger = "SELECT 1 FROM tenant_reminders_sent WHERE owner_id=? AND schedule_id=? AND when_at=? AND channel=?"
+        acked = {r["channel"] for r in c.execute(
+            "SELECT channel FROM tenant_reminders_sent WHERE owner_id=? AND schedule_id=? AND when_at=? AND channel LIKE 'ack:%'",
+            (owner, schedule_id, at))}
+        if not acked and at != row["when_at"] and not c.execute(ledger, (owner, schedule_id, at, "snooze")).fetchone():
+            return {"status": "stale", "title": title, "already": False}
+        insert = "INSERT OR IGNORE INTO tenant_reminders_sent(owner_id,schedule_id,when_at,channel,sent_at) VALUES(?,?,?,?,?)"
+        if action == "done" or "ack:done" in acked:
+            if "ack:done" not in acked:
+                c.execute(insert, (owner, schedule_id, at, "ack:done", _now()))
+                c.execute("DELETE FROM tenant_reminders_sent WHERE owner_id=? AND schedule_id=? AND channel='snooze' AND when_at>?",
+                          (owner, schedule_id, at))
+            return {"status": "done", "title": title, "already": "ack:done" in acked}
+        if "ack:snooze" in acked:
+            nxt = c.execute("SELECT MIN(when_at) AS w FROM tenant_reminders_sent WHERE owner_id=? AND schedule_id=?"
+                            " AND channel='snooze' AND when_at>?", (owner, schedule_id, at)).fetchone()
+            return {"status": "snoozed", "title": title, "until": nxt["w"] or "", "already": True}
+        c.execute(insert, (owner, schedule_id, at, "ack:snooze", _now()))
+        c.execute(insert, (owner, schedule_id, until, "snooze", _now()))
+        return {"status": "snoozed", "title": title, "until": until, "already": False}
+
+    def last_reminded(self, channel: str, *, since: str, owner_id: str | None = None) -> dict | None:
+        """该通道 since（UTC ISO）之后送达的最近一次提醒 {id, title, when, at}；日程已删则 None。"""
+        owner = self._owner(owner_id)
+        with self._connect() as c:
+            row = c.execute(
+                "SELECT r.schedule_id, r.when_at AS at, s.title, s.when_at FROM tenant_reminders_sent r"
+                " JOIN tenant_schedule s ON s.owner_id=r.owner_id AND s.id=r.schedule_id"
+                " WHERE r.owner_id=? AND r.channel=? AND r.sent_at>=? ORDER BY r.sent_at DESC LIMIT 1",
+                (owner, channel, since)).fetchone()
+        return {"id": row["schedule_id"], "title": row["title"], "when": row["when_at"], "at": row["at"]} if row else None
 
     def get_location(self, *, owner_id: str | None = None) -> dict | None:
         owner = self._owner(owner_id)

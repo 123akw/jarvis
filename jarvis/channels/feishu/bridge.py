@@ -444,13 +444,16 @@ class FeishuBridge:
         self._chunk_text: Callable[[object], str] = lambda content: content if isinstance(content, str) else str(content)
         self._tenant_store = None
         self._accounts = None
+        self._quick_reply = None
 
-    def configure(self, *, bundle_for, chunk_text, tenant_store, accounts) -> None:
+    def configure(self, *, bundle_for, chunk_text, tenant_store, accounts, quick_reply=None) -> None:
         with self._lock:
             self._bundle_for = bundle_for
             self._chunk_text = chunk_text
             self._tenant_store = tenant_store
             self._accounts = accounts
+            # (user_id, text) -> str | None：提醒的「稍后 / 好了」回复短语，None 表示照常交给 Agent
+            self._quick_reply = quick_reply
 
     # ---- 生命周期与状态 ----
 
@@ -518,6 +521,41 @@ class FeishuBridge:
             self._bot_open_id = str(info.get("open_id") or "")
             self._bot_name = str(info.get("app_name") or "")
 
+    # ---- 主动推送（日程提醒 / 晨报 / 巡检，见 jarvis/delivery.py） ----
+
+    def bound_users(self) -> list[str]:
+        """已绑定飞书的贾维斯账号（去重）；渠道未启用时为空，扫描线程据此跳过。"""
+        with self._lock:
+            if self._api is None:
+                return []
+        users = sorted({uid for uid in self.bindings.all().values() if uid})
+        return [uid for uid in users if self._accounts is None or self._active_username(uid)]
+
+    def push_ready(self, user_id: str) -> bool:
+        with self._lock:
+            if self._api is None:
+                return False
+        return self.bindings.count_for(user_id) > 0
+
+    def push_text(self, user_id: str, text: str) -> bool:
+        """私聊推一条文字给该账号绑定的每个飞书身份；任一送达即 True，失败只记日志不抛错。"""
+        with self._lock:
+            api = self._api
+        if api is None or not text.strip():
+            return False
+        if self._accounts is not None and not self._active_username(user_id):
+            return False   # 账号已停用：绑定还在也不推
+        delivered = False
+        for open_id, bound in self.bindings.all().items():
+            if bound != user_id:
+                continue
+            try:
+                api.send("open_id", open_id, "text", {"text": text})
+                delivered = True
+            except FeishuAPIError as exc:
+                log.warning("feishu push failed: code=%s", exc.code)
+        return delivered
+
     # ---- 收消息（长连接线程，必须快） ----
 
     def handle_event(self, event: dict) -> None:
@@ -565,6 +603,15 @@ class FeishuBridge:
         if not user_id or not self._active_username(user_id):
             self._hint_unbound(inbound, stale=bool(user_id))
             return
+        if not inbound.is_group and text and self._quick_reply is not None:
+            try:
+                answer = self._quick_reply(user_id, text)
+            except Exception as exc:
+                log.warning("feishu quick reply failed: %s", type(exc).__name__)
+                answer = None
+            if answer:
+                self._deliver_text(inbound, answer)
+                return
         if inbound.msg_type == "audio":
             self._deliver_text(inbound, AUDIO_REPLY)
             return
