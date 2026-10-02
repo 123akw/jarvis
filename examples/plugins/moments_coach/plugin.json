@@ -1,0 +1,20 @@
+{
+  "id": "moments_coach",
+  "name": "朋友圈文案教练",
+  "version": "1.0.0",
+  "icon": "📣",
+  "category": "ai",
+  "summary": "上新、促销、节日问候，一次给三版朋友圈文案，避开广告极限词",
+  "kind": "skill",
+  "tier": "free",
+  "price": 0,
+  "professions": ["shop_owner", "sales", "creator", "freelancer"],
+  "examples": ["帮我写条朋友圈，今天新到了阳山水蜜桃", "这段促销文案帮我改改"],
+  "entry": null,
+  "tools": [],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "homepage": "https://github.com/123akw/jarvis/tree/main/examples/plugins/moments_coach"
+}

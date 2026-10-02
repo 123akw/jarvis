@@ -1,0 +1,29 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "festival-greetings",
+  "version": "1.0.0",
+  "description": "按对象和场合写节日祝福语，一次给三条不同风格的",
+  "author": {
+    "name": "JWS-Agent",
+    "url": "https://github.com/123akw/jarvis"
+  },
+  "homepage": "https://github.com/123akw/jarvis/tree/main/examples/marketplace",
+  "repository": "https://github.com/123akw/jarvis",
+  "keywords": ["节日", "祝福", "问候"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "节日祝福语",
+        "shortDescription": "中秋国庆春节，给长辈、客户、同事的祝福一次写好三条",
+        "developerName": "JWS-Agent",
+        "category": "Lifestyle",
+        "capabilities": [],
+        "defaultPrompt": [
+          "帮我写条中秋祝福发给客户",
+          "过年给长辈的拜年话，要朴实一点"
+        ],
+        "brandColor": "#FF9F0A"
+      }
+    }
+  }
+}

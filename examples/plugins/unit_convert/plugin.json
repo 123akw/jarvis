@@ -1,0 +1,20 @@
+{
+  "id": "unit_convert",
+  "name": "单位换算",
+  "version": "1.0.0",
+  "icon": "📏",
+  "category": "life",
+  "summary": "斤两公斤、亩和平方米、尺寸英寸、摄氏华氏，一问就换算好",
+  "kind": "tool",
+  "tier": "free",
+  "price": 0,
+  "professions": ["shop_owner", "student", "teacher", "office"],
+  "examples": ["3 斤半是多少公斤", "一亩地合多少平方米", "6 英尺是多少厘米"],
+  "entry": "tools.py",
+  "tools": ["unit_convert", "unit_convert_units"],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "homepage": "https://github.com/123akw/jarvis/tree/main/examples/plugins/unit_convert"
+}

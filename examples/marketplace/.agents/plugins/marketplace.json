@@ -1,0 +1,76 @@
+{
+  "name": "jarvis-examples",
+  "interface": {
+    "displayName": "贾维斯示例插件源"
+  },
+  "plugins": [
+    {
+      "name": "festival-greetings",
+      "source": {
+        "source": "local",
+        "path": "./plugins/festival-greetings"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Lifestyle"
+    },
+    {
+      "name": "unit_convert",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/123akw/jarvis.git",
+        "path": "examples/plugins/unit_convert",
+        "ref": "main"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Lifestyle"
+    },
+    {
+      "name": "lottery",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/123akw/jarvis.git",
+        "path": "examples/plugins/lottery",
+        "ref": "main"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "text_check",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/123akw/jarvis.git",
+        "path": "examples/plugins/text_check",
+        "ref": "main"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "moments_coach",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/123akw/jarvis.git",
+        "path": "examples/plugins/moments_coach",
+        "ref": "main"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

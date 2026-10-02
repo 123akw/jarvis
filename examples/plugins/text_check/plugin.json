@@ -1,0 +1,20 @@
+{
+  "id": "text_check",
+  "name": "文字体检",
+  "version": "1.0.0",
+  "icon": "🩺",
+  "category": "documents",
+  "summary": "数字数、算阅读时长、找重复词，发文案前查一遍广告极限词",
+  "kind": "tool",
+  "tier": "free",
+  "price": 0,
+  "professions": ["shop_owner", "creator", "student", "teacher", "sales", "office"],
+  "examples": ["帮我数数这篇作文多少字", "这段上新文案有没有违规词", "这篇稿子念出来要几分钟"],
+  "entry": "tools.py",
+  "tools": ["text_check", "text_check_ad_words"],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "homepage": "https://github.com/123akw/jarvis/tree/main/examples/plugins/text_check"
+}
