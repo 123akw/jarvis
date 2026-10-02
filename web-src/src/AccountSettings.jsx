@@ -63,7 +63,7 @@ export default function AccountSettings({ session, onReauth, onClose }) {
       await loadUsers()
     } catch (e) {
       // 服务端对重名等情况只回「无法创建用户」，补一句最常见的原因
-      if (e.message === '401') expired(); else setError(`${reason(e, '无法创建用户')}：用户名可能已被占用。`)
+      if (e.message === '401') expired(); else setError(`${reason(e, '无法创建用户，请稍后重试')}。`.replace(/。。$/, '。'))
     } finally {
       setBusy('')
     }

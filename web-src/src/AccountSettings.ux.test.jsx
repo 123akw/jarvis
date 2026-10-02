@@ -45,14 +45,26 @@ describe('账户设置的反馈', () => {
     expect(await screen.findByText('已创建用户 member-three')).toBeInTheDocument()
   })
 
-  it('创建用户失败：提示可能是用户名重复', async () => {
-    createUser.mockRejectedValue(Object.assign(new Error('无法创建用户'), { status: 400 }))
+  it('创建用户失败：原样显示服务端给的原因（如用户名重复）', async () => {
+    createUser.mockRejectedValue(Object.assign(new Error('用户名「owner」已存在，请换一个'), { status: 409 }))
     render(<AccountSettings session={OWNER} />)
     fireEvent.click(screen.getByRole('button', { name: '用户管理' }))
     fireEvent.change(screen.getByLabelText('新用户名'), { target: { value: 'owner' } })
     fireEvent.change(screen.getByLabelText('初始口令'), { target: { value: 'long-enough-pass' } })
     fireEvent.click(screen.getByRole('button', { name: '创建用户' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('用户名可能已被占用')
+    expect(await screen.findByRole('alert')).toHaveTextContent('用户名「owner」已存在，请换一个。')
+  })
+
+  it('创建用户失败且服务端没给原因：兜底文案不再瞎猜用户名重复', async () => {
+    createUser.mockRejectedValue(new Error('请求失败'))
+    render(<AccountSettings session={OWNER} />)
+    fireEvent.click(screen.getByRole('button', { name: '用户管理' }))
+    fireEvent.change(screen.getByLabelText('新用户名'), { target: { value: 'member-x' } })
+    fireEvent.change(screen.getByLabelText('初始口令'), { target: { value: 'long-enough-pass' } })
+    fireEvent.click(screen.getByRole('button', { name: '创建用户' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('无法创建用户，请稍后重试。')
+    expect(alert).not.toHaveTextContent('已被占用')
   })
 
   it('重置他人口令成功给出反馈', async () => {
