@@ -93,3 +93,12 @@ files.delete(owner_id, file_id)
 | B 插件框架与开源导入 | 第 1 节全部：插件包加载器 / 注册表、把现有 22 个插件迁成插件包（id 与 API 不变）、隔离原则、Owner 在市场里「从 GitHub 导入」（预览清单与权限 → 确认 → 固定 commit 安装）、启用 / 停用 / 卸载、`kind=skill` 的 SKILL.md 技能导入、第三方插件子进程执行 |
 | C 文件空间与办公插件 | 第 2 节全部 + 内置插件包：PDF 工具箱（pypdf）、Excel 工具箱（openpyxl：读表、统计汇总、筛选、生成 Excel、CSV 互转）、Word 文档（python-docx：读取、按 Markdown 生成文档），以及对应的流程积木（生成 Excel 表格、生成 Word 文档）；新增依赖写进 pyproject 与 requirements.lock |
 | D 生态与文档 | 插件开发指南 `docs/plugins.md`、可直接导入的示例插件仓库模板 `examples/plugin-template/` 与 2–3 个示例插件、调研可接入的开源插件 / 技能（GitHub 上的 Python 工具、Anthropic Skills 格式、MCP 生态的可行性与限制） |
+
+## 4 参考 Codex / ChatGPT 的插件体系（用户追加，2026-10-02）
+
+依据 OpenAI 官方文档（[插件结构与清单](https://developers.openai.com/plugins/build/plugins)、[ChatGPT 插件目录](https://learn.chatgpt.com/docs/plugins)）：
+
+- **封装**：一个插件 = 一个目录，根 `plugin.json` 用 Agent Plugins 标准（`$schema: https://agent-plugins.org/schemas/1.0.0/plugin.schema.json`；`name` / `version` / `description` / `author`，展示信息在 `extensions.com.openai.interface`：`displayName`、`shortDescription`、`category`、`capabilities`、`defaultPrompt`、`logo` 等），里面打包 `skills/`（SKILL.md）、`mcp.json`（MCP 服务器）、`assets/`、`hooks/`。
+- **分发**：GitHub 仓库里的 `.agents/plugins/marketplace.json` 就是一个「插件源」，列出多个插件（来源可以是仓库内路径、git 子目录或 npm），带 `policy.installation`（可安装 / 默认安装 / 不可用）。管理员导入并同步插件源，目录按「官方 / 工作区 / 个人插件源」分页签；安装按版本缓存，装好后新对话生效。
+- **我们跟进**：兼容导入 Agent Plugins 格式（字段映射到第 1 节的清单）、`skills/*/SKILL.md` 变成技能插件、Owner 添加并同步插件源、安装前的信任预览（作者、版本、来源 commit、权限、主页与隐私政策）、检查更新。
+- **暂不跟进**：本地 stdio MCP（服务器没有 node / uvx）、hooks、浏览器扩展、应用内 UI 组件；远程 streamable-http MCP 视时间放进本轮或下一轮。
