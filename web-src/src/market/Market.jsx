@@ -1,43 +1,44 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { login, logout } from '../api.js'
 import Icon from '../Icon.jsx'
-import Presence from '../Presence.jsx'
-import { navigate } from '../routes.js'
+import Presence, { prefersReducedMotion } from '../Presence.jsx'
+import { APP_PATH, loginHref, navigate } from '../routes.js'
 import { applyTheme, currentTheme } from '../theme.js'
 import { getCatalog, marketSignup, previewSourcePlugin, recommend } from './api.js'
 import Brand from './Brand.jsx'
+import Catalog, { NO_FILTERS } from './Catalog.jsx'
+import Featured from './Featured.jsx'
 import Gate from './Gate.jsx'
 import Hero from './Hero.jsx'
 import PluginAdmin from './PluginAdmin.jsx'
-import { clearDraft, emptyDraft, loadDraft, loginPath, normalizeCatalog, normalizeRecommendation, saveDraft } from './model.js'
+import { detailHref } from './PluginCard.jsx'
+import PluginDetail from './PluginDetail.jsx'
+import {
+  bundlesFrom, clearDraft, emptyDraft, loadDraft, loginPath, normalizeCatalog, normalizeRecommendation, saveDraft,
+} from './model.js'
 import Recommend from './Recommend.jsx'
 import Result from './Result.jsx'
-import Skills from './Skills.jsx'
 import Toolbox from './Toolbox.jsx'
+import { AccountArea, SearchBox, Wordmark } from './TopBar.jsx'
+import { WIDE, useMedia } from './useMedia.js'
 import './market.css'
 
 /*
- * 智能体市场（/market）：插件市场（顶部一句话 +「帮我推荐」）→ 起名字 → 生成 → 结果页。
+ * 智能体市场（主域名首页 /，旧链接 /market）：顶栏（搜索、登录 / 进入我的智能体）→ 首屏一句话 → 精选套装 →
+ * 分类 / 来源 / 类型筛选的插件目录 → 插件详情（?plugin=<id>，可分享、可后退）→ 工具箱 → 起名字 → 生成 → 结果页。
  * 每次生成 = 开一套独立账号（POST /api/market/signup，不登录当前浏览器）；结果页的主角是只显示一次的
- * 账号与口令，「去登录」回到登录页并用 ?u= 预填账号，登录后就是按所选插件组装的智能体。
- * 选择状态存 sessionStorage（刷新不丢），口令只活在内存里。契约见 docs/proposals/2026-10-round13-platform.md。
+ * 账号与口令，「去登录」去登录页并用 ?u= 预填账号，登录后就是按所选插件组装的智能体。
+ * 选择状态存 sessionStorage（刷新不丢），口令只活在内存里。契约见 docs/proposals/2026-10-round15-market.md。
  */
 
 const FLOW_STEPS = [{ id: 'market', label: '挑插件' }, { id: 'brand', label: '起名字' }]
 // 生成与推荐至少停留一小会儿：太快一闪而过反而像出错（测试环境不等）
 const MIN_WAIT = import.meta.env?.MODE === 'test' ? 0 : 650
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
-
-function Account({ me }) {
-  if (!me) return <span />
-  const name = me.username || '已登录'
-  return (
-    <span className="jvm-account" title={`已登录：${name}`} aria-label={`已登录：${name}`}>
-      <i aria-hidden="true">{name.trim().slice(0, 1).toUpperCase() || '·'}</i>
-      <span>{name}</span>
-    </span>
-  )
+const readDetail = () => {
+  try { return new URLSearchParams(window.location.search).get('plugin') || '' } catch { return '' }
 }
+const smooth = () => (prefersReducedMotion() ? 'auto' : 'smooth')
 
 function Progress({ step, onGo }) {
   return (
@@ -55,17 +56,22 @@ function Progress({ step, onGo }) {
   )
 }
 
+/** 目录加载中：精选与卡片的骨架；出错：说人话 + 重试 */
 function CatalogPending({ state, onRetry }) {
   if (state.status === 'error') {
     return (
-      <div className="jvm-empty" role="alert">
-        <p>市场暂时打不开：{state.error}</p>
-        <button type="button" className="jvm-btn" onClick={onRetry}>再试一次</button>
+      <div className="jvm-none" role="alert">
+        <span className="jvm-none-icon" aria-hidden="true">📡</span>
+        <p className="jvm-none-title">市场暂时打不开</p>
+        <p className="jvm-none-sub">{state.error}</p>
+        <div className="jvm-none-actions"><button type="button" className="jvm-btn" onClick={onRetry}>再试一次</button></div>
       </div>
     )
   }
   return (
-    <div className="jvm-empty" role="status" aria-label="正在打开市场">
+    <div className="jvm-pending" role="status" aria-label="正在打开市场">
+      <div className="jvm-skel is-bundles" aria-hidden="true"><i /><i /><i /></div>
+      <div className="jvm-skel is-chips" aria-hidden="true"><i /><i /><i /><i /><i /></div>
       <div className="jvm-skel is-cards" aria-hidden="true"><i /><i /><i /><i /><i /><i /></div>
     </div>
   )
@@ -80,19 +86,31 @@ export default function Market({ session, onAuthed }) {
   const [busy, setBusy] = useState(false)
   const [genError, setGenError] = useState('')
   const [adminSession, setAdminSession] = useState(null)   // 拦路口里管理员登录后的会话（不改 App 的会话）
-  const [sources, setSources] = useState([])               // 插件源（仅 Owner 拉得到）：市场里每个源一个页签
-  const [sourcePreview, setSourcePreview] = useState(null) // 插件源页签上点「安装」→ 交给插件管理弹窗出预览
+  const [sources, setSources] = useState([])               // 插件源（仅 Owner 拉得到）：来源筛选里每个源一项
+  const [sourcePreview, setSourcePreview] = useState(null) // 插件源里点「安装」→ 交给插件管理弹窗出预览
+  const [query, setQuery] = useState('')
+  const [filters, setFilters] = useState(NO_FILTERS)
+  const [recOpen, setRecOpen] = useState(false)            // 手机上「帮我推荐」默认收起
+  const [detailId, setDetailId] = useState(readDetail)     // ?plugin=<id>
+  const [toast, setToast] = useState('')
   const scrollRef = useRef(null)
+  const searchRef = useRef(null)
+  const descRef = useRef(null)
   const recSeq = useRef(0)
   const firstStep = useRef(true)
+  const toastTimer = useRef(0)
+  const wide = useMedia(WIDE)
   const appSession = session && typeof session === 'object' ? session : null
   const me = adminSession || appSession
+  const checking = session === null && !adminSession
   const step = draft.step
   const data = catalog.data
   const isOwner = me?.role === 'Owner'
+  const q = query.trim()
 
   useEffect(() => { try { applyTheme(currentTheme()) } catch { /* 存储不可读：保持默认暗色 */ } }, [])
   useEffect(() => { saveDraft(draft) }, [draft])
+  useEffect(() => () => clearTimeout(toastTimer.current), [])
 
   const loadCatalog = useCallback(({ quiet = false } = {}) => {
     if (!quiet) setCatalog(c => ({ ...c, status: 'loading', error: '' }))
@@ -101,6 +119,13 @@ export default function Market({ session, onAuthed }) {
       .catch(e => setCatalog({ status: 'error', data: null, error: e.message }))
   }, [])
   useEffect(() => { loadCatalog() }, [loadCatalog])
+
+  // 浏览器后退 / 前进：详情跟着地址栏的 ?plugin= 开关
+  useEffect(() => {
+    const sync = () => setDetailId(readDetail())
+    window.addEventListener('popstate', sync)
+    return () => window.removeEventListener('popstate', sync)
+  }, [])
 
   // 换步骤：回到顶部，焦点落到新标题（读屏读出这一步）；初次渲染不抢焦点
   useEffect(() => {
@@ -114,12 +139,57 @@ export default function Market({ session, onAuthed }) {
   const byId = useMemo(() => new Map((data?.plugins || []).map(p => [p.id, p])), [data])
   const pickedPlugins = draft.picked.map(id => byId.get(id)).filter(Boolean)
   const profession = data?.professions.find(p => p.id === draft.profession) || null
+  const bundles = useMemo(() => bundlesFrom(data), [data])
 
+  const say = text => {
+    setToast(text)
+    clearTimeout(toastTimer.current)
+    toastTimer.current = setTimeout(() => setToast(''), 2600)
+  }
   const go = next => { setGenError(''); setDraft(d => ({ ...d, step: next })) }
   const toggle = id => setDraft(d => ({
     ...d, picked: d.picked.includes(id) ? d.picked.filter(x => x !== id) : [...d.picked, id],
   }))
   const addAll = ids => setDraft(d => ({ ...d, picked: [...new Set([...d.picked, ...ids])] }))
+  const addBundle = b => {
+    const fresh = b.ids.filter(id => !draft.picked.includes(id)).length
+    // 套装即职业预设：还没选职业时顺手记上，生成的智能体用这个职业的开场白与快捷问题
+    setDraft(d => ({ ...d, picked: [...new Set([...d.picked, ...b.ids])], profession: d.profession || b.profession }))
+    say(`已把「${b.title}」的 ${fresh} 个插件放进工具箱`)
+  }
+  const move = (id, dir) => setDraft(d => {
+    const ids = d.picked.filter(x => byId.has(x))
+    const i = ids.indexOf(id)
+    const j = i + dir
+    if (i < 0 || j < 0 || j >= ids.length) return d
+    ;[ids[i], ids[j]] = [ids[j], ids[i]]
+    return { ...d, picked: [...ids, ...d.picked.filter(x => !byId.has(x))] }
+  })
+  const clearPicked = () => setDraft(d => ({ ...d, picked: [] }))
+
+  // ---- 插件详情：?plugin=<id> 进历史栈，后退即关闭；从同类推荐里换一个用 replace，不越堆越深 ----
+  function openDetail(id, { replace = false } = {}) {
+    const url = detailHref(id)
+    try {
+      if (replace || readDetail()) window.history.replaceState(window.history.state, '', url)
+      else window.history.pushState({ jvmDetail: true }, '', url)
+    } catch { /* 地址栏改不了也照常打开 */ }
+    setDetailId(id)
+  }
+  function closeDetail() {
+    if (window.history.state?.jvmDetail) {
+      window.history.back()   // popstate 会把 detailId 清掉
+      return
+    }
+    // 从分享链接直接进来的：没有可退的上一页，就地去掉参数
+    try {
+      const params = new URLSearchParams(window.location.search)
+      params.delete('plugin')
+      const qs = params.toString()
+      window.history.replaceState(null, '', `${window.location.pathname}${qs ? `?${qs}` : ''}`)
+    } catch { /* 同上 */ }
+    setDetailId('')
+  }
 
   async function runRecommend(params) {
     const seq = ++recSeq.current
@@ -140,6 +210,35 @@ export default function Market({ session, onAuthed }) {
     runRecommend({ profession: id })
   }
   const describe = () => runRecommend({ profession: draft.profession || undefined, description: draft.description.trim() })
+
+  // ---- 首屏两个入口 ----
+  function browse() {
+    const el = document.getElementById('jvm-catalog')
+    el?.scrollIntoView?.({ block: 'start', behavior: smooth() })
+    document.getElementById('jvm-catalog-title')?.focus({ preventScroll: true })
+  }
+  function openHelper({ focus = true } = {}) {
+    setRecOpen(true)
+    requestAnimationFrame(() => {
+      document.getElementById('jvm-helper')?.scrollIntoView?.({ block: 'start', behavior: smooth() })
+      if (focus) descRef.current?.focus({ preventScroll: true })
+    })
+  }
+  /** 搜不到 / 详情里的示例 →「帮我推荐」：把这句话填进去直接推荐 */
+  function askAI(text) {
+    const description = String(text || '').trim().slice(0, 300)
+    if (!description) return
+    if (detailId) closeDetail()
+    setQuery('')
+    setDraft(d => ({ ...d, description }))
+    runRecommend({ profession: draft.profession || undefined, description })
+    openHelper({ focus: false })
+  }
+  function home() {
+    setQuery('')
+    if (step === 'brand') go('market')
+    else scrollRef.current?.scrollTo?.({ top: 0, behavior: smooth() })
+  }
 
   function platformIn() {
     const b = draft.brand
@@ -195,7 +294,7 @@ export default function Market({ session, onAuthed }) {
     await generate({ as: s, inGate: true })
   }
 
-  // 去登录：App 里已登录的先退出（否则回到首页还是当前账号）；拦路口里临时登录的管理员不动 App 会话
+  // 去登录：App 里已登录的先退出（否则登录页还是当前账号）；拦路口里临时登录的管理员不动 App 会话
   async function goLogin() {
     const to = loginPath(secret?.username || draft.done?.username || '')
     setSecret(null)
@@ -205,9 +304,9 @@ export default function Market({ session, onAuthed }) {
     }
     navigate(to)
   }
-  function goHome() {
+  function goApp() {
     setSecret(null)
-    navigate('/')
+    navigate(APP_PATH)
   }
   function reset() {
     setSecret(null)
@@ -222,51 +321,71 @@ export default function Market({ session, onAuthed }) {
   if (inFlow && data) {
     const action = step === 'brand'
       ? { label: busy ? '正在生成…' : '生成我的智能体', onClick: () => generate(), disabled: busy || !canGenerate }
-      : { label: '下一步', onClick: () => go('brand'), disabled: !pickedPlugins.length }
+      : { label: '下一步', arrow: true, onClick: () => go('brand'), disabled: !pickedPlugins.length }
     const hint = step !== 'brand' ? ''
       : genError || (!pickedPlugins.length ? '至少选一个插件才能生成' : !draft.brand.name.trim() ? '给智能体起个名字就能生成' : '')
-    dock = <Toolbox plugins={pickedPlugins} onRemove={toggle} action={action} hint={hint} />
+    dock = (
+      <Toolbox plugins={pickedPlugins} onRemove={toggle} onMove={move} onClear={clearPicked} onOpen={openDetail}
+        action={action} hint={hint} />
+    )
   }
   const installed = (Array.isArray(draft.done?.platform?.plugins) ? draft.done.platform.plugins : [])
     .map(id => byId.get(id)).filter(Boolean)
 
+  const account = (
+    <AccountArea me={me} checking={checking} compact={step !== 'market'}
+      onLogin={() => navigate(loginHref())} onEnter={goApp} />
+  )
+  let topCenter = null
+  if (step === 'brand') topCenter = <Progress step={step} onGo={go} />
+  else if (step === 'market' && data) topCenter = <SearchBox value={query} onChange={setQuery} inputRef={searchRef} onSubmit={browse} />
+
+  const helper = data ? (
+    <Recommend catalog={data} draft={draft} recState={rec} onPickProfession={pickProfession}
+      onDescription={description => setDraft(d => ({ ...d, description }))} onDescribe={describe}
+      onToggle={toggle} onAddAll={addAll} descRef={descRef}
+      collapsible={!wide} open={wide || recOpen || rec.status !== 'idle'} onOpenChange={setRecOpen} />
+  ) : null
+
   return (
-    <div className={`jvm is-${step}${inFlow ? ' in-flow' : ''}`} ref={scrollRef}
+    <div className={`jvm is-${step}${inFlow ? ' in-flow' : ''}${q ? ' is-searching' : ''}`} ref={scrollRef}
       style={accent ? { '--jvm-glow': accent } : undefined}>
       <div className="jvm-ambient" aria-hidden="true"><i /></div>
-      <header className="jvm-top">
+      <header className={`jvm-top${topCenter && step === 'market' ? ' has-search' : ''}`}>
         {step === 'brand' ? (
           <button type="button" className="jvm-back" onClick={() => go('market')} aria-label="回到插件市场">
             <Icon name="chevron" size={18} />
           </button>
-        ) : (
-          <span className="jvm-wordmark">J.A.R.V.I.S.<span>智能体工坊</span></span>
-        )}
-        {step === 'brand' ? <Progress step={step} onGo={go} /> : null}
-        <Account me={me} />
+        ) : <Wordmark onHome={home} />}
+        {topCenter ? <div className="jvm-top-center">{topCenter}</div> : null}
+        <div className="jvm-top-end">{account}</div>
       </header>
 
       <main className="jvm-main" key={step}>
         {step === 'done' && draft.done ? (
           <Result platform={draft.done.platform} plugins={installed} secret={secret} username={draft.done.username}
-            signedIn={!!appSession} onLogin={goLogin} onHome={goHome} onReset={reset} />
+            signedIn={!!appSession} onLogin={goLogin} onHome={goApp} onReset={reset} />
         ) : step === 'brand' && data ? (
           <Brand brand={draft.brand} accents={data.accents} profession={profession} plugins={pickedPlugins}
             onBrand={brand => setDraft(d => ({ ...d, brand }))} />
         ) : (
           <>
-            <Hero catalog={data} />
+            {q ? null : <Hero catalog={data} wide={wide} onBrowse={browse} onAsk={() => openHelper()} />}
             {data ? (
               <div className="jvm-market">
-                <Recommend catalog={data} draft={draft} recState={rec} onPickProfession={pickProfession}
-                  onDescription={description => setDraft(d => ({ ...d, description }))} onDescribe={describe}
-                  onToggle={toggle} onAddAll={addAll} />
-                <Skills catalog={data} picked={draft.picked} onToggle={toggle} authed={!!me}
-                  admin={isOwner ? (
-                    <PluginAdmin onChanged={() => loadCatalog({ quiet: true })} onSources={setSources} external={sourcePreview} />
-                  ) : null}
-                  sources={isOwner ? sources : []}
-                  onInstallFromSource={(sid, name) => setSourcePreview({ load: () => previewSourcePlugin(sid, name) })} />
+                <div className="jvm-market-main">
+                  {!q && !wide ? helper : null}
+                  {!q ? <Featured bundles={bundles} picked={draft.picked} onAdd={addBundle} onOpen={openDetail} /> : null}
+                  <Catalog catalog={data} picked={draft.picked} onToggle={toggle} onOpen={openDetail}
+                    query={query} onClearQuery={() => { setQuery(''); searchRef.current?.focus() }} onAskAI={askAI}
+                    filters={filters} onFilters={setFilters} authed={!!me}
+                    admin={isOwner ? (
+                      <PluginAdmin onChanged={() => loadCatalog({ quiet: true })} onSources={setSources} external={sourcePreview} />
+                    ) : null}
+                    sources={isOwner ? sources : []}
+                    onInstallFromSource={(sid, name) => setSourcePreview({ load: () => previewSourcePlugin(sid, name) })} />
+                </div>
+                {wide ? <aside className="jvm-aside" aria-label="帮我推荐">{helper}</aside> : null}
               </div>
             ) : <CatalogPending state={catalog} onRetry={loadCatalog} />}
           </>
@@ -274,6 +393,13 @@ export default function Market({ session, onAuthed }) {
       </main>
 
       {dock}
+
+      <p className={`jvm-toast${toast ? ' is-on' : ''}`} role="status" aria-live="polite">{toast}</p>
+
+      {detailId && data ? (
+        <PluginDetail catalog={data} pluginId={detailId} picked={draft.picked} onToggle={toggle} onOpen={openDetail}
+          onClose={closeDetail} onAskAI={askAI} authed={!!me} toolboxCount={pickedPlugins.length} />
+      ) : null}
 
       {busy && !gate ? (
         <div className="jvm-forging" role="status" aria-live="assertive">
