@@ -9,6 +9,11 @@
 - ``GET|POST /api/plugins/sources``              插件源列表 / 添加并同步
 - ``POST /api/plugins/sources/{sid}/sync``、``DELETE /api/plugins/sources/{sid}``
 - ``POST /api/plugins/sources/{sid}/preview``    {name}：插件源里某个插件的安装预览
+- ``POST /api/plugins/mcp/preview``              直接添加 MCP 服务：{name, url, icon?, summary?, headers?, key?}
+                                                 → 测试连接 + 工具预览（再走 import/confirm）
+- ``POST /api/plugins/{id}/config``              {values, clear}：保存 MCP 插件配置（密钥加密、永不回显）并自动测试
+- ``POST /api/plugins/{id}/test``                测试连接、比对工具清单
+- ``POST /api/plugins/{id}/approve``             {fingerprint}：确认变化后的工具清单，插件恢复
 
 所有动作写审计日志（accounts.record_audit）。
 """
@@ -42,6 +47,37 @@ class ConfirmIn(BaseModel):
 
 class SourcePreviewIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
+
+
+class ConfigIn(BaseModel):
+    values: dict[str, str | None] = Field(default_factory=dict, max_length=10)
+    clear: list[str] = Field(default_factory=list, max_length=10)
+
+
+class ApproveIn(BaseModel):
+    fingerprint: str = Field(default="", max_length=64)
+
+
+class HeaderIn(BaseModel):
+    name: str = Field(default="", max_length=64)
+    value: str = Field(default="", max_length=2000)
+
+
+class KeyIn(BaseModel):
+    value: str = Field(default="", max_length=2000)
+    mode: str = Field(default="bearer", pattern=r"^(bearer|header|query)$")
+    name: str = Field(default="", max_length=64)
+
+
+class McpAddIn(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    url: str = Field(min_length=8, max_length=1000)
+    icon: str = Field(default="", max_length=16)
+    summary: str = Field(default="", max_length=120)
+    category: str = Field(default="info", max_length=20)
+    transport: str = Field(default="", pattern=r"^(|streamable-http|sse)$")
+    headers: list[HeaderIn] = Field(default_factory=list, max_length=5)
+    key: KeyIn | None = None
 
 
 def _json(content, status: int = 200) -> JSONResponse:
@@ -168,6 +204,59 @@ def register(app, *, accounts, request_principal, write_authorized, deny, csrf_d
         if fail:
             return fail
         audit("plugin_check_update", principal, f"id={plugin_id} update={result['has_update']}")
+        return _json(result)
+
+    # ---- MCP 插件（第十五轮）：配置、测试连接、确认工具变更、直接添加 ----
+
+    @app.post("/api/plugins/mcp/preview")
+    def mcp_add_preview(request: Request, body: McpAddIn):
+        principal, err = owner_writer(request)
+        if err:
+            return err
+        from jarvis.plugins import mcp
+        preview, fail = run(mcp.preview_direct, principal.user_id, name=body.name, url=body.url, icon=body.icon,
+                            summary=body.summary, category=body.category, transport=body.transport,
+                            headers=[h.model_dump() for h in body.headers],
+                            key=body.key.model_dump() if body.key else None)
+        if fail:
+            return fail
+        audit("plugin_preview", principal, f"{preview['plugin']['id']} mcp {preview['source'].get('url', '')[:120]}")
+        return _json(preview)
+
+    @app.post("/api/plugins/{plugin_id}/config")
+    def plugins_config(request: Request, plugin_id: PluginId, body: ConfigIn):
+        principal, err = owner_writer(request)
+        if err:
+            return err
+        from jarvis.plugins import mcp
+        result, fail = run(mcp.configure, plugin_id, body.values, body.clear)
+        if fail:
+            return fail
+        audit("plugin_config", principal, f"id={plugin_id} keys={','.join(result['saved'])[:200]}")   # 只记键名，不记值
+        return _json(result)
+
+    @app.post("/api/plugins/{plugin_id}/test")
+    def plugins_test(request: Request, plugin_id: PluginId):
+        principal, err = owner_writer(request)
+        if err:
+            return err
+        from jarvis.plugins import mcp
+        result, fail = run(mcp.test_connection, plugin_id)
+        if fail:
+            return fail
+        audit("plugin_mcp_test", principal, f"id={plugin_id} outcome={result['outcome']} tools={len(result['tools'])}")
+        return _json(result)
+
+    @app.post("/api/plugins/{plugin_id}/approve")
+    def plugins_approve(request: Request, plugin_id: PluginId, body: ApproveIn):
+        principal, err = owner_writer(request)
+        if err:
+            return err
+        from jarvis.plugins import mcp
+        result, fail = run(mcp.approve, plugin_id, body.fingerprint)
+        if fail:
+            return fail
+        audit("plugin_mcp_approve", principal, f"id={plugin_id} tools={len(result['tools'])}")
         return _json(result)
 
     # ---- 插件源 ----

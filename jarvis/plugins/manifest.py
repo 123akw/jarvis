@@ -24,7 +24,7 @@ KINDS = ("tool", "channel", "step", "skill")
 CATEGORY_IDS = ("efficiency", "communication", "documents", "info", "life", "ai", "output")
 REQUIREMENT_IDS = ("feishu_bound", "wechat_owner", "desktop", "files")
 TIERS = ("free", "pro")
-SOURCE_TYPES = ("builtin", "github", "gitee", "zip")
+SOURCE_TYPES = ("builtin", "github", "gitee", "zip", "mcp")
 DEFAULT_TIMEOUT = 30.0
 MAX_TIMEOUT = 120.0
 
@@ -100,6 +100,8 @@ def validate(raw, *, builtin: bool, folder: str | None = None) -> dict:
     if builtin and folder is not None and folder != plugin_id:
         raise ManifestError(f"内置插件目录名「{folder}」要和 id「{plugin_id}」一致")
     kind = raw.get("kind", "tool")
+    if kind == "mcp":            # 第十五轮：MCP 插件也可以写 kind=mcp，规整成 tool（目录条目另带 mcp: true）
+        kind = "tool"
     if kind not in KINDS:
         raise ManifestError(f"插件类型 kind 只能是 {' / '.join(KINDS)}")
     category = raw.get("category", "efficiency")
@@ -141,12 +143,19 @@ def validate(raw, *, builtin: bool, folder: str | None = None) -> dict:
         raise ManifestError(f"timeout 要是 1–{int(MAX_TIMEOUT)} 秒")
 
     extras = _extras(raw.get("extras"))
+    servers = _mcp_servers(raw.get("mcp_servers")) if kind == "tool" and entry is None else []
+    if servers:
+        tools = []               # MCP 插件的工具由服务自动发现（存档在插件状态里），清单里写了也不用
+        extras["mcp"] = [server_display(server) for server in servers]
+    config = _config(raw.get("config"), servers)
     if kind == "skill":
         if entry is not None or tools or steps:
             raise ManifestError("提示词技能（kind=skill）只有 SKILL.md，不能带入口模块、工具或积木")
     elif entry is not None and not tools and not steps:
         raise ManifestError("有入口模块的插件要在 tools 或 steps 里列出它提供的东西")
-    if kind == "tool" and not tools and entry is None and not extras.get("mcp"):
+    if kind == "tool" and not tools and entry is None and not servers:
+        if extras.get("mcp"):
+            raise ManifestError("mcp.json 里没有可用的 MCP 服务")
         raise ManifestError("对话技能（kind=tool）至少要列一个工具")
     if kind == "step" and not steps:
         raise ManifestError("流程积木（kind=step）要在 steps 里列出积木 id")
@@ -157,7 +166,7 @@ def validate(raw, *, builtin: bool, folder: str | None = None) -> dict:
             raise ManifestError("第三方插件暂不支持流程积木，只能提供对话工具或提示词技能")
         if "files" in requires:
             raise ManifestError("第三方插件暂不能使用文件空间（只做文本进、文本出）")
-        if kind == "tool" and entry is None and not extras.get("mcp"):
+        if kind == "tool" and entry is None and not servers:
             raise ManifestError("第三方插件要有入口模块 entry（例如 tools.py）")
         if entry is None and tools:
             raise ManifestError("第三方插件的工具要由自己的入口模块提供")
@@ -194,6 +203,8 @@ def validate(raw, *, builtin: bool, folder: str | None = None) -> dict:
         "source": source,
         "timeout": float(timeout),
         "extras": extras,
+        "config": config,
+        "mcp_servers": servers,
     }
 
 
@@ -223,8 +234,151 @@ def _extras(raw) -> dict:
     mcp = raw.get("mcp")
     if isinstance(mcp, list):
         out["mcp"] = [{"name": str(m.get("name", ""))[:40], "type": str(m.get("type", ""))[:30],
-                       "url": str(m.get("url", ""))[:300]} for m in mcp if isinstance(m, dict)][:10]
+                       "url": str(m.get("url", ""))[:300], "host": str(m.get("host", ""))[:120],
+                       "headers": [str(h)[:64] for h in (m.get("headers") or []) if isinstance(h, str)][:10],
+                       "problem": str(m.get("problem", ""))[:300]}
+                      for m in mcp if isinstance(m, dict)][:10]
     return out
+
+
+# ---------- MCP 服务（第十五轮，契约见 docs/proposals/2026-10-round15-market.md 第 2 节） ----------
+
+MCP_FILES = ("mcp.json", ".mcp.json")
+MAX_MCP_SERVERS = 3
+MAX_CONFIG_ITEMS = 10
+CONFIG_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+PLACEHOLDER_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]{0,63})\}")
+HEADER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,63}$")
+_TRANSPORT_ALIASES = {"streamable-http": "streamable-http", "streamable_http": "streamable-http",
+                      "streamablehttp": "streamable-http", "http": "streamable-http", "sse": "sse"}
+STDIO_REASON = ("本地 stdio 服务贾维斯不支持：服务器上没有 node / npx / uvx，也不在服务器上运行第三方命令；"
+                "请改用这个服务的远程地址（streamable-http）")
+
+
+def _mcp_problem(transport: str, url: str) -> str:
+    if transport == "stdio":
+        return STDIO_REASON
+    if transport not in ("streamable-http", "sse"):
+        return f"不认识的 MCP 传输方式「{transport[:20]}」，只支持 streamable-http 和 sse"
+    if not re.match(r"^https?://[^\s<>\"']{1,900}$", url):
+        return "MCP 服务地址要以 http:// 或 https:// 开头"
+    return ""
+
+
+def parse_mcp_servers(raw) -> list[dict]:
+    """mcpServers 对象（Agent Plugins / Claude Code 的写法）→ 规整的服务列表。
+
+    每项：{name, type, url, headers, problem}；url / headers 里可以有 ``${KEY}`` 占位符（这里不替换）。
+    ``problem`` 非空表示这个服务用不了（例如本地 stdio），原因给人看。"""
+    servers = (raw.get("mcpServers") or raw.get("servers")) if isinstance(raw, dict) else None
+    out: list[dict] = []
+    if not isinstance(servers, dict):
+        return out
+    for name, conf in list(servers.items())[:MAX_MCP_SERVERS]:
+        if not isinstance(conf, dict):
+            continue
+        url = str(conf.get("url") or conf.get("serverUrl") or "").strip()
+        declared = str(conf.get("type") or conf.get("transport") or "").strip().lower()
+        if conf.get("command") or declared == "stdio":
+            transport = "stdio"
+        elif declared:
+            transport = _TRANSPORT_ALIASES.get(declared, declared)
+        else:
+            transport = "sse" if url.rstrip("/").endswith("/sse") else "streamable-http"
+        headers = {}
+        raw_headers = conf.get("headers") if isinstance(conf.get("headers"), dict) else {}
+        for key, value in list(raw_headers.items())[:10]:
+            if isinstance(key, str) and HEADER_NAME_RE.match(key) and isinstance(value, (str, int, float)):
+                text = str(value)
+                if "\n" not in text and "\r" not in text and len(text) <= 2000:
+                    headers[key] = text
+        clean_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(name)).strip("_")[:40] or "server"
+        out.append({"name": clean_name, "type": transport, "url": url[:1000], "headers": headers,
+                    "problem": _mcp_problem(transport, url)})
+    return out
+
+
+def read_mcp_config(folder: Path, raw: dict | None = None) -> list[dict]:
+    """插件目录里的 MCP 服务：plugin.json 的 mcpServers（对象，或指向目录里某个文件的相对路径）优先，
+    否则读根目录的 mcp.json / .mcp.json。"""
+    pointer = (raw or {}).get("mcpServers")
+    if isinstance(pointer, dict):
+        return parse_mcp_servers({"mcpServers": pointer})
+    candidates = list(MCP_FILES)
+    if isinstance(pointer, str) and pointer.strip():
+        rel = pointer.strip().removeprefix("./")
+        if rel and not rel.startswith("/") and ".." not in rel.split("/") and "\\" not in rel:
+            candidates.insert(0, rel)
+    for rel in candidates:
+        path = folder / rel
+        if path.is_file() and not path.is_symlink():
+            try:
+                return parse_mcp_servers(load_json(path))
+            except ManifestError:
+                return []
+    return []
+
+
+def _mcp_servers(raw) -> list[dict]:
+    """validate 里再规整一遍（raw_manifest 已经从 mcp.json 读好）。"""
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for item in raw[:MAX_MCP_SERVERS]:
+        if not isinstance(item, dict):
+            continue
+        headers = item.get("headers") if isinstance(item.get("headers"), dict) else {}
+        out.append({"name": str(item.get("name") or "server")[:40], "type": str(item.get("type") or "")[:30],
+                    "url": str(item.get("url") or "")[:1000],
+                    "headers": {str(k)[:64]: str(v)[:2000] for k, v in list(headers.items())[:10]},
+                    "problem": str(item.get("problem") or "")[:300]})
+    return out
+
+
+def server_display(server: dict) -> dict:
+    """给人看的服务信息：不含请求头的值、地址不含查询串（里面常有 Key）。"""
+    from jarvis.plugins.mcp_client import display_url, host_of
+    url = PLACEHOLDER_RE.sub("KEY", server.get("url") or "")
+    return {"name": server.get("name", ""), "type": server.get("type", ""), "url": display_url(url) or "",
+            "host": host_of(url), "headers": sorted(server.get("headers") or {}), "problem": server.get("problem", "")}
+
+
+def placeholders(servers: list[dict]) -> list[str]:
+    """url 与 headers 里出现的 ${KEY}（按出现顺序去重）。其他字段里的占位符不认、也不替换。"""
+    found: list[str] = []
+    for server in servers:
+        for text in (server.get("url") or "", *(server.get("headers") or {}).values()):
+            found.extend(PLACEHOLDER_RE.findall(text))
+    return list(dict.fromkeys(found))
+
+
+def _config(raw, servers: list[dict]) -> list[dict]:
+    """plugin.json 的 config：管理员要填的配置项。mcp.json 里用到但没声明的 ${KEY} 自动补成「必填密钥」。"""
+    items: list[dict] = []
+    if raw is not None and not isinstance(raw, list):
+        raise ManifestError("清单里的 config 要是列表")
+    for item in (raw or [])[:MAX_CONFIG_ITEMS]:
+        if not isinstance(item, dict):
+            raise ManifestError("config 里每一项要是对象")
+        key = item.get("key")
+        if not isinstance(key, str) or not CONFIG_KEY_RE.match(key):
+            raise ManifestError("config 的 key 只能用字母、数字和下划线（例如 AMAP_KEY）")
+        if any(existing["key"] == key for existing in items):
+            raise ManifestError(f"config 里的 {key} 重复了")
+        items.append({
+            "key": key,
+            "label": " ".join(str(item.get("label") or key).split())[:30],
+            "secret": bool(item.get("secret", True)),
+            "required": bool(item.get("required", True)),
+            "help": " ".join(str(item.get("help") or "").split())[:160],
+            "placeholder": " ".join(str(item.get("placeholder") or "").split())[:60],
+        })
+    declared = {item["key"] for item in items}
+    for key in placeholders([s for s in servers if not s.get("problem")]):
+        if key not in declared and len(items) < MAX_CONFIG_ITEMS:
+            items.append({"key": key, "label": key, "secret": True, "required": True, "help": "", "placeholder": ""})
+            declared.add(key)
+    return items
 
 
 ALT_MANIFESTS = (".codex-plugin/plugin.json", ".claude-plugin/plugin.json")
@@ -260,9 +414,12 @@ def raw_manifest(folder: Path, *, builtin: bool) -> dict:
         if builtin or not (folder / SKILL_FILE).is_file():
             raise ManifestError("没有找到 plugin.json")
         return manifest_from_skill(folder.name, read_skill(folder))
-    raw = load_json(path)
-    if is_agent_plugin(raw):
-        raw = from_agent_plugin(raw, folder)
+    original = load_json(path)
+    raw = from_agent_plugin(original, folder) if is_agent_plugin(original) else dict(original)
+    servers = read_mcp_config(folder, original)
+    raw.pop("mcp_servers", None)          # 只认 mcp.json（或 plugin.json 的 mcpServers），不认手写的内部字段
+    if servers:
+        raw["mcp_servers"] = servers
     return raw
 
 
@@ -318,22 +475,9 @@ def _skill_files(folder: Path) -> list[str]:
     return files[:MAX_SKILL_FILES]
 
 
-def mcp_servers(folder: Path) -> list[dict]:
-    path = folder / "mcp.json"
-    if not path.is_file() or path.is_symlink():
-        return []
-    try:
-        raw = load_json(path)
-    except ManifestError:
-        return []
-    servers = raw.get("mcpServers") or raw.get("servers") or {}
-    out = []
-    if isinstance(servers, dict):
-        for name, conf in servers.items():
-            if isinstance(conf, dict):
-                out.append({"name": str(name), "type": str(conf.get("type") or ("stdio" if conf.get("command") else "")),
-                            "url": str(conf.get("url") or "")})
-    return out
+def mcp_servers(folder: Path, raw: dict | None = None) -> list[dict]:
+    """给人看的 MCP 服务列表（不含请求头的值、地址不含查询串）。"""
+    return [server_display(server) for server in read_mcp_config(folder, raw)]
 
 
 def from_agent_plugin(raw: dict, folder: Path) -> dict:
@@ -346,7 +490,7 @@ def from_agent_plugin(raw: dict, folder: Path) -> dict:
     prompts = [prompts] if isinstance(prompts, str) else [p for p in prompts if isinstance(p, str)]
     category = _CATEGORY_MAP.get(str(ui.get("category") or "").strip().lower(), "efficiency")
     skills = _skill_files(folder)
-    mcp = mcp_servers(folder)
+    mcp = mcp_servers(folder, raw)
     homepage = raw.get("homepage") or ui.get("websiteURL") or ""
     repository = raw.get("repository")
     if isinstance(repository, dict):

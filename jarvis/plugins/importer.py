@@ -353,8 +353,18 @@ def permissions(m: dict, tools: list[dict]) -> list[dict]:
         out.append({"key": "write", "label": "写入：插件声明会生成或修改内容", "level": "warn"})
     if "files" in m.get("requires", []):
         out.append({"key": "files", "label": "使用你的文件空间", "level": "warn"})
-    if extras.get("mcp"):
-        out.append({"key": "mcp", "label": "连接外部 MCP 服务（贾维斯下一步才支持，装上后暂不可用）", "level": "warn"})
+    if m.get("mcp_servers"):
+        from jarvis.plugins import mcp
+        hosts = mcp.hosts(m)
+        if hosts:
+            out.append({"key": "mcp", "label": f"联网：{'、'.join(hosts)}（连接外部 MCP 服务，调用工具时会把参数发给它）",
+                        "level": "warn"})
+        config = m.get("config") or []
+        if config:
+            out.append({"key": "config", "label": "需要管理员配置：" + "、".join(item["label"] for item in config)
+                        + ("（密钥加密保存，不会回显）" if any(item["secret"] for item in config) else ""), "level": "info"})
+    elif extras.get("mcp"):
+        out.append({"key": "mcp", "label": "包里带 MCP 服务配置，这次没有启用（只装提示词技能部分）", "level": "info"})
     if tools:
         out.append({"key": "tools", "label": f"给智能体增加 {len(tools)} 个工具", "level": "info"})
     return out
@@ -371,6 +381,9 @@ class Preview:
     files: list
     created: float = field(default_factory=time.monotonic)
     upgrade_of: str = ""
+    mcp_result: dict | None = None          # 第十五轮：预览时发现的 MCP 工具（确认安装 = 认可这份清单）
+    mcp_error: str = ""
+    config_values: dict = field(default_factory=dict, repr=False)   # 直接添加 MCP 服务时填的密钥（只在内存里）
 
 
 _PREVIEWS: dict[str, Preview] = {}
@@ -460,6 +473,9 @@ def build_preview(data: bytes, source: dict, user_id: str, *, subpath: str = "",
     if prefix and not source.get("path"):
         source["path"] = prefix
     preview = Preview(token, user_id, staging, m, source, tools, files, upgrade_of=upgrade_of)
+    if m.get("mcp_servers"):    # 包里有 mcp.json：不需要配置就先连一次，让管理员装之前看到工具清单
+        from jarvis.plugins import mcp
+        preview.mcp_result, preview.mcp_error = mcp.try_discover_for_preview(m)
     with _PREVIEW_LOCK:
         _PREVIEWS[token] = preview
     return preview_view(preview)
@@ -484,12 +500,20 @@ def preview_view(preview: Preview) -> dict:
     if m.get("entry"):
         warnings.append("第三方代码将在服务器上运行：只在独立子进程里执行、不带任何密钥、每次限时，"
                         "但它和贾维斯是同一个系统用户，请只安装你信任的来源")
-    if not m.get("license"):
+    if not m.get("license") and preview.source.get("type") != "mcp":
         warnings.append("这个插件没有写许可证（license），使用前请确认作者允许")
     if missing:
         warnings.append(f"缺少 Python 包：{'、'.join(missing)}。可以先装上插件，管理员装好这些包并重启后才能用")
-    if extras.get("mcp"):
-        warnings.append("这个插件带 MCP 服务配置，贾维斯暂不支持连接 MCP，相关工具暂时用不了")
+    tools = preview.tools or list((preview.mcp_result or {}).get("tools") or [])
+    if m.get("mcp_servers"):
+        warnings.extend(f"MCP 服务「{s['name']}」用不了：{s['problem']}" for s in m["mcp_servers"] if s.get("problem"))
+        if preview.mcp_error:
+            warnings.append(preview.mcp_error)
+        if preview.mcp_result:
+            warnings.append("MCP 服务返回的内容会当作外部资料交给智能体；以后服务方改动工具清单，插件会自动停用，等你确认")
+    elif extras.get("mcp"):
+        warnings.append("这个包还带了 MCP 服务配置；这次只按提示词技能安装，MCP 部分没有启用"
+                        "（要用这个服务，可在插件管理里「直接添加 MCP 服务」）")
     skill = None
     if m["kind"] == "skill":
         parsed = mf.read_skill(preview.staging / "plugin")
@@ -514,10 +538,12 @@ def preview_view(preview: Preview) -> dict:
         "links": {"homepage": m["homepage"], "privacy": extras.get("privacy_url", ""),
                   "terms": extras.get("terms_url", ""), "repository": extras.get("repository", "")},
         "format": extras.get("format", "jarvis"),
-        "tools": [{"name": t["name"], "description": t["description"][:200]} for t in preview.tools],
-        "permissions": permissions(m, preview.tools),
+        "tools": [{"name": t["name"], "description": t["description"][:200]} for t in tools],
+        "permissions": permissions(m, tools),
         "python_packages": packages, "missing_packages": missing,
         "mcp": extras.get("mcp", []), "skill": skill,
+        "config": [{k: item[k] for k in ("key", "label", "secret", "required", "help")} for item in m.get("config") or []],
+        "mcp_error": preview.mcp_error, "mcp_connected": bool(preview.mcp_result),
         "files": preview.files[:MAX_PLUGIN_FILES], "file_count": len(preview.files),
         "total_size": sum(f["size"] for f in preview.files),
         "source": source, "warnings": warnings,
@@ -578,6 +604,9 @@ def confirm(token: str, user_id: str) -> dict:
             "installed_at": _now(), "installed_by": user_id, "version": m["version"], "source": source,
             "tools": preview.tools if m["entry"] else None,
         })
+        if m.get("mcp_servers"):
+            from jarvis.plugins import mcp
+            mcp.after_install(m["id"], preview, upgraded=bool(preview.upgrade_of))
     finally:
         shutil.rmtree(preview.staging, ignore_errors=True)
     current = loader.reload()
@@ -602,6 +631,8 @@ def uninstall(plugin_id: str) -> dict:
     removed = [p.id for p in current.packs if not p.builtin and p.folder.name == folder.name]
     shutil.rmtree(folder)
     loader.forget_install(folder.name)
+    from jarvis.plugins import mcp
+    mcp.forget(dict.fromkeys([*removed, folder.name]))     # MCP 插件的配置（含密钥）、工具存档与会话一并清掉
     loader.reload()
     return {"id": pack.id, "name": pack.name, "removed": removed}
 
