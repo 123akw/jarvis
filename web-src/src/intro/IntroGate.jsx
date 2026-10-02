@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
-import { INTRO_DONE_EVENT, INTROS, markSeen, pickIntro, setIntroPlaying } from './registry.js'
+import { DEFAULT_INTRO, INTRO_DONE_EVENT, INTROS, markSeen, pickIntro, setIntroPlaying } from './registry.js'
+import { introAllowed } from '../routes.js'
 import './intro.css'
 
 const SAFETY_MS = 8000
@@ -31,6 +32,7 @@ function whenIdle(cb) {
 export default function IntroGate({ authed = false }) {
   const name = useMemo(() => pickIntro({
     search: window.location.search, storage: safeSessionStorage(), reducedMotion: prefersReducedMotion(),
+    fallback: introAllowed(window.location.pathname) ? DEFAULT_INTRO : null,   // 品牌平台入口、流程页不播贾维斯开场
   }), [])
   const Intro = useMemo(() => (name ? lazy(INTROS[name]) : null), [name])
   // 同步标记「正在播」：登录页可能在下一个任务里就挂载，得在它读之前就位

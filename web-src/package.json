@@ -16,6 +16,7 @@
     "highlight.js": "^11.12.0",
     "marked": "^18.0.9",
     "postprocessing": "^6.39.4",
+    "qrcode-generator": "^1.5.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "three": "^0.182.0"

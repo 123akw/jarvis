@@ -1682,6 +1682,18 @@ def index():
     return FileResponse(_WEB / "index.html")
 
 
+# 前端顶层页面（web-src/src/routes.js）：市场、平台入口、流程拼接都是同一个单页应用
+@app.get("/market")
+@app.get("/flows")
+def spa_page():
+    return FileResponse(_WEB / "index.html")
+
+
+@app.get("/p/{slug}")
+def spa_platform(slug: str):
+    return FileResponse(_WEB / "index.html")
+
+
 if (_WEB / "assets").is_dir():
     app.mount("/assets", StaticFiles(directory=_WEB / "assets"), name="assets")
 

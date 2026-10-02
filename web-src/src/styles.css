@@ -895,3 +895,6 @@ body.light .provider-tabs button.on{background:#fff;box-shadow:0 1px 3px rgba(0,
   .jv-modal-backdrop,.jv-modal-backdrop *,.jv-palette-backdrop,.jv-palette-backdrop *,.reminder-stack *,.jv-toast,.jv-jump{
     animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
 }
+
+/* 顶层页面占位（第十三轮各代理替换成真实页面） */
+.jv-route-stub{min-height:100dvh;display:grid;place-items:center;color:var(--jv-text-2);background:var(--jv-bg)}
