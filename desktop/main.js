@@ -17,7 +17,8 @@ const { createWakeServer, parseHandoffUrl } = require('./wake-server.js')
 const { buildAppInfo, restartApp } = require('./app-info.js')
 const { buildTrayMenuTemplate, wireTray } = require('./tray-setup.js')
 const { hotkeyFailureNotice, quickAskPayload } = require('./quick-ask.js')
-const { claimSingleInstance, registerProtocol, releaseShortcuts } = require('./app-lifecycle.js')
+const { claimSingleInstance, registerProtocol, releaseShortcuts, sharedUserDataPath, protocolLinkFromArgv,
+  createProtocolInbox, autoLaunchMode } = require('./app-lifecycle.js')
 const { createReminderNotifier, reminderPayload } = require('./reminder-notify.js')
 
 /* macOS 系统回环音频（会议纪要录「对方」声音）需显式开 Chromium 特性；
@@ -29,8 +30,11 @@ if (process.platform === 'darwin') {
 
 // 自检截图可用独立 userData（JWS_SHOT_USERDATA=/tmp/xxx）：避免与常驻实例抢
 // Chromium 配置锁（同 profile 双开会卡在页面加载）。必须在 ready 前设置。
+// 平时固定用 jws-desktop：打包版「贾维斯.app」与 `npm start` 共用登录态、设置与单实例锁。
 if (process.env.JWS_SHOT_USERDATA) {
   try { app.setPath('userData', process.env.JWS_SHOT_USERDATA) } catch { /* 沿用默认 */ }
+} else {
+  try { app.setPath('userData', sharedUserDataPath(app)) } catch { /* 沿用默认 */ }
 }
 
 const PANEL = { w: 420, h: 640 }
@@ -70,13 +74,25 @@ function gateway() {
   return apiGateway
 }
 
-/* ---------- 开机自启：macOS 走 LaunchAgent（开发态运行也可靠），Windows 走系统登录项 ---------- */
+/* ---------- 开机自启：打包版走系统登录项，开发版 macOS 走 LaunchAgent ---------- */
+function removeLaunchAgent() {
+  if (!fs.existsSync(PLIST)) return
+  try { execSync(`launchctl unload "${PLIST}" 2>/dev/null`) } catch {}
+  try { fs.unlinkSync(PLIST) } catch {}
+}
 function setAutoLaunch(on) {
-  if (process.platform === 'win32') {
+  const mode = autoLaunchMode({ packaged: app.isPackaged })
+  if (mode === 'login-item-dev') {
     app.setLoginItemSettings({ openAtLogin: on, args: [path.resolve(__dirname)] })
     return
   }
-  if (process.platform !== 'darwin') return  // Linux 暂不支持
+  if (mode === 'login-item') {
+    // 开发版留下的 LaunchAgent 会在开机时拉起旧的开发版，与登录项二选一
+    if (process.platform === 'darwin') removeLaunchAgent()
+    app.setLoginItemSettings({ openAtLogin: on })
+    return
+  }
+  if (mode !== 'launch-agent') return  // Linux 暂不支持
   if (on) {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -92,8 +108,7 @@ function setAutoLaunch(on) {
     fs.writeFileSync(PLIST, xml)
     try { execSync(`launchctl unload "${PLIST}" 2>/dev/null; launchctl load "${PLIST}"`) } catch {}
   } else {
-    try { execSync(`launchctl unload "${PLIST}" 2>/dev/null`) } catch {}
-    try { fs.unlinkSync(PLIST) } catch {}
+    removeLaunchAgent()
   }
 }
 
@@ -545,13 +560,15 @@ function handleProtocolUrl(url) {
   summonForHandoff()
   void handleHandoffTicket(parsed.ticket).catch(() => {})
 }
+// 冷启动时 open-url 常早于 ready（窗口、会话网关都还没有）：先进收件箱，窗口建好后再处理
+const protocolInbox = createProtocolInbox(handleProtocolUrl)
 const isPrimaryInstance = claimSingleInstance(app)
 if (!isPrimaryInstance) app.quit()   // 已有实例在跑：它会在 second-instance 里把悬浮球叫出来
 else registerProtocol(app)
-app.on('open-url', (event, url) => { event.preventDefault(); handleProtocolUrl(url) })
+app.on('open-url', (event, url) => { event.preventDefault(); protocolInbox.receive(url) })
 app.on('second-instance', (_event, argv) => {
-  const link = (argv || []).find(item => typeof item === 'string' && item.startsWith('jws://'))
-  if (link) handleProtocolUrl(link)
+  const link = protocolLinkFromArgv(argv)
+  if (link) protocolInbox.receive(link)
   else if (win) { setBallVisible(true); win.focus() }   // 重复启动＝「把贾维斯叫出来」
 })
 
@@ -649,6 +666,10 @@ app.whenReady().then(() => {
   const s = loadSettings()
   applyHotkeys(s)
   startWakeServer()
+  protocolInbox.receive(protocolLinkFromArgv(process.argv))  // Windows/Linux 冷启动经 argv 带链接
+  protocolInbox.open()
+  // 打包版：已勾开机自启就把登录项指向当前这份应用（顺带清掉开发版留下的 LaunchAgent）
+  if (app.isPackaged && s.openAtLogin) { try { setAutoLaunch(true) } catch {} }
   startReminderPolling()
   startCommandPolling()
   // 自检截图模式：JWS_SHOT=/path/out.png [JWS_SHOT_VIEW=settings] npm start

@@ -80,8 +80,10 @@ function createSessionGateway({ fetchImpl, safeStorage, fs, path, dataDir, serve
   }
   function load() {
     if (token || !fs.existsSync(tokenPath())) return Boolean(token)
+    // 钥匙串暂时打不开（例如首次以打包版「贾维斯.app」启动、系统询问还没点「允许」）不是密文坏了：
+    // 保留文件当作未登录，钥匙串可用后照常读出，不让用户白白掉登录
+    if (!safeStorage || !safeStorage.isEncryptionAvailable()) return false
     try {
-      encryptionReady()
       const stored = JSON.parse(safeStorage.decryptString(fs.readFileSync(tokenPath())))
       if (stored.version !== 1 || stored.origin !== serverUrl || typeof stored.token !== 'string' || !stored.token || stored.token.length > 8192) {
         clear(); return false

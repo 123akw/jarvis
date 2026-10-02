@@ -11,3 +11,4 @@ desktop/node_modules/
 wechat/.env
 wechat/.ilink_token
 wechat/wx_login_qr.png
+desktop/out/
