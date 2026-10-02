@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { addProfile, chatStream, deleteProfile, getHistory, uploadDocument } from './api.js'
 import { copyText } from './clipboard.js'
+import { useFollowScroll } from './followScroll.js'
 import { receiptsOn, subscribeReceipts } from './memoryPrefs.js'
 import {
   createStreamingView, handleCodeCopyClick, highlighterVersion, renderMarkdown, subscribeHighlighter,
@@ -14,7 +15,6 @@ import VoiceCall from './VoiceCall.jsx'
 const hasRaf = typeof requestAnimationFrame === 'function'
 const nextFrame = cb => (hasRaf ? requestAnimationFrame(cb) : setTimeout(cb, 16))
 const cancelFrame = id => (hasRaf ? cancelAnimationFrame(id) : clearTimeout(id))
-const STICK_PX = 80   // 距底部这么近才自动跟随；用户往上翻看时不再被拽回底部
 
 /** 工具调用 chip：中文名 + 成败 + 耗时，点击展开结果摘要 */
 function ToolChip({ chip }) {
@@ -127,6 +127,25 @@ function Thinking() {
   )
 }
 
+/** 用户消息气泡：太长的（贴进来的长文、上传文档的解析结果）先折叠，点「展开全文」看全部。
+ *  原来是 max-height + 气泡内部滚动：手机上手指落在气泡里，整次滑动都被它吃掉，对话翻不动。 */
+const LONG_CHARS = 600
+const LONG_LINES = 12
+function UserBubble({ text }) {
+  const [open, setOpen] = useState(false)
+  const long = text.length > LONG_CHARS || text.split('\n').length > LONG_LINES
+  return (
+    <div className="ucol">
+      <div className={`ubox${long && !open ? ' clamped' : ''}`}>{text}</div>
+      {long ? (
+        <button type="button" className="ubox-more" aria-expanded={open} onClick={() => setOpen(v => !v)}>
+          {open ? '收起' : '展开全文'}
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
 /** 单条消息行：memo 后流式刷新只重渲染正在生成的那一行，长对话不再整表重算 */
 const MsgRow = memo(function MsgRow({ m, prevUser, busy, onSend, onEdit }) {
   if (m.kind === 'user') {
@@ -136,7 +155,7 @@ const MsgRow = memo(function MsgRow({ m, prevUser, busy, onSend, onEdit }) {
           <CopyButton text={m.raw} title="复制这条消息" />
           <button type="button" className="abtn" title="编辑后重新发送" onClick={() => onEdit(m.raw)}>编辑</button>
         </div>
-        <div className="ubox">{m.raw}</div>
+        <UserBubble text={m.raw} />
       </div>
     )
   }
@@ -212,10 +231,10 @@ function EmptyState({ userName, onPick }) {
 }
 
 let nextId = 1
-/** 手机宽度只留短提示：长提示会折成两行被单行输入框截断，触屏也没有 Shift+Enter */
-const compactInput = () => typeof window !== 'undefined' && window.innerWidth <= 640
 /** 触屏设备不自动聚焦输入框：否则每次回答结束都会把软键盘弹出来挡住回答 */
 const touchFirst = () => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
+/** 手机宽度只留短提示：长提示会折成两行被单行输入框截断；触屏（含平板）也没有 Shift+Enter */
+const compactInput = () => typeof window !== 'undefined' && (window.innerWidth <= 640 || touchFirst())
 
 function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = null, locate = null, userName = '', fresh = false }) {
   const [msgs, setMsgs] = useState([])
@@ -230,9 +249,19 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
   const fileRef = useRef()
   const [uploading, setUploading] = useState('')   // 正在解析的文件名（空串=没有在传）
   const [uploadErr, setUploadErr] = useState('')
-  const stickRef = useRef(true)     // 视口是否贴底（贴底才自动跟随）
   const tokBuf = useRef('')         // 尚未刷到界面的 token
   const tokFrame = useRef(0)
+
+  /* 自动滚动：贴底时跟随（绘制前同步完成），用户一往上翻就松手，手指/惯性没停不写 scrollTop——见 followScroll.js */
+  const follow = useFollowScroll(logRef)
+  const { onContent: followContent, reset: followReset, release: followRelease } = follow
+  useLayoutEffect(followContent, [msgs])
+  useEffect(() => {   // 内容高度的异步变化（图片、代码块换行、高亮落地）也跟随
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(followContent)
+    ro.observe(logRef.current.firstElementChild)
+    return () => ro.disconnect()
+  }, [followContent])
 
   const freshRef = useRef(fresh)
   freshRef.current = fresh
@@ -240,7 +269,7 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
   useEffect(() => {  // 切换会话/挂断通话：从服务端记忆库回放历史
     setMsgs([])
     loadedRef.current = null
-    stickRef.current = true
+    followReset()
     // 本地刚建的新会话服务端还没有记录：不去拉（否则每次「新对话」都换来一个 404）；挂断通话后照常回放
     if (freshRef.current && histSeq === 0) return undefined
     let alive = true
@@ -255,24 +284,6 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
     return () => { alive = false }
   }, [threadId, histSeq])
 
-  /* 自动滚动：只在贴底时跟随，且在绘制前同步完成（旧版每个 token 都无条件 scrollTop=scrollHeight，
-   * 叠加 CSS smooth 滚动反复重启动画，既抖又会把正在往上翻的用户拽回底部） */
-  const stickToBottom = useCallback(() => {
-    const el = logRef.current
-    if (el && stickRef.current) el.scrollTop = el.scrollHeight
-  }, [])
-  useLayoutEffect(stickToBottom, [msgs])
-  useEffect(() => {   // 内容高度的异步变化（图片、代码块换行、content-visibility 估高落地）也跟随
-    if (typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver(stickToBottom)
-    ro.observe(logRef.current.firstElementChild)
-    return () => ro.disconnect()
-  }, [stickToBottom])
-  function onLogScroll() {
-    const el = logRef.current
-    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX
-  }
-
   /* ⌘K「历史对话」跳转：历史回放到位后滚到命中的那条（pos 与 /api/history 下标一致），短暂描边；
    * 之后不再贴底跟随，免得被拽回底部 */
   const locatedSeq = useRef(null)
@@ -282,7 +293,7 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
     locatedSeq.current = locate.seq   // 每次跳转只定位一次；索引过期找不到那条就算了，停在会话里
     const row = logRef.current?.firstElementChild?.children[locate.pos]
     if (!row) return
-    stickRef.current = false
+    followRelease()
     row.scrollIntoView?.({ block: 'center' })
     row.classList.add('msg-located')
     setTimeout(() => row.classList.remove('msg-located'), 2400)   // 不随重渲染清掉：描边总会按时退场
@@ -340,7 +351,7 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
     setInput('')
     if (boxRef.current) boxRef.current.style.height = 'auto'
     setBusy(true)
-    stickRef.current = true   // 自己发的消息总是滚到底
+    followReset()   // 自己发的消息总是滚到底
     tokBuf.current = ''
     setMsgs(ms => [...ms,
       { id: nextId++, kind: 'user', raw: text, chips: [], streaming: false },
@@ -437,7 +448,7 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
   let lastUser = ''   // 每条回答对应的上一条用户提问（重新回答 / 失败重试用）
   return (
     <section className="center" ref={rootRef}>
-      <div className="log" ref={logRef} onScroll={onLogScroll}>
+      <div className="log" ref={logRef} {...follow.handlers}>
         <div className="logcol">
           {msgs.length === 0 && !busy && (
             <EmptyState userName={userName} onPick={s =>
@@ -454,6 +465,11 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
         </div>
       </div>
       <div className="inputwrap">
+        {follow.away ? (
+          <button type="button" className="jv-jump" onClick={follow.jump} aria-label="回到底部" title="回到底部">
+            <Icon name="up" size={18} className="jv-jump-ico" />
+          </button>
+        ) : null}
         {uploading ? <div className="upload-note" role="status"><span className="today-spinner" aria-hidden="true" />正在读取《{uploading}》…</div> : null}
         {uploadErr && <div className="upload-err" role="alert">⚠ {uploadErr}</div>}
         <div className="inputbar2">
