@@ -4,6 +4,7 @@ import {
   emailMeeting, getDashboard, getMeeting, getMeetings, importMeetingTodos, patchTodo,
   renameMeetingSpeaker,
 } from './api.js'
+import Icon from './Icon.jsx'
 
 /** 任务台：日程 / 待办 / 备忘，可勾选、快速新增、删除；出错回退到重新拉取 */
 export default function Panels({ refreshKey, onData, onExpired, onAskMeeting }) {
@@ -52,56 +53,58 @@ export default function Panels({ refreshKey, onData, onExpired, onAskMeeting }) 
   const today = d.time.slice(0, 10)
   const nowMin = d.time.slice(0, 16)
   const sch = d.schedule.filter(x => x.when.slice(0, 10) >= today)
+  // 今天的日程只显示时刻，之后几天的带上日期
+  const whenText = when => (when.slice(0, 10) === today ? when.slice(11, 16) : when.slice(5, 16))
   return (
     <>
-      <div className="pane card">
-        <div className="eyebrow">今日日程 <small>{sch.length ? `${sch.length} 项` : ''}</small></div>
+      <section className="today-sec" aria-label="日程">
+        <h3 className="today-h">日程 <small>{sch.length ? `${sch.length} 项` : ''}</small></h3>
         {sch.length === 0 && <div className="empty">今日无安排</div>}
-        <ul>{sch.slice(0, 8).map(x => (
-          <li key={x.id} className="prow">
-            <span className={`when${x.when < nowMin ? ' over' : ''}`}>{x.when.slice(5)}</span>
+        <ul className="today-list">{sch.slice(0, 8).map(x => (
+          <li key={x.id} className={`prow sched${x.when < nowMin ? ' past' : ''}`}>
+            <span className={`when${x.when < nowMin ? ' over' : ''}`}>{whenText(x.when)}</span>
             <span className="ptxt">{x.title}</span>
-            <button className="pdel" title="删除这条日程"
-              onClick={() => act(() => deleteSchedule(x.id))}>×</button>
+            <button className="pdel" title="删除这条日程" aria-label="删除这条日程"
+              onClick={() => act(() => deleteSchedule(x.id))}><Icon name="close" size={14} /></button>
           </li>
         ))}</ul>
-      </div>
-      <div className="pane card">
-        <div className="eyebrow">待办 <small>{d.todos.length ? `${d.todos.length} 项待办` : '已清空'}</small></div>
+      </section>
+      <section className="today-sec" aria-label="待办">
+        <h3 className="today-h">待办 <small>{d.todos.length ? `${d.todos.length} 项待办` : '已清空'}</small></h3>
         {d.todos.length === 0 && <div className="empty">清单已清空</div>}
-        <ul>{d.todos.slice(0, 8).map(x => (
+        <ul className="today-list">{d.todos.slice(0, 8).map(x => (
           <li key={x.id} className="prow">
             <input type="checkbox" className="ptick" checked={false}
               aria-label={`完成：${x.content}`}
               onChange={() => act(() => patchTodo(x.id, true))} />
             <span className="ptxt">{x.content}</span>
-            <button className="pdel" title="删除这条待办"
-              onClick={() => act(() => deleteTodo(x.id))}>×</button>
+            <button className="pdel" title="删除这条待办" aria-label="删除这条待办"
+              onClick={() => act(() => deleteTodo(x.id))}><Icon name="close" size={14} /></button>
           </li>
         ))}</ul>
-        <div className="paddrow">
+        <div className="jv-add-row">
           <input value={todoDraft} placeholder="＋ 添加待办，回车确认"
             onChange={e => setTodoDraft(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') submitTodo() }} />
         </div>
-      </div>
-      <div className="pane card">
-        <div className="eyebrow">备忘 <small>{d.memos.length ? `${d.memos.length} 条` : ''}</small></div>
+      </section>
+      <section className="today-sec" aria-label="备忘">
+        <h3 className="today-h">备忘 <small>{d.memos.length ? `${d.memos.length} 条` : ''}</small></h3>
         {d.memos.length === 0 && <div className="empty">暂无备忘</div>}
-        <ul>{d.memos.slice(-5).reverse().map(x => (
+        <ul className="today-list">{d.memos.slice(-5).reverse().map(x => (
           <li key={x.id} className="prow">
-            <span className="tickbox">·</span>
+            <span className="tickbox" aria-hidden="true" />
             <span className="ptxt">{x.content}</span>
-            <button className="pdel" title="删除这条备忘"
-              onClick={() => act(() => deleteMemo(x.id))}>×</button>
+            <button className="pdel" title="删除这条备忘" aria-label="删除这条备忘"
+              onClick={() => act(() => deleteMemo(x.id))}><Icon name="close" size={14} /></button>
           </li>
         ))}</ul>
-        <div className="paddrow">
+        <div className="jv-add-row">
           <input value={memoDraft} placeholder="＋ 记一条备忘，回车确认"
             onChange={e => setMemoDraft(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') submitMemo() }} />
         </div>
-      </div>
+      </section>
       <MeetingsCard meetings={meetings} onExpired={onExpired}
         onAskMeeting={onAskMeeting} onImported={load} />
     </>
@@ -156,15 +159,15 @@ function MeetingsCard({ meetings, onExpired, onAskMeeting, onImported }) {
     setNote('会议记录已发进对话，直接提问即可')
   }
   return (
-    <div className="pane card">
-      <div className="eyebrow">会议纪要 <small>{meetings.active ? '● 监控中' : `${meetings.items.length} 场`}</small></div>
+    <section className="today-sec" aria-label="会议纪要">
+      <h3 className="today-h">会议纪要 <small className={meetings.active ? 'live' : ''}>{meetings.active ? '● 监控中' : `${meetings.items.length} 场`}</small></h3>
       {meetings.items.length === 0 && <div className="empty">会议监控中，结束后在这里看纪要</div>}
-      <ul>{meetings.items.slice(0, 5).map(x => (
+      <ul className="today-list">{meetings.items.slice(0, 5).map(x => (
         <li key={x.id} className="prow meeting-row">
           <span className="when">{String(x.started_at).slice(5, 16)}</span>
           <button className="ptxt meeting-open" onClick={() => void toggle(x.id)}
             title="查看纪要">{x.title}{x.mailed_to ? ' ✉' : ''}</button>
-          <button className="pdel" title="重发纪要邮件" onClick={() => void resend(x.id)}>✉</button>
+          <button className="pdel" title="重发纪要邮件" aria-label="重发纪要邮件" onClick={() => void resend(x.id)}>✉</button>
         </li>
       ))}</ul>
       {openId !== null && (
@@ -173,8 +176,8 @@ function MeetingsCard({ meetings, onExpired, onAskMeeting, onImported }) {
           {detail ? <pre className="meeting-minutes">{detail.minutes || '（未生成纪要，仅有转写）\n\n' + detail.transcript.slice(0, 2000)}</pre> : null}
           {detail ? (
             <div className="meeting-actions">
-              <button onClick={() => void importTodos(detail.id)}>⇩ 导入待办</button>
-              <button onClick={ask}>💬 就这场会议追问</button>
+              <button onClick={() => void importTodos(detail.id)}>导入待办</button>
+              <button onClick={ask}>就这场会议追问</button>
             </div>
           ) : null}
           {detail && speakers.length > 0 ? (
@@ -186,12 +189,12 @@ function MeetingsCard({ meetings, onExpired, onAskMeeting, onImported }) {
               <input aria-label="说话人新名字" value={renName} placeholder="改成谁？如 张三"
                 onChange={e => setRenName(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') void rename() }} />
-              <button onClick={() => void rename()} disabled={!renName.trim()}>✎ 改名</button>
+              <button onClick={() => void rename()} disabled={!renName.trim()}>改名</button>
             </div>
           ) : null}
         </div>
       )}
       {note ? <div className="empty" role="status">{note}</div> : null}
-    </div>
+    </section>
   )
 }

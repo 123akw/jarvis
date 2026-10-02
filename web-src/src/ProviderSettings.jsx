@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { getDesktopSettings, getMeetingSettings, getProviderSettings, getRadio, getVoiceSettings, restoreIntegration, restoreLLMSettings, saveDesktopSettings, saveIntegration, saveLLMSettings, saveMeetingSettings, saveRadio, saveVoiceSettings, testIntegration, testLLMSettings } from './api.js'
 import { desktopWindow, pingDesktop } from './desktopWake.js'
+import { ModalHead } from './Modal.jsx'
 
 const errorText = error => error?.message === '401' ? '登录已失效，请重新登录。' : (error?.message || '操作失败。')
 
@@ -29,9 +30,10 @@ export default function ProviderSettings({ session, onClose, onExpired, onApplie
     catch (error) { if (error.message === '401') onExpired?.(); setMessage(errorText(error)) }
     finally { setPassword(''); setApiKey(''); setBusy(false) }
   }
-  if (!settings) return <section className="provider-card"><p role="status">{message || '正在读取 API 设置…'}</p></section>
-  return <section className="provider-card" aria-label="API 设置中心">
-    <div className="account-head"><div><b>API 设置中心</b><small>{session.username} · 密钥不会回显</small></div><button className="wx-x" onClick={onClose} aria-label="关闭 API 设置">×</button></div>
+  if (!settings) return <section className="jv-sheet provider-sheet" aria-label="设置中心"><ModalHead title="设置中心" onClose={onClose} closeLabel="关闭 API 设置" /><div className="jv-modal-body"><p role="status" className="jv-muted">{message || '正在读取 API 设置…'}</p></div></section>
+  return <section className="jv-sheet provider-sheet" aria-label="设置中心">
+    <ModalHead title="设置中心" subtitle={`${session.username} · 密钥不会回显`} onClose={onClose} closeLabel="关闭 API 设置" />
+    <div className="jv-modal-body">
     <div className="provider-tabs" role="tablist"><button className={tab === 'llm' ? 'on' : ''} onClick={() => setTab('llm')}>模型 API</button><button className={tab === 'voice' ? 'on' : ''} onClick={() => setTab('voice')}>语音</button><button className={tab === 'desktop' ? 'on' : ''} onClick={() => setTab('desktop')}>桌面与会议</button>{session.role === 'Owner' ? <button className={tab === 'search' ? 'on' : ''} onClick={() => setTab('search')}>联网数据源</button> : null}</div>
     {tab === 'voice' ? <VoiceSettingsPane onMessage={setMessage} onExpired={onExpired} /> : null}
     {tab === 'desktop' ? <DesktopMeetingPane onMessage={setMessage} onExpired={onExpired} /> : null}
@@ -44,10 +46,11 @@ export default function ProviderSettings({ session, onClose, onExpired, onApplie
       <label>当前口令<input aria-label="当前口令" type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" /></label>
       <p className="provider-risk">测试会执行极少量非流式工具、流式文本和流式工具请求，可能产生少量模型费用。自定义中转方可以读取问题、上下文、工具调用和输出，建议使用独立、低额度、可吊销的 Key。</p>
       {catalog?.key_url ? <a href={catalog.key_url} target="_blank" rel="noopener noreferrer">打开官方 API Key 申请页</a> : null}
-      <div className="provider-actions"><button disabled={busy || !password} onClick={() => action('test')}>测试连接</button><button disabled={busy || !settings.writable || !password} onClick={() => action('save')}>保存并应用</button><button disabled={busy || !settings.writable || !password} onClick={restore}>恢复服务器配置</button></div>
+      <div className="provider-actions"><button disabled={busy || !password} onClick={() => action('test')}>测试连接</button><button className="primary" disabled={busy || !settings.writable || !password} onClick={() => action('save')}>保存并应用</button><button disabled={busy || !settings.writable || !password} onClick={restore}>恢复服务器配置</button></div>
     </div> : null}
     {tab === 'search' ? <IntegrationSettings settings={settings} password={password} setPassword={setPassword} onMessage={setMessage} onRefresh={refresh} onExpired={onExpired} /> : null}
     {message ? <p className="provider-message" role="status">{message}</p> : null}
+    </div>
   </section>
 }
 
@@ -67,7 +70,7 @@ function IntegrationSettings({ settings, password, setPassword, onMessage, onRef
     <label className="provider-check"><input type="checkbox" checked={enabled} onChange={event => setEnabled(event.target.checked)} />启用</label>
     {name === 'searxng' ? <label>Base URL<input aria-label="联网 Base URL" value={baseUrl} onChange={event => setBaseUrl(event.target.value)} /></label> : <><label>API Key<input aria-label="联网 API Key" type="password" value={key} onChange={event => setKey(event.target.value)} autoComplete="new-password" placeholder={current.key_configured ? '已配置；可勾选保留' : '请输入 API Key'} /></label>{current.key_configured ? <label className="provider-check"><input type="checkbox" checked={keep} onChange={event => setKeep(event.target.checked)} />保留现有 Key</label> : null}</>}
     <label>Owner 当前口令<input aria-label="Owner 当前口令" type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" /></label>
-    <div className="provider-actions"><button disabled={!password} onClick={() => act('test')}>测试连接</button><button disabled={!settings.writable || !password} onClick={() => act('save')}>保存</button><button disabled={!settings.writable || !password} onClick={() => act('restore')}>恢复环境配置</button></div>
+    <div className="provider-actions"><button disabled={!password} onClick={() => act('test')}>测试连接</button><button className="primary" disabled={!settings.writable || !password} onClick={() => act('save')}>保存</button><button disabled={!settings.writable || !password} onClick={() => act('restore')}>恢复环境配置</button></div>
   </div>
 }
 
@@ -91,7 +94,7 @@ function VoiceSettingsPane({ onMessage, onExpired }) {
     catch (error) { if (error.message === '401') onExpired?.(); onMessage(errorText(error)) }
     finally { setBusy(false) }
   }
-  if (!catalog) return <div className="provider-pane"><p role="status">正在读取语音设置…</p></div>
+  if (!catalog) return <div className="provider-pane"><p role="status" className="jv-muted">正在读取语音设置…</p></div>
   return <div className="provider-pane">
     <label>音色<select aria-label="音色" value={voice} onChange={event => setVoice(event.target.value)}>{catalog.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
     <label>语速 · {Number(speed).toFixed(2)}×
@@ -101,7 +104,7 @@ function VoiceSettingsPane({ onMessage, onExpired }) {
       <input aria-label="晨报时间" type="time" value={radioTime} onChange={event => setRadioTime(event.target.value)} />
     </label>
     <p className="provider-risk">音色与语速只影响你自己的语音通话答复（网页与桌面端共用）。晨报电台会在每天设定时间把「天气+日程+待办」做成语音条+文字发到你的微信——需要先在微信里对贾维斯说「提醒发给我」完成绑定。</p>
-    <div className="provider-actions"><button disabled={busy || !voice} onClick={save}>保存</button></div>
+    <div className="provider-actions"><button className="primary" disabled={busy || !voice} onClick={save}>保存</button></div>
   </div>
 }
 
@@ -149,7 +152,7 @@ function DesktopMeetingPane({ onMessage, onExpired }) {
     finally { setBusy(false) }
   }
   return <div className="provider-pane">
-    <p role="status">桌面端状态：{alive === null ? '探测中…' : alive ? '在这台电脑上运行中' : '未运行（或不在这台电脑上；跨机时以下开关经服务器下发）'}</p>
+    <p role="status" className="jv-muted">桌面端状态：{alive === null ? '探测中…' : alive ? '在这台电脑上运行中' : '未运行（或不在这台电脑上；跨机时以下开关经服务器下发）'}</p>
     <label className="provider-check"><input type="checkbox" checked={ballVisible} disabled={busy} onChange={event => void setBall(event.target.checked)} />在桌面显示悬浮球</label>
     <div className="provider-actions">
       <button disabled={busy} onClick={() => void setBall(true)}>显示悬浮球</button>
@@ -160,7 +163,7 @@ function DesktopMeetingPane({ onMessage, onExpired }) {
       <input aria-label="会议纪要收件邮箱" value={mailTo} onChange={event => setMailTo(event.target.value)} placeholder={mailDefault ? `留空使用默认：${mailDefault}` : '如 1539598168@qq.com'} />
     </label>
     <p className="provider-risk">会议纪要由 macOS 桌面端采集（你的麦克风 + 系统里对方的声音），结束后自动整理并发送到上面的邮箱。{smtpReady ? '' : '当前服务器还没配置 SMTP 发信（.env 里的 JARVIS_SMTP_*），纪要会保存但发不出邮件。'}对话里说「监控会议」也能远程开始。</p>
-    <div className="provider-actions"><button disabled={busy} onClick={() => void saveMail()}>保存收件邮箱</button></div>
+    <div className="provider-actions"><button className="primary" disabled={busy} onClick={() => void saveMail()}>保存收件邮箱</button></div>
   </div>
 }
 

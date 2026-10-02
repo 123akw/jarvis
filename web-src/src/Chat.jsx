@@ -3,6 +3,7 @@ import { chatStream, getHistory, uploadDocument } from './api.js'
 import {
   createStreamingView, handleCodeCopyClick, highlighterVersion, renderMarkdown, subscribeHighlighter,
 } from './markdown.js'
+import Icon from './Icon.jsx'
 import { toolLabel } from './toolInfo.js'
 import VoiceCall from './VoiceCall.jsx'
 
@@ -69,7 +70,7 @@ const MsgRow = memo(function MsgRow({ m, prevUser, busy, onSend, onEdit }) {
   }
   return (
     <div className="row-jarvis">
-      <div className="jtag">{m.streaming && <span className="jdot" />}J.A.R.V.I.S.</div>
+      <div className="jtag"><span className={`jdot${m.streaming ? ' live' : ''}`} aria-hidden="true" />J.A.R.V.I.S.</div>
       {m.chips.length > 0 && (
         <div className="chips">
           {m.chips.map((c, i) => <ToolChip key={c.id || i} chip={c} />)}
@@ -96,11 +97,48 @@ const MsgRow = memo(function MsgRow({ m, prevUser, busy, onSend, onEdit }) {
   )
 })
 
-const SUGGESTIONS = ['给我今日晨报', '我在做什么任务？', '今天天气怎么样？', '记一条备忘：']
+/* 空态建议：以「：」结尾的只预填输入框，其余直接发出 */
+const SUGGESTIONS = [
+  { text: '给我今日晨报', hint: '天气、日程与待办，一次说清', icon: 'sunrise' },
+  { text: '我在做什么任务？', hint: '回顾进行中的待办与安排', icon: 'list' },
+  { text: '今天天气怎么样？', hint: '按你所在的位置实时查询', icon: 'cloud' },
+  { text: '记一条备忘：', hint: '写下要记住的事', icon: 'note' },
+]
+
+function greeting(now = new Date()) {
+  const h = now.getHours()
+  if (h < 5) return '夜深了'
+  if (h < 11) return '早上好'
+  if (h < 13) return '中午好'
+  if (h < 18) return '下午好'
+  return '晚上好'
+}
+
+/** 新对话空态：AI 存在感挂载点 + 问候 + 建议提示。
+ *  .jv-presence-slot 是给 AI 动效球预留的挂载点，目前放一个静态柔光圆占位。 */
+function EmptyState({ userName, onPick }) {
+  return (
+    <div className="chat-empty">
+      <div className="jv-presence-slot"><span className="jv-presence-placeholder" aria-hidden="true" /></div>
+      <h1 className="ce-title">{greeting()}{userName ? `，${userName}` : ''}</h1>
+      <p className="ce-sub">有什么吩咐？</p>
+      <div className="ce-chips">
+        {SUGGESTIONS.map(s => (
+          <button key={s.text} type="button" className="ce-chip" onClick={() => onPick(s.text)}>
+            <span className="ce-ico"><Icon name={s.icon} size={18} /></span>
+            <span className="ce-text"><span className="ce-q">{s.text}</span><span className="ce-hint">{s.hint}</span></span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 let nextId = 1
+/** 手机宽度只留短提示：长提示会折成两行被单行输入框截断，触屏也没有 Shift+Enter */
+const compactInput = () => typeof window !== 'undefined' && window.innerWidth <= 640
 
-function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = null }) {
+function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = null, userName = '' }) {
   const [msgs, setMsgs] = useState([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -285,17 +323,8 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
       <div className="log" ref={logRef} onScroll={onLogScroll}>
         <div className="logcol">
           {msgs.length === 0 && !busy && (
-            <div className="chat-empty">
-              <div className="ce-title">有什么吩咐？</div>
-              <div className="ce-chips">
-                {SUGGESTIONS.map(s => (
-                  <button key={s} className="ce-chip" onClick={() =>
-                    s.endsWith('：') ? (setInput(s), boxRef.current?.focus()) : send(s)}>
-                    {s}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <EmptyState userName={userName} onPick={s =>
+              s.endsWith('：') ? (setInput(s), boxRef.current?.focus()) : send(s)} />
           )}
           {msgs.map(m => {
             const prevUser = m.kind === 'user' ? '' : lastUser
@@ -310,20 +339,20 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
       <div className="inputwrap">
         {uploadErr && <div className="upload-err">⚠ {uploadErr}</div>}
         <div className="inputbar2">
+          <input ref={fileRef} type="file" accept=".pdf,.docx,.txt,.md,.jpg,.jpeg,.png,.webp,.bmp,.mp4,.mov" style={{ display: 'none' }}
+            aria-label="选择文档" onChange={onPickFile} />
+          <button className={`jv-icon-btn round${uploading ? ' loading' : ''}`} onClick={() => fileRef.current?.click()}
+            disabled={busy || uploading}
+            title="上传文档（PDF / Word / TXT / MD / 图片 / 视频）" aria-label="上传文档"><Icon name="clip" /></button>
           <textarea ref={boxRef} value={input} rows={1}
             onChange={e => { setInput(e.target.value); autoGrow() }}
             onKeyDown={onKey}
-            placeholder="吩咐一句…（Enter 发送，Shift+Enter 换行）" autoFocus />
-          <input ref={fileRef} type="file" accept=".pdf,.docx,.txt,.md,.jpg,.jpeg,.png,.webp,.bmp,.mp4,.mov" style={{ display: 'none' }}
-            aria-label="选择文档" onChange={onPickFile} />
-          <button className="callbtn" onClick={() => fileRef.current?.click()}
-            disabled={busy || uploading}
-            title="上传文档（PDF / Word / TXT / MD）" aria-label="上传文档">{uploading ? '…' : '📎'}</button>
-          <button className="callbtn" onClick={() => setCalling(true)} disabled={busy}
-            title="语音通话" aria-label="语音通话">📞</button>
+            placeholder={compactInput() ? '吩咐一句…' : '吩咐一句…（Enter 发送，Shift+Enter 换行）'} autoFocus />
+          <button className="jv-icon-btn round" onClick={() => setCalling(true)} disabled={busy}
+            title="语音通话" aria-label="语音通话"><Icon name="wave" /></button>
           {busy
-            ? <button className="stopbtn" onClick={() => abortRef.current?.abort()} title="停止生成">◼</button>
-            : <button className="sendbtn" onClick={() => send(input)} disabled={!input.trim()} title="发送">↑</button>}
+            ? <button className="stopbtn" onClick={() => abortRef.current?.abort()} title="停止生成" aria-label="停止生成"><Icon name="stop" /></button>
+            : <button className="sendbtn" onClick={() => send(input)} disabled={!input.trim()} title="发送" aria-label="发送"><Icon name="up" /></button>}
         </div>
       </div>
       {calling && (

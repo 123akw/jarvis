@@ -94,3 +94,38 @@ describe('消息级操作', () => {
     expect(container.querySelector('.jbody').textContent.trim()).toBe('第一段。\n加粗收尾')
   })
 })
+
+describe('新对话空态', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getHistory.mockResolvedValue([])
+    chatStream.mockImplementation(() => streamOk())
+  })
+  afterEach(cleanup)
+
+  it('有 AI 动效挂载点、带称呼的问候和 4 条建议', async () => {
+    const { container } = render(<Chat threadId="t-new" userName="陈总" />)
+    expect((await screen.findByRole('heading', { level: 1 })).textContent).toMatch(/，陈总$/)
+    expect(container.querySelector('.chat-empty .jv-presence-slot')).not.toBeNull()
+    const chips = container.querySelectorAll('.ce-chip')
+    expect([...chips].map(c => c.querySelector('.ce-q').textContent))
+      .toEqual(['给我今日晨报', '我在做什么任务？', '今天天气怎么样？', '记一条备忘：'])
+  })
+
+  it('以「：」结尾的建议只预填输入框，其余直接发出', async () => {
+    render(<Chat threadId="t-new" />)
+    fireEvent.click(await screen.findByRole('button', { name: /记一条备忘：/ }))
+    expect(screen.getByPlaceholderText(/吩咐一句/).value).toBe('记一条备忘：')
+    expect(chatStream).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: /给我今日晨报/ }))
+    await waitFor(() => expect(chatStream).toHaveBeenCalledTimes(1))
+    expect(chatStream.mock.calls[0][0]).toBe('给我今日晨报')
+  })
+
+  it('有消息后空态消失', async () => {
+    getHistory.mockResolvedValue([{ role: 'user', content: '在吗' }, { role: 'assistant', content: '在。' }])
+    const { container } = render(<Chat threadId="t-old" />)
+    await screen.findByText('在吗')
+    expect(container.querySelector('.chat-empty')).toBeNull()
+  })
+})

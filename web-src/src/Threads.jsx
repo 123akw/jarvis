@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { deleteThread, getHistory, getThreads, renameThread } from './api.js'
+import Icon from './Icon.jsx'
 
 function groupLabel(iso) {
   const d = new Date(iso.replace(' ', 'T'))
@@ -11,7 +12,7 @@ function groupLabel(iso) {
   return '更早'
 }
 
-export default function Threads({ current, onSelect, onNew, refreshKey, onExpired }) {
+export default function Threads({ current, onSelect, onNew, refreshKey, onExpired, onLoaded }) {
   const [threads, setThreads] = useState([])
   const [query, setQuery] = useState('')
   const [editing, setEditing] = useState(null)      // 正在改名的会话 id
@@ -23,6 +24,7 @@ export default function Threads({ current, onSelect, onNew, refreshKey, onExpire
     getThreads().then(setThreads).catch(e => { if (e.message === '401') onExpired?.() })
   }, [refreshKey])
   useEffect(() => () => clearTimeout(delTimer.current), [])
+  useEffect(() => { onLoaded?.(threads) }, [threads])   // 顶栏标题与 ⌘K 跳转共用这份列表，不再重复拉取
 
   function askRemove(e, id) {
     e.stopPropagation()
@@ -97,10 +99,13 @@ export default function Threads({ current, onSelect, onNew, refreshKey, onExpire
 
   return (
     <div className="threads">
-      <button className="newchat" onClick={onNew}>＋ 新对话</button>
+      <button className="newchat" onClick={onNew}><Icon name="compose" size={17} />新对话</button>
       {threads.length > 0 && (
-        <input className="tsearch" value={query} onChange={e => setQuery(e.target.value)}
-          placeholder="搜索对话…" aria-label="搜索对话" />
+        <label className="tsearch-wrap">
+          <Icon name="search" size={15} />
+          <input className="tsearch" value={query} onChange={e => setQuery(e.target.value)}
+            placeholder="搜索对话…" aria-label="搜索对话" />
+        </label>
       )}
       <div className="threadlist">
         {threads.length === 0 && <div className="empty">还没有历史对话</div>}
@@ -124,13 +129,16 @@ export default function Threads({ current, onSelect, onNew, refreshKey, onExpire
                 ) : (
                   <span className="ttitle">{t.title}</span>
                 )}
-                <button className="tdel trn" onClick={e => exportThread(e, t)} title="导出为 Markdown">⤓</button>
-                <button className="tdel trn" onClick={e => startEdit(e, t)} title="重命名">✎</button>
-                <button className={`tdel${pendingDel === t.id ? ' confirm' : ''}`}
-                  onClick={e => askRemove(e, t.id)}
-                  title={pendingDel === t.id ? '再点一次确认删除' : '删除'}>
-                  {pendingDel === t.id ? '确删' : '×'}
-                </button>
+                <span className="tactions">
+                  <button className="tdel trn" onClick={e => exportThread(e, t)} title="导出为 Markdown" aria-label="导出为 Markdown"><Icon name="download" size={15} /></button>
+                  <button className="tdel trn" onClick={e => startEdit(e, t)} title="重命名" aria-label="重命名"><Icon name="pencil" size={15} /></button>
+                  <button className={`tdel${pendingDel === t.id ? ' confirm' : ''}`}
+                    onClick={e => askRemove(e, t.id)}
+                    title={pendingDel === t.id ? '再点一次确认删除' : '删除'}
+                    aria-label={pendingDel === t.id ? '再点一次确认删除' : '删除'}>
+                    {pendingDel === t.id ? '确删' : <Icon name="trash" size={15} />}
+                  </button>
+                </span>
               </div>
             ))}
           </div>

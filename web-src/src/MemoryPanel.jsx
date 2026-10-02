@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { addProfile, deleteProfile, getPersona, getProfile, savePersona } from './api.js'
+import Modal, { ModalHead } from './Modal.jsx'
 
 /** 人设工坊：称呼 / J.A.R.V.I.S.↔MOSS 人格 / 语气口头禅 */
 function PersonaSection({ onExpired }) {
@@ -45,7 +46,7 @@ function PersonaSection({ onExpired }) {
           onChange={e => setFlavor(e.target.value)} />
       </label>
       <div className="persona-foot">
-        <button className="persona-save" onClick={save}>保存人设</button>
+        <button className="jv-btn jv-btn--primary" onClick={save}>保存人设</button>
         <span className="persona-state">{state}</span>
       </div>
     </div>
@@ -78,39 +79,34 @@ export default function MemoryPanel({ onClose, onExpired }) {
   }
 
   return (
-    <div className="wx-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="wx-card memory-card">
-        <div className="wx-head">
-          <span className="wx-title">记忆与人设</span>
-          <button className="wx-x" onClick={onClose} aria-label="关闭">✕</button>
-        </div>
-        <div className="wx-body">
-          <PersonaSection onExpired={onExpired} />
-          <div className="memory-subtitle">贾维斯记住了什么</div>
-          <p className="memory-hint">
-            这些是关于你的长期画像，每轮对话贾维斯都会带着它们。
-            对话里说「<b>记住我…</b>」会自动添加，「<b>忘记…</b>」会删除；这里也可以直接管理。
-          </p>
-          {err && <div className="wx-err">{err}</div>}
-          {items === null && !err && <div className="empty">读取中…</div>}
-          {items?.length === 0 && <div className="empty">还没有记住任何长期画像。试试对贾维斯说「记住我喝咖啡只喝美式」。</div>}
-          {items?.length > 0 && (
-            <ul className="memory-list">
-              {items.map(x => (
-                <li key={x.id}>
-                  <span className="memory-text">{x.content}</span>
-                  <button className="memory-del" onClick={() => forget(x.id)} title="忘记这条">忘记</button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <div className="paddrow memory-add">
-            <input value={draft} placeholder="＋ 手动补一条画像，回车确认"
-              onChange={e => setDraft(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') submit() }} />
-          </div>
+    <Modal label="记忆与人设" onClose={onClose}>
+      <ModalHead title="记忆与人设" subtitle="贾维斯怎么称呼你、怎么说话，以及长期记住的事" onClose={onClose} />
+      <div className="jv-modal-body">
+        <PersonaSection onExpired={onExpired} />
+        <h3 className="jv-section-title">贾维斯记住了什么</h3>
+        <p className="memory-hint">
+          这些是关于你的长期画像，每轮对话贾维斯都会带着它们。
+          对话里说「<b>记住我…</b>」会自动添加，「<b>忘记…</b>」会删除；这里也可以直接管理。
+        </p>
+        {err && <div className="wx-err">{err}</div>}
+        {items === null && !err && <div className="empty">读取中…</div>}
+        {items?.length === 0 && <div className="empty">还没有记住任何长期画像。试试对贾维斯说「记住我喝咖啡只喝美式」。</div>}
+        {items?.length > 0 && (
+          <ul className="memory-list">
+            {items.map(x => (
+              <li key={x.id}>
+                <span className="memory-text">{x.content}</span>
+                <button className="memory-del" onClick={() => forget(x.id)} title="忘记这条">忘记</button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="jv-add-row memory-add">
+          <input value={draft} placeholder="＋ 手动补一条画像，回车确认"
+            onChange={e => setDraft(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') submit() }} />
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }

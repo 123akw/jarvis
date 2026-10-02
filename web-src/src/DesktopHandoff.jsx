@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { desktopHandoffTicket } from './api.js'
 import { summonDesktop, PROTOCOL_URL } from './desktopWake.js'
+import Modal, { ModalHead } from './Modal.jsx'
 
 const README_URL = 'https://github.com/123akw/jarvis#快速开始'
 
@@ -15,12 +16,14 @@ function tryProtocol(url) {
   } catch { /* 尽力而为 */ }
 }
 
-/** 网页端「桌面悬浮窗」入口：在跑→领票唤起并接管登录态；没在跑→jws:// 尝试 + 启动指引。 */
-export default function DesktopHandoff() {
+/** 网页端「桌面悬浮窗」联动：在跑→领票唤起并接管登录态；没在跑→jws:// 尝试 + 启动指引。
+ *  入口挪进了头像菜单 / ⌘K 命令面板，所以这里只提供行为（activate）与状态（note / guide）。 */
+export function useDesktopHandoff() {
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
   const [guide, setGuide] = useState(false)
   const timer = useRef()
+  const busyRef = useRef(false)
 
   useEffect(() => () => clearTimeout(timer.current), [])
 
@@ -30,8 +33,9 @@ export default function DesktopHandoff() {
     timer.current = setTimeout(() => setNote(''), 5000)
   }
 
-  async function activate() {
-    if (busy) return
+  const activate = useCallback(async () => {
+    if (busyRef.current) return
+    busyRef.current = true
     setBusy(true)
     setNote('正在联系桌面悬浮窗…')
     try {
@@ -50,34 +54,28 @@ export default function DesktopHandoff() {
     } catch {
       flash('桌面联动出了点问题，请稍后再试')
     } finally {
+      busyRef.current = false
       setBusy(false)
     }
-  }
+  }, [])
 
+  const closeGuide = useCallback(() => setGuide(false), [])
+  return { activate, busy, note, guide, closeGuide }
+}
+
+/** 桌面端没在跑时的启动指引 */
+export function DesktopGuide({ onClose }) {
   return (
-    <>
-      <button type="button" className="chip navbtn" onClick={activate} disabled={busy}
-        aria-label="桌面悬浮窗" title="把贾维斯以悬浮球留在桌面，关掉网页也在">⬒ 悬浮窗</button>
-      {note ? <span className="chip hide-sm" role="status">{note}</span> : null}
-      {guide ? (
-        <div className="wx-backdrop" onClick={() => setGuide(false)}>
-          <div className="wx-card" role="dialog" aria-modal="true" aria-label="桌面悬浮窗启动指引"
-            onClick={e => e.stopPropagation()}>
-            <div className="wx-head">
-              <span className="wx-title">桌面悬浮窗未启动</span>
-              <button type="button" className="wx-x" aria-label="关闭启动指引"
-                onClick={() => setGuide(false)}>✕</button>
-            </div>
-            <div className="wx-body">
-              <p className="wx-lead">刚试着通过 <b>jws://</b> 协议拉起桌面端（装过才会有反应）。如果悬浮球没出现，请按下面方式启动：</p>
-              <p className="wx-hint">1. 启动命令（macOS，源码方式）：<br />
-                <code>cd desktop && npm install && npm start</code></p>
-              <p className="wx-hint">2. 开机自启：悬浮窗展开后进「设置」勾选<b>开机自启</b>，之后每次开机贾维斯都自动待命，网页这边点一下就能唤起。</p>
-              <p className="wx-hint">3. 详细说明见 <a href={README_URL} target="_blank" rel="noreferrer">GitHub README · 快速开始</a>。启动后回到这里再点一次「悬浮窗」即可自动接管当前登录态，无需再输密码。</p>
-            </div>
-          </div>
-        </div>
-      ) : null}
-    </>
+    <Modal label="桌面悬浮窗启动指引" onClose={onClose} size="sm">
+      <ModalHead title="桌面悬浮窗未启动" subtitle="把贾维斯以悬浮球留在桌面，关掉网页也在" onClose={onClose} closeLabel="关闭启动指引" />
+      <div className="jv-modal-body">
+        <p className="wx-lead">刚试着通过 <b>jws://</b> 协议拉起桌面端（装过才会有反应）。如果悬浮球没出现，请按下面方式启动：</p>
+        <ol className="wx-steps">
+          <li>启动命令（macOS，源码方式）：<br /><code>cd desktop && npm install && npm start</code></li>
+          <li>开机自启：悬浮窗展开后进「设置」勾选<b>开机自启</b>，之后每次开机贾维斯都自动待命，网页这边点一下就能唤起。</li>
+          <li>详细说明见 <a href={README_URL} target="_blank" rel="noreferrer">GitHub README · 快速开始</a>。启动后回到这里再点一次「桌面悬浮窗」即可自动接管当前登录态，无需再输密码。</li>
+        </ol>
+      </div>
+    </Modal>
   )
 }
