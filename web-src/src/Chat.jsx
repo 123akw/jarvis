@@ -4,6 +4,7 @@ import {
   createStreamingView, handleCodeCopyClick, highlighterVersion, renderMarkdown, subscribeHighlighter,
 } from './markdown.js'
 import Icon from './Icon.jsx'
+import Presence from './Presence.jsx'
 import { toolLabel } from './toolInfo.js'
 import VoiceCall from './VoiceCall.jsx'
 
@@ -114,12 +115,13 @@ function greeting(now = new Date()) {
   return '晚上好'
 }
 
-/** 新对话空态：AI 存在感挂载点 + 问候 + 建议提示。
- *  .jv-presence-slot 是给 AI 动效球预留的挂载点，目前放一个静态柔光圆占位。 */
+/** 新对话空态：AI 存在感光球 + 问候 + 建议提示。光球尺寸与 .jv-presence-slot 的 --jv-presence-size 对齐。 */
+const compactPresence = () => typeof matchMedia === 'function' && matchMedia('(max-width:640px)').matches
+
 function EmptyState({ userName, onPick }) {
   return (
     <div className="chat-empty">
-      <div className="jv-presence-slot"><span className="jv-presence-placeholder" aria-hidden="true" /></div>
+      <div className="jv-presence-slot"><Presence state="idle" size={compactPresence() ? 104 : 128} decorative /></div>
       <h1 className="ce-title">{greeting()}{userName ? `，${userName}` : ''}</h1>
       <p className="ce-sub">有什么吩咐？</p>
       <div className="ce-chips">

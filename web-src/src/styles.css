@@ -411,16 +411,9 @@ body.light .jbody .hljs-built_in,body.light .jbody .hljs-type,body.light .jbody 
 /* ---------- 新对话空态 ---------- */
 .chat-empty{margin:auto 0;padding:12px 0 8px;display:flex;flex-direction:column;align-items:center;text-align:center;
   animation:jv-fade .4s var(--jv-ease)}
-/* AI 动效球挂载点：另一侧的 Presence 组件会替换掉里面的占位圆，尺寸取 --jv-presence-size */
+/* AI 存在感光球挂载点（Chat 空态里放 <Presence>），尺寸取 --jv-presence-size */
 .jv-presence-slot{--jv-presence-size:128px;position:relative;isolation:isolate;width:var(--jv-presence-size);
   height:var(--jv-presence-size);margin:0 auto 26px;display:grid;place-items:center}
-.jv-presence-placeholder{position:relative;width:60%;height:60%;border-radius:50%;background:var(--jv-ai-gradient)}
-.jv-presence-placeholder::before{content:'';position:absolute;inset:-30%;z-index:-1;border-radius:50%;
-  background:var(--jv-ai-gradient);filter:blur(28px);opacity:.5}
-.jv-presence-placeholder::after{content:'';position:absolute;inset:0;border-radius:50%;
-  background:radial-gradient(circle at 34% 28%,rgba(255,255,255,.55),transparent 48%),
-    radial-gradient(circle at 70% 82%,rgba(0,0,0,.22),transparent 58%)}
-body.light .jv-presence-placeholder::before{opacity:.32}
 .ce-title{font-family:var(--jv-font-display);font-size:clamp(26px,2.4vw,34px);font-weight:600;letter-spacing:-.01em;
   line-height:1.25;color:var(--jv-text)}
 .ce-sub{margin-top:8px;font-size:16px;color:var(--jv-text-2)}
