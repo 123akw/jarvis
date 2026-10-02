@@ -293,11 +293,14 @@ function ManageList({ plugins, busy, run, onPreview }) {
 
 /* ---------- MCP 服务 ---------- */
 
+// MCP 卡片本身在 .jvm-admin-list 里，那条样式（li 横排、带边框）会连带命中卡片里的嵌套列表，这里就地还原成普通列表项
+const PLAIN_LI = { display: 'block', border: 0, background: 'none', padding: 0, borderRadius: 0, overflowWrap: 'anywhere' }
+
 function ToolList({ tools }) {
   if (!tools?.length) return <p className="jvm-step-sub">还没有工具清单：点「测试连接」拉一次。</p>
   return (
     <ul className="jvm-tools">
-      {tools.map(t => <li key={t.name}><code>{t.name}</code>{t.description ? ` ${t.description}` : ''}</li>)}
+      {tools.map(t => <li key={t.name} style={PLAIN_LI}><code>{t.name}</code>{t.description ? ` ${t.description}` : ''}</li>)}
     </ul>
   )
 }
@@ -313,10 +316,10 @@ export function ToolDiff({ pending }) {
   ) : null)
   return (
     <dl className="jvm-trust-list" aria-label="工具清单变化">
-      {block('新增', diff.added, t => <li key={t.name}><code>{t.name}</code> {t.description}</li>)}
-      {block('移除', diff.removed, t => <li key={t.name}><code>{t.name}</code> {t.description}</li>)}
+      {block('新增', diff.added, t => <li key={t.name} style={PLAIN_LI}><code>{t.name}</code> {t.description}</li>)}
+      {block('移除', diff.removed, t => <li key={t.name} style={PLAIN_LI}><code>{t.name}</code> {t.description}</li>)}
       {block('有改动', diff.changed, t => (
-        <li key={t.name}>
+        <li key={t.name} style={PLAIN_LI}>
           <code>{t.name}</code> {t.fields?.join('、')}变了
           {t.before !== t.after ? <><br /><small>原来：{t.before || '（空）'}</small><br /><small>现在：{t.after || '（空）'}</small></> : null}
         </li>
@@ -374,8 +377,10 @@ function McpCard({ plugin, busy, run }) {
     await run(async () => { const r = await fn(); setResult(r); return r }, done)
   }
   return (
-    <li className={`jvm-source${plugin.status === 'ok' ? '' : ' is-off'}`} aria-label={`MCP 插件：${plugin.name}`}>
-      <div className="jvm-source-head">
+    // 市场样式表里列表项是横排的；MCP 卡片要竖排（头部 / 说明 / 展开区），就地覆盖，不动市场的样式表
+    <li className={`jvm-source${plugin.status === 'ok' ? '' : ' is-off'}`} aria-label={`MCP 插件：${plugin.name}`}
+      style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
+      <div className="jvm-source-head" style={{ marginBottom: 0 }}>
         <b>{plugin.icon} {plugin.name}</b>
         <span className="jvm-badge">MCP</span>
         <span className="jvm-badge">{status}</span>
