@@ -111,7 +111,9 @@ function compile(gl, type, src) {
   return sh
 }
 
-/** 在 canvas 上建渲染器；不支持/编译失败返回 null（调用方留在 CSS 版）。 */
+/** 在 canvas 上建渲染器；不支持/编译失败返回 null（调用方留在 CSS 版）。
+ *  有 KHR_parallel_shader_compile 时着色器在 GPU 进程后台编译，不在主线程同步等待：
+ *  编好之前 render() 返回 null（什么也没画），编译失败或上下文丢失返回 false，画出一帧返回 true。 */
 export function createPresenceRenderer(canvas, { onLost } = {}) {
   let gl
   try {
@@ -123,28 +125,40 @@ export function createPresenceRenderer(canvas, { onLost } = {}) {
     gl = null
   }
   if (!gl) return null
-  const vs = compile(gl, gl.VERTEX_SHADER, VERT)
-  const fs = compile(gl, gl.FRAGMENT_SHADER, FRAG)
+  const par = gl.getExtension('KHR_parallel_shader_compile')
+  const vs = par ? gl.createShader(gl.VERTEX_SHADER) : compile(gl, gl.VERTEX_SHADER, VERT)
+  const fs = par ? gl.createShader(gl.FRAGMENT_SHADER) : compile(gl, gl.FRAGMENT_SHADER, FRAG)
   if (!vs || !fs) return null
+  if (par) {
+    for (const [sh, src] of [[vs, VERT], [fs, FRAG]]) { gl.shaderSource(sh, src); gl.compileShader(sh) }
+  }
   const prog = gl.createProgram()
   gl.attachShader(prog, vs)
   gl.attachShader(prog, fs)
   gl.linkProgram(prog)
-  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null
-  gl.useProgram(prog)
+  if (!par && !gl.getProgramParameter(prog, gl.LINK_STATUS)) return null
 
   const buf = gl.createBuffer()
-  gl.bindBuffer(gl.ARRAY_BUFFER, buf)
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW)
-  const loc = gl.getAttribLocation(prog, 'aPos')
-  gl.enableVertexAttribArray(loc)
-  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0)
-
   const U = {}
-  for (const k of ['uRes', 'uPhase', 'uSpin', 'uEnergy', 'uScale', 'uHalo', 'uSweep', 'uLight']) {
-    U[k] = gl.getUniformLocation(prog, k)
+  let state = 0   // 0 编译中，1 就绪，-1 失败
+  let px = 0
+  function ready() {
+    if (par && !gl.getProgramParameter(prog, par.COMPLETION_STATUS_KHR)) return 0
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return -1
+    gl.useProgram(prog)
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf)
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW)
+    const loc = gl.getAttribLocation(prog, 'aPos')
+    gl.enableVertexAttribArray(loc)
+    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0)
+    for (const k of ['uRes', 'uPhase', 'uSpin', 'uEnergy', 'uScale', 'uHalo', 'uSweep', 'uLight']) {
+      U[k] = gl.getUniformLocation(prog, k)
+    }
+    gl.clearColor(0, 0, 0, 0)
+    if (px) gl.uniform2f(U.uRes, px, px)
+    return 1
   }
-  gl.clearColor(0, 0, 0, 0)
+  if (!par) state = ready()
 
   let lost = false
   const onLostEv = e => {
@@ -156,18 +170,21 @@ export function createPresenceRenderer(canvas, { onLost } = {}) {
 
   return {
     resize(cssPx, dpr) {
-      const px = Math.max(1, Math.round(cssPx * dpr))
+      px = Math.max(1, Math.round(cssPx * dpr))
       if (canvas.width !== px || canvas.height !== px) {
         canvas.width = px
         canvas.height = px
       }
       if (!lost) {
         gl.viewport(0, 0, px, px)
-        gl.uniform2f(U.uRes, px, px)
+        if (state === 1) gl.uniform2f(U.uRes, px, px)
       }
     },
     render(u) {
       if (lost || gl.isContextLost()) return false
+      if (state === 0) state = ready()
+      if (state < 0) return false
+      if (state === 0) return null
       gl.uniform1f(U.uPhase, u.phase)
       gl.uniform1f(U.uSpin, u.spin)
       gl.uniform1f(U.uEnergy, u.energy)

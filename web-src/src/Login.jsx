@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { login } from './api.js'
 import Presence, { prefersReducedMotion } from './Presence.jsx'
+import { INTRO_DONE_EVENT, introPlaying } from './intro/registry.js'
 import { applyTheme, currentTheme } from './theme.js'
 import './Login.css'
 
@@ -159,6 +160,17 @@ export default function Login({ onAuthed, notice = '' }) {
   const [missing, setMissing] = useState('')   // 空着没填的那一栏：'user' | 'pass'
   const [hint, setHint] = useState('')         // 错误提示：一直留到用户重新输入（原来 0.7 秒就消失，来不及读）
   const orbSize = useOrbSize()
+  // 进场动画播放中：问候语、登录卡、顶栏先不入场（光球照常就位，进场末帧要与它对齐），
+  // 收到 INTRO_DONE_EVENT（门帘开始淡出）再入场；没有进场动画时照常立刻入场
+  const [introHold, setIntroHold] = useState(introPlaying)
+  const [afterIntro, setAfterIntro] = useState(false)
+  useEffect(() => {
+    if (!introHold) return undefined
+    const go = () => { setIntroHold(false); setAfterIntro(true) }
+    if (!introPlaying()) { go(); return undefined }
+    window.addEventListener(INTRO_DONE_EVENT, go)
+    return () => window.removeEventListener(INTRO_DONE_EVENT, go)
+  }, [introHold])
   const orbRef = useRef(null)
   const userRef = useRef(null)
   const passRef = useRef(null)
@@ -276,7 +288,7 @@ export default function Login({ onAuthed, notice = '' }) {
   const orbState = spinup ? 'speaking' : busy ? 'thinking' : typing ? 'listening' : 'idle'
 
   return (
-    <div className={`jv-login form-${form} stage-${stage}`}>
+    <div className={`jv-login form-${form} stage-${stage}${introHold ? ' intro-hold' : ''}${afterIntro ? ' after-intro' : ''}`}>
       {moss ? (
         <>
           <Suspense fallback={<Ambient moss />}>
