@@ -328,6 +328,33 @@ def test_startup_scan_is_silent_for_strong_password(caplog):
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
+# ---------- 后台任务线程不进会话侧栏 ----------
+
+def test_service_threads_hidden_from_sidebar_but_kept(monkeypatch):
+    """实测：heartbeat/distill/radio/meeting 每次调用都 upsert 自己的别名线程（checkpoint 用完
+    即删），于是 Owner 侧栏出现「主动唤醒」「记忆蒸馏」等点开是空的会话，且每 30 分钟被心跳
+    顶到最上面。列表要过滤；线程本身保留（蒸馏豁免、别名注册都依赖它）。"""
+    agent = _CountingAgent()
+    _use_agent(monkeypatch, agent)
+    monkeypatch.setattr(agent, "checkpointer", SimpleNamespace(delete_thread=lambda _t: None), raising=False)
+    owner = AccountStore().list_users()[0]["id"]
+    for alias, title in (("heartbeat", "主动唤醒"), ("distill", "记忆蒸馏"),
+                         ("radio", "晨报电台"), ("meeting", "会议纪要")):
+        server_mod._service_invoke(owner, alias, title, "巡检")
+    server_mod._upsert_thread(owner, "t-real", "真实对话")
+    listed = [t["id"] for t in _client().get("/api/threads").json()]
+    assert listed == ["t-real"]
+    for alias in ("heartbeat", "distill", "radio", "meeting"):
+        assert TenantStore().get_thread(alias) is not None, "后台线程只隐藏不删除"
+
+
+def test_chat_cannot_write_into_service_thread(monkeypatch):
+    agent = _CountingAgent()
+    _use_agent(monkeypatch, agent)
+    r = _client().post("/api/chat", json={"message": "hi", "thread_id": "heartbeat"})
+    assert r.status_code == 422 and agent.calls == 0
+
+
 # ---------- 飞书未绑定提示：面向普通用户 ----------
 
 def test_feishu_unbound_reply_is_for_end_users():

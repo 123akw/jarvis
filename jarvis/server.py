@@ -251,6 +251,9 @@ MAX_CHAT_CHARS = 50_000
 MAX_THREAD_ID_CHARS = 128
 TURN_WAIT_SECONDS = 90.0   # 同一会话上一轮还在答时，新消息最多排队等这么久
 _BUSY_MESSAGE = "上一条消息还在处理中，请等它答完再发"
+# 后台任务（_service_invoke）的别名线程：照常注册（蒸馏豁免依赖它），但不进会话侧栏、
+# 不接受网页直接写入——它们的 checkpoint 每次用完即删，点开永远是空的。
+SERVICE_THREAD_ALIASES = frozenset({"radio", "heartbeat", "distill", "meeting"})
 
 
 @app.exception_handler(RequestValidationError)
@@ -578,7 +581,7 @@ def threads(request: Request):
         return _deny()
     try:
         with tenant_scope(principal.user_id):
-            return _tenant_store().list_threads()
+            return [t for t in _tenant_store().list_threads() if t["id"] not in SERVICE_THREAD_ALIASES]
     except TenantMigrationError:
         return _sensitive_json({"error": "个人数据迁移失败"}, 503)
 
@@ -1003,7 +1006,6 @@ def _heartbeat_compose(owner, content: str, now) -> str:
 
 # ---------- 夜间记忆蒸馏：把最近一天的对话浓缩进长期画像 ----------
 
-_DISTILL_SERVICE_ALIASES = {"radio", "heartbeat", "distill", "meeting"}  # 服务线程不参与蒸馏
 _DISTILL_MAX_CHARS = 6000
 
 
@@ -1015,7 +1017,7 @@ def _distill_collect(owner) -> str:
     with tenant_scope(owner.user_id):
         store = _tenant_store()
         recent = [t for t in store.list_threads()
-                  if t["id"] not in _DISTILL_SERVICE_ALIASES and (t["updated"] or "") >= cutoff]
+                  if t["id"] not in SERVICE_THREAD_ALIASES and (t["updated"] or "") >= cutoff]
         with _bundle_for(owner.user_id) as bundle:
             for t in recent:
                 thread = store.get_thread(t["id"])
@@ -1215,7 +1217,7 @@ def _chat_input_error(message: str, thread_id: str) -> str:
         return "消息不能为空"
     if len(message) > MAX_CHAT_CHARS:
         return f"消息太长了（上限 {MAX_CHAT_CHARS} 字），请精简或分几次发送"
-    if not thread_id.strip() or len(thread_id) > MAX_THREAD_ID_CHARS:
+    if not thread_id.strip() or len(thread_id) > MAX_THREAD_ID_CHARS or thread_id in SERVICE_THREAD_ALIASES:
         return "会话编号无效，请刷新页面后重试"
     return ""
 
