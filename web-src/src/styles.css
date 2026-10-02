@@ -477,6 +477,16 @@ body.light .jbody .hljs-built_in,body.light .jbody .hljs-type,body.light .jbody 
 .rt-ok{height:30px;padding:0 12px;border:none;border-radius:8px;background:var(--jv-surface-2);color:var(--jv-text);
   font-size:13px;font-weight:500;white-space:nowrap}
 .rt-ok:hover{background:var(--jv-pressed)}
+.jv-banner{position:fixed;top:64px;left:0;right:0;margin:0 auto;width:max-content;max-width:calc(100vw - 32px);z-index:59;
+  display:flex;align-items:center;gap:10px;padding:8px 8px 8px 16px;border-radius:999px;font-size:13.5px;color:var(--jv-text);
+  background:var(--jv-elevated);-webkit-backdrop-filter:var(--jv-blur);backdrop-filter:var(--jv-blur);
+  border:1px solid rgba(255,159,10,.45);box-shadow:var(--jv-shadow-float);animation:jv-drop .3s var(--jv-ease)}
+.jv-banner-text{min-width:0}
+.jv-banner-act,.jv-banner-later{flex:none;border:0;border-radius:999px;padding:6px 12px;font:inherit;font-weight:500;cursor:pointer}
+.jv-banner-act{background:var(--jv-text);color:var(--jv-bg)}
+.jv-banner-later{background:transparent;color:var(--jv-text-2)}
+.jv-banner-later:hover{color:var(--jv-text)}
+@media (max-width:640px){.jv-banner{top:58px;border-radius:16px;flex-wrap:wrap}.jv-banner-text{flex:1 1 100%}}
 .jv-toast{position:fixed;top:64px;left:0;right:0;margin:0 auto;width:max-content;max-width:calc(100vw - 32px);z-index:60;
   padding:9px 16px;border-radius:999px;font-size:13.5px;color:var(--jv-text);
   background:var(--jv-elevated);-webkit-backdrop-filter:var(--jv-blur);backdrop-filter:var(--jv-blur);

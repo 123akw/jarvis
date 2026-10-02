@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { getFeishuStatus, logout } from './api.js'
 import AccountMenu from './AccountMenu.jsx'
 import AccountSettings from './AccountSettings.jsx'
+import WeakPasswordNotice from './WeakPasswordNotice.jsx'
 import Chat from './Chat.jsx'
 import CommandPalette from './CommandPalette.jsx'
 import { DesktopGuide, useDesktopHandoff } from './DesktopHandoff.jsx'
@@ -235,6 +236,7 @@ export default function Hud({ session, onLogout }) {
         </div>
       </header>
       <Reminders onExpired={onLogout} />
+      <WeakPasswordNotice weak={Boolean(session?.password_weak)} onFix={() => setAccountOpen(true)} />
       {desktop.note ? <div className="jv-toast" role="status">{desktop.note}</div> : null}
       <main className="jv-main">
         <aside id="jv-sidebar" ref={sideRef} tabIndex={-1} className={`jv-sidebar${leftOpen ? ' open' : ''}`} aria-label="会话历史"
