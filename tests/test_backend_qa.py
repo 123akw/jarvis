@@ -328,6 +328,14 @@ def test_startup_scan_is_silent_for_strong_password(caplog):
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
+def test_csrf_failure_message_tells_user_what_to_do():
+    """「CSRF 校验失败」对普通用户是黑话；最常见原因是页面开太久/会话已换，刷新即可。"""
+    c = _client()
+    del c.headers["X-JWS-CSRF"]
+    r = c.post("/api/todos", json={"content": "x"})
+    assert r.status_code == 403 and "刷新" in r.json()["error"] and "CSRF" not in r.json()["error"]
+
+
 # ---------- 后台任务线程不进会话侧栏 ----------
 
 def test_service_threads_hidden_from_sidebar_but_kept(monkeypatch):

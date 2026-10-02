@@ -747,7 +747,7 @@ def register_voice(app, *, cookie_name: str, accounts, bundle_for, tenant_store,
         if principal.transport == "web" and not accounts.csrf_valid(
                 principal, ws.cookies.get(cookie_name, ""), str(init.get("csrf", ""))):
             await ws.send_text(json.dumps(
-                {"type": "error", "code": "csrf", "message": "CSRF 校验失败"}, ensure_ascii=False))
+                {"type": "error", "code": "csrf", "message": "页面已过期，请刷新后重试"}, ensure_ascii=False))
             await ws.close(code=CLOSE_UNAUTHORIZED)
             return
 

@@ -361,7 +361,7 @@ def _deny() -> JSONResponse:
 
 
 def _csrf_deny() -> JSONResponse:
-    return JSONResponse({"error": "CSRF 校验失败"}, status_code=403, headers={"Cache-Control": "no-store"})
+    return JSONResponse({"error": "页面已过期，请刷新后重试"}, status_code=403, headers={"Cache-Control": "no-store"})
 
 
 def _sensitive_json(content: object, status_code: int = 200) -> JSONResponse:
@@ -511,7 +511,7 @@ def _owner_for_write(request: Request) -> Principal | JSONResponse:
     if not principal:
         return _sensitive_json({"error": "未登录"}, 401)
     if not _write_authorized(request):
-        return _sensitive_json({"error": "CSRF 校验失败"}, 403)
+        return _sensitive_json({"error": "页面已过期，请刷新后重试"}, 403)
     if not principal.is_owner:
         return _sensitive_json({"error": "权限不足"}, 403)
     return principal
