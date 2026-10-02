@@ -537,6 +537,15 @@ class FeishuBridge:
                 return False
         return self.bindings.count_for(user_id) > 0
 
+    def doc_target(self, user_id: str) -> tuple[FeishuAPI, list[str]] | None:
+        """建飞书文档用：(客户端, 该账号绑定的 open_id 列表)；渠道未启用、未绑定或账号停用返回 None。"""
+        with self._lock:
+            api = self._api
+        if api is None or (self._accounts is not None and not self._active_username(user_id)):
+            return None
+        open_ids = [open_id for open_id, bound in self.bindings.all().items() if bound == user_id]
+        return (api, open_ids) if open_ids else None
+
     def push_text(self, user_id: str, text: str) -> bool:
         """私聊推一条文字给该账号绑定的每个飞书身份；任一送达即 True，失败只记日志不抛错。"""
         with self._lock:
