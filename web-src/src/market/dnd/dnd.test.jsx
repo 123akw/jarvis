@@ -255,6 +255,31 @@ describe('拖入 Dock', () => {
   })
 })
 
+describe('拖拽源本身是按钮', () => {
+  it('根元素是 <button> 时，从它里面的文字按下照样能拖（只忽略嵌在卡片里的按钮）', () => {
+    const onAdd = vi.fn()
+    function ButtonCard() {
+      const { dragProps } = useDragSource({ id: 'memo', label: '随手记', icon: '📝' })
+      return <button type="button" {...dragProps}><span className="jvm-card-icon">📝</span><span>随手记</span></button>
+    }
+    render(
+      <DndRoot onAdd={onAdd} canAdd={() => ''}>
+        <ButtonCard />
+        <Toolbox plugins={[]} onRemove={() => {}} onMove={() => {}} onClear={() => {}} onOpen={() => {}} />
+      </DndRoot>,
+    )
+    setRect(dock(), { left: 192, top: 680, width: 640, height: 76 })
+    const btn = screen.getByRole('button', { name: '📝随手记' })
+    setRect(btn, { left: 16, top: 20, width: 200, height: 60 })
+    down(btn.lastChild, 60, 40)
+    move(70, 50)
+    expect(ghost()).toHaveTextContent('随手记')
+    move(400, 700)
+    up(400, 700)
+    expect(onAdd).toHaveBeenCalledWith(['memo'], expect.objectContaining({ id: 'memo' }))
+  })
+})
+
 describe('触屏', () => {
   it('长按 350ms 才拖起（震一下）；之前移动超过 8px 视为滚动，放弃', () => {
     vi.useFakeTimers()

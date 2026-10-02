@@ -105,7 +105,7 @@ body.light .jvd-fly-icon{background:#fff}
 
 /* Dock 上的小图标可以往上拖出移除：拎起时原位半透明 */
 @media (hover:hover) and (pointer:fine){ .jvm-tray-icons i:not(.jvd-slot){cursor:grab} }
-.jvm-tray-icons i[data-pull]{opacity:.35}
+.jvm-tray-icons i[data-pull]{opacity:.35!important}   /* 托盘图标带 jvm-pop 的 fill:both，普通声明盖不过动画 */
 
 /* Dock 上方的短提示（拒绝原因 / 第一次的用法提示） */
 .jvd-tip{animation:jvd-rise .24s var(--jv-ease,ease) both}

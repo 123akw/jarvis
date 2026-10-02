@@ -54,7 +54,8 @@ export function beginGesture(e, {
   if (e.isPrimary === false) return false
   if (e.target?.closest?.(IGNORE)) return false
   // 卡片里的按钮（「+」、套装里的小图标）按下去不拖：它们各有各的点击
-  if (ignore && e.target !== el && e.target?.closest?.(ignore) && el?.contains(e.target.closest(ignore))) return false
+  const hit = ignore ? e.target?.closest?.(ignore) : null
+  if (hit && hit !== el && el?.contains(hit)) return false
   const longPress = type === 'touch' && mode !== 'handle'
   const g = { id: e.pointerId, type, active: false, startX: e.clientX, startY: e.clientY, x: e.clientX, y: e.clientY, timer: 0 }
   current = g
