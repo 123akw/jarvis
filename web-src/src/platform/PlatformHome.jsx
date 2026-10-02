@@ -8,7 +8,7 @@ const compact = () => typeof matchMedia === 'function' && matchMedia('(max-width
 
 /** 一条流程的小链：每一步一个插件图标，用细线连起来（呼应流程页的节点 + 连线） */
 function FlowChain({ steps, byId }) {
-  const list = (Array.isArray(steps) ? steps : []).slice(0, 5)
+  const list = (Array.isArray(steps) ? steps : []).slice(0, 4)
   return (
     <span className="pf-chain" aria-hidden="true">
       {list.map((s, i) => <span key={s.id || i} className="pf-node">{pluginMeta(s.plugin, byId).icon}</span>)}
@@ -17,13 +17,15 @@ function FlowChain({ steps, byId }) {
 }
 
 /**
- * 有平台的账号的新对话空态：版式与贾维斯的空态相同（光球 · 问候 · 快捷问题），只换内容——
+ * 有平台（智能体）的账号的新对话空态：版式与贾维斯的空态相同（光球 · 问候 · 快捷问题），只换内容——
  * 平台问候、平台插件的示例问题；下面多两行：我的工具箱（插件小图标，末尾「添加」去市场）、我的流程（去 /flows）。
  * flows 为 null（还没取到 / 接口失败）时不显示流程那一行。
  */
 export default function PlatformHome({ platform, plugins = null, flows = null, onPick }) {
   const chips = homeChips(platform, plugins)
-  const tools = (platform.plugins || []).map(id => pluginMeta(id, plugins))
+  // 工具箱只摆对话里能用的技能和通道；流程积木（拆分、提炼……）在「我的流程」里出现
+  const all = (platform.plugins || []).map(id => pluginMeta(id, plugins))
+  const tools = all.some(t => t.kind !== 'step') ? all.filter(t => t.kind !== 'step') : all
   const sub = platform.tagline || '说一句话，剩下的交给我'
   return (
     <div className="chat-empty pf-home">

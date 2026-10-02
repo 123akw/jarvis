@@ -7,12 +7,12 @@ const inWeChat = () => typeof navigator !== 'undefined' && /micromessenger/i.tes
 
 const STEPS = {
   ios: [
-    { icon: 'compose', text: <>用 <b>Safari</b> 打开平台链接</> },
+    { icon: 'compose', text: <>用 <b>Safari</b> 打开这个链接</> },
     { icon: 'share', text: <>点底部中间的 <b>分享</b> 按钮</> },
     { icon: 'addbox', text: <>选 <b>添加到主屏幕</b>，再点右上角 <b>添加</b></> },
   ],
   android: [
-    { icon: 'compose', text: <>用 <b>Chrome</b> 打开平台链接</> },
+    { icon: 'compose', text: <>用 <b>Chrome</b> 打开这个链接</> },
     { icon: 'more', text: <>点右上角的 <b>⋮</b> 菜单</> },
     { icon: 'addbox', text: <>选 <b>安装应用</b> 或 <b>添加到主屏幕</b></> },
   ],

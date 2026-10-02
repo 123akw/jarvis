@@ -9,7 +9,7 @@ const NAME_MAX = 20
 const TAGLINE_MAX = 40
 
 /**
- * 平台设置：名称、一句话介绍、图标、主题色、插件（可移除，「添加更多」去市场）→ PUT /api/platform。
+ * 智能体设置（接口里叫 platform）：名称、一句话介绍、图标、主题色、插件（可移除，「添加更多」去市场）→ PUT /api/platform。
  * 名称 / 图标 / 主题色改动经 onPreview 实时反映到顶栏与主页；关掉不保存时由调用方撤销预览。
  */
 export default function PlatformSettings({ platform, plugins = null, onSaved, onPreview, onClose, onExpired }) {
@@ -34,7 +34,7 @@ export default function PlatformSettings({ platform, plugins = null, onSaved, on
     e.preventDefault()
     if (busy) return
     const n = name.trim()
-    if (!n) { setError('给平台起个名字吧'); return }
+    if (!n) { setError('给智能体起个名字吧'); return }
     setBusy(true)
     setError('')
     try {
@@ -49,13 +49,13 @@ export default function PlatformSettings({ platform, plugins = null, onSaved, on
   }
 
   return (
-    <Modal label="平台设置" onClose={onClose} dismissOnBackdrop={false}>
-      <ModalHead title="平台设置" subtitle="改完点保存，扫码打开的人看到的也会一起变" onClose={onClose} />
+    <Modal label="智能体设置" onClose={onClose} dismissOnBackdrop={false}>
+      <ModalHead title="智能体设置" subtitle="改完点保存，顶栏和主页马上跟着变" onClose={onClose} />
       <form className="jv-modal-body pf-settings" onSubmit={submit}>
         <div className="pf-preview" aria-hidden="true">
           <span className="pf-tile lg">{icon}</span>
           <span className="pf-preview-text">
-            <span className="pf-preview-name">{name.trim() || '平台名称'}</span>
+            <span className="pf-preview-name">{name.trim() || '智能体名称'}</span>
             <span className="pf-preview-tag">{tagline.trim() || '一句话介绍'}</span>
           </span>
         </div>
@@ -74,7 +74,7 @@ export default function PlatformSettings({ platform, plugins = null, onSaved, on
 
         <fieldset className="pf-fieldset">
           <legend>图标</legend>
-          <div className="pf-icons" role="radiogroup" aria-label="平台图标">
+          <div className="pf-icons" role="radiogroup" aria-label="智能体图标">
             {icons.map(i => (
               <button key={i} type="button" role="radio" aria-checked={icon === i} aria-label={`图标 ${i}`}
                 className={`pf-icon-opt${icon === i ? ' on' : ''}`} onClick={() => setIcon(i)}>{i}</button>

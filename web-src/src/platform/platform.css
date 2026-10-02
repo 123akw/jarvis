@@ -142,10 +142,13 @@ body.jv-pf.light .hud{background:radial-gradient(1100px 560px at 50% -20%,color-
 .pf-more .jv-icon{color:var(--jv-accent)}
 .pf-empty{font-size:13px;color:var(--jv-text-3)}
 .pf-error{padding:10px 12px;border-radius:10px;font-size:13px;color:var(--jv-danger);background:color-mix(in srgb,var(--jv-danger) 10%,transparent)}
-.pf-actions{display:flex;justify-content:flex-end;gap:8px}
+/* 表单长：保存 / 取消贴在弹窗底部，不用滚到最后才能点 */
+.pf-actions{position:sticky;bottom:-28px;z-index:1;display:flex;justify-content:flex-end;gap:8px;
+  margin:0 -28px -28px;padding:14px 28px 28px;background:linear-gradient(to bottom,transparent,var(--jv-elevated) 26%)}
 @media (max-width:640px){
   .pf-icons{grid-template-columns:repeat(6,minmax(0,1fr))}
-  .pf-actions{display:grid;grid-template-columns:1fr 1fr}
+  .pf-actions{display:grid;grid-template-columns:1fr 1fr;bottom:calc(-28px - env(safe-area-inset-bottom));
+    margin:0 -20px calc(-28px - env(safe-area-inset-bottom));padding:14px 20px calc(28px + env(safe-area-inset-bottom))}
   .pf-actions .jv-btn{height:44px}
 }
 @media (pointer:coarse){

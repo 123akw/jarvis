@@ -21,7 +21,7 @@ import { navigate } from './routes.js'
 import { applyTheme, currentTheme, toggleTheme } from './theme.js'
 import { trackKeyboard } from './viewport.js'
 
-// 平台的分享卡与设置只在点开时加载（二维码库不进首屏）
+// 智能体的分享卡与设置只在点开时加载（二维码库不进首屏）
 const ShareSheet = lazy(() => import('./platform/ShareSheet.jsx'))
 const PlatformSettings = lazy(() => import('./platform/PlatformSettings.jsx'))
 
@@ -102,7 +102,7 @@ export default function Hud({ session, onLogout }) {
   const [quickSeed, setQuickSeed] = useState(null)            // ⌘K「速记…」带给今日板输入框的草稿
   const [theme, setTheme] = useState(currentTheme)
   const desktop = useDesktopHandoff()
-  // 账号的平台（第十三轮）：有平台时顶栏、主题色、新对话空态按平台定制；没有平台一切照旧
+  // 账号的平台（第十三轮，界面上叫「智能体」）：有平台时顶栏、主题色、新对话空态按它定制；没有平台一切照旧
   const pf = usePlatformHome()
   const platform = pf.platform
   const [shareOpen, setShareOpen] = useState(false)
@@ -235,11 +235,11 @@ export default function Hud({ session, onLogout }) {
   ]
   const logoutCommand = { id: 'logout', label: '退出登录', icon: 'logout', danger: true, run: quit }
   const platformCommands = [
-    { id: 'market', label: '智能平台市场', hint: platform ? '添加插件' : '拼一个自己的平台', icon: 'store', keywords: '插件 技能 市场 工坊 market', run: () => navigate('/market') },
+    { id: 'market', label: '智能平台市场', hint: platform ? '添加插件' : '拼一个自己的智能体', icon: 'store', keywords: '插件 技能 市场 工坊 market', run: () => navigate('/market') },
     { id: 'flows', label: '我的流程', icon: 'flow', keywords: '流程 积木 自动化 flow', run: () => navigate('/flows') },
     ...(platform ? [
-      { id: 'share', label: '分享我的平台', hint: '二维码 · 链接', icon: 'share', keywords: '分享 二维码 链接 主屏 安装 share', run: () => setShareOpen(true) },
-      { id: 'platform', label: '平台设置', hint: '名称 · 图标 · 主题色', icon: 'palette', keywords: '平台 名称 图标 颜色 插件', run: () => setPfOpen(true) },
+      { id: 'share', label: '分享我的智能体', hint: '二维码 · 链接', icon: 'share', keywords: '分享 二维码 链接 主屏 安装 平台 share', run: () => setShareOpen(true) },
+      { id: 'platform', label: '智能体设置', hint: '名称 · 图标 · 主题色', icon: 'palette', keywords: '智能体 平台 名称 图标 颜色 插件', run: () => setPfOpen(true) },
     ] : []),
   ]
   const menuCommands = [...platformCommands, { id: 'sep-platform', sep: true }, ...settingsCommands, { id: 'sep-logout', sep: true }, logoutCommand]

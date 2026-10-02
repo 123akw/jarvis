@@ -8,7 +8,7 @@ import { platformLink } from './platform.js'
 import { useInstallPrompt } from './usePlatform.js'
 import './platform.css'
 
-/** 分享我的平台：大二维码 + 链接一键复制 + 系统分享（有 navigator.share 时）+ 装到主屏指引。手机上是底部抽屉（Modal 自带）。 */
+/** 分享我的智能体：大二维码 + 链接一键复制 + 系统分享（有 navigator.share 时）+ 装到主屏指引。手机上是底部抽屉（Modal 自带）。 */
 export default function ShareSheet({ platform, onClose }) {
   const url = platformLink(platform)
   const [copied, setCopied] = useState('')
@@ -25,13 +25,13 @@ export default function ShareSheet({ platform, onClose }) {
   }
   async function share() {
     try {
-      await navigator.share({ title: platform.name, text: platform.tagline || `来用我的平台「${platform.name}」`, url })
+      await navigator.share({ title: platform.name, text: platform.tagline || `来用我的智能体「${platform.name}」`, url })
     } catch { /* 用户取消分享 */ }
   }
 
   return (
-    <Modal label="分享我的平台" size="sm" onClose={onClose} className="pf-share">
-      <ModalHead title="分享我的平台" subtitle="扫码就能打开，装到主屏就是一个 App" onClose={onClose} />
+    <Modal label="分享我的智能体" size="sm" onClose={onClose} className="pf-share">
+      <ModalHead title="分享我的智能体" subtitle="扫码就能打开，装到主屏就是一个 App" onClose={onClose} />
       <div className="jv-modal-body pf-share-body">
         <figure className="pf-qr-card">
           <div className="pf-qr-brand">

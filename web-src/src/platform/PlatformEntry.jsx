@@ -109,7 +109,7 @@ function LoginCard({ name, onAuthed }) {
   )
 }
 
-/** 已登录：直接进平台；不是自己就退出换号 */
+/** 已登录：直接进去；不是自己就退出换号 */
 function SignedIn({ session, onAuthed }) {
   const [busy, setBusy] = useState(false)
   async function switchAccount() {
@@ -125,7 +125,7 @@ function SignedIn({ session, onAuthed }) {
         <span className="avatar lg" aria-hidden="true">{name.slice(0, 1).toUpperCase() || '·'}</span>
         <span className="pfe-who-name">{name}</span>
       </div>
-      <button type="button" className="pfe-btn" onClick={() => navigate('/')}>进入我的平台</button>
+      <button type="button" className="pfe-btn" onClick={() => navigate('/')}>进入我的智能体</button>
       <button type="button" className="pfe-link" onClick={() => void switchAccount()} disabled={busy}>换个账号登录</button>
     </div>
   )
@@ -164,9 +164,9 @@ export default function PlatformEntry({ slug, session, onAuthed }) {
         <div className="pfe-ambient" aria-hidden="true"><i className="pfe-glow" /><i className="pfe-grain" /></div>
         <main className="pfe-lost">
           <Presence state="idle" size={96} quality="css" decorative />
-          <h1 className="pfe-lost-title">{missing ? '没有找到这个平台' : '平台暂时打不开'}</h1>
+          <h1 className="pfe-lost-title">{missing ? '没有找到这个智能体' : '暂时打不开'}</h1>
           <p className="pfe-lost-text">
-            {missing ? '链接可能输错了，或者平台已经改名。可以找分享给你的人再要一次。' : '网络好像不太稳，稍后再试一次。'}
+            {missing ? '链接可能输错了，或者它已经改名。可以找分享给你的人再要一次。' : '网络好像不太稳，稍后再试一次。'}
           </p>
           <div className="pfe-lost-actions">
             {missing

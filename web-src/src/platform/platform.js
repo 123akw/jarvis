@@ -1,4 +1,4 @@
-/* 「自己的平台」（第十三轮）：账号拼好的平台——品牌、主题色、插件、主页问候、分享链接。
+/* 「自己的平台」（第十三轮，界面上叫「智能体」）：账号拼好的平台——品牌、主题色、插件、主页问候、分享链接。
  * 接口契约见 docs/proposals/2026-10-round13-platform.md §4.2；这里只放纯函数和接口调用，界面在同目录的组件里。 */
 import { csrfHeaders } from '../api.js'
 
@@ -94,7 +94,7 @@ function timeGreeting(now = new Date()) {
 export function homeGreeting(platform, now = new Date()) {
   const g = String(platform?.home?.greeting || '').trim()
   if (g) return g
-  return `${timeGreeting(now)}，欢迎回到${platform?.name || '你的平台'}`
+  return `${timeGreeting(now)}，欢迎回到${platform?.name || '你的智能体'}`
 }
 
 /** 平台的公开链接：接口给了绝对地址就用它，否则按当前站点拼 /p/<slug> */
