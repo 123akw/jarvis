@@ -227,6 +227,7 @@ class WeChatBridge:
         self._updates_stop = threading.Event()
         self._updates_thread = None
         self._dispatcher = None
+        self._quick_reply = None   # (text) -> str | None：提醒的「稍后 / 好了」回复短语
 
     def configure(self, agent_getter, chunk_text, owner_getter=None, runtime_getter=None) -> None:
         """由 Web 服务注入 Agent 与消息文本转换器。"""
@@ -331,6 +332,28 @@ class WeChatBridge:
 
     def push_available(self) -> bool:
         return self._push_channel() is not None
+
+    def push_bound(self) -> bool:
+        """是否有人发过「提醒发给我」（不管桥此刻连没连上）：设置页据此显示微信渠道。"""
+        return self._load_push_target() is not None
+
+    def set_quick_reply(self, handler) -> None:
+        with self._lock:
+            self._quick_reply = handler
+
+    def _try_quick_reply(self, from_id: str, text: str) -> str | None:
+        """只有收提醒的那个联系人发来的短语才可能是在回提醒；拿不准一律交给模型。"""
+        handler = self._quick_reply
+        if handler is None:
+            return None
+        target = self._load_push_target()
+        if not target or target["from_id"] != from_id:
+            return None
+        try:
+            return handler(text)
+        except Exception as exc:
+            log.warning("WeChat quick reply failed: %s", type(exc).__name__)
+            return None
 
     def push_text(self, text: str) -> bool:
         """主动推送一条文字（日程提醒等）给绑定联系人；未绑定/未连接返回 False 不抛错。"""
@@ -848,6 +871,10 @@ class WeChatBridge:
             self._clear_push_target()
             self._send_text_chunks(client, token, from_id, context_token, PUSH_UNBOUND_REPLY)
             return
+        quick = self._try_quick_reply(from_id, text)
+        if quick:   # 回提醒的「稍后 / 好了」：确定性处理，不进大模型
+            self._send_text_chunks(client, token, from_id, context_token, quick)
+            return
         if dispatcher is None:
             self._deliver_reply(client, token, from_id, context_token, text)
             return
@@ -1039,3 +1066,12 @@ def push_available() -> bool:
 def push_voice_then_text(text: str) -> bool:
     """主动推送语音条+文字（晨报电台用）；语音失败自动降级纯文字。"""
     return _bridge.push_voice_then_text(text)
+
+
+def push_bound() -> bool:
+    return _bridge.push_bound()
+
+
+def set_quick_reply(handler) -> None:
+    """注入提醒回复短语处理器 (text) -> str | None（server.py 启动时设置）。"""
+    _bridge.set_quick_reply(handler)

@@ -16,10 +16,10 @@ def get_bridge() -> FeishuBridge:
 
 
 def register(app, *, bundle_for, chunk_text, tenant_store, accounts,
-             request_principal, write_authorized, deny, csrf_deny) -> None:
+             request_principal, write_authorized, deny, csrf_deny, quick_reply=None) -> None:
     """注入 Agent/账户依赖并挂上 /api/feishu/* 路由（不启动连接）。"""
     _bridge.configure(bundle_for=bundle_for, chunk_text=chunk_text,
-                      tenant_store=tenant_store, accounts=accounts)
+                      tenant_store=tenant_store, accounts=accounts, quick_reply=quick_reply)
     register_routes(app, _bridge, request_principal=request_principal,
                     write_authorized=write_authorized, deny=deny, csrf_deny=csrf_deny)
 
@@ -37,4 +37,18 @@ def status() -> dict:
     return _bridge.status()
 
 
-__all__ = ["FeishuBridge", "FeishuSettings", "get_bridge", "register", "shutdown", "start", "status"]
+def push_text(user_id: str, text: str) -> bool:
+    """主动私聊推送给该账号绑定的飞书身份；渠道未启用或未绑定返回 False。"""
+    return _bridge.push_text(user_id, text)
+
+
+def push_ready(user_id: str) -> bool:
+    return _bridge.push_ready(user_id)
+
+
+def bound_users() -> list[str]:
+    return _bridge.bound_users()
+
+
+__all__ = ["FeishuBridge", "FeishuSettings", "bound_users", "get_bridge", "push_ready", "push_text",
+           "register", "shutdown", "start", "status"]
