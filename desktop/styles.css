@@ -337,6 +337,17 @@ body.light :is(.hljs-built_in,.hljs-type,.hljs-variable){color:#804FB8}
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;animation:jv-rise .24s var(--jv-ease)}
 #clipbar:hover{background:var(--jv-surface-2);color:var(--jv-text)}
 
+/* 日程提醒条：点系统通知展开后出现，就地「稍后 10 分 / 完成」 */
+#remindbar{flex:none;display:flex;align-items:center;gap:8px;margin:0 12px 6px;padding:6px 6px 6px 12px;
+  border:1px solid var(--jv-border);border-radius:12px;background:var(--jv-surface);font-size:12.5px;
+  animation:jv-rise .24s var(--jv-ease)}
+#remindbar .jv-icon{flex:none;width:14px;height:14px;color:var(--jv-warn)}
+#rb-text{flex:1;min-width:0;color:var(--jv-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}
+#remindbar button{flex:none;height:26px;padding:0 10px;border:none;border-radius:8px;background:var(--jv-surface-2);
+  color:var(--jv-text);font:inherit;font-weight:500;cursor:pointer}
+#remindbar button:hover{background:var(--jv-pressed)}
+#remindbar button:disabled{opacity:.5;cursor:default}
+
 /* ⌥Q 划词条：浮起卡片 + 分段式三动作 */
 #quickbar{flex:none;display:none;position:relative;flex-direction:column;gap:9px;margin:0 12px 6px;padding:10px 12px 12px;
   border-radius:16px;background:var(--jv-elevated);border:1px solid var(--jv-border);box-shadow:var(--jv-capsule-shadow);
@@ -618,6 +629,6 @@ body.light .jv-switch:not(:checked){background:rgba(120,120,128,.24)}
 @media (prefers-reduced-motion:reduce){
   .orb,.orb *,#calldot,#mini-eye,#pstate::before,.caret,.hk-field.rec,#m-dot{animation:none!important;transition:none!important}
   :is(body.voice-listening #orb,#voice.listening #v-orb) .o-ring{opacity:.9;transform:scale(.9)}
-  #panel,#board,#voice,#meeting,#settings,.m-user,.m-ai,.sys,#plog .empty,.qchips,#clipbar,#quickbar{animation:none!important}
+  #panel,#board,#voice,#meeting,#settings,.m-user,.m-ai,.sys,#plog .empty,.qchips,#clipbar,#remindbar,#quickbar{animation:none!important}
   #ball,.qchips button,.jv-switch,.jv-switch::before,.jv-seg button{transition:none!important}
 }

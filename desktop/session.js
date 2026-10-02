@@ -9,6 +9,8 @@ const OPERATIONS = {
   session: { method: 'GET', path: () => '/api/session', validate: emptyBody },
   dashboard: { method: 'GET', path: () => '/api/dashboard', validate: emptyBody },
   remindersPending: { method: 'GET', path: () => '/api/reminders/pending', validate: emptyBody },
+  reminderSnooze: { method: 'POST', path: body => `/api/reminders/${body.id}/snooze`, validate: reminderActBody, requestBody: body => ({ at: body.at, minutes: body.minutes }) },
+  reminderDone: { method: 'POST', path: body => `/api/reminders/${body.id}/done`, validate: reminderActBody, requestBody: body => ({ at: body.at }) },
   todoPatch: { method: 'PATCH', path: body => `/api/todos/${body.id}`, validate: todoPatchBody, requestBody: body => ({ done: body.done }) },
   desktopCommands: { method: 'GET', path: () => '/api/desktop/commands', validate: emptyBody },
   voiceWakeCheck: { method: 'POST', path: () => '/api/voice/wake', validate: wakeCheckBody },
@@ -227,6 +229,14 @@ function emptyBody(body) {
   if (body === undefined) return {}
   if (!record(body) || Object.keys(body).length) throw new Error('invalid empty body')
   return {}
+}
+function reminderActBody(body) {
+  if (!record(body)) throw new Error('invalid reminder body')
+  exact(body, 'minutes' in body ? ['id', 'at', 'minutes'] : ['id', 'at'])
+  if (!Number.isInteger(body.id) || body.id < 1) throw new Error('invalid reminder id')
+  if (typeof body.at !== 'string' || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(body.at)) throw new Error('invalid reminder time')
+  if ('minutes' in body && (!Number.isInteger(body.minutes) || body.minutes < 1 || body.minutes > 180)) throw new Error('invalid snooze minutes')
+  return 'minutes' in body ? { id: body.id, at: body.at, minutes: body.minutes } : { id: body.id, at: body.at }
 }
 function desktopThread(body) { exact(body, ['thread_id']); if (body.thread_id !== 'desktop') throw new Error('invalid desktop thread'); return { thread_id: 'desktop' } }
 function todoPatchBody(body) {

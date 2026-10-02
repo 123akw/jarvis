@@ -1271,6 +1271,50 @@ if (window.jws.onWakeNotice) {
   window.jws.onWakeNotice(text => sys(text))
 }
 
+/* 日程提醒条：点系统通知展开悬浮窗后出现。macOS 未签名包的通知没有按钮，在这里同样能稍后 / 完成；
+   服务端幂等，与网页、微信、飞书共用一套账本（任一处处理过，其他地方不再催）。 */
+const remindbar = $('#remindbar'), rbText = $('#rb-text'), rbLater = $('#rb-later'), rbDone = $('#rb-done')
+let remindItem = null, remindTimer = 0
+function hideReminder() { remindbar.style.display = 'none'; remindItem = null; clearTimeout(remindTimer) }
+function showReminder(item) {
+  clearTimeout(remindTimer)
+  remindItem = item
+  const actionable = item.id > 0 && Boolean(item.at)
+  rbText.textContent = `${item.when.slice(11)}  ${item.title}`
+  rbLater.style.display = actionable ? '' : 'none'
+  rbDone.style.display = ''
+  rbDone.textContent = actionable ? '完成' : '知道了'
+  rbLater.disabled = rbDone.disabled = false
+  remindbar.style.display = ''
+}
+async function actReminder(action) {
+  const item = remindItem
+  if (!item || !(item.id > 0) || !item.at) { hideReminder(); return }
+  rbLater.disabled = rbDone.disabled = true
+  try {
+    const r = action === 'snooze'
+      ? await api('reminderSnooze', { id: item.id, at: item.at, minutes: 10 })
+      : await api('reminderDone', { id: item.id, at: item.at })
+    const data = await r.json()
+    if (r.ok && data.status === 'snoozed') {
+      rbText.textContent = `好的，${String(data.until || '').slice(11)} 再提醒你`
+      rbLater.style.display = rbDone.style.display = 'none'
+      remindTimer = setTimeout(hideReminder, 2400)
+    } else if (r.ok || r.status === 404 || r.status === 409) {
+      hideReminder()   // 完成了，或日程已删 / 已改期：这条提醒作废
+    } else {
+      rbText.textContent = '没成功，再试一次'
+      rbLater.disabled = rbDone.disabled = false
+    }
+  } catch {
+    rbText.textContent = '没连上服务器，再试一次'
+    rbLater.disabled = rbDone.disabled = false
+  }
+}
+rbLater.addEventListener('click', () => void actReminder('snooze'))
+rbDone.addEventListener('click', () => void actReminder('done'))
+if (window.jws.onReminderOpen) window.jws.onReminderOpen(showReminder)
+
 /* 启动：仅主进程可恢复安全会话；失效时自动展开登录与自托管配置。 */
 ;(async () => {
   try {

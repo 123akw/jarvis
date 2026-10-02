@@ -18,6 +18,7 @@ const { buildAppInfo, restartApp } = require('./app-info.js')
 const { buildTrayMenuTemplate, wireTray } = require('./tray-setup.js')
 const { hotkeyFailureNotice, quickAskPayload } = require('./quick-ask.js')
 const { claimSingleInstance, registerProtocol, releaseShortcuts } = require('./app-lifecycle.js')
+const { createReminderNotifier, reminderPayload } = require('./reminder-notify.js')
 
 /* macOS 系统回环音频（会议纪要录「对方」声音）需显式开 Chromium 特性；
  * 三个开关分别覆盖 macOS 13/14/15+ 的三代实现，未知特性名会被静默忽略。 */
@@ -617,7 +618,18 @@ function startCommandPolling() {
   }, 10 * 1000)
 }
 
-/* 日程主动提醒：登录态下每分钟领取一次到点日程，弹系统通知（服务端按通道只发一次） */
+/* 日程主动提醒：登录态下每分钟领取一次到点日程，弹系统通知（服务端按通道只发一次）。
+   通知带「稍后 10 分钟」「完成」（macOS 签名包才显示按钮）；点通知本身展开悬浮窗、显示提醒条。 */
+const reminderNotifier = createReminderNotifier({
+  Notification,
+  platform: process.platform,
+  request: (operation, body) => gateway().request(operation, body),
+  onOpen: item => {
+    ensureExpanded()
+    const payload = reminderPayload(item)
+    if (payload) win.webContents.send('reminder-open', payload)
+  },
+})
 function startReminderPolling() {
   setInterval(async () => {
     try {
@@ -625,14 +637,7 @@ function startReminderPolling() {
       if (!g.authToken()) return
       const r = await g.request('remindersPending', {})
       if (!r.ok || !Array.isArray(r.data?.items)) return
-      for (const item of r.data.items) {
-        if (Notification.isSupported()) {
-          new Notification({
-            title: '贾维斯 · 日程提醒',
-            body: `${String(item.when || '').slice(11)} ${item.title || ''}`.trim(),
-          }).show()
-        }
-      }
+      for (const item of r.data.items) reminderNotifier.notify(item)
     } catch { /* 离线或服务器不可达时静默，下一轮再试 */ }
   }, 60 * 1000)
 }

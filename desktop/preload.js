@@ -30,5 +30,6 @@ contextBridge.exposeInMainWorld('jws', {
   onSetExpanded: eventApi.onSetExpanded,
   onHandoffAuthenticated: eventApi.onHandoffAuthenticated,
   onWakeNotice: eventApi.onWakeNotice,
+  onReminderOpen: eventApi.onReminderOpen,
   api: createPreloadApi(ipcRenderer, randomUUID),
 })
