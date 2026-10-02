@@ -89,6 +89,8 @@ export default function Hud({ session, onLogout }) {
   const [accountOpen, setAccountOpen] = useState(false)
   const [providerOpen, setProviderOpen] = useState(false)
   const [memoryOpen, setMemoryOpen] = useState(false)
+  const [memoryHighlight, setMemoryHighlight] = useState([])   // 「昨晚整理了 N 条 · 查看」要标出的条目
+  const [quickSeed, setQuickSeed] = useState(null)            // ⌘K「速记…」带给今日板输入框的草稿
   const [theme, setTheme] = useState(currentTheme)
   const desktop = useDesktopHandoff()
 
@@ -157,6 +159,15 @@ export default function Hud({ session, onLogout }) {
     freshRef.current.add(id)
     selectThread(id)
   }
+  /** 速记：打开「今日」并把草稿放进待办输入框（预览确认后回车才写入，⌘K 里不直接落库） */
+  function openQuick(text) {
+    setToday(true)
+    setQuickSeed({ seq: Date.now(), text: text || '' })
+  }
+  const openMemory = useCallback(ids => {
+    setMemoryHighlight(Array.isArray(ids) ? ids : [])
+    setMemoryOpen(true)
+  }, [])
 
   const overlayShown = (leftOverlay && leftOpen) || (todayOverlay && todayOpen)
   const closeOverlays = useCallback(() => {
@@ -185,6 +196,7 @@ export default function Hud({ session, onLogout }) {
   const menuCommands = [...settingsCommands, { id: 'sep-logout', sep: true }, logoutCommand]
   const paletteCommands = [
     { id: 'new', label: '新对话', icon: 'compose', run: newChat },
+    { id: 'quick', label: '速记…', hint: '待办或日程，写上时间就是日程', icon: 'plus', keywords: '速记 待办 日程 提醒 添加 新建 quick add todo', run: () => openQuick('') },
     { id: 'sidebar', label: leftOpen ? '收起会话栏' : '展开会话栏', icon: 'sidebar', keywords: '历史 会话', run: toggleLeft },
     { id: 'today', label: todayOpen ? '收起今日' : '打开今日', hint: '日程 · 待办 · 备忘 · 会议纪要', icon: 'today', run: () => setToday(!todayOpen) },
     ...settingsCommands,
@@ -264,6 +276,7 @@ export default function Hud({ session, onLogout }) {
             <div className="today-scroll">
               {/* 常挂载：收起时也继续轮询仪表盘（顶栏状态点、模型名、待办提示都靠它） */}
               <Panels refreshKey={refreshKey} onData={setDash} onExpired={onLogout}
+                active={todayOpen} quickSeed={quickSeed} onOpenMemory={openMemory}
                 onAskMeeting={text => { setInjected({ seq: Date.now(), text }); if (todayOverlay) setTodayOpen(false) }} />
             </div>
           </div>
@@ -271,12 +284,15 @@ export default function Hud({ session, onLogout }) {
         {overlayShown ? <div className="drawer-backdrop" onClick={closeOverlays} /> : null}
       </main>
       {paletteOpen ? (
-        <CommandPalette commands={paletteCommands} threads={threadList}
+        <CommandPalette commands={paletteCommands} threads={threadList} onQuick={openQuick}
           onPickThread={selectThread} onClose={() => setPaletteOpen(false)} />
       ) : null}
       {wxOpen ? <WeChatConnect onClose={() => setWxOpen(false)} onExpired={onLogout} /> : null}
       {fsOpen ? <FeishuConnect onClose={() => setFsOpen(false)} onExpired={onLogout} onChange={setFeishu} /> : null}
-      {memoryOpen ? <MemoryPanel onClose={() => setMemoryOpen(false)} onExpired={onLogout} /> : null}
+      {memoryOpen ? (
+        <MemoryPanel highlight={memoryHighlight} onExpired={onLogout}
+          onClose={() => { setMemoryOpen(false); setMemoryHighlight([]) }} />
+      ) : null}
       {accountOpen ? (
         <Modal label="账户设置" onClose={() => setAccountOpen(false)} dismissOnBackdrop={false}>
           <AccountSettings session={session} onClose={() => setAccountOpen(false)} onReauth={onLogout} />

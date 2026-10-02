@@ -1,3 +1,4 @@
+import '@testing-library/jest-dom/vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -7,10 +8,59 @@ vi.mock('./api.js', () => ({
   deleteProfile: vi.fn(),
   getPersona: vi.fn(),
   savePersona: vi.fn(),
+  getMemoryState: vi.fn(),
+  saveMemoryPrefs: vi.fn(),
 }))
 
-import { addProfile, deleteProfile, getPersona, getProfile, savePersona } from './api.js'
+import { addProfile, deleteProfile, getMemoryState, getPersona, getProfile, saveMemoryPrefs, savePersona } from './api.js'
+import { receiptsOn, setReceipts } from './memoryPrefs.js'
 import MemoryPanel from './MemoryPanel.jsx'
+
+describe('记忆面板：回执开关与昨晚新增', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    setReceipts(true)
+    getProfile.mockResolvedValue({ items: [{ id: 1, content: '领导喝咖啡只喝美式' }, { id: 4, content: '领导周五不排会' }] })
+    getPersona.mockResolvedValue({ style: 'jarvis', address: '', flavor: '' })
+    getMemoryState.mockResolvedValue({ receipts: true, fresh: { count: 0, ids: [] } })
+    saveMemoryPrefs.mockResolvedValue({ ok: true })
+  })
+  afterEach(cleanup)
+
+  it('「显示记忆回执」默认开，关掉即保存并同步给对话区', async () => {
+    render(<MemoryPanel onClose={() => {}} />)
+    const sw = await screen.findByRole('switch', { name: /显示记忆回执/ })
+    expect(sw).toBeChecked()
+    fireEvent.click(sw)
+    await waitFor(() => expect(saveMemoryPrefs).toHaveBeenCalledWith(false))
+    expect(sw).not.toBeChecked()
+    expect(receiptsOn()).toBe(false)
+  })
+
+  it('保存失败回滚并说明', async () => {
+    saveMemoryPrefs.mockRejectedValue(new Error('请求失败'))
+    render(<MemoryPanel onClose={() => {}} />)
+    const sw = await screen.findByRole('switch', { name: /显示记忆回执/ })
+    fireEvent.click(sw)
+    expect(await screen.findByRole('alert')).toHaveTextContent('没能保存')
+    expect(sw).toBeChecked()
+    expect(receiptsOn()).toBe(true)
+  })
+
+  it('打开时以服务端为准（别的设备关过）', async () => {
+    getMemoryState.mockResolvedValue({ receipts: false, fresh: { count: 0, ids: [] } })
+    render(<MemoryPanel onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByRole('switch', { name: /显示记忆回执/ })).not.toBeChecked())
+  })
+
+  it('从「昨晚整理了 N 条 · 查看」进来：这批条目标「新」', async () => {
+    render(<MemoryPanel onClose={() => {}} highlight={[4]} />)
+    const fresh = (await screen.findByText('领导周五不排会')).closest('li')
+    expect(fresh.className).toContain('fresh')
+    expect(fresh.textContent).toContain('新')
+    expect(screen.getByText('领导喝咖啡只喝美式').closest('li').className).not.toContain('fresh')
+  })
+})
 
 describe('记忆面板', () => {
   beforeEach(() => {

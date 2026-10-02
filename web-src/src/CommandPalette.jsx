@@ -1,10 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Icon from './Icon.jsx'
 import { useDialogFocus, useEscape } from './Modal.jsx'
+import { parseQuickAdd } from './quickAdd.js'
+
+/** 输入内容按速记会落成什么（只做预览，不写入） */
+function quickHint(text) {
+  const r = parseQuickAdd(text, new Date())
+  if (r.kind === 'schedule') return `日程 · ${r.rel ? `${r.rel} ` : ''}${r.label}`
+  if (r.kind === 'empty') return '还差要做的事'
+  return '待办'
+}
 
 /** ⌘K 命令面板：所有设置入口 + 最近会话跳转，键盘 ↑↓ 选择、Enter 执行、Esc 关闭。
- *  commands: [{ id, label, hint?, icon, run }]；threads: [{ id, title }] */
-export default function CommandPalette({ commands, threads = [], onPickThread, onClose }) {
+ *  commands: [{ id, label, hint?, icon, run }]；threads: [{ id, title }]
+ *  onQuick(text)：输入了内容时末尾多一条「速记「…」」，带着草稿去「今日」板预览确认（不在这里直接写入） */
+export default function CommandPalette({ commands, threads = [], onPickThread, onQuick, onClose }) {
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const inputRef = useRef(null)
@@ -27,8 +37,12 @@ export default function CommandPalette({ commands, threads = [], onPickThread, o
     const recent = q ? [] : threads.slice(0, 4).map(t => ({
       key: `t:${t.id}`, id: t.id, label: t.title, icon: 'bubble', group: '最近对话', run: () => onPickThread(t.id),
     }))
-    return [...cmds, ...convs, ...recent]
-  }, [query, commands, threads, onPickThread])
+    const text = query.trim()
+    const quick = onQuick && text && !cmds.some(c => c.id === 'quick') ? [{
+      key: 'q:quick', label: `速记「${text}」`, hint: quickHint(text), icon: 'plus', group: '速记', run: () => onQuick(text),
+    }] : []
+    return [...cmds, ...convs, ...recent, ...quick]
+  }, [query, commands, threads, onPickThread, onQuick])
 
   useEffect(() => { setActive(0) }, [query])
   useEffect(() => {

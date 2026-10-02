@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  addMemo, addSchedule, addTodo, deleteMemo, deleteSchedule, deleteTodo,
+  addMemo, addSchedule, deleteMemo, deleteSchedule, deleteTodo,
   emailMeeting, getDashboard, getMeeting, getMeetings, importMeetingTodos, patchTodo,
   renameMeetingSpeaker,
 } from './api.js'
+import Brief from './Brief.jsx'
 import Icon from './Icon.jsx'
 import { renderMarkdown } from './markdown.js'
+import MemoryNotice from './MemoryNotice.jsx'
+import QuickAdd from './QuickAdd.jsx'
 
 const TODO_LIMIT = 8
 const MEMO_LIMIT = 5
@@ -17,13 +20,14 @@ function nextHour(now = new Date()) {
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
-/** 今日板：日程 / 待办 / 备忘，可勾选、快速新增、删除；会议纪要卡片。
- *  勾选是乐观更新（立即打勾、失败回滚）；任何写操作失败都就地说明并保留草稿。 */
-export default function Panels({ refreshKey, onData, onExpired, onAskMeeting }) {
+/** 今日板：简报卡 + 记忆提示（各一行、可收）；日程 / 待办 / 备忘，可勾选、快速新增、删除；会议纪要卡片。
+ *  待办输入框兼做「一句话速记」：写上时间就成日程。
+ *  勾选是乐观更新（立即打勾、失败回滚）；任何写操作失败都就地说明并保留草稿。
+ *  active：今日板此刻是否可见（简报只在被看见时生成）；quickSeed：⌘K「速记…」带来的草稿。 */
+export default function Panels({ refreshKey, onData, onExpired, onAskMeeting, active = true, quickSeed = null, onOpenMemory }) {
   const [d, setD] = useState(null)
   const [loadErr, setLoadErr] = useState('')
   const [meetings, setMeetings] = useState(null)   // {items, active}
-  const [todoDraft, setTodoDraft] = useState('')
   const [memoDraft, setMemoDraft] = useState('')
   const [schedDraft, setSchedDraft] = useState('')
   const [schedWhen, setSchedWhen] = useState(nextHour)
@@ -84,13 +88,6 @@ export default function Panels({ refreshKey, onData, onExpired, onAskMeeting }) 
     }))
   }
 
-  async function submitTodo() {
-    const text = todoDraft.trim()
-    if (!text) return
-    setTodoDraft('')
-    await act(() => addTodo(text), '没能添加这条待办，请稍后再试', () => setTodoDraft(text))
-  }
-
   async function submitMemo() {
     const text = memoDraft.trim()
     if (!text) return
@@ -134,6 +131,8 @@ export default function Panels({ refreshKey, onData, onExpired, onAskMeeting }) 
   return (
     <>
       {err ? <div className="today-err" role="alert">{err}</div> : null}
+      <Brief active={active} refreshKey={refreshKey} onExpired={onExpired} />
+      <MemoryNotice onOpenMemory={onOpenMemory} onExpired={onExpired} />
       <section className="today-sec" aria-label="日程">
         <h3 className="today-h">日程 <small>{sch.length ? `${sch.length} 项` : ''}</small></h3>
         {sch.length === 0 && <div className="empty">今日无安排</div>}
@@ -173,11 +172,7 @@ export default function Panels({ refreshKey, onData, onExpired, onAskMeeting }) 
           )
         })}</ul>
         {more('todos', d.todos.length, todos.length, '项', TODO_LIMIT)}
-        <div className="jv-add-row">
-          <input value={todoDraft} placeholder="＋ 添加待办，回车确认" aria-label="新待办"
-            onChange={e => setTodoDraft(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) submitTodo() }} />
-        </div>
+        <QuickAdd seed={quickSeed} onChanged={load} onExpired={onExpired} />
       </section>
       <section className="today-sec" aria-label="备忘">
         <h3 className="today-h">备忘 <small>{d.memos.length ? `${d.memos.length} 条` : ''}</small></h3>

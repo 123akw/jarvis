@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { chatStream, getHistory, uploadDocument } from './api.js'
+import { addProfile, chatStream, deleteProfile, getHistory, uploadDocument } from './api.js'
 import { copyText } from './clipboard.js'
+import { receiptsOn, subscribeReceipts } from './memoryPrefs.js'
 import {
   createStreamingView, handleCodeCopyClick, highlighterVersion, renderMarkdown, subscribeHighlighter,
 } from './markdown.js'
@@ -31,6 +32,50 @@ function ToolChip({ chip }) {
       {open && chip.detail && <span className="tdetail">{chip.detail}</span>}
     </span>
   )
+}
+
+/** 记忆回执：贾维斯这一轮调用了「记住 / 忘记」时，回答下方一行「✓ 已记住：… · 撤销」。
+ *  撤销 = 记住的删掉（DELETE /api/profile/{id}）、忘记的按原文补回（POST /api/profile）。
+ *  「记忆与人设」里的总开关关掉时整行不渲染。 */
+function MemoryReceipt({ memory }) {
+  const [state, setState] = useState('')   // '' | busy | undone | fail
+  const forget = memory.action === 'forget'
+  async function undo() {
+    setState('busy')
+    try {
+      if (forget) await addProfile(memory.content)
+      else await deleteProfile(memory.id)
+      setState('undone')
+    } catch (e) {
+      setState(e?.status === 404 ? 'undone' : 'fail')   // 已经被删过也算撤销成功
+    }
+  }
+  const undone = state === 'undone'
+  return (
+    <div className={`mem-receipt${undone ? ' undone' : ''}`}>
+      <Icon name={undone ? 'undo' : 'check'} size={13} className="mr-ico" />
+      <span className="mr-text">
+        {undone ? (forget ? '已恢复：' : '已撤销：') : (forget ? '已忘记：' : '已记住：')}
+        <span className="mr-content">{memory.content}</span>
+      </span>
+      {undone ? null : (
+        <>
+          <span className="mr-dot" aria-hidden="true">·</span>
+          <button type="button" className="mr-undo" disabled={state === 'busy'} onClick={() => void undo()}
+            aria-label={`撤销：${forget ? '恢复' : '不再记着'}「${memory.content}」`}>
+            {state === 'fail' ? '没撤成，重试' : '撤销'}
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
+function MemoryReceipts({ chips }) {
+  const on = useSyncExternalStore(subscribeReceipts, receiptsOn)
+  const items = chips.filter(c => c.memory)
+  if (!on || items.length === 0) return null
+  return <div className="mem-receipts">{items.map((c, i) => <MemoryReceipt key={c.id || i} memory={c.memory} />)}</div>
 }
 
 /** 回答正文：流式时走增量视图（已完结块只渲染/挂载一次，每帧只替换尾巴），
@@ -106,6 +151,7 @@ const MsgRow = memo(function MsgRow({ m, prevUser, busy, onSend, onEdit }) {
         </div>
       )}
       {thinking ? <Thinking /> : <JarvisBody raw={m.raw} streaming={m.streaming} />}
+      {!m.streaming && <MemoryReceipts chips={m.chips} />}
       {m.stopped && !m.error && <div className="msg-stopped">已停止</div>}
       {m.error && (
         <div className="msg-err" role="alert">⚠ {m.error}
@@ -299,7 +345,7 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
             const i = ev.id
               ? chips.findIndex(c => c.id === ev.id)
               : chips.findIndex(c => c.name === ev.name && !c.done)
-            if (i >= 0) chips[i] = { ...chips[i], done: true, ok: ev.ok, ms: ev.ms, detail: ev.detail }
+            if (i >= 0) chips[i] = { ...chips[i], done: true, ok: ev.ok, ms: ev.ms, detail: ev.detail, memory: ev.memory }
             return { ...m, chips }
           })
         } else if (ev.type === 'error') {
