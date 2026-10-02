@@ -242,16 +242,9 @@ describe('插件详情：?plugin=<id>', () => {
     expect(within(dialog).getByRole('heading', { name: '它能做什么' })).toBeInTheDocument()
     expect(dialog).toHaveTextContent('城市天气')            // 工具名换成人话
     expect(within(dialog).getByRole('heading', { name: '试试这样问' })).toBeInTheDocument()
-    // 第十七轮：「要不要配置」在信息条里一眼看到；没有要配的就不出「需要什么」
-    expect(within(dialog).getByText('开箱即用')).toBeInTheDocument()
+    // 第十七轮：没有要配的就不出「需要什么」；许可证等挪到最底的「信息」
     expect(within(dialog).queryByRole('heading', { name: '需要什么' })).toBeNull()
-    // 许可证等收进「信息」折叠表：收起时摘要里能看到，展开后是完整的表
-    const info = within(dialog).getByRole('button', { name: /^信息/ })
-    expect(info).toHaveAttribute('aria-expanded', 'false')
-    expect(info).toHaveTextContent('MIT-0')
-    await user.click(info)
-    expect(info).toHaveAttribute('aria-expanded', 'true')
-    expect(within(dialog).getByText('许可证').nextSibling).toHaveTextContent('MIT-0')
+    expect(within(dialog).getByRole('region', { name: '信息' })).toHaveTextContent('MIT-0')
 
     await user.click(within(dialog).getByRole('button', { name: '加入工具箱：查天气' }))
     expect(within(dialog).getByRole('button', { name: '移出工具箱：查天气' })).toHaveAttribute('aria-pressed', 'true')
@@ -305,7 +298,8 @@ describe('插件详情：?plugin=<id>', () => {
     expect(within(dialog).getByRole('note')).toHaveTextContent('需要管理员填写高德 Key（缺：AMAP_KEY）')
     expect(dialog).toHaveTextContent('联网：mcp.amap.com')
     expect(dialog).toHaveTextContent('需要配置：高德 Web 服务 Key')
-    expect(within(dialog).getByRole('button', { name: '加入工具箱：高德地图' })).toBeDisabled()
+    // 主按钮换成禁用的次按钮，直接写原因
+    expect(within(dialog).getByRole('button', { name: '需要管理员配置：高德地图' })).toBeDisabled()
   })
 
   it('试试这样问：点一下复制；「带去推荐」关掉详情直接按这句推荐', async () => {

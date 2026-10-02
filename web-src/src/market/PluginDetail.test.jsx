@@ -1,11 +1,11 @@
 import '@testing-library/jest-dom/vitest'
-import { act, cleanup, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import PluginDetail, { needsOf, setupOf } from './PluginDetail.jsx'
+import PluginDetail, { needsOf } from './PluginDetail.jsx'
 import { normalizeCatalog } from './model.js'
 
-/* 第十七轮：插件详情「少即是多」——一屏讲清是什么 / 能做什么 / 要不要配置，其余折叠或下移 */
+/* 第十七轮：插件详情「少即是多」——头部 + 唯一主按钮、四格事实条、能力先露 3 条、示例面板、需要什么（空则隐藏）、最底「信息」 */
 
 const P = (id, name, extra = {}) => ({
   id, name, icon: '🧩', category: 'efficiency', summary: `${name}的一句话`, kind: 'tool', tools: [], requires: [], examples: [],
@@ -28,37 +28,60 @@ const catalog = normalizeCatalog({
   professions: [],
 })
 
+/** 宽屏（≥720）：主按钮在名称右侧；不设时按手机算（jsdom 没有 matchMedia），主按钮在吸底条 */
+function wideScreen() {
+  vi.stubGlobal('matchMedia', q => ({ matches: /min-width:\s*720px/.test(q), addEventListener() {}, removeEventListener() {} }))
+}
+
 function open(id, props = {}) {
   const onToggle = vi.fn()
-  const view = render(<PluginDetail catalog={catalog} pluginId={id} picked={[]} onToggle={onToggle} onOpen={vi.fn()} onClose={vi.fn()}
+  const onClose = vi.fn()
+  const view = render(<PluginDetail catalog={catalog} pluginId={id} picked={[]} onToggle={onToggle} onOpen={vi.fn()} onClose={onClose}
     onAskAI={vi.fn()} authed={false} toolboxCount={0} {...props} />)
-  return { ...view, onToggle, dialog: screen.getByRole('dialog') }
+  return { ...view, onToggle, onClose, dialog: screen.getByRole('dialog') }
 }
 
 describe('插件详情：信息层级', () => {
   afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
-  it('头部：名称、一句话、作者 · 来源，主按钮「加入工具箱」就在头部', async () => {
+  it('手机：头部是名称、一句话、作者；唯一的主按钮在吸底条', async () => {
     const user = userEvent.setup()
     const { dialog, onToggle } = open('many')
     const head = dialog.querySelector('header.jvm-pd-head')
     expect(within(head).getByRole('heading', { level: 2, name: '多面手' })).toBeInTheDocument()
     expect(head).toHaveTextContent('多面手的一句话')
     expect(head).toHaveTextContent('JWS-Agent')
-    expect(head).toHaveTextContent('官方')
-    await user.click(within(head).getByRole('button', { name: '加入工具箱：多面手' }))
+    expect(within(head).queryByRole('button')).toBeNull()
+    const buttons = within(dialog).getAllByRole('button', { name: /工具箱：多面手/ })
+    expect(buttons).toHaveLength(1)
+    expect(buttons[0].closest('.jvm-pd-foot')).not.toBeNull()
+    await user.click(buttons[0])
     expect(onToggle).toHaveBeenCalledWith('many')
-    // 整个详情里只有这一个「加入」按钮（不再在底部重复一条）
-    expect(within(dialog).getAllByRole('button', { name: /工具箱：多面手/ })).toHaveLength(1)
   })
 
-  it('信息条只留四格：类型、能力、设置、价格', () => {
+  it('宽屏：主按钮在名称右侧，全页只有这一个', () => {
+    wideScreen()
+    const { dialog } = open('many', { picked: ['many'], toolboxCount: 3 })
+    const head = dialog.querySelector('header.jvm-pd-head')
+    expect(within(dialog).getAllByRole('button', { name: /工具箱：多面手/ })).toHaveLength(1)
+    expect(within(head).getByRole('button', { name: '移出工具箱：多面手' })).toHaveAttribute('aria-pressed', 'true')
+    expect(head).toHaveTextContent('工具箱里共 3 个')
+    expect(dialog.querySelector('.jvm-pd-foot')).toBeNull()
+  })
+
+  it('事实条只留四项：类型、能力、来源、价格', () => {
     const { dialog } = open('many')
     const strip = within(dialog).getByLabelText('概览')
-    expect([...strip.querySelectorAll('dt')].map(x => x.textContent)).toEqual(['类型', '能力', '设置', '价格'])
+    expect([...strip.querySelectorAll('dt')].map(x => x.textContent)).toEqual(['类型', '能力', '来源', '价格'])
     expect(strip).toHaveTextContent('5 个工具')
-    expect(strip).toHaveTextContent('开箱即用')
+    expect(strip).toHaveTextContent('官方')
     expect(strip).toHaveTextContent('免费')
+  })
+
+  it('区块顺序：它能做什么 → 需要什么 → 同类推荐 → 信息在最底', () => {
+    const { dialog } = open('amap')
+    const heads = within(dialog).getAllByRole('heading', { level: 3 }).map(h => h.textContent)
+    expect(heads).toEqual(['它能做什么', '需要什么', '同类推荐', '信息'])
   })
 
   it('它能做什么先露 3 条，「全部」展开；介绍默认三行，「更多」展开', async () => {
@@ -70,78 +93,103 @@ describe('插件详情：信息层级', () => {
     expect(all).toHaveAttribute('aria-expanded', 'false')
     await user.click(all)
     expect(within(can).getAllByRole('listitem')).toHaveLength(5)
-    expect(within(can).getByRole('button', { name: '收起' })).toHaveAttribute('aria-expanded', 'true')
+    expect(all).toHaveAttribute('aria-expanded', 'true')
 
     const more = within(dialog).getByRole('button', { name: '更多' })
     expect(more.closest('.jvm-pd-desc')).toHaveClass('is-clamped')
     await user.click(more)
     expect(more).toHaveAttribute('aria-expanded', 'true')
-    expect(more).toHaveTextContent('收起')
     expect(more.closest('.jvm-pd-desc')).not.toHaveClass('is-clamped')
   })
 
-  it('试试这样问是 chip，最多 4 个；没有要配置的就不出「需要什么」', () => {
-    const { dialog } = open('many')
+  it('试试这样问是一块面板：最多 3 条药丸，行尾 → 带去推荐；没有要配置的就不出「需要什么」', async () => {
+    const user = userEvent.setup()
+    const onAskAI = vi.fn()
+    const { dialog } = open('many', { onAskAI })
     const tryIt = within(dialog).getByRole('region', { name: '试试这样问' })
-    expect(within(tryIt).getAllByRole('button', { name: /^复制：/ })).toHaveLength(4)
+    expect(within(tryIt).getAllByRole('button', { name: /^复制：/ })).toHaveLength(3)
+    await user.click(within(tryIt).getByRole('button', { name: '带去推荐：二' }))
+    expect(onAskAI).toHaveBeenCalledWith('二')
     expect(within(dialog).queryByRole('region', { name: '需要什么' })).toBeNull()
   })
 
-  it('需要配置 / 需要绑定：信息条写明，「需要什么」列出原因；技能的「不运行代码」进信息表', async () => {
-    const user = userEvent.setup()
+  it('需要配置：头部下一条警示说明，主按钮换成禁用的「需要管理员配置」；需要绑定的列在「需要什么」', () => {
     let { dialog } = open('amap')
-    expect(dialog.querySelector('.jvm-pd-strip .is-warn')).toHaveTextContent('需要配置')
+    expect(within(dialog).getByRole('note')).toHaveTextContent('需要管理员填写高德 Key（缺：AMAP_KEY）')
+    const btn = within(dialog).getByRole('button', { name: '需要管理员配置：高德地图' })
+    expect(btn).toBeDisabled()
+    expect(btn).toHaveTextContent('需要管理员配置')
     const needs = within(dialog).getByRole('region', { name: '需要什么' })
     expect(needs).toHaveTextContent('联网：mcp.amap.com')
     expect(needs).toHaveTextContent('需要配置：高德 Web 服务 Key')
-    expect(within(dialog).getByRole('button', { name: '加入工具箱：高德地图' })).toBeDisabled()
     cleanup()
 
     ;({ dialog } = open('feishu'))
-    expect(dialog.querySelector('.jvm-pd-strip .is-warn')).toHaveTextContent('需要绑定')
     expect(within(dialog).getByRole('region', { name: '需要什么' })).toHaveTextContent('需绑定飞书')
+    expect(within(dialog).getByRole('button', { name: '加入工具箱：飞书' })).toBeEnabled()
+  })
+
+  it('信息在最底：2 列表 + 来源链接；技能 / 社区插件写明运行方式', () => {
+    let { dialog } = open('echo')
+    const info = within(dialog).getByRole('region', { name: '信息' })
+    expect(within(info).getByText('许可证').nextSibling).toHaveTextContent('MIT-0')
+    expect(within(info).getByText('运行方式').nextSibling).toHaveTextContent('独立子进程')
+    const links = within(info).getByRole('list', { name: '来源链接' })
+    expect(within(links).getByRole('link', { name: /源代码 @main/ })).toHaveAttribute('href', 'https://github.com/acme/echo/tree/main')
+    expect(within(links).getByRole('link', { name: /主页/ })).toHaveAttribute('href', 'https://acme.dev')
     cleanup()
 
     ;({ dialog } = open('skill'))
     expect(within(dialog).queryByRole('region', { name: '需要什么' })).toBeNull()
-    await user.click(within(dialog).getByRole('button', { name: /^信息/ }))
-    expect(within(dialog).getByText('运行方式').nextSibling).toHaveTextContent('不运行代码')
+    expect(within(within(dialog).getByRole('region', { name: '信息' })).getByText('运行方式').nextSibling).toHaveTextContent('不运行代码')
   })
 
-  it('来源链接常驻在「信息」下方，社区插件写明运行方式', async () => {
-    const user = userEvent.setup()
-    const { dialog } = open('echo')
-    const links = within(dialog).getByRole('list', { name: '来源链接' })
-    expect(within(links).getByRole('link', { name: /源代码 @main/ })).toHaveAttribute('href', 'https://github.com/acme/echo/tree/main')
-    expect(within(links).getByRole('link', { name: /主页/ })).toHaveAttribute('href', 'https://acme.dev')
-    expect(dialog.querySelector('.jvm-pd-by')).toHaveTextContent('社区')
-    await user.click(within(dialog).getByRole('button', { name: /^信息/ }))
-    expect(within(dialog).getByText('运行方式').nextSibling).toHaveTextContent('独立子进程')
-  })
-
-  it('头部滚出视野后，顶栏浮出小图标 + 名字 + 小「加入」按钮', () => {
+  it('宽屏：头部滚出视野后，顶栏浮出小图标 + 名字 + 小按钮', () => {
+    wideScreen()
     let fire = null
     vi.stubGlobal('IntersectionObserver', class {
       constructor(cb) { fire = cb }
       observe() {}
       disconnect() {}
     })
-    const { dialog } = open('many', { picked: ['many'], toolboxCount: 3 })
-    expect(within(dialog).getAllByRole('button', { name: '移出工具箱：多面手' })).toHaveLength(1)
-    expect(dialog).toHaveTextContent('工具箱里共 3 个')
+    const { dialog } = open('many')
     act(() => fire([{ isIntersecting: false }]))
     const bar = dialog.querySelector('.jvm-pd-bar')
     expect(bar).toHaveClass('is-stuck')
-    expect(within(bar).getByRole('button', { name: '移出工具箱：多面手' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(bar).getByRole('button', { name: '加入工具箱：多面手' })).toHaveTextContent('加入')
     act(() => fire([{ isIntersecting: true }]))
     expect(dialog.querySelector('.jvm-pd-bar')).not.toHaveClass('is-stuck')
   })
 
-  it('needsOf / setupOf：去重、技能不算「需要」', () => {
+  it('手机：按住顶栏下滑超过 120px 关闭，拖得不够就弹回', () => {
+    let t = 0
+    vi.spyOn(performance, 'now').mockImplementation(() => t)
+    const { dialog, onClose } = open('many')
+    const bar = dialog.querySelector('.jvm-pd-bar')
+    fireEvent.pointerDown(bar, { button: 0, clientY: 10, pointerId: 1 })
+    t = 500   // 慢慢拖 50px：0.1px/ms，不算甩
+    fireEvent.pointerMove(bar, { clientY: 60, pointerId: 1 })
+    expect(dialog.style.transform).toBe('translateY(50px)')
+    fireEvent.pointerUp(bar, { clientY: 60, pointerId: 1 })
+    expect(onClose).not.toHaveBeenCalled()
+    expect(dialog.style.transform).toBe('')
+    fireEvent.pointerDown(bar, { button: 0, clientY: 10, pointerId: 1 })
+    t = 1500
+    fireEvent.pointerMove(bar, { clientY: 200, pointerId: 1 })
+    fireEvent.pointerUp(bar, { clientY: 200, pointerId: 1 })
+    expect(onClose).toHaveBeenCalledTimes(1)
+    // 甩：短距离但很快（40px / 20ms = 2px/ms）也关闭
+    fireEvent.pointerDown(bar, { button: 0, clientY: 10, pointerId: 1 })
+    t = 1520
+    fireEvent.pointerMove(bar, { clientY: 50, pointerId: 1 })
+    fireEvent.pointerUp(bar, { clientY: 50, pointerId: 1 })
+    expect(onClose).toHaveBeenCalledTimes(2)
+    vi.restoreAllMocks()
+  })
+
+  it('needsOf：按标题去重；技能不算「需要」', () => {
     const byId = id => catalog.plugins.find(p => p.id === id)
     expect(needsOf(byId('skill'))).toEqual([])
-    expect(setupOf(byId('skill')).text).toBe('开箱即用')
-    expect(setupOf(byId('amap'))).toEqual({ text: '需要配置', tone: 'warn' })
     const dup = { ...byId('amap'), hosts: ['x.com'], permissions: [{ key: 'net', label: '联网：x.com', level: 'info' }] }
     expect(needsOf(dup).filter(n => n.title === '联网：x.com')).toHaveLength(1)
   })
