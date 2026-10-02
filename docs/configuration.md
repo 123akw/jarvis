@@ -21,7 +21,7 @@
 | `JARVIS_ADMIN_PASSWORD` | 首次启动必需 | 无 | 首次数据库初始化时创建的 Owner 口令；只存 Argon2id 哈希 |
 | `JARVIS_SESSION_SECRET` | 是 | 无 | 至少 32 字节随机值，用于会话与 CSRF；缺失或过短时网页登录会 fail closed，并在日志里记一条 WARNING 说明原因 |
 | `JARVIS_SETTINGS_WRITE_ENABLED` | 否 | `false` | 设为 `true` 才允许网页/桌面写入 Provider 设置 |
-| `JARVIS_SECRETS_KEY` | 设置写入必需 | 无 | URL-safe Base64 编码的随机 32 字节主密钥（不是 hex）；仅在服务器保存，不得轮换或丢失。格式不对时设置中心保持只读，日志 WARNING 会给出解码长度 |
+| `JARVIS_SECRETS_KEY` | 设置写入必需 | 无 | URL-safe Base64 编码的随机 32 字节主密钥（不是 hex）；仅在服务器保存，不得轮换或丢失。格式不对时设置中心保持只读，日志 WARNING 会给出解码长度。也用来加密 MCP 插件的 Key（没设置时退回数据目录里自动生成的 `plugins/_secret.key`，插件管理会提示设置） |
 | `JARVIS_SEARCH_BACKENDS` | 否 | `searxng,ddgs,tavily` | 搜索 provider 降级顺序；名称不能重复 |
 | `SEARXNG_BASE_URL` | 否 | 无 | 本地 Compose 可设为 `http://127.0.0.1:18888`；未配置或不健康时继续 DDGS |
 | `JARVIS_EXTRACT_BACKENDS` | 否 | `trafilatura,playwright` | 正文提取降级顺序；Playwright 未安装时明确跳过 |
@@ -59,6 +59,7 @@
 | `JARVIS_WECHAT_GROUP_NAME` | `贾维斯` | 群聊里 @ 贾维斯的名字，被 @ 才会在群里应答 |
 | `JARVIS_HISTORY_CHAR_BUDGET` | `30000` | 每轮送模型的历史字符预算（按轮次边界裁剪，checkpoint 全量历史不动）；`0` 关闭裁剪 |
 | `JARVIS_HISTORY_BACKFILL` | `1` | 启动 5 秒后在后台把存量对话回填进「翻旧账」全文索引（每个账号串行、不阻塞启动）；`0` 关闭回填，新对话仍会实时入索引 |
+| `JARVIS_MCP_AUTOCONNECT` | 开（测试环境关） | 启动后在后台连接已启用的 MCP 插件、发现并核对工具清单；`0` 关闭（插件保持「正在连接」，管理员可在插件管理里手动测试连接），`1` 强制开 |
 | `DASHSCOPE_ASR_MAX_SILENCE_MS` | `500` | 语音通话判停静音阈值（毫秒，有效范围 200–6000） |
 
 ## 智能平台市场

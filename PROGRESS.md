@@ -653,3 +653,13 @@
 - 桌面端：Chrome 本地网络访问实测为根因（`loopback-network` 权限待询问时请求直接失败）；网页探活带 `targetAddressSpace: 'loopback'`、按权限给指引、没启动时自动 `jws://` 并轮询接管；`npm run pack:mac` / `install:mac` 打包安装 `~/Applications/贾维斯.app`（`cn.gkgeek.jws`，ad-hoc 签名，与开发版共用 userData）；对话下载链接由主进程带令牌下载。
 - 本机联调（真实模型）：从 zip 导入「单位换算」→ 开「报销小助手」（excel + unit_convert + todo）→「3 斤半是多少公斤」走第三方子进程答对；上传报销表按部门汇总，金额全对并给出下载链接；问 PDF 合并时说明未装并给替代。联调发现并修：插件工具芯片显示英文名（改为插件名，网页 / 语音 / 飞书都带 label）、用户气泡露出附件标记。
 - 基线 pytest 1296 / vitest 461 / desktop 166 / examples 62。
+
+# 第十五轮（2026-10-02）：市场做首页 + 参考 Codex 重做插件目录 + MCP 接入 + 官方开源插件
+
+- 用户要求：①智能体市场参考 Codex 重做、提升体验；②用导入能力做平台自己的开源工具（技能 + MCP）；③登录页改 `/login`，插件市场作为主域名首页。契约：`docs/proposals/2026-10-round15-market.md`（地基 829a0a5：routes.js 路径常量与 loginHref，先推送再派代理）。
+- 路由：`/` 市场、`/login` 登录、`/app` 主应用；未登录访问 /app、/flows 跳 `/login?next=`；`safeNext` 只接受站内路径；服务端 `/market`、`/?u=` 302 到新地址（保留参数），旧二维码可用；进场动画只在 `/` 首次播；`pageTitle` 按路由设标题。
+- 市场前端（market/：Catalog、PluginCard、PluginDetail、Featured、TopBar 等）：调研 OpenAI 插件文档与 codex 源码中的插件目录、Raycast、App Store；顶栏搜索（⌘K / `/`）、精选套装、来源 × 类型 × 分类筛选、`?plugin=<id>` 详情抽屉（能做什么 / 试试这样问 / 需要什么 / 来源 / 同类推荐）、工具箱排序与类型分布、三态（骨架 / 空 / 错误）。
+- MCP（`jarvis/plugins/mcp_client.py` 自写客户端、`mcp.py`）：streamable-http + sse，拒绝 stdio；`${KEY}` 只在 url / headers；配置 `plugins/_config.json`（0600，AES-GCM，主密钥 JARVIS_SECRETS_KEY）；工具清单存档 + 指纹，变化即 needs_review；工具名 `<id>__<tool>`，30 秒超时、8000 字截断、按外部资料包裹；管理员「MCP 服务」页签：配置、测试、确认变更、直接添加 MCP 服务。无新依赖。
+- 官方开源插件（MIT-0，`jarvis/plugins/packs/LICENSE`）：新增 15 技能、5 计算工具（纯标准库，政策依据对过 gov.cn）、4 MCP（deepwiki、context7 免 Key；amap、kuaidi100 需 Key）；根目录 `.agents/plugins/marketplace.json` 列出全部 49 个插件（插件源 jws-agent-official）。Owner 不再默认注入内置技能（避免挤满注入额度）。
+- 本机联调（真实模型）：`/` 市场 → DeepWiki 详情 → 管理员代开「开源小帮手」（deepwiki + 周报技能 + 金额大写 + 待办）→ `/login?u=` 登录 → `/app`；DeepWiki 后台自动发现 3 个工具，智能体通过 MCP 列出 python-sdk 文档 12 个章节；金额大写、周报技能正常。联调发现并修：详情页露出 MCP 英文工具名（新增 plugin.json `tool_labels` 与目录 `tool_info`）、「联网」需求重复。
+- 基线 pytest 1482 / vitest 504 / desktop 166 / examples 62。

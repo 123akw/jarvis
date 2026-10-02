@@ -28,7 +28,7 @@
 
 ## 它能做什么
 
-一个 LangGraph Agent 驱动 27 项核心工具，外加可插拔的插件（内置 PDF / Excel / Word 工具箱，还能从 GitHub 导入社区插件），能聊、能记，也能动手：增删日程待办、查天气、搜实时信息、处理文档表格、开会记纪要。完整清单见 [功能详解](docs/features.md)，插件开发见 [插件指南](docs/plugins.md)。
+一个 LangGraph Agent 驱动 27 项核心工具，外加可插拔的插件（49 个官方开源插件：PDF / Excel / Word 工具箱、15 个写作与规划技能、计算工具、DeepWiki / 高德等 MCP 服务；还能从 GitHub 导入社区插件），能聊、能记，也能动手：增删日程待办、查天气、搜实时信息、处理文档表格、开会记纪要。完整清单见 [功能详解](docs/features.md)，插件开发见 [插件指南](docs/plugins.md)。
 
 它也是一座**智能体工坊**：不懂技术的人在插件市场里挑几个插件，就能拿到一套专属账号口令，登录进去就是按这些插件组装好的智能体；再用「输入 → 处理 → 输出」积木拼个流程，结果生成网页二维码，手机一扫就能看。
 
@@ -81,11 +81,11 @@
 <td align="center" colspan="2"><img src="docs/assets/readme/web-mobile.png" alt="手机版：新对话、对话与「今日」板" width="88%"><br><sub>手机版（390×844）：新对话 · 对话 · 「今日」板</sub></td>
 </tr>
 <tr>
-<td align="center"><img src="docs/assets/readme/web-market.png" alt="智能体市场：挑插件、帮我推荐" width="100%"><br><sub>智能体市场：挑插件进工具箱，或按职业 / 一句话推荐</sub></td>
+<td align="center"><img src="docs/assets/readme/web-market-home.png" alt="智能体市场首页：搜索、精选套装、帮我推荐" width="100%"><br><sub>首页即智能体市场：搜索、精选套装、按职业 / 一句话推荐</sub></td>
 <td align="center"><img src="docs/assets/readme/web-flows.png" alt="积木流程运行完成" width="100%"><br><sub>积木流程：节点逐个亮起，跑完给出结果网页二维码</sub></td>
 </tr>
 <tr>
-<td align="center"><img src="docs/assets/readme/web-agent-home-chips.png" alt="专属智能体主页" width="100%"><br><sub>专属智能体：问候与快捷问题按名称和插件生成</sub></td>
+<td align="center"><img src="docs/assets/readme/web-plugin-detail.png" alt="插件详情：能做什么、试试这样问、需要什么" width="100%"><br><sub>插件详情：能做什么、试试这样问、需要什么（以 DeepWiki MCP 为例）</sub></td>
 <td align="center"><img src="docs/assets/readme/web-plugin-import.png" alt="导入插件的信任预览" width="100%"><br><sub>导入插件：来源、权限、许可证一目了然再安装</sub></td>
 </tr>
 </table>
@@ -131,7 +131,7 @@ JARVIS_SESSION_SECRET=<openssl rand -hex 32 的输出>
 **③ 启动**
 
 ```bash
-.venv/bin/jarvis-web                       # 网页端 → http://127.0.0.1:7789
+.venv/bin/jarvis-web                       # 网页端 → http://127.0.0.1:7789（首页是智能体市场，登录 /login，主应用 /app）
 .venv/bin/jarvis                           # 终端对话（可选）
 cd desktop && npm install && npm start     # macOS 桌面悬浮球（可选，需已有运行中的 Web 服务）
 cd desktop && npm run pack:mac && npm run install:mac   # 打包成「贾维斯.app」装进 ~/Applications，网页可一键唤起
@@ -159,6 +159,20 @@ flowchart LR
 ## 最新动态
 
 <details open>
+<summary><b>第十五轮 · 2026-10-02</b>　市场做首页 · 参考 Codex 重做插件目录 · MCP 接入 · 49 个官方开源插件 · /login</summary>
+
+<img src="docs/assets/readme/web-market-home.png" alt="智能体市场首页：搜索、精选套装、帮我推荐" width="420" align="right">
+
+- **市场就是首页**：网站根地址 `/` 是智能体市场，登录改到 `/login`，主应用在 `/app`；未登录访问 `/app` 先登录再回来，旧的 `/market`、`/?u=` 链接与二维码自动跳转，「登录后去哪」只接受站内地址。
+- **参考 Codex 重做插件目录**：顶栏搜索（⌘K / `/`）、精选套装一键整套加入、分类 × 来源 × 类型筛选、像 App Store 条目页的插件详情（能做什么、试试这样问、需要什么、来源与许可证、同类推荐，可分享可后退），工具箱能排序并显示类型分布。
+- **MCP 接入**：插件包放 `mcp.json` 即可接入远程 MCP（streamable-http / sse），Key 加密保存只显示末四位；安装时存档工具清单，清单一变自动停用待管理员确认；管理员可直接「添加 MCP 服务」。实测 DeepWiki 免 Key 可用，智能体能通过它回答开源仓库的问题。
+- **49 个官方开源插件（MIT-0）**：新增 15 个技能、5 个计算工具（金额大写、个税社保、房贷车贷、工作日、BMI）、4 个 MCP（DeepWiki、Context7、高德地图、快递100）；仓库根目录 `.agents/plugins/marketplace.json` 是官方插件源，兼容 Codex。
+- 测试基线 **pytest 1482 / vitest 504 / desktop 166**，全部通过。方案见 [`docs/proposals/2026-10-round15-market.md`](docs/proposals/2026-10-round15-market.md)。
+
+<br clear="right">
+</details>
+
+<details>
 <summary><b>第十四轮 · 2026-10-02</b>　插件独立封装 · GitHub 导入 · PDF / Excel / Word · 换号与推荐修复 · 桌面端成为正式 App</summary>
 
 <img src="docs/assets/readme/web-plugin-import.png" alt="导入插件前的信任预览：来源、权限、许可证" width="420" align="right">
