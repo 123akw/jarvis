@@ -202,6 +202,9 @@ body.light .jvm-ambient i{opacity:.6}
 
 /* ---------- 首屏：一句主张 + 大搜索框（兼做帮我推荐）+ 一行「试试」文字建议。居中，只有一个焦点 ---------- */
 .jvm-hero{display:flex;flex-direction:column;align-items:center;text-align:center;padding:24px 0 0}
+/* 首屏和下面的浏览区都带入场动画（各自成层叠上下文）：获焦时把首屏整块抬上来，建议下拉才盖得住吸顶页签与精选卡 */
+.jvm-hero{position:relative}
+.jvm-hero:focus-within{z-index:9}
 .jvm-br{display:inline}
 .jvm-hero-title{font-family:var(--jv-font-display);font-size:28px;line-height:36px;font-weight:700;letter-spacing:-.02em;outline:none;text-wrap:balance}
 .jvm-hero-sub{margin-top:8px;max-width:30em;font-size:15px;line-height:24px;color:var(--jv-text-2)}
@@ -874,8 +877,8 @@ body.light .jvm-phone-glow{background:radial-gradient(closest-side,color-mix(in 
 }
 /* 手机：「筛选」是底部抽屉（带遮罩），按钮只留图标 */
 @media (max-width:639px){
-  .jvm-filter-scrim{display:block;position:fixed;inset:0;z-index:39;background:var(--jv-scrim);animation:jvm-fade .24s var(--m-ease) both}
-  .jvm-filter-pop{position:fixed;left:0;right:0;top:auto;bottom:0;width:auto;padding:16px 16px calc(16px + env(safe-area-inset-bottom));
+  .jvm-filter-scrim{display:block;position:fixed;inset:0;z-index:70;background:var(--jv-scrim);animation:jvm-fade .24s var(--m-ease) both}
+  .jvm-filter-layer .jvm-filter-pop{position:fixed;z-index:71;left:0;right:0;top:auto;bottom:0;width:auto;padding:16px 16px calc(16px + env(safe-area-inset-bottom));
     border-radius:24px 24px 0 0;border-bottom:0;animation:jvm-sheet-up .24s var(--m-ease) both}
   .jvm-filter-head{display:block;font-size:15px;line-height:22px;font-weight:600;text-align:center}
   .jvm-seg button{height:36px}

@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import Icon from '../Icon.jsx'
 import PluginCard from './PluginCard.jsx'
 import { KIND_FILTERS, SOURCE_FILTERS, filterPlugins, searchPlugins } from './model.js'
+import { useMedia } from './useMedia.js'
+
+/** 手机上「筛选」是底部抽屉 */
+const SHEET = '(max-width: 639px)'
 
 /** 总览里每个分类先露几行，其余点「全部」展开（大目录也不必一路滑到底） */
 export const GROUP_PREVIEW = 6
@@ -73,10 +78,19 @@ function Segmented({ label, options, value, onChange }) {
   )
 }
 
+/** 手机：底部抽屉 + 遮罩挂到市场根节点（.jvm）下——浏览区带入场动画，fixed 定位在它里面会被困住；
+ *  桌面：就地挂在按钮下面的弹出层 */
+function layer(sheet, dialog) {
+  if (!sheet) return dialog
+  const root = (typeof document !== 'undefined' && document.querySelector('.jvm')) || document.body
+  return createPortal(<div className="jvm-filter-layer"><span className="jvm-filter-scrim" aria-hidden="true" />{dialog}</div>, root)
+}
+
 /** 「筛选」：来源与类型收进一个轻量弹层（不再同时摆三排）：桌面是 320 宽的弹出层，手机是底部抽屉。
  *  有生效的条件时按钮右上角一个强调色小圆点。点外面 / Esc 收起，焦点回到按钮 */
 function FilterMenu({ filters, onFilters, sourceOpts, kinds }) {
   const [open, setOpen] = useState(false)
+  const sheet = useMedia(SHEET)
   const btnRef = useRef(null)
   const popRef = useRef(null)
   const active = (filters.source !== 'all') + (filters.kind !== 'all')
@@ -103,8 +117,7 @@ function FilterMenu({ filters, onFilters, sourceOpts, kinds }) {
         onClick={() => setOpen(v => !v)} aria-label={active ? `筛选（已选 ${active} 项）` : '筛选'}>
         <Icon name="sliders" size={16} /><span className="jvm-filter-text">筛选</span>{active ? <i className="jvm-filter-dot" aria-hidden="true" /> : null}
       </button>
-      {open ? <span className="jvm-filter-scrim" aria-hidden="true" /> : null}
-      {open ? (
+      {open ? layer(sheet, (
         <div ref={popRef} className="jvm-filter-pop" role="dialog" aria-label="筛选">
           <p className="jvm-filter-head" aria-hidden="true">筛选</p>
           {sourceOpts.length > 1 ? <Segmented label="来源" options={sourceOpts} value={filters.source} onChange={source => set({ source })} /> : null}
@@ -114,7 +127,7 @@ function FilterMenu({ filters, onFilters, sourceOpts, kinds }) {
             <button type="button" className="jvm-btn jvm-btn--tint jvm-btn--sm" onClick={() => { setOpen(false); btnRef.current?.focus() }}>完成</button>
           </div>
         </div>
-      ) : null}
+      )) : null}
     </div>
   )
 }
