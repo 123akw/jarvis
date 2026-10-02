@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Icon from '../Icon.jsx'
 import { prefersReducedMotion } from '../Presence.jsx'
 import { flyToDock, useDragSource } from './dnd/index.jsx'
@@ -28,33 +28,26 @@ function useShelf(ref, count) {
 }
 
 function BundleCard({ bundle: b, tint, pickedSet, onAdd }) {
-  const ref = useRef(null)
   const left = b.ids.filter(id => !pickedSet.has(id)).length
   const all = !left
-  const { dragProps, isDragging } = useDragSource({ id: `bundle:${b.id}`, ids: b.ids, kind: 'bundle' })
-  const { className: dragClass = '', ref: dragRef, ...drag } = dragProps || {}
-  const setRef = useCallback(el => {
-    ref.current = el
-    if (typeof dragRef === 'function') dragRef(el)
-    else if (dragRef && typeof dragRef === 'object') dragRef.current = el
-  }, [dragRef])
+  const { dragProps } = useDragSource({
+    id: `bundle:${b.id}`, ids: b.ids, kind: 'bundle', icon: b.icon, icons: b.plugins.slice(0, 3).map(p => p.icon), label: b.title,
+  })
   return (
     <li className={`jvm-bundle${all ? ' is-in' : ''}`} style={{ '--tint': tint }}>
-      <article {...drag} ref={setRef} data-bundle={b.id} aria-labelledby={`jvm-b-${b.id}`}
-        className={`${isDragging ? 'is-dragging' : ''} ${dragClass}`.trim() || undefined}>
+      <article {...dragProps} data-bundle={b.id} aria-labelledby={`jvm-b-${b.id}`}>
         <span className="jvm-bundle-icon" aria-hidden="true">{b.icon}</span>
         <div className="jvm-bundle-titles">
           <h3 id={`jvm-b-${b.id}`}>{b.title}</h3>
           <p className="jvm-bundle-who" title={b.summary || undefined}>{b.who}</p>
         </div>
         <div className="jvm-bundle-foot">
-          <span className="jvm-bundle-stack" role="img" aria-label={`包含 ${b.ids.length} 个插件：${b.plugins.map(p => p.name).join('、')}`}>
+          <span className="jvm-bundle-stack" data-dnd-icons role="img" aria-label={`包含 ${b.ids.length} 个插件：${b.plugins.map(p => p.name).join('、')}`}>
             {b.plugins.slice(0, STACK).map(p => <i key={p.id}>{p.icon}</i>)}
             {b.ids.length > STACK ? <span>+{b.ids.length - STACK}</span> : null}
           </span>
           <button type="button" className={`jvm-bundle-add${all ? ' is-on' : ''}`} disabled={all}
-            onPointerDown={e => e.stopPropagation()}
-            onClick={() => { flyToDock(ref.current, { icon: b.icon }); onAdd(b) }}
+            onClick={e => { flyToDock(e.currentTarget, { icon: b.icon }); onAdd(b) }}
             aria-label={all ? `${b.title}已全部加入` : `整套加入：${b.title}（${left} 个）`}>
             {all ? <><Icon name="check" size={14} />已加入</> : `加入 ${left} 个`}
           </button>

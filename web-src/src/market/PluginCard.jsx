@@ -1,4 +1,3 @@
-import { useCallback, useRef } from 'react'
 import Icon from '../Icon.jsx'
 import { flyToDock, useDragSource } from './dnd/index.jsx'
 import { SOURCE_LABEL, blockReason, sourceOf } from './model.js'
@@ -33,17 +32,16 @@ export function keyBadge(p) {
   return null
 }
 
-/** 卡片右侧的轻量「＋」（32 圆，热区用伪元素扩到 44）：加入时从卡片「飞」进底部工具箱；已加入变成实心对勾，再点移出。
- *  pointerdown 不往上冒，免得在「＋」上按下也触发整卡拖动 */
-export function PlusButton({ plugin, picked, onToggle, fromRef, describedBy }) {
+/** 卡片右侧的轻量「＋」（32 圆，热区用伪元素扩到 44）：加入时从卡片图标「飞」进底部工具箱；已加入变成实心对勾，再点移出。
+ *  （拖拽源会忽略卡片里按钮上的按下，「＋」不会触发整卡拖动） */
+export function PlusButton({ plugin, picked, onToggle, describedBy }) {
   const blocked = blockReason(plugin)
   return (
     <button type="button" className={`jvm-plus${picked ? ' is-on' : ''}`} aria-pressed={picked}
       disabled={!!blocked && !picked} title={blocked && !picked ? blocked : picked ? '已在工具箱，点一下移出' : '加入工具箱'}
       aria-label={picked ? `移出工具箱：${plugin.name}` : `加入工具箱：${plugin.name}`} aria-describedby={describedBy}
-      onPointerDown={e => e.stopPropagation()}
       onClick={e => {
-        if (!picked) flyToDock(fromRef?.current || e.currentTarget, { icon: plugin.icon })
+        if (!picked) flyToDock(e.currentTarget, { icon: plugin.icon })
         onToggle(plugin.id)
       }}>
       <Icon name="plus" size={16} className="jvm-plus-add" />
@@ -57,20 +55,13 @@ export function PlusButton({ plugin, picked, onToggle, fromRef, describedBy }) {
  *  已加入：边框换成 40% 强调色，图标右下角挂一个小对勾，不再整卡铺色。 */
 export default function PluginCard({ plugin, picked, onToggle, onOpen }) {
   const p = plugin
-  const ref = useRef(null)
   const blocked = blockReason(p)
   const badge = keyBadge(p)
-  const { dragProps, isDragging } = useDragSource({ id: p.id, ids: [p.id], kind: 'plugin' })
-  const { className: dragClass = '', ref: dragRef, ...drag } = dragProps || {}
-  const setRef = useCallback(el => {
-    ref.current = el
-    if (typeof dragRef === 'function') dragRef(el)
-    else if (dragRef && typeof dragRef === 'object') dragRef.current = el
-  }, [dragRef])
+  // dragProps 带 onPointerDown / onPointerEnter / onDragStart 与 data-dnd*：之后不要再在根元素上写同名事件
+  const { dragProps } = useDragSource({ id: p.id, ids: [p.id], kind: 'plugin', icon: p.icon, label: p.name })
   return (
-    <article {...drag} ref={setRef} data-plugin={p.id}
-      className={`jvm-card${picked ? ' is-picked' : ''}${blocked ? ' is-off' : ''}${isDragging ? ' is-dragging' : ''} ${dragClass}`.trim()}
-      aria-label={p.name}>
+    <article {...dragProps} data-plugin={p.id} aria-label={p.name}
+      className={`jvm-card${picked ? ' is-picked' : ''}${blocked ? ' is-off' : ''}`}>
       <span className="jvm-card-icon" aria-hidden="true">
         {p.icon}
         {picked ? <i className="jvm-card-check"><Icon name="check" size={9} /></i> : null}
@@ -83,7 +74,7 @@ export default function PluginCard({ plugin, picked, onToggle, onOpen }) {
         {p.summary ? <p className="jvm-card-summary">{p.summary}</p> : null}
         {blocked ? <span id={`jvm-why-${p.id}`} className="sr-only">{p.status === 'needs_config' ? `需要管理员配置后才能加入：${blocked}` : `暂不可用：${blocked}`}</span> : null}
       </div>
-      <PlusButton plugin={p} picked={picked} onToggle={onToggle} fromRef={ref} describedBy={blocked ? `jvm-why-${p.id}` : undefined} />
+      <PlusButton plugin={p} picked={picked} onToggle={onToggle} describedBy={blocked ? `jvm-why-${p.id}` : undefined} />
     </article>
   )
 }

@@ -89,6 +89,8 @@ describe('智能体市场', () => {
     store = memoryStorage()
     vi.stubGlobal('sessionStorage', store)
     vi.stubGlobal('localStorage', memoryStorage())
+    // 第一次悬停卡片的拖拽提示（dnd 自己测）会在 Dock 上方占 2.6 秒，这里的旅程要看 Dock 上的步骤提示，先标记为已看过
+    localStorage.setItem('jvm-dnd-tip', '1')
     window.history.replaceState({}, '', '/')
   })
   afterEach(() => {

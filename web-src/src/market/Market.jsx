@@ -42,7 +42,6 @@ const readDetail = () => {
   try { return new URLSearchParams(window.location.search).get('plugin') || '' } catch { return '' }
 }
 const smooth = () => (prefersReducedMotion() ? 'auto' : 'smooth')
-const DRAG_HINT_KEY = 'jvm_drag_hint_seen'
 
 function Progress({ step, onGo }) {
   return (
@@ -164,17 +163,6 @@ export default function Market({ session, onAuthed }) {
     clearTimeout(toastTimer.current)
     toastTimer.current = setTimeout(() => setToast(''), 2600)
   }
-  /** 第一次用鼠标悬停到卡片：工具箱上方提示一次怎么加（之后不再出现，记在 localStorage） */
-  const hinted = useRef(false)
-  const dragHint = () => {
-    if (hinted.current || step !== 'market') return
-    hinted.current = true
-    try {
-      if (localStorage.getItem(DRAG_HINT_KEY)) return
-      localStorage.setItem(DRAG_HINT_KEY, '1')
-    } catch { return }
-    say('把卡片拖到这里，或点 +')
-  }
   const go = next => { setGenError(''); setDraft(d => ({ ...d, step: next })) }
   const toggle = id => setDraft(d => ({
     ...d, picked: d.picked.includes(id) ? d.picked.filter(x => x !== id) : [...d.picked, id],
@@ -204,22 +192,25 @@ export default function Market({ session, onAuthed }) {
     return { ...d, picked: [...ids, ...d.picked.filter(x => !byId.has(x))] }
   })
   const remove = id => setDraft(d => ({ ...d, picked: d.picked.filter(x => x !== id) }))
-  /** 能不能放进工具箱：需要配置 / 暂不可用 / 已经在里面时给出原因（拖起时工具箱上显示） */
+  /** 能不能放进工具箱：需要配置 / 暂不可用给原因；已经在里面时返回「已在工具箱」（Dock 显示成灰色的「已在」态）；能加返回 '' */
   const canAdd = id => {
     const p = byId.get(id)
     if (!p) return '插件不存在'
     const blocked = blockReason(p)
     if (blocked) return p.status === 'needs_config' ? `需要管理员先配置：${blocked}` : `暂不可用：${blocked}`
-    return draft.picked.includes(id) ? '已经在工具箱里了' : ''
+    return draft.picked.includes(id) ? '已在工具箱里了' : ''
   }
-  /** 拖进工具箱：整套拖进来的按套装加（顺手记上职业），单个照常加；不能加的跳过 */
-  const dropAdd = ids => {
+  /** 拖进工具箱 / 工具箱里撤销移除（去重追加；撤销后 dnd 会再调 onReorder 挪回原位）。
+   *  整套拖进来（meta.kind === 'bundle'）按套装加，顺手记上职业；不能加的跳过 */
+  const dropAdd = (ids, meta = null) => {
     const list = (Array.isArray(ids) ? ids : [ids]).filter(id => byId.has(id) && !blockReason(byId.get(id)))
     if (!list.length) return
-    const set = new Set(list)
-    const bundle = list.length > 1 ? bundles.find(b => b.ids.length === set.size && b.ids.every(id => set.has(id))) : null
-    if (bundle) addBundle(bundle)
-    else addAll(list)
+    const bid = meta?.kind === 'bundle' ? String(meta.id || '').replace(/^bundle:/, '') : ''
+    const bundle = bid ? bundles.find(b => b.id === bid) : null
+    if (bundle) {
+      setDraft(d => ({ ...d, picked: [...new Set([...d.picked, ...list])], profession: d.profession || bundle.profession }))
+      say(`已把「${bundle.title}」的 ${list.filter(id => !draft.picked.includes(id)).length} 个插件放进工具箱`)
+    } else addAll(list)
   }
 
   // ---- 插件详情：?plugin=<id> 进历史栈，后退即关闭；从同类推荐里换一个用 replace，不越堆越深 ----
@@ -395,7 +386,7 @@ export default function Market({ session, onAuthed }) {
     const hint = step !== 'brand' ? ''
       : genError || (!pickedPlugins.length ? '至少选一个插件才能生成' : !draft.brand.name.trim() ? '给智能体起个名字就能生成' : '')
     dock = (
-      <Toolbox plugins={pickedPlugins} onRemove={toggle} onMove={move} onReorder={reorder} onClear={clearPicked} onOpen={openDetail}
+      <Toolbox plugins={pickedPlugins} onRemove={toggle} onMove={move} onReorder={reorder} onAdd={dropAdd} onClear={clearPicked} onOpen={openDetail}
         action={action} hint={hint} />
     )
   }
@@ -457,7 +448,7 @@ export default function Market({ session, onAuthed }) {
                   query={query} onClearQuery={() => { setQuery(''); searchRef.current?.focus() }} onAskAI={askAI}
                   filters={filters} onFilters={setFilters}
                   lead={<Featured bundles={bundles} picked={draft.picked} onAdd={addBundle} />}
-                  sources={isOwner ? sources : []} onFirstHover={dragHint}
+                  sources={isOwner ? sources : []}
                   onInstallFromSource={(sid, name) => setSourcePreview({ load: () => previewSourcePlugin(sid, name) })} />
               ) : <CatalogPending state={catalog} onRetry={loadCatalog} />}
               {isOwner && data ? (

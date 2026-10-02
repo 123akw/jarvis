@@ -164,7 +164,7 @@ function FilterBar({ catalog, filters, onFilters, sources, kinds, pool }) {
  * 列表用「紧凑行」而不是大卡片：图标 + 名称 + 一句话 + 「＋」，一屏能看到的插件多一倍，拖起来也轻。
  */
 export default function Catalog({ catalog, picked, onToggle, onOpen, query = '', onClearQuery, onAskAI, filters, onFilters,
-  lead = null, sources = [], onInstallFromSource, onFirstHover }) {
+  lead = null, sources = [], onInstallFromSource }) {
   const pickedSet = useMemo(() => new Set(picked), [picked])
   const byId = useMemo(() => new Map(catalog.plugins.map(p => [p.id, p])), [catalog])
   const source = filters.source.startsWith('source:') ? sources.find(s => `source:${s.id}` === filters.source) : null
@@ -232,12 +232,8 @@ export default function Catalog({ catalog, picked, onToggle, onOpen, query = '',
 
   const title = q ? `“${q}” 的结果` : filters.cat !== 'all' ? catName(filters.cat) || '插件' : '全部插件'
   const count = source ? `· ${source.plugins.length} 个` : overview ? '' : `· ${results.length} 个`
-  // 第一次用鼠标悬停到卡片上：在工具箱上方提示一次「把卡片拖到这里，或点 +」
-  const hover = e => {
-    if (e.pointerType === 'mouse' && e.target.closest?.('.jvm-card:not(.is-remote), .jvm-bundle article')) onFirstHover?.()
-  }
   return (
-    <div className="jvm-browse" onPointerOver={onFirstHover ? hover : undefined}>
+    <div className="jvm-browse">
       <FilterBar catalog={catalog} filters={filters} onFilters={onFilters} sources={sources} kinds={kinds} pool={catPool} />
       {overview && lead ? lead : null}
       <section className={`jvm-catalog${overview && !source ? ' is-overview' : ''}`} id="jvm-catalog" aria-labelledby="jvm-catalog-title">

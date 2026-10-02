@@ -168,7 +168,7 @@ body.light .jvm-ambient i{opacity:.6}
 /* ---------- 主区 ---------- */
 .jvm-main{position:relative;z-index:1;width:100%;max-width:1200px;margin:0 auto;
   padding:0 max(16px,env(safe-area-inset-right)) calc(40px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
-.jvm.in-flow .jvm-main{padding-bottom:calc(124px + env(safe-area-inset-bottom))}
+.jvm.in-flow .jvm-main{padding-bottom:calc(136px + env(safe-area-inset-bottom))}   /* Dock 接收态会长高 12px */
 .jvm-main>*{animation:jvm-rise .5s var(--m-ease) both}
 .jvm-eyebrow{font-size:12px;font-weight:600;letter-spacing:.16em;color:var(--jv-text-3)}
 .jvm-eyebrow span{letter-spacing:.04em;font-weight:500}
@@ -384,10 +384,8 @@ body.light .jvm-bundle article{background:radial-gradient(90% 80% at 0% 0%,color
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .jvm-card.is-off .jvm-card-icon,.jvm-card.is-off .jvm-card-link{opacity:.5}
 .jvm-card.is-remote .jvm-card-icon{opacity:.7}
-/* 拖拽态（dnd 代理在卡上写 data-dnd）：按住时轻轻一沉；拖起后原位留 .35 透明 + 1.5px 虚线占位 */
-.jvm-card[data-dnd=pressing],.jvm-bundle article[data-dnd=pressing]{transform:scale(.98)}
-.jvm-card[data-dnd=dragging],.jvm-card.is-dragging,.jvm-bundle article[data-dnd=dragging],.jvm-bundle article.is-dragging{opacity:.35;
-  outline:1.5px dashed color-mix(in srgb,var(--jv-text) 40%,transparent);outline-offset:-1.5px;border-radius:16px}
+/* 拖拽态（按住轻沉、拖起后原位 .35 透明 + 虚线占位）由 dnd/dnd.css 按 data-dnd 统一写；这里只管手机列表行拖起时也有圆角 */
+.jvm-card[data-dnd=dragging]{border-radius:16px}
 
 /* 徽标（卡片上最多 1 个）：12/16/500，高 20，圆角 8 */
 .jvm-card-name .jvm-badge{flex:none}
@@ -715,7 +713,7 @@ legend.jvm-field-label{width:100%;margin-bottom:8px}
   .jvm-main>*,.jvm-dock-inner,.jvm-forging,.jvm-rec-wait-text,.jvm-tray-icons i,.jvm-card-check,
   .jvm-rec,.jvm-filter-pop,.jvm-filter-scrim,.jvm-suggest,.jvm-top-search,.jvm-top-icon{animation:jvm-fade .12s ease both}
   .jvm-card,.jvm-plus,.jvm-plus .jv-icon,.jvm-prof-chip,.jvm-bundle article,.jvm-bundle-add,.jvm-toast,.jvm-tab::after{transition:none}
-  .jvm-card[data-dnd=pressing],.jvm-bundle article[data-dnd=pressing],.jvm-plus:active,.jvm-bundle-add:active{transform:none}
+  .jvm-plus:active,.jvm-bundle-add:active{transform:none}
 }
 
 
