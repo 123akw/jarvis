@@ -1,6 +1,6 @@
 import Icon from '../Icon.jsx'
 import Presence from '../Presence.jsx'
-import { navigate } from '../routes.js'
+import { MARKET_PATH, navigate } from '../routes.js'
 import { homeChips, homeGreeting, pluginMeta } from './platform.js'
 import './platform.css'
 
@@ -54,7 +54,7 @@ export default function PlatformHome({ platform, plugins = null, flows = null, o
             {tools.map(t => (
               <span key={t.id} className="pf-tool" title={t.name} role="img" aria-label={t.name}>{t.icon}</span>
             ))}
-            <button type="button" className="pf-add" onClick={() => navigate('/market')} aria-label="添加插件">
+            <button type="button" className="pf-add" onClick={() => navigate(MARKET_PATH)} aria-label="添加插件">
               <Icon name="plus" size={14} />添加
             </button>
           </div>

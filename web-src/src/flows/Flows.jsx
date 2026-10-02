@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../Icon.jsx'
-import { navigate } from '../routes.js'
+import { APP_PATH, navigate } from '../routes.js'
 import { applyTheme, currentTheme } from '../theme.js'
 import { getCatalog, getMyProfession, listFlows } from './api.js'
 import Editor from './Editor.jsx'
@@ -177,7 +177,7 @@ export default function Flows({ session, onExpired }) {
   }
   function toChat() {
     if (!leaveOk()) return
-    navigate('/')
+    navigate(APP_PATH)
   }
 
   const onSaved = useCallback(saved => {

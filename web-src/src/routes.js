@@ -1,36 +1,73 @@
 import { useEffect, useState } from 'react'
 
-/* 页面路由（不引路由库）：按 pathname 分到几个顶层页面，其余一律是主应用。
- *   /market        智能平台市场：挑技能 → 填职业 / 一句话描述 → 推荐 → 生成专属平台（未登录也能逛）
- *   /p/<slug>      某个已生成平台的入口：品牌化登录页 / 装到主屏（PWA）
+/* 页面路由（不引路由库）。第十五轮的路径约定（见 docs/proposals/2026-10-round15-market.md）：
+ *   /              智能体市场（主域名首页，未登录也能逛）
+ *   /login         登录页（?u=<用户名> 预填；?next= 登录后去哪，只接受站内路径）
+ *   /app           主应用（对话 / 今日板，需登录）
  *   /flows         流程拼接：输入 → 工具 → 输出（需登录）
- *   其余           主应用（对话 / 今日板），登录后按账号的平台定制
- * 服务端对这些路径都回 index.html（见 jarvis/server.py「静态页」）。 */
-export function parseRoute(pathname = '/') {
-  const path = (pathname || '/').replace(/\/+$/, '') || '/'
-  if (path === '/market') return { name: 'market', params: {} }
-  if (path === '/flows') return { name: 'flows', params: {} }
-  const m = path.match(/^\/p\/([A-Za-z0-9_-]{3,40})$/)
-  if (m) return { name: 'platform', params: { slug: m[1] } }
-  return { name: 'app', params: {} }
-}
-
-/* 第十五轮的路径约定（见 docs/proposals/2026-10-round15-market.md）：
- *   /        智能体市场（主域名首页，未登录也能逛）
- *   /login   登录页（?u=<用户名> 预填；?next= 登录后去哪）
- *   /app     主应用（对话 / 今日板，需登录）
+ *   /p/<slug>      某个已生成平台的入口：品牌化登录页 / 装到主屏（PWA）
+ * 旧链接兼容（redirectFor，地址栏原地替换、不留历史）：
+ *   /market        → /（查询参数保留）
+ *   /?u=<用户名>    → /login?u=<用户名>（第十四轮市场结果页的二维码、旧分享链接）
+ *   其它未知路径     → /（服务端只对上面这些路径回 index.html，走到这里的多半是手误，回首页比死胡同有用）
+ * 服务端对这些路径都回 index.html（见 jarvis/server.py「静态页」）。
  * 站内链接一律用下面的常量与函数，不要再手写 '/'、'/?u='。 */
 export const MARKET_PATH = '/'
 export const LOGIN_PATH = '/login'
 export const APP_PATH = '/app'
 
+const cleanPath = pathname => (String(pathname || '/').replace(/\/+$/, '') || '/')
+
+export function parseRoute(pathname = '/') {
+  const path = cleanPath(pathname)
+  if (path === MARKET_PATH) return { name: 'market', params: {} }
+  if (path === LOGIN_PATH) return { name: 'login', params: {} }
+  if (path === APP_PATH) return { name: 'app', params: {} }
+  if (path === '/flows') return { name: 'flows', params: {} }
+  const m = path.match(/^\/p\/([A-Za-z0-9_-]{3,40})$/)
+  if (m) return { name: 'platform', params: { slug: m[1] } }
+  if (path === '/market') return { name: 'legacy-market', params: {} }
+  return { name: 'notfound', params: {} }
+}
+
+/** 旧链接 / 未知路径该原地换去的地址（含查询参数）；不用换时返回 '' */
+export function redirectFor(pathname = '/', search = '') {
+  const { name } = parseRoute(pathname)
+  const qs = String(search || '').replace(/^\?/, '')
+  if (name === 'legacy-market') return redirectFor(MARKET_PATH, qs) || (qs ? `${MARKET_PATH}?${qs}` : MARKET_PATH)
+  if (name === 'notfound') return MARKET_PATH
+  if (name === 'market' && new URLSearchParams(qs).has('u')) return `${LOGIN_PATH}?${qs}`
+  return ''
+}
+
+/** 登录后去哪：只接受本站路径（拒绝 //host、/\host、完整网址、控制字符），也不回登录页自己；不合格返回 '' */
+export function safeNext(raw) {
+  const s = String(raw || '').trim()
+  if (!s.startsWith('/') || s.startsWith('//') || /[\\\u0000-\u001f\u007f]/.test(s)) return ''
+  let url
+  try { url = new URL(s, 'http://jv.invalid') } catch { return '' }
+  if (url.origin !== 'http://jv.invalid') return ''
+  if (parseRoute(url.pathname).name === 'login') return ''
+  return url.pathname + url.search + url.hash
+}
+
 /** 登录页地址：username 预填账号，next 登录成功后跳去哪（只接受站内路径） */
 export function loginHref(username = '', next = '') {
   const q = new URLSearchParams()
   if (username) q.set('u', String(username))
-  if (next && String(next).startsWith('/') && !String(next).startsWith('//')) q.set('next', String(next))
+  const to = safeNext(next)
+  if (to) q.set('next', to)
   const qs = q.toString()
   return qs ? `${LOGIN_PATH}?${qs}` : LOGIN_PATH
+}
+
+/** 页面标题：市场与登录页各有自己的；主应用沿用 index.html 的；流程页 / 平台入口自己设，这里返回 '' 不管 */
+export const APP_TITLE = 'J.A.R.V.I.S. · 私人管家'
+export function pageTitle(name) {
+  if (name === 'market') return '贾维斯 · 智能体市场'
+  if (name === 'login') return '登录 · 贾维斯'
+  if (name === 'app') return APP_TITLE
+  return ''
 }
 
 const ROUTE_EVENT = 'jv:route'
@@ -43,10 +80,18 @@ export function navigate(to, { replace = false } = {}) {
   window.dispatchEvent(new Event(ROUTE_EVENT))
 }
 
+/** 读当前地址；是旧链接 / 未知路径就先原地换成新地址（hash 保留），再解析 */
+function currentRoute() {
+  const { pathname, search, hash } = window.location
+  const to = redirectFor(pathname, search)
+  if (to) window.history.replaceState(window.history.state, '', to + hash)
+  return parseRoute(window.location.pathname)
+}
+
 export function useRoute() {
-  const [route, setRoute] = useState(() => parseRoute(window.location.pathname))
+  const [route, setRoute] = useState(currentRoute)
   useEffect(() => {
-    const sync = () => setRoute(parseRoute(window.location.pathname))
+    const sync = () => setRoute(currentRoute())
     window.addEventListener('popstate', sync)
     window.addEventListener(ROUTE_EVENT, sync)
     return () => { window.removeEventListener('popstate', sync); window.removeEventListener(ROUTE_EVENT, sync) }
@@ -54,8 +99,8 @@ export function useRoute() {
   return route
 }
 
-/** 进场动画只在主应用和市场首屏播：别人的品牌平台入口、流程页不该先冒出贾维斯的开场 */
-export function introAllowed(pathname) {
-  const { name } = parseRoute(pathname)
-  return name === 'app' || name === 'market'
+/** 进场动画只在市场首页播：登录页、主应用、别人的品牌平台入口、流程页都不播 */
+export function introAllowed(pathname = '/', search = '') {
+  const to = redirectFor(pathname, search)
+  return parseRoute(to ? to.split('?')[0] : pathname).name === 'market'
 }

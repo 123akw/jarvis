@@ -130,7 +130,7 @@ describe('平台主页（新对话空态）', () => {
     expect(within(box).getByRole('img', { name: '飞书' })).toBeInTheDocument()
     expect(within(box).queryByRole('img', { name: '文件拆分' })).toBeNull()
     await user.click(within(box).getByRole('button', { name: '添加插件' }))
-    expect(window.location.pathname).toBe('/market')
+    expect(window.location.pathname).toBe('/')
 
     const flows = screen.getByRole('region', { name: '我的流程' })
     await user.click(within(flows).getByRole('button', { name: /项目资料归档/ }))
@@ -268,7 +268,7 @@ describe('主应用按平台定制', () => {
     await user.type(screen.getByRole('combobox', { name: '搜索命令' }), '市场')
     expect(screen.getAllByRole('option')[0]).toHaveTextContent('智能体市场')
     await user.keyboard('{Enter}')
-    expect(window.location.pathname).toBe('/market')
+    expect(window.location.pathname).toBe('/')
   })
 })
 
@@ -350,7 +350,7 @@ describe('智能体设置', () => {
     render(<PlatformSettings platform={PLATFORM} onClose={onClose} />)
     await user.click(screen.getByRole('button', { name: /添加更多/ }))
     expect(onClose).toHaveBeenCalled()
-    expect(window.location.pathname).toBe('/market')
+    expect(window.location.pathname).toBe('/')
   })
 })
 
@@ -398,7 +398,7 @@ describe('/p/<slug> 平台入口', () => {
     await user.type(screen.getByLabelText('口令'), 'right-pass')
     await user.click(screen.getByRole('button', { name: '登录' }))
     await waitFor(() => expect(onAuthed).toHaveBeenCalledWith(expect.objectContaining({ username: 'xiaowang' })))
-    expect(window.location.pathname).toBe('/')
+    expect(window.location.pathname).toBe('/app')
   })
 
   it('已登录：直接「进入我的平台」', async () => {
@@ -407,7 +407,7 @@ describe('/p/<slug> 平台入口', () => {
     const user = userEvent.setup()
     render(<PlatformEntry slug="xw-pm" session={{ username: 'xiaowang' }} onAuthed={() => {}} />)
     await user.click(await screen.findByRole('button', { name: '进入我的智能体' }))
-    expect(window.location.pathname).toBe('/')
+    expect(window.location.pathname).toBe('/app')
   })
 
   it('?u= 与已登录账号不一致：给登录卡并说明当前登录的是谁，可「继续使用」当前账号', async () => {
@@ -431,7 +431,20 @@ describe('/p/<slug> 平台入口', () => {
     expect(headHref('manifest')).toBeUndefined()
     expect(screen.queryByLabelText('口令')).toBeNull()
     await user.click(screen.getByRole('button', { name: '去智能体市场' }))
-    expect(window.location.pathname).toBe('/market')
+    expect(window.location.pathname).toBe('/')
+    await user.click(screen.getByRole('button', { name: '进入我的智能体' }))
+    expect(window.location.pathname).toBe('/app')
+  })
+
+  it('网络出错：可重试，也可回首页（市场）', async () => {
+    window.history.replaceState({}, '', '/p/xw-pm')
+    routeFetch({ 'GET /api/p/xw-pm': [500, {}] })
+    const user = userEvent.setup()
+    render(<PlatformEntry slug="xw-pm" session={false} onAuthed={() => {}} />)
+    expect(await screen.findByRole('heading', { name: '暂时打不开' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '回到首页' }))
+    expect(window.location.pathname).toBe('/')
   })
 
   it('底部「装到手机主屏」打开图文指引', async () => {
