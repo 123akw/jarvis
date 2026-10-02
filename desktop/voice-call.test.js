@@ -415,3 +415,58 @@ test('回答字幕按帧合并：首字立即回调，同帧 token 合并一次�
   call.hangup()
   assert.equal(frames.filter(Boolean).length, pending - 1, '挂断作废已排的刷新帧')
 })
+
+test('barge-in reports how much audio was actually played when the player can tell', async () => {
+  const { call, sockets, player, mic } = await streamingHarness()
+  player.playedMs = () => 1840
+  sockets[0].emit({ type: 'turn_start' })
+  sockets[0].emit({ type: 'audio_start', format: 'pcm', sample_rate: 24000, channels: 1 })
+  sockets[0].emitBinary(new ArrayBuffer(3200))
+  mic.onLevel(0.2)
+  mic.onLevel(0.2)
+  assert.deepEqual(sockets[0].sent[sockets[0].sent.length - 1], { type: 'interrupt', played_ms: 1840 })
+  assert.equal(call.state().phase, 'listening')
+})
+
+test('after barge-in late tokens and audio are dropped and the cut frame trims the subtitle', async () => {
+  const { call, sockets, player, mic, events } = await streamingHarness()
+  sockets[0].emit({ type: 'turn_start' })
+  sockets[0].emit({ type: 'token', text: '明天上午有两个会，' })
+  sockets[0].emit({ type: 'audio_start', format: 'pcm', sample_rate: 24000, channels: 1 })
+  sockets[0].emitBinary(new ArrayBuffer(3200))
+  sockets[0].emit({ type: 'token', text: '下午三点' })
+  mic.onLevel(0.2)
+  mic.onLevel(0.2)
+  const chunks = player.chunks.length
+  sockets[0].emit({ type: 'token', text: '还有一个评审。' })
+  sockets[0].emitBinary(new ArrayBuffer(3200))
+  assert.equal(player.chunks.length, chunks, '打断后迟到的音频不再播放')
+  assert.equal(call.state().reply, '明天上午有两个会，下午三点', '打断后迟到的 token 不再上屏')
+  sockets[0].emit({ type: 'cut', heard: '明天上午有两个会，' })
+  assert.equal(call.state().reply, '明天上午有两个会， ⋯')
+  assert.equal(events.replies[events.replies.length - 1], '明天上午有两个会， ⋯')
+  // 新回合恢复正常
+  sockets[0].emit({ type: 'turn_start' })
+  sockets[0].emit({ type: 'token', text: '好的。' })
+  assert.equal(call.state().reply, '好的。')
+})
+
+test('filler fills the subtitle until the first real token replaces it', () => {
+  const { call, sockets, events } = harness()
+  call.start()
+  sockets[0].open()
+  sockets[0].emit({ type: 'ready' })
+  sockets[0].emit({ type: 'turn_start' })
+  sockets[0].emit({ type: 'filler', text: '好，我查一下。' })
+  assert.equal(events.replies[events.replies.length - 1], '好，我查一下。')
+  assert.equal(call.state().reply, '', '垫话不进回答正文')
+  sockets[0].emit({ type: 'token', text: '明天晴，' })
+  assert.equal(events.replies[events.replies.length - 1], '明天晴，')
+})
+
+test('cutIndex maps the heard prefix onto the reply ignoring whitespace', () => {
+  const { cutIndex } = require('./voice-call.js')
+  assert.equal(cutIndex('今天 晴，最高 25 度。', '今天晴，'), 5)
+  assert.equal(cutIndex('今天晴。', ''), 0)
+  assert.equal(cutIndex('今天晴。', '今天晴。还有'), 4)
+})

@@ -177,7 +177,8 @@ registerProcessor('${WORKLET_NAME}', JwsPcmCapture)
    * level() 返回此刻正在播的那一小段的 RMS（入队时预算包络，不往音频图里插分析节点）。
    */
   function createPcmPlayer({ createContext } = {}) {
-    const state = { ctx: null, nextTime: 0, sources: new Set(), sampleRate: 24000, idle: null, env: [] }
+    // turnSec：本回合已排播的音频总时长（秒），打断时据此回报「实际播到哪」
+    const state = { ctx: null, nextTime: 0, sources: new Set(), sampleRate: 24000, idle: null, env: [], turnSec: 0 }
     function ensureCtx() {
       if (!state.ctx) {
         const make = createContext || (() => {
@@ -206,6 +207,7 @@ registerProcessor('${WORKLET_NAME}', JwsPcmCapture)
         const at = Math.max(ctx.currentTime + 0.02, state.nextTime || 0)
         src.start(at)
         state.nextTime = at + buffer.duration
+        state.turnSec += buffer.duration
         // 包络按播放时间排队：先丢已播完的，再挂这一块（整句一次性下发也只是几百个小数组）
         while (state.env.length && state.env[0].end <= ctx.currentTime) state.env.shift()
         state.env.push({ at, end: at + buffer.duration, vals: envelopeOf(f32, state.sampleRate) })
@@ -225,6 +227,14 @@ registerProcessor('${WORKLET_NAME}', JwsPcmCapture)
         state.env = []
       },
       playing() { return state.sources.size > 0 },
+      /** 本回合音频实际已播放的毫秒数：已排播总时长 − 还没播完的部分（须在 stop 之前取）。 */
+      playedMs() {
+        const ctx = state.ctx
+        if (!ctx) return 0
+        const left = state.sources.size ? Math.max(0, (state.nextTime || 0) - ctx.currentTime) : 0
+        return Math.max(0, Math.round((state.turnSec - left) * 1000))
+      },
+      resetTurn() { state.turnSec = 0 },
       level() {
         const ctx = state.ctx
         if (!ctx) return 0

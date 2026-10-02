@@ -10,6 +10,24 @@
   const VAD_RMS_THRESHOLD = 0.04 // 帧级 RMS 高于此视作人声（与网页端一致）
   const VAD_VOICE_FRAMES = 2     // 连续 2 帧（约 200ms）确认开口 → 打断
   const WS_OPEN = 1
+  const CUT_MARK = ' ⋯'          // 被打断的回答：字幕截在主人听到处，以此收尾
+
+  /**
+   * 被打断时字幕截断位置（与网页端 VoiceCall.jsx 同一算法）：服务端回报主人听到的前缀 heard，
+   * 在回答原文里找到对应位置（忽略空白）；对不上就按长度近似。
+   */
+  function cutIndex(reply, heard) {
+    const h = String(heard || '').replace(/\s+/g, '')
+    if (!h) return 0
+    let j = 0
+    for (let i = 0; i < reply.length; i++) {
+      if (/\s/.test(reply[i])) continue
+      if (reply[i] !== h[j]) return Math.min(reply.length, heard.length)
+      j += 1
+      if (j === h.length) return i + 1
+    }
+    return reply.length
+  }
 
   const MESSAGES = {
     micDenied: '没拿到麦克风权限。语音识别已停用，可以在下面打字通话（贾维斯照样语音回答）；关掉本面板后文字聊天完全不受影响。',
@@ -48,6 +66,7 @@
       inputMode: 'none',     // none|stream|speech|typing
       heard: '', interim: '', reply: '', notice: '', tools: [],
       turnDone: true, serverAsr: true, alive: true, expired: false,
+      cut: false,            // 本回合已被打断：迟到的 token / 音频不再上屏、不再播
       sawReady: false,
       reconnectsLeft: maxReconnects,
     }
@@ -82,6 +101,7 @@
       emit('reply', text)
     }
     function appendReply(text) {
+      if (state.cut) return   // 打断后在途的 token：主人没听到，也不该再冒出来
       state.reply += text   // state() 永远是全文；只有回调被按帧合并
       if (!replyShown) { replyShown = true; flushReply(); return }
       if (replyFrame == null) replyFrame = raf(flushReply)
@@ -112,8 +132,12 @@
     /** 开口打断：停播 + 通知网关取消在途回合；未定稿的识别文字一并丢弃（不进回合）。 */
     function bargeIn() {
       if (state.phase === 'speaking' || player.playing()) {
-        wsSend({ type: 'interrupt' })
+        // 回报播到哪：网关据此算主人实际听到的前缀（旧播放器没有 playedMs 时由网关自行估算）
+        const played = typeof player.playedMs === 'function' ? player.playedMs() : null
+        wsSend(played == null ? { type: 'interrupt' } : { type: 'interrupt', played_ms: played })
         player.stop()
+        state.cut = true
+        flushReply()
         setInterim('') // 打断丢弃未定稿：与网关 interrupt→discard_pending 语义对齐
         setPhase('listening')
       }
@@ -165,12 +189,26 @@
         degradeToSpeech(ev.message || '服务端语音识别暂不可用，已切换本地识别')
       } else if (ev.type === 'turn_start') {
         state.turnDone = false
+        state.cut = false
+        if (player.resetTurn) player.resetTurn()
         resetReply('')
         state.tools = []
         emit('tools', [])
         setPhase('thinking')
       } else if (ev.type === 'token') {
         appendReply(ev.text || '')
+      } else if (ev.type === 'filler') {
+        // 工具慢时的垫话：正文出来前先占住字幕；首个 token 到达会整体替换（不进 state.reply）
+        if (!state.reply && !state.cut && ev.text) emit('reply', ev.text)
+      } else if (ev.type === 'cut') {
+        // 服务端算出主人实际听到的前缀：字幕截到那里，后面没念出来的不展示
+        cancelReplyFrame()
+        state.cut = true
+        const text = state.reply
+        if (text) {
+          state.reply = text.slice(0, cutIndex(text, ev.heard || '')) + CUT_MARK
+          emit('reply', state.reply)
+        }
       } else if (ev.type === 'tool_start') {
         state.tools.push({ name: ev.name, done: false })
         emit('tools', state.tools.slice())
@@ -198,6 +236,7 @@
     }
 
     function onAudioChunk(buf) {
+      if (state.cut) return   // 打断后还在路上的旧回合音频：丢掉，别再冒出半句
       player.enqueue(buf)
       setPhase('speaking')
     }
@@ -382,5 +421,5 @@
     }
   }
 
-  return { createVoiceCall, MESSAGES, VAD_RMS_THRESHOLD, VAD_VOICE_FRAMES }
+  return { createVoiceCall, MESSAGES, VAD_RMS_THRESHOLD, VAD_VOICE_FRAMES, cutIndex }
 })
