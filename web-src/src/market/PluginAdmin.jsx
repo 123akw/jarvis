@@ -489,8 +489,9 @@ function McpPanel({ plugins, busy, run, onPreview }) {
   )
 }
 
-/** Owner 在市场顶部看到的「导入插件」入口 + 管理弹窗 */
-export default function PluginAdmin({ onChanged, initialTab = 'import', onSources, external = null }) {
+/** Owner 的插件管理弹窗。默认自带「导入插件 / 管理插件」两个入口；市场首页传 triggers={false}，
+ *  改由头像菜单的「插件管理」发 request（{ tab, n }，n 每次递增）打开。 */
+export default function PluginAdmin({ onChanged, initialTab = 'import', onSources, external = null, triggers = true, request = null }) {
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState(initialTab)
   const [data, setData] = useState({ plugins: [], sources: [] })
@@ -513,6 +514,12 @@ export default function PluginAdmin({ onChanged, initialTab = 'import', onSource
     setOpen(true)
     loadPreview(external.load)
   }, [external]) // eslint-disable-line react-hooks/exhaustive-deps
+  // 头像菜单「插件管理」：在指定页签打开
+  useEffect(() => {
+    if (!request) return
+    setTab(request.tab || 'import')
+    setOpen(true)
+  }, [request])
 
   async function run(fn, done) {
     setBusy(true)
@@ -540,10 +547,14 @@ export default function PluginAdmin({ onChanged, initialTab = 'import', onSource
 
   return (
     <>
-      <button type="button" className="jvm-btn jvm-btn--ghost jvm-import-btn" onClick={() => { setOpen(true); setTab('import') }}>
-        导入插件
-      </button>
-      <button type="button" className="jvm-link-btn" onClick={() => { setOpen(true); setTab('manage') }}>管理插件</button>
+      {triggers ? (
+        <>
+          <button type="button" className="jvm-btn jvm-btn--ghost jvm-import-btn" onClick={() => { setOpen(true); setTab('import') }}>
+            导入插件
+          </button>
+          <button type="button" className="jvm-link-btn" onClick={() => { setOpen(true); setTab('manage') }}>管理插件</button>
+        </>
+      ) : null}
       {open ? createPortal(
         <Modal label="插件管理" size="lg" onClose={close} className="jvm-admin">
           <ModalHead title="插件管理" subtitle="从 GitHub、Gitee 或 zip 导入插件；第三方代码在独立子进程里运行" onClose={close} />

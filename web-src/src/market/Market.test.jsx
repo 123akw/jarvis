@@ -102,7 +102,7 @@ describe('智能体市场', () => {
     const onAuthed = vi.fn()
     const user = userEvent.setup()
     render(<Market session={false} onAuthed={onAuthed} />)
-    expect(await screen.findByRole('heading', { name: /拼出你自己的 AI 智能体/ })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /拼出你的 AI 智能体/ })).toBeInTheDocument()
 
     // 没选插件不能往下走
     expect(await screen.findByRole('button', { name: '下一步' })).toBeDisabled()
@@ -148,9 +148,8 @@ describe('智能体市场', () => {
     const calls = mockApi()
     const user = userEvent.setup()
     render(<Market session={false} />)
-    // 手机上「帮我推荐」默认收起：首屏的「一句话帮我推荐」展开它
-    await user.click(await screen.findByRole('button', { name: '一句话帮我推荐' }))
-    await waitFor(() => expect(screen.getByRole('textbox', { name: '用一句话描述你的情况' })).toHaveFocus())
+    // 帮我推荐不再是常驻面板：搜索框下一行「试试：…」点职业，结果就地展开
+    expect(screen.queryByRole('region', { name: '为你推荐' })).toBeNull()
     await user.click(await screen.findByRole('radio', { name: /开店的/ }))
     expect(await screen.findByText('开店最费心的是记事和排班。')).toBeInTheDocument()
     expect(called(calls, 'POST', '/api/market/recommend')[0].body).toEqual({ profession: 'shop_owner' })
@@ -160,13 +159,22 @@ describe('智能体市场', () => {
     expect(screen.getByRole('button', { name: /都在工具箱里了/ })).toBeDisabled()
     expect(screen.getByRole('region', { name: '工具箱' })).toHaveTextContent('已选 5 个')
     const rec = screen.getByRole('region', { name: '推荐结果' })
-    expect(within(rec).getAllByText('已在工具箱')).toHaveLength(3)
+    expect(within(rec).getAllByRole('button', { name: /^移出工具箱/ })).toHaveLength(3)
 
-    // 一句话描述走同一个接口，带上已选职业
-    await user.type(screen.getByRole('textbox', { name: '用一句话描述你的情况' }), '我开奶茶店，想管订单')
-    await user.click(screen.getByRole('button', { name: '按描述推荐' }))
+    // 一句话描述就打在首屏搜索框里：像一句话时下拉第一行「让 AI 按这句推荐一套」，回车即推荐（带上已选职业）
+    const box = screen.getByRole('searchbox', { name: '搜索插件' })
+    await user.type(box, '我开奶茶店，想管订单')
+    expect(screen.getByRole('option', { name: /让 AI 按这句推荐一套/ })).toBeInTheDocument()
+    await user.keyboard('{Enter}')
     await waitFor(() => expect(called(calls, 'POST', '/api/market/recommend')).toHaveLength(2))
     expect(called(calls, 'POST', '/api/market/recommend')[1].body).toEqual({ profession: 'shop_owner', description: '我开奶茶店，想管订单' })
+    expect(box).toHaveValue('')
+    expect(await screen.findByRole('region', { name: '为你推荐' })).toHaveTextContent('我开奶茶店，想管订单')
+    // 面板可以收起，收起后「试试」那行末尾能再打开
+    await user.click(screen.getByRole('button', { name: '收起推荐' }))
+    expect(screen.queryByRole('region', { name: '为你推荐' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: /看推荐结果/ }))
+    expect(screen.getByRole('region', { name: '为你推荐' })).toBeInTheDocument()
   })
 
   it('推荐失败说人话，可以重试', async () => {
@@ -174,7 +182,6 @@ describe('智能体市场', () => {
     mockApi({ 'POST /api/market/recommend': () => (fail ? json({ error: 'Too Many Requests' }, 429) : json({ plugins: ['todo'], flows: [], reason: '好了', source: 'model' })) })
     const user = userEvent.setup()
     render(<Market session={false} />)
-    await user.click(await screen.findByRole('button', { name: /帮我推荐/, expanded: false }))
     await user.click(await screen.findByRole('radio', { name: /老师/ }))
     expect(await screen.findByRole('alert')).toHaveTextContent('操作太频繁了，歇一会儿再试')
     fail = false
@@ -290,7 +297,7 @@ describe('智能体市场', () => {
     expect(screen.getByText(/口令只在生成时显示一次/)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: '再做一个' }))
-    expect(await screen.findByRole('heading', { name: /拼出你自己的 AI 智能体/ })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /拼出你的 AI 智能体/ })).toBeInTheDocument()
     expect(screen.queryByText('naicha_7k2m')).not.toBeInTheDocument()
     expect(store.getItem(DRAFT_KEY) || '').not.toContain('naicha_7k2m')
   })
