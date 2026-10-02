@@ -1,0 +1,28 @@
+{
+  "id": "essay_review",
+  "name": "作文批改",
+  "version": "1.0.0",
+  "icon": "✍️",
+  "category": "documents",
+  "summary": "按年级批改作文，先说亮点再指问题，附升格示范段",
+  "kind": "skill",
+  "tier": "free",
+  "price": 0,
+  "professions": [
+    "teacher",
+    "student"
+  ],
+  "examples": [
+    "帮我批改这篇初二的记叙文",
+    "这篇议论文结构哪里有问题",
+    "开头太平淡，给个升格示范"
+  ],
+  "entry": null,
+  "tools": [],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "license": "MIT-0",
+  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/essay_review"
+}

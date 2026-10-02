@@ -1,0 +1,30 @@
+{
+  "id": "resume_helper",
+  "name": "简历优化",
+  "version": "1.0.0",
+  "icon": "📄",
+  "category": "efficiency",
+  "summary": "照着目标岗位改简历，经历写出成果，不编一个字",
+  "kind": "skill",
+  "tier": "free",
+  "price": 0,
+  "professions": [
+    "student",
+    "freelancer",
+    "office",
+    "sales"
+  ],
+  "examples": [
+    "帮我把简历改成投运营岗的版本",
+    "这段实习经历怎么写更有亮点",
+    "看看我的简历有哪些硬伤"
+  ],
+  "entry": null,
+  "tools": [],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "license": "MIT-0",
+  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/resume_helper"
+}

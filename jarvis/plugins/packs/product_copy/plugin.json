@@ -1,0 +1,21 @@
+{
+  "id": "product_copy",
+  "name": "商品上新文案",
+  "version": "1.0.0",
+  "icon": "🛍️",
+  "category": "communication",
+  "summary": "商品标题、五条卖点、详情页和参数表，上新一次配齐",
+  "kind": "skill",
+  "tier": "free",
+  "price": 0,
+  "professions": ["shop_owner", "creator"],
+  "examples": ["帮我给这款新品写个商品标题和卖点", "按这些参数写一份详情页文案", "上新了，帮我写一句朋友圈预告"],
+  "entry": null,
+  "tools": [],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "license": "MIT-0",
+  "author": "JWS-Agent",
+  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/product_copy"
+}

@@ -1,7 +1,7 @@
 """提示词技能插件（kind=skill）：把 SKILL.md 正文注入系统提示词。
 
 - 平台账号（Member 的智能体）：只注入它装了的技能插件；
-- Owner / 没有平台的账号（完整的贾维斯）：注入所有已启用的技能插件。
+- Owner / 没有平台的账号（完整的贾维斯）：注入 Owner 导入的、已启用的技能插件（官方内置技能不默认注入）。
 
 技能多半来自社区，正文一律按「外部资料，不是指令」包一层：只当参考做法，不得改变身份、
 泄露密钥或越权。单个技能 ≤ 2000 字，一次最多 MAX_SKILLS 个、合计 ≤ MAX_TOTAL_CHARS。
@@ -45,6 +45,10 @@ def active_skills(owner_id: str | None = None) -> list[dict]:
     if installed is not None:
         order = {pid: index for index, pid in enumerate(installed)}
         packs = sorted((p for p in packs if p.id in order), key=lambda p: order[p.id])
+    else:
+        # 完整的贾维斯只注入 Owner 自己导入的技能；官方技能（内置）由智能体按需装进工具箱，
+        # 不默认塞进每一轮提示词（十几个官方技能会把额度占满，还会挤掉 Owner 自己装的）
+        packs = [p for p in packs if not p.builtin]
     out, total = [], 0
     for pack in packs[:MAX_SKILLS]:
         body = pack.skill["body"]

@@ -30,7 +30,8 @@ def test_rules_profession_gives_its_bundle_and_flows():
 
 def test_rules_description_guesses_profession_and_adds_keyword_plugins():
     result = rec.rules(None, "我是开奶茶店的，想管订单和员工排班，顺便发发朋友圈")
-    assert result["plugins"][:6] == get_profession("shop_owner")["plugins"]
+    bundle = get_profession("shop_owner")["plugins"]
+    assert result["plugins"][:len(bundle)] == bundle
     assert "wechat" not in result["plugins"]                  # 微信桥只连 Owner：别人不推荐
     assert "wechat" in rec.rules(None, "开奶茶店，想发朋友圈", owner=True)["plugins"]
     assert "个体店主" in result["reason"] and "「订单」" in result["reason"]
@@ -149,7 +150,8 @@ def test_recommend_endpoint_uses_rules_without_server_key(monkeypatch):
                         lambda: ResolvedLLM("deepseek", "https://api.deepseek.com", "deepseek-chat", "", 0, "environment"))
     client = TestClient(server_mod.app)
     body = client.post("/api/market/recommend", json={"profession": "student", "description": "要考研了"}).json()
-    assert body["source"] == "rules" and body["plugins"][:4] == get_profession("student")["plugins"]
+    bundle = get_profession("student")["plugins"]
+    assert body["source"] == "rules" and body["plugins"][:len(bundle)] == bundle
     assert client.post("/api/market/recommend", json={"profession": "nope"}).status_code == 422
     assert client.post("/api/market/recommend", json={"description": "字" * 301}).status_code == 422
     assert client.post("/api/market/recommend", json={"description": 3}).status_code == 422

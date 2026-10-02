@@ -1,0 +1,25 @@
+{
+  "id": "home_menu",
+  "name": "家常菜谱",
+  "version": "1.0.0",
+  "icon": "🍲",
+  "category": "life",
+  "summary": "一周菜单配采购清单，按人数和预算来，照顾忌口",
+  "kind": "skill",
+  "tier": "free",
+  "price": 0,
+  "professions": [],
+  "examples": [
+    "帮我排一周的家常晚饭，三口人",
+    "这周带饭吃什么，顺便列个买菜清单",
+    "冰箱里有鸡蛋和土豆，能做什么"
+  ],
+  "entry": null,
+  "tools": [],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "license": "MIT-0",
+  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/home_menu"
+}

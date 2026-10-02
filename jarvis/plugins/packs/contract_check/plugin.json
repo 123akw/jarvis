@@ -1,0 +1,30 @@
+{
+  "id": "contract_check",
+  "name": "合同风险提示",
+  "version": "1.0.0",
+  "icon": "⚖️",
+  "category": "documents",
+  "summary": "逐条看合同，标出高中低风险和改法，不是法律意见",
+  "kind": "skill",
+  "tier": "free",
+  "price": 0,
+  "professions": [
+    "freelancer",
+    "shop_owner",
+    "sales",
+    "office"
+  ],
+  "examples": [
+    "帮我看看这份租房合同有什么坑",
+    "这份外包合同的付款条款合理吗",
+    "签劳动合同前要注意哪几条"
+  ],
+  "entry": null,
+  "tools": [],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "license": "MIT-0",
+  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/contract_check"
+}

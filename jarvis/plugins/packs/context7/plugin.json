@@ -1,0 +1,28 @@
+{
+  "id": "context7",
+  "name": "Context7 编程文档",
+  "version": "1.0.0",
+  "icon": "🧑‍💻",
+  "category": "info",
+  "summary": "写代码时查编程库的最新文档和示例，免 Key",
+  "kind": "tool",
+  "tier": "free",
+  "price": 0,
+  "professions": [
+    "freelancer",
+    "student"
+  ],
+  "examples": [
+    "查一下这个库最新版本的用法",
+    "这个框架的路由在新版本里怎么写"
+  ],
+  "entry": null,
+  "tools": [],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "config": [],
+  "license": "MIT-0",
+  "author": "JWS-Agent",
+  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/context7"
+}

@@ -1,0 +1,28 @@
+{
+  "id": "study_plan",
+  "name": "学习计划",
+  "version": "1.0.0",
+  "icon": "🗓️",
+  "category": "efficiency",
+  "summary": "离考试还有多久都能倒排计划，按遗忘曲线排好复习",
+  "kind": "skill",
+  "tier": "free",
+  "price": 0,
+  "professions": [
+    "student",
+    "teacher"
+  ],
+  "examples": [
+    "离期末还有三周，帮我排个复习计划",
+    "每天只有两小时，怎么准备考证",
+    "做一张这周的学习打卡表"
+  ],
+  "entry": null,
+  "tools": [],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "license": "MIT-0",
+  "homepage": "https://github.com/123akw/jarvis/tree/main/jarvis/plugins/packs/study_plan"
+}

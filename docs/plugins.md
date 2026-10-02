@@ -103,6 +103,7 @@ git init && git add . && git commit -m "first plugin"         # 5. 推到 GitHub
 | `requires` | 是 | 运行条件：`feishu_bound` 已绑飞书 / `wechat_owner` 仅 Owner 微信 / `desktop` 需桌面端 / `files` 需要文件空间；没有写 `[]`。 |
 | `python_packages` | 否 | 需要的第三方包（pip 名）。**导入时不会自动安装**：缺了插件就显示「暂不可用」并写明缺什么，由管理员决定装不装。 |
 | `author` / `homepage` | 否 | 作者与主页，导入预览时展示。 |
+| `license` | 否 | 许可证（SPDX 写法，如 `MIT`、`MIT-0`、`Apache-2.0`），导入预览时展示；官方插件一律 `MIT-0`（第 14 节）。 |
 | `source` | 否 | 来源，由贾维斯在安装时写入（`{"type":"github","repo":"owner/name","ref":"<commit>","path":"子目录"}`）；仓库里不用写，写了也会被覆盖。 |
 
 ## 5 tools.py 怎么写
@@ -208,6 +209,8 @@ STEPS = {"my_plugin_stamp": StepSpec("my_plugin_stamp", "加落款日期", ROLE_
 - 第一行 `# 名称`，后面是正文，用大白话写清「什么时候用、按什么规矩做、输出什么格式」；正文 ≤ 2000 字（超出截断）。
 - `plugin.json` 里 `kind` 写 `skill`、`entry` 写 `null`、`tools` 写 `[]`。
 - 技能只改变说话和做事方式，**不能新增工具**；需要真正计算或处理文件的，写 `kind: tool`。
+- `SKILL.md` 开头可以带 YAML 头（`name`、`description`），贾维斯读的时候会去掉、不进提示词；官方技能都带，同一份文件在 Codex 里也能用。
+- 技能注入规则：智能体（平台账号）只注入它工具箱里装了的技能；Owner 的完整贾维斯只注入 Owner 自己导入的技能，**官方内置技能不默认注入**（十几个官方技能全塞进去会占满额度）。一次最多 6 个、合计 ≤ 6000 字，所以正文写短点（官方技能都在 750–1000 字）。
 - 已有 Agent Skills 格式（Anthropic / Codex 通用，YAML 头里有 `name`、`description`）的技能，可以直接按第 9 节的标准插件结构导入；正文要删到 2000 字以内。`scripts/`、`references/`、`assets/` 里的东西贾维斯不会执行或读取，要用就把要点写进正文。
 
 ## 8 隔离原则：为什么这样设计
@@ -378,3 +381,36 @@ my-plugin/              ← 仓库根就是插件目录
 - **模型不调用我的工具**：多半是 docstring 没写清「用户说什么时用」；把示例句写进 docstring，并检查有没有和自带工具抢活。
 - **想让插件调模型**：v1 第三方插件不行；把需要模型的部分交给对话本身（工具返回素材，让贾维斯组织语言），或写成 `kind: skill`。
 - **想读写用户的文件**：v1 只开放给内置插件（第 5.4 节）。
+
+## 14 贾维斯官方插件源
+
+贾维斯随代码发布的插件（`jarvis/plugins/packs/` 下全部 49 个）都是开源的：每个插件的 `plugin.json` 写了 `"license": "MIT-0"`、`"author": "JWS-Agent"`，目录里的 [`LICENSE`](../jarvis/plugins/packs/LICENSE) 是 MIT-0 全文（和 `examples/plugin-template` 一样）——随便复制、改、商用，不用署名。
+
+仓库根目录的 [`.agents/plugins/marketplace.json`](../.agents/plugins/marketplace.json) 把它们按 `local` 来源列成一个插件源（名字 `jws-agent-official`，顺序与 `packs/order.json` 一致）。别的贾维斯管理员在「智能体市场 → 插件源」里填本仓库地址，就能逐个预览、安装；本仓库自己的贾维斯里这些插件已经内置，插件源页会显示「已内置」。
+
+第十五轮新加的官方插件：
+
+| 类型 | 插件 id（名称） | 说明 |
+| --- | --- | --- |
+| 技能（15 个） | `work_report` 周报月报、`social_post` 朋友圈小红书文案、`video_script` 短视频口播稿、`product_copy` 商品上新文案、`promo_plan` 店铺活动方案、`service_reply` 客服回复话术、`meeting_notes` 会议纪要整理、`official_doc` 通知公文、`resume_helper` 简历优化、`interview_coach` 面试陪练、`study_plan` 学习计划、`essay_review` 作文批改、`home_menu` 家常菜谱、`trip_plan` 旅行攻略、`contract_check` 合同风险提示 | 纯 `SKILL.md`，写清什么时候用、怎么一步步做、输出格式；不编造事实，法律 / 医疗 / 财务只给一般性提示并建议问专业人士 |
+| 工具（5 个） | `rmb_upper` 金额大写、`tax_calc` 个税社保速算、`loan_calc` 房贷车贷计算、`workday_calc` 日期工作日、`health_calc` BMI与热量 | 纯标准库，文本进文本出，不 import 贾维斯，所以从插件源导入到别的贾维斯也能在子进程里跑；单测在 `tests/test_pack_<id>.py`。政策类数据（个税税率表、年终奖政策期限、节假日安排）在代码和 README 里写明了文号、年份和来源，**每年要更新**：节假日安排一般 11 月发布，年终奖单独计税政策执行到 2027 年底 |
+| MCP（4 个） | `deepwiki` DeepWiki 问仓库、`context7` Context7 编程文档（免 Key）；`amap` 高德地图、`kuaidi100` 快递查询（要管理员填 Key） | 只有 `plugin.json` + `mcp.json` + `README.md`，工具来自远程 MCP 服务（格式见第十五轮方案第 2 节）。README 写了是谁家的服务、能做什么（实测或官方源码核对过的工具名）、要不要 Key、数据会发给谁 |
+
+MCP 插件的写法（以高德为例）：
+
+```json
+// mcp.json
+{"mcpServers": {"amap": {"type": "streamable-http", "url": "https://mcp.amap.com/mcp?key=${AMAP_KEY}"}}}
+```
+
+```json
+// plugin.json 里多一个 config，tools 写 []
+"config": [{"key": "AMAP_KEY", "label": "高德 Web 服务 Key", "secret": true, "required": true,
+            "help": "在 lbs.amap.com 控制台「应用管理」里创建应用、添加 Key，服务平台选「Web 服务」"}]
+```
+
+`${KEY}` 占位符只能写在 `url` 和 `headers` 里，每个占位符都要在 `config` 里声明；`examples/check_plugin.py` 和 `tests/test_official_packs.py` 都会检查这一点。
+
+职业套餐（`jarvis/plugins/__init__.py` 的 `PROFESSIONS`）里补上了合适的官方技能和工具（每个套餐不超过 7 个，给用户描述里点名的插件留一个位置；需要 Key 的 MCP 插件不进套餐）。
+
+自检：`python examples/check_plugin.py .` 检查整个官方插件源；`python -m pytest -q tests/test_official_packs.py tests/test_pack_*.py` 跑官方插件的清单校验和工具单测。
