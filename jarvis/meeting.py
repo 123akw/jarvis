@@ -10,6 +10,7 @@ tenant_meetings + SMTP 发送到指定邮箱（jarvis/mailer.py）。
 """
 import datetime
 import threading
+import time
 import uuid
 import wave
 
@@ -261,12 +262,19 @@ class MeetingRegistry:
         return session
 
 
-class CommandOutbox:
-    """桌面指令领取箱：按用户暂存、领取即清、线程安全（照 heartbeat.PendingOutbox）。"""
+DESKTOP_ONLINE_SECONDS = 60.0   # 桌面端每 10 秒领一次指令；一分钟内领过就算在线
 
-    def __init__(self) -> None:
+
+class CommandOutbox:
+    """桌面指令领取箱：按用户暂存、领取即清、线程安全（照 heartbeat.PendingOutbox）。
+
+    顺带记下每个账号最近一次领取的时刻，供「桌面端是否在线」判断（插件市场的 desktop 前置条件）。"""
+
+    def __init__(self, clock=time.monotonic) -> None:
         self._lock = threading.Lock()
         self._items: dict[str, list[dict]] = {}
+        self._seen: dict[str, float] = {}
+        self._clock = clock
 
     def put(self, user_id: str, command: dict) -> None:
         with self._lock:
@@ -277,7 +285,13 @@ class CommandOutbox:
 
     def drain(self, user_id: str) -> list[dict]:
         with self._lock:
+            self._seen[user_id] = self._clock()
             return self._items.pop(user_id, [])
+
+    def online(self, user_id: str, within: float = DESKTOP_ONLINE_SECONDS) -> bool:
+        with self._lock:
+            seen = self._seen.get(user_id)
+        return seen is not None and self._clock() - seen <= within
 
 
 # 进程级单例：网关建会话、REST 查状态、工具投指令、桌面轮询领取共用同两个实例
