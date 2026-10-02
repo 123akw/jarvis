@@ -51,7 +51,9 @@ def _make_web_search_tool(service: SearchService) -> BaseTool:
         domains: list[str] | None = None,
         max_results: int = 5,
     ) -> str:
-        """检索实时公开网页或新闻。回答近期、新闻、票价、比分、评分等问题时使用。"""
+        """检索实时公开网页或新闻：「最近／最新／今天」的事、新闻动态、拿不准的事实。
+        闲聊和常识不要搜；电影评分、电竞比分、门票用专用工具。一个问题最多搜 2 次，不要换措辞重复搜；
+        近几天的新闻用 topic=news、time_range=week。"""
         request = _validated_request(query, topic, time_range, domains, max_results)
         if isinstance(request, str):
             return request

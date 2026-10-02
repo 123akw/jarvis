@@ -7,7 +7,7 @@ import {
 } from './markdown.js'
 import Icon from './Icon.jsx'
 import Presence from './Presence.jsx'
-import { toolLabel } from './toolInfo.js'
+import { toolChipText } from './toolInfo.js'
 import VoiceCall from './VoiceCall.jsx'
 
 /* 帧调度：token 先进缓冲，一帧最多刷一次（无 rAF 的环境退回 16ms 定时器） */
@@ -26,7 +26,7 @@ function ToolChip({ chip }) {
         aria-expanded={chip.detail ? open : undefined}
         onClick={() => setOpen(v => !v)}
         title={chip.detail ? (open ? '收起结果' : '查看结果') : undefined}>
-        {toolLabel(chip.name)} <span className="st">{status}</span>
+        {toolChipText(chip)} <span className="st">{status}</span>
         {chip.done && chip.ms != null && <span className="tms">{chip.ms}ms</span>}
       </button>
       {open && chip.detail && <span className="tdetail">{chip.detail}</span>}

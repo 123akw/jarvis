@@ -73,7 +73,8 @@ def _format(result) -> str:
 
 @tool(args_schema=CalcArgs)
 def calc(expression: str) -> str:
-    """精确计算算术表达式。凡是涉及数字运算都用它，不要心算。"""
+    """精确计算算术表达式，凡涉及数字运算都用它，不要心算。
+    先把文字改写成纯数字表达式，如「月薪 2.3 万扣 15% 一年」→ 23000*(1-0.15)*12。"""
     cleaned = expression.replace("×", "*").replace("÷", "/").replace("^", "**")
     if len(cleaned) > MAX_EXPRESSION_CHARS:
         return f"表达式太长了（上限 {MAX_EXPRESSION_CHARS} 个字符），请拆成几步分别计算。"
