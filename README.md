@@ -81,7 +81,7 @@
 <td align="center" colspan="2"><img src="docs/assets/readme/web-mobile.png" alt="手机版：新对话、对话与「今日」板" width="88%"><br><sub>手机版（390×844）：新对话 · 对话 · 「今日」板</sub></td>
 </tr>
 <tr>
-<td align="center"><img src="docs/assets/readme/web-market-home.png" alt="智能体市场首页：搜索、精选套装、帮我推荐" width="100%"><br><sub>首页即智能体市场：搜索、精选套装、按职业 / 一句话推荐</sub></td>
+<td align="center"><img src="docs/assets/readme/web-market-home.png" alt="智能体市场首页：搜索、精选套装、帮我推荐" width="100%"><br><sub>首页即智能体市场：一个搜索框（也能一句话让 AI 推荐）、精选套装、紧凑插件行，拖进底部工具箱即可加入</sub></td>
 <td align="center"><img src="docs/assets/readme/web-flows.png" alt="积木流程运行完成" width="100%"><br><sub>积木流程：节点逐个亮起，跑完给出结果网页二维码</sub></td>
 </tr>
 <tr>
@@ -165,6 +165,19 @@ flowchart LR
 ## 最新动态
 
 <details open>
+<summary><b>第十七轮 · 2026-10-03</b>　插件市场去冗余改版 · 拖拽加入 · 进场动画每次刷新都播</summary>
+<img src="docs/assets/readme/web-market-dnd.png" alt="把插件卡拖进底部工具箱：工具箱高亮并提示松手加入" width="420" align="right">
+
+- **市场去冗余**：参考苹果 App Store、华为应用市场、Anthropic 插件目录与 ChatGPT 的版面，首屏只留一句主张、一个大搜索框和分类页签（首屏信息块 11 → 6，整页高度少四分之一）；同屏只有一个实心主按钮（工具箱的「下一步」）。插件卡改成紧凑行：图标、名称、一句话、圆形「+」，徽标最多一个；精选套装一行三张；手机首屏就能看到插件。「一句话帮我推荐」并进搜索框，来源与类型收进「筛选」，管理员的「插件管理」挪进头像菜单。
+- **拖拽加入**：把插件卡或整套套装拖进底部工具箱，工具箱高亮并提示「松手加入 · 将有 N 个」；已经加过或需要配置的插件拖过去会显示原因、不会加入；点「+」时图标飞进工具箱。工具箱里按住一行拖动排序（生成时按这个顺序装），往外拖或把工具箱上的小图标往上拖出就是移除，5 秒内可撤销；手机长按卡片即可拖动，正常上下滑不受影响。全程键盘可用、读屏有播报，零新依赖。
+- **详情与结果页重做**：插件详情、起名配色、生成账号结果页统一成同一套间距、圆角和按钮层级。
+- **进场动画每次打开或刷新都播**：市场、登录页、主应用、流程页都播（站内切页不重播，品牌智能体入口不播）；系统开了「减弱动态效果」时改为不到 1 秒的静态淡入。
+- 测试基线 **pytest 1482 / vitest 558 / desktop 166**，全部通过；真后端联调 22 项全过。调研与方案见 [`docs/design/2026-10-market-references.md`](docs/design/2026-10-market-references.md)、[`docs/proposals/2026-10-round17-market.md`](docs/proposals/2026-10-round17-market.md)。
+
+<br clear="right">
+</details>
+
+<details>
 <summary><b>第十五轮 · 2026-10-02</b>　市场做首页 · 参考 Codex 重做插件目录 · MCP 接入 · 49 个官方开源插件 · /login</summary>
 
 <img src="docs/assets/readme/web-market-home.png" alt="智能体市场首页：搜索、精选套装、帮我推荐" width="420" align="right">
@@ -193,21 +206,7 @@ flowchart LR
 <br clear="right">
 </details>
 
-<details>
-<summary><b>第十三轮 · 2026-10-02</b>　智能体工坊：插件市场 · 专属账号即智能体 · 积木流程 · 删除 MOSS</summary>
-
-<img src="docs/assets/readme/web-market.png" alt="智能体市场：挑插件、帮我推荐" width="420" align="right">
-
-- **智能体市场**（`/market`）：22 个插件按「效率 / 沟通 / 资料 / 资讯 / 生活 / AI 处理 / 输出」分类，点「加入」进工具箱；「帮我推荐」可选职业，或一句话说说自己（「我开奶茶店，想管订单和员工排班」），AI 只从清单里挑并说明理由，一键全加。
-- **专属账号即智能体**：挑完起个名字，生成一套专属账号和口令（只显示一次，可复制、可存成图片）；在现有登录页登录，进去就是按所选插件组装的智能体——只用这些插件的工具、以自己的名字自称，主页问候、快捷问题、主题色都随之变化。管理员登录后可直接在市场里帮客户开号；游客自助开号默认关闭。
-- **积木流程**（`/flows`）：「输入 → 处理 → 输出」一条链，9 种积木（文字 / 资料上传、文件拆分、AI 提炼、加到待办、发飞书、汇总到飞书文档、发微信、生成网页二维码），按职业套用模板；运行时信号沿连线流动、节点逐个亮起，结果生成手机可扫的网页。
-- **删除 MOSS**：登录页只保留 J.A.R.V.I.S. 形态，人设去掉 MOSS 人格；移除 three.js 依赖，前端产物 1.68MB → 0.71MB。
-- 测试基线 **pytest 1178 / vitest 417 / desktop 149**，全部通过。方案与接口契约见 [`docs/proposals/2026-10-round13-platform.md`](docs/proposals/2026-10-round13-platform.md)。
-
-<br clear="right">
-</details>
-
-更早的更新（第三至第十二轮：手机端修抖、语音拟人化、进场动画、界面改版、飞书接入……）见 [更新日志](CHANGELOG.md)。
+更早的更新（第三至第十三轮：智能体工坊、手机端修抖、语音拟人化、进场动画、飞书接入……）与第十六轮的小修复见 [更新日志](CHANGELOG.md)。
 
 ## 文档
 

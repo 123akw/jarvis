@@ -663,3 +663,19 @@
 - 官方开源插件（MIT-0，`jarvis/plugins/packs/LICENSE`）：新增 15 技能、5 计算工具（纯标准库，政策依据对过 gov.cn）、4 MCP（deepwiki、context7 免 Key；amap、kuaidi100 需 Key）；根目录 `.agents/plugins/marketplace.json` 列出全部 49 个插件（插件源 jws-agent-official）。Owner 不再默认注入内置技能（避免挤满注入额度）。
 - 本机联调（真实模型）：`/` 市场 → DeepWiki 详情 → 管理员代开「开源小帮手」（deepwiki + 周报技能 + 金额大写 + 待办）→ `/login?u=` 登录 → `/app`；DeepWiki 后台自动发现 3 个工具，智能体通过 MCP 列出 python-sdk 文档 12 个章节；金额大写、周报技能正常。联调发现并修：详情页露出 MCP 英文工具名（新增 plugin.json `tool_labels` 与目录 `tool_info`）、「联网」需求重复。
 - 基线 pytest 1482 / vitest 504 / desktop 166 / examples 62。
+
+# 第十六轮（2026-10-02）：市场返回入口与账号菜单修复
+
+- 用户反馈：①进入主应用或登录页后回不到市场；②市场里已登录时点头像没反应、无法退出。
+- 修复：登录页标志与「← 逛逛智能体市场」链接回 `/`；主应用顶栏加「智能体市场」按钮（≤380px 隐藏）；市场头像改为账号菜单（进入我的智能体 / 我的流程 / 退出登录，退出后留在市场；菜单底色不透明，避开父级 backdrop-filter）。线上只读冒烟通过。
+
+# 第十七轮（2026-10-03）：插件市场去冗余改版 + 拖拽加入 + 进场动画每次刷新都播
+
+- 用户要求：市场「太冗余、布局不行」，参考苹果、华为、Anthropic、ChatGPT 的版面；插件要能拖动加入；任务较大，多派代理。契约：`docs/proposals/2026-10-round17-market.md`（地基 5ddfa51：`market/dnd/` 接口桩，先推送再派代理）。
+- 四个代理并行：调研（`docs/design/2026-10-market-references.md` + 36 张参考截图）、版面去冗余（Market / Hero / Featured / Catalog / PluginCard / TopBar / market.css）、拖拽（`market/dnd/` 自写 Pointer Events 引擎 + Toolbox）、详情与结果页（PluginDetail / Brand / Result，样式拆到 detail.css、flow-pages.css）。
+- 版面：首屏信息块 11 → 6、同屏实心主按钮 4 → 1、1440 整页高 4085 → 3072px；「一句话推荐」并进搜索框（像一句话时回车即推荐）；来源 / 类型收进「筛选」（手机底部抽屉）；管理员「插件管理」移进头像菜单；紧凑行卡 + 单徽标优先级；令牌化字号 / 间距 / 圆角 / 阴影 / 时长。
+- 拖拽：`DndRoot({onAdd, canAdd, onReorder, onRemove})`、`useDragSource`、`useDockDrop`、`flyToDock`；鼠标移动 5px 起拖、触摸长按 450ms 起拖（期间移动 8px 视为滚动）；拒绝态说明原因（已在工具箱 / 需要配置 / 暂不可用）；抽屉排序、拖出移除、Dock 图标上拖移除，5 秒撤销（`onAdd(ids, {restore})` 去重追加再挪回原位）；键盘与读屏替代齐全；零新依赖。集成时修：Dock 上方的用法提示会盖住起名步骤提示与生成报错（改为提示让位）。
+- 进场动画：由「只在市场首页、每会话一次、减弱动态时不播」改为每次整页打开 / 刷新都播（市场、登录、主应用、流程页；品牌智能体入口 `/p/<slug>` 不播；减弱动态时 awaken 自降级为 ≤1s 静态淡入；`?intro=off` 仍可关）。
+- 本机真后端联调 22 项全过（`output/round17-e2e/`，含桌面与手机录屏）：各页进场动画、拖入 / 接收态、点 + 飞入、重复与需配置被拒、整套拖入（2 → 10）、抽屉排序、移除撤销回原位、Dock 拖出与撤销、单击卡片开详情、生成账号并登录（智能体插件顺序 = 抽屉里排的顺序）、手机快速滑动不误触、手机长按拖入。
+- 基线 pytest 1482 / vitest 558 / desktop 166 / examples 62。
+
