@@ -156,6 +156,22 @@ def test_refresh_respects_budget_and_survives_unreadable_threads(owner, states, 
     assert [h["thread_id"] for h in HistoryIndex().search("静安寺")] == ["t1"]
 
 
+def test_search_still_works_when_runtime_unavailable(owner, states, monkeypatch):
+    _thread("t1", "周末去哪吃", _sushi(), states)
+    history_index.refresh(owner, budget=None)
+    TenantStore().upsert_thread("t1", "", updated_at="2026-09-22T04:00:00+00:00")   # 又脏了
+
+    @contextmanager
+    def broken(_owner_id):
+        raise RuntimeError("模型配置有误，runtime 起不来")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(history_index, "_loader", broken)
+    assert history_index.refresh(owner, budget=None) == 1
+    r = _authed_client().get("/api/history/search", params={"q": "静安寺"})
+    assert r.status_code == 200 and [i["thread_id"] for i in r.json()["items"]] == ["t1"]
+
+
 def test_backfill_async_runs_once_per_owner(owner, states):
     for i in range(3):
         _thread(f"t{i}", f"会话{i}", [HumanMessage(f"第{i}个会话聊到了露营装备", id=f"b{i}")], states)

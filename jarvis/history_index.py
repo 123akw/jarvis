@@ -359,19 +359,23 @@ def refresh(owner_id: str, *, budget: float | None = 0.5, stop: threading.Event 
         return 0
     deadline = time.monotonic() + budget if budget is not None else None
     done = 0
-    with _loader(owner_id) as read:
-        for thread in pending:
-            if (stop is not None and stop.is_set()) or (deadline is not None and time.monotonic() > deadline):
-                break
-            try:
-                messages = read(thread["checkpoint"])
-                index.index_thread(thread["alias"], thread_messages(messages), owner_id=owner_id,
-                                   thread_updated_at=thread["updated"])
-                done += 1
-            except Exception as exc:   # 单个线程读不出/写不进：留到下次，别拖垮整批
-                warn_throttled("history-sync-failed", "翻旧账：同步线程失败（%s），稍后重试", type(exc).__name__)
-            if pause:
-                time.sleep(pause)
+    try:
+        # 拿不到 runtime（如该用户的模型配置有误）也只是这次不补同步：检索照常用已有索引
+        with _loader(owner_id) as read:
+            for thread in pending:
+                if (stop is not None and stop.is_set()) or (deadline is not None and time.monotonic() > deadline):
+                    break
+                try:
+                    messages = read(thread["checkpoint"])
+                    index.index_thread(thread["alias"], thread_messages(messages), owner_id=owner_id,
+                                       thread_updated_at=thread["updated"])
+                    done += 1
+                except Exception as exc:   # 单个线程读不出/写不进：留到下次，别拖垮整批
+                    warn_throttled("history-sync-failed", "翻旧账：同步线程失败（%s），稍后重试", type(exc).__name__)
+                if pause:
+                    time.sleep(pause)
+    except Exception as exc:
+        warn_throttled("history-loader-failed", "翻旧账：读取对话记录失败（%s），稍后重试", type(exc).__name__)
     return len(pending) - done
 
 
