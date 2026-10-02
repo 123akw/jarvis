@@ -263,6 +263,11 @@ def raw_manifest(folder: Path, *, builtin: bool) -> dict:
     raw = load_json(path)
     if is_agent_plugin(raw):
         raw = from_agent_plugin(raw, folder)
+    elif (folder / "mcp.json").is_file():
+        # 自有格式也认 mcp.json（第十五轮契约第 2 节）：工具来自 MCP 服务，清单里的 tools 写 []
+        extras = raw.get("extras") if isinstance(raw.get("extras"), dict) else {}
+        if not extras.get("mcp"):
+            raw = dict(raw, extras={**extras, "mcp": mcp_servers(folder)})
     return raw
 
 

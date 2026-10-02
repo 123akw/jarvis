@@ -47,7 +47,12 @@ RISKY = {
 def _load_module(name: str, path: Path):
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    sys.modules[name] = module          # 模块里用 dataclass 等需要先登记（否则 exec 时找不到自己）
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop(name, None)
+        raise
     return module
 
 
@@ -82,6 +87,10 @@ def check_plugin(plugin_dir: str | Path) -> tuple[list[str], list[str]]:
     kind = manifest.get("kind")
     if kind == "skill":
         _check_skill(root, manifest, errors, skill_text)
+    elif (root / "mcp.json").is_file() and not manifest.get("entry"):
+        _check_mcp(root, manifest, errors, warnings)
+    elif kind == "tool" and not manifest.get("entry") and (manifest.get("source") or {}).get("type") == "builtin":
+        warnings.append("贾维斯内置插件：工具由贾维斯核心提供，随贾维斯发布，不需要导入")
     elif kind == "tool" or manifest.get("entry"):
         _check_entry(root, manifest, errors, warnings)
     return errors, warnings
@@ -132,6 +141,7 @@ def _check_skill(root: Path, manifest: dict, errors: list[str], text: str | None
         except OSError:
             errors.append("kind=skill 需要 SKILL.md")
             return
+        text = split_frontmatter(text)[1]   # 带 YAML 头（name / description）的写法同样认
     first, _, body = text.strip().partition("\n")
     if not first.startswith("# "):
         errors.append("SKILL.md 第一行（YAML 头之后）要写「# 技能名称」")
@@ -183,6 +193,65 @@ def _check_entry(root: Path, manifest: dict, errors: list[str], warnings: list[s
         errors.append(f"STEPS {list(steps)} 与 plugin.json 的 steps 不一致")
     elif manifest.get("steps") and not steps:
         warnings.append("plugin.json 写了 steps，但当前环境没导出 STEPS（不在贾维斯里运行时属正常）")
+
+
+
+PLACEHOLDER_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+CONFIG_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]{1,63}$")
+
+
+def _check_mcp(root: Path, manifest: dict, errors: list[str], warnings: list[str]) -> None:
+    """MCP 插件（第十五轮契约第 2 节）：mcp.json 只认远程服务；${KEY} 占位符只在 url / headers 里，且都在 config 里声明。"""
+    data, problem = _read_json(root / "mcp.json")
+    if problem:
+        errors.append(problem)
+        return
+    if manifest.get("tools"):
+        errors.append("MCP 插件的工具来自 MCP 服务，plugin.json 的 tools 写 []")
+    servers = data.get("mcpServers")
+    if not isinstance(servers, dict) or not servers:
+        errors.append("mcp.json 里要有 mcpServers 对象")
+        return
+    used: set[str] = set()
+    for name, conf in servers.items():
+        conf = conf if isinstance(conf, dict) else {}
+        label = f"MCP 服务「{name}」"
+        if conf.get("command") or conf.get("type") == "stdio":
+            errors.append(f"{label}是本地 stdio：贾维斯只接远程 streamable-http / sse")
+            continue
+        if conf.get("type") not in ("streamable-http", "sse"):
+            errors.append(f"{label}的 type 只能是 streamable-http 或 sse")
+        url = str(conf.get("url") or "")
+        if not url.startswith("https://"):
+            errors.append(f"{label}的 url 要用 https")
+        headers = conf.get("headers") or {}
+        if not isinstance(headers, dict):
+            errors.append(f"{label}的 headers 要是对象")
+            headers = {}
+        for key, value in conf.items():
+            if key not in ("url", "headers") and PLACEHOLDER_RE.search(json.dumps(value, ensure_ascii=False)):
+                errors.append(f"{label}的 {key} 里有 ${{}} 占位符：占位符只能写在 url 和 headers 里")
+        for text in (url, *map(str, headers.values())):
+            used |= set(PLACEHOLDER_RE.findall(text))
+    config = manifest.get("config") or []
+    if not isinstance(config, list) or not all(isinstance(item, dict) for item in config):
+        errors.append("config 要是对象列表")
+        return
+    declared = {str(item.get("key", "")) for item in config}
+    for item in config:
+        key = str(item.get("key", ""))
+        if not CONFIG_KEY_RE.match(key):
+            errors.append(f"config 的 key「{key}」要用大写字母、数字和下划线")
+        if not str(item.get("label", "")).strip():
+            errors.append(f"config「{key}」缺少 label（插件管理里给管理员看的名字）")
+    missing = sorted(used - declared)
+    if missing:
+        errors.append(f"mcp.json 用到的占位符没在 config 里声明：{', '.join(missing)}")
+    unused = sorted(declared - used)
+    if unused:
+        warnings.append(f"config 里声明了但 mcp.json 没用到：{', '.join(unused)}")
+    if any(item.get("required") for item in config):
+        warnings.append("需要管理员在插件管理里填好配置（Key）后才能用")
 
 
 # ---------- Agent Plugins 标准插件（Codex / ChatGPT 格式） ----------
