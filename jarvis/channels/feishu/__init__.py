@@ -50,5 +50,10 @@ def bound_users() -> list[str]:
     return _bridge.bound_users()
 
 
-__all__ = ["FeishuBridge", "FeishuSettings", "bound_users", "get_bridge", "push_ready", "push_text",
+def doc_target(user_id: str):
+    """流程「汇总到飞书文档」用：(FeishuAPI, open_ids) 或 None。"""
+    return _bridge.doc_target(user_id)
+
+
+__all__ = ["FeishuBridge", "FeishuSettings", "bound_users", "doc_target", "get_bridge", "push_ready", "push_text",
            "register", "shutdown", "start", "status"]

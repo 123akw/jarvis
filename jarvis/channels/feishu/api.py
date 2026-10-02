@@ -208,6 +208,39 @@ class FeishuAPI:
     def delete_reaction(self, message_id: str, reaction_id: str) -> None:
         self._request("DELETE", f"/open-apis/im/v1/messages/{message_id}/reactions/{reaction_id}")
 
+    # ---- 新版文档（流程积木「汇总到飞书文档」用，见 jarvis/flows/feishu_doc.py） ----
+
+    def create_document(self, title: str) -> str:
+        payload = self._request("POST", "/open-apis/docx/v1/documents", json_body={"title": title})
+        document_id = ((payload.get("data") or {}).get("document") or {}).get("document_id")
+        if not document_id:
+            raise FeishuAPIError(-1, "missing document_id")
+        return str(document_id)
+
+    def append_blocks(self, document_id: str, children: list[dict]) -> None:
+        """追加到文档末尾；根块 id 即文档 id。单次 ≤50 块。"""
+        self._request("POST", f"/open-apis/docx/v1/documents/{document_id}/blocks/{document_id}/children",
+                      json_body={"children": children, "index": -1}, params={"document_revision_id": -1})
+
+    def add_doc_member(self, document_id: str, open_id: str, perm: str = "full_access") -> None:
+        self._request("POST", f"/open-apis/drive/v1/permissions/{document_id}/members",
+                      json_body={"member_type": "openid", "member_id": open_id, "perm": perm},
+                      params={"type": "docx", "need_notification": "false"})
+
+    def doc_url(self, document_id: str) -> str:
+        """文档链接：优先用元数据接口给的租户域名链接，取不到就拼通用链接（会跳到租户域名）。"""
+        try:
+            payload = self._request("POST", "/open-apis/drive/v1/metas/batch_query", json_body={
+                "request_docs": [{"doc_token": document_id, "doc_type": "docx"}], "with_url": True})
+            metas = (payload.get("data") or {}).get("metas") or []
+            url = str(metas[0].get("url", "")) if metas and isinstance(metas[0], dict) else ""
+        except FeishuAPIError:
+            url = ""
+        if url.startswith("https://"):
+            return url
+        web = "https://www.larksuite.com" if "larksuite" in self.domain else "https://www.feishu.cn"
+        return f"{web}/docx/{document_id}"
+
     def download_resource(self, message_id: str, file_key: str, kind: str = "image") -> tuple[bytes, str]:
         """下载消息里的图片/文件；成功时响应是二进制流，失败时是 JSON 错误体。"""
         for attempt in (0, 1):

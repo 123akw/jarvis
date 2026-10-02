@@ -150,6 +150,18 @@ class TenantStore:
         )
 
     @staticmethod
+    def _schema_v6_statements() -> tuple[str, ...]:
+        """v6（2026-10 平台工坊·流程）：积木流程 + 每次运行的记录与公开结果页。
+
+        结果页挂在运行记录上（page_token 全局唯一，公开链接按它反查，不带租户）；
+        每个流程只留最近 20 次运行，结果页另有 30 天时效（jarvis/flows/store.py）。"""
+        return (
+            "CREATE TABLE IF NOT EXISTS tenant_flows (owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, id TEXT NOT NULL, name TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '', steps TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(owner_id, id))",
+            "CREATE TABLE IF NOT EXISTS tenant_flow_runs (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, flow_id TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('running','ok','error')), input TEXT NOT NULL DEFAULT '{}', steps TEXT NOT NULL DEFAULT '[]', error TEXT NOT NULL DEFAULT '', started_at TEXT NOT NULL, finished_at TEXT, page_token TEXT UNIQUE, page_title TEXT, page_text TEXT, page_links TEXT, page_expires_at TEXT)",
+            "CREATE INDEX IF NOT EXISTS tenant_flow_runs_recent ON tenant_flow_runs(owner_id, flow_id, started_at)",
+        )
+
+    @staticmethod
     def _apply_version(connection: sqlite3.Connection, version: int, statements: tuple[str, ...]) -> None:
         if connection.execute("SELECT 1 FROM tenant_schema_migrations WHERE version=?", (version,)).fetchone():
             return
@@ -177,6 +189,7 @@ class TenantStore:
         TenantStore._apply_version(connection, 2, TenantStore._schema_v2_statements())
         TenantStore._apply_version(connection, 3, TenantStore._schema_v3_statements())
         TenantStore._apply_version(connection, 4, TenantStore._schema_v4_statements())
+        TenantStore._apply_version(connection, 6, TenantStore._schema_v6_statements())
         from jarvis.history_index import ensure_fts   # 延迟导入：history_index 依赖本模块
         ensure_fts(connection)
 
