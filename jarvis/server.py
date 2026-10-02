@@ -47,6 +47,7 @@ from jarvis.tools.todo import all_todos
 async def lifespan(_app: FastAPI):
     """恢复持久微信桥并启动日程提醒扫描；退出时停线程但不删除 Token。"""
     _start_weak_password_scan()
+    _check_timezone()
     # 渠道各自隔离启动：任何一个起不来（凭据文件不可读、配置错）都只记日志，
     # 不能让整个网页服务启动失败（此前 resume_on_boot 抛 PermissionError 即全站起不来）。
     _safe_start("wechat", wechat.resume_on_boot)
@@ -229,6 +230,19 @@ class LoginAttemptLimiter:
 
 _login_limiter = LoginAttemptLimiter()
 _settings_limiter = LoginAttemptLimiter(attempts=10, spray_attempts=50, window_seconds=60)
+
+
+def _check_timezone(now_fn=None) -> bool:
+    """日程提醒、晨报、夜间蒸馏、now 工具都按服务器本地时间计算；时区不是北京时间时整体偏移，
+    且没有任何报错。启动时自检一次，不对就 WARNING。"""
+    now = (now_fn or (lambda: datetime.datetime.now().astimezone()))()
+    offset = now.utcoffset()
+    if offset == datetime.timedelta(hours=8):
+        return True
+    hours = (offset or datetime.timedelta()).total_seconds() / 3600
+    log.warning("服务器时区是 UTC%+g 而不是北京时间（UTC+8）：日程提醒、晨报、夜间蒸馏会整体偏移，"
+                "请在服务环境里设置 TZ=Asia/Shanghai 后重启", hours)
+    return False
 
 
 def _safe_start(name: str, starter) -> None:
@@ -946,6 +960,10 @@ def upload_document(request: Request, body: UploadIn):
     if err:
         return err
     name = Path(body.name).name.strip() or "文档"
+    from jarvis import documents
+    # 先按编码长度拦超限文件：此前 30MB 也要先整段解码（多占一份内存）才报超限
+    if len(body.content_b64) > (documents.MAX_UPLOAD_BYTES + 2) // 3 * 4 + 4:
+        return JSONResponse({"error": "文件超过 10MB 上限"}, status_code=422)
     try:
         import base64 as b64_mod
         data = b64_mod.b64decode(body.content_b64, validate=True)
@@ -965,7 +983,6 @@ def upload_document(request: Request, body: UploadIn):
             return JSONResponse({"error": str(exc)}, status_code=422)
         return {"ok": True, "kind": "image" if image_ext else "video", "name": name,
                 "chars": len(text), "truncated": False, "text": text}
-    from jarvis import documents
     try:
         text = documents.extract_text(name, data)
     except documents.DocumentError as exc:

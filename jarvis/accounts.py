@@ -17,6 +17,7 @@ from pathlib import Path
 from pwdlib import PasswordHash
 
 from jarvis import config
+from jarvis.db import ClosingConnection, file_identity
 
 
 log = logging.getLogger(__name__)
@@ -27,6 +28,9 @@ _DUMMY_HASH = _PASSWORDS.hash("not-a-real-password")
 _ROLES = frozenset(("Owner", "Member"))
 _AUDIT_LIMIT = 10_000
 _MIGRATION_LOCK = threading.Lock()
+# 迁移成功过的库（路径+inode）：同进程内不再逐连接重跑版本检查。每个已登录请求都会
+# principal_for_token → _connect，此前每次都在全进程锁里多跑 3 条迁移语句。只缓存成功。
+_MIGRATED: set[tuple[str, int, int]] = set()
 _KNOWN_PLACEHOLDERS = frozenset({
     "<initial-owner-username>",
     "<initial-owner-password>",
@@ -152,15 +156,19 @@ class AccountStore:
     def _connect(self) -> sqlite3.Connection:
         path = self.path or (config.data_dir() / "accounts.sqlite3")
         path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(path, timeout=5, isolation_level=None)
+        connection = sqlite3.connect(path, timeout=5, isolation_level=None, factory=ClosingConnection)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
-        try:
-            with _MIGRATION_LOCK:
-                self._migrate(connection)
-        except Exception:
-            connection.close()
-            raise
+        if file_identity(path) not in _MIGRATED:
+            try:
+                with _MIGRATION_LOCK:
+                    self._migrate(connection)
+            except Exception:
+                connection.close()
+                raise
+            identity = file_identity(path)
+            if identity is not None:
+                _MIGRATED.add(identity)
         try:
             path.chmod(0o600)
         except OSError:
@@ -169,6 +177,13 @@ class AccountStore:
 
     @staticmethod
     def _migrate(connection: sqlite3.Connection) -> None:
+        AccountStore._migrate_versions(connection)
+        # 幂等索引（不占版本号）：每次写审计都要按 created_at 排序裁剪到 1 万行，无索引即全表排序
+        if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='audit'").fetchone():
+            connection.execute("CREATE INDEX IF NOT EXISTS audit_created_at ON audit(created_at)")
+
+    @staticmethod
+    def _migrate_versions(connection: sqlite3.Connection) -> None:
         connection.execute(
             "CREATE TABLE IF NOT EXISTS schema_migrations "
             "(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"

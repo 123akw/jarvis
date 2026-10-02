@@ -238,6 +238,23 @@ def test_pending_outbox_is_bounded():
     assert items[-1]["title"] == "消息99"
 
 
+# ---------- 时区自检 ----------
+
+def test_startup_warns_when_server_timezone_is_not_beijing(caplog):
+    """提醒/晨报/蒸馏/now 工具全用服务器本地时间：TZ=UTC 实测整体偏 8 小时却毫无提示。"""
+    import datetime
+    import jarvis.server as server_mod
+    utc_now = lambda: datetime.datetime(2026, 10, 2, 1, 0, tzinfo=datetime.timezone.utc)  # noqa: E731
+    bj_now = lambda: datetime.datetime(2026, 10, 2, 9, 0, tzinfo=datetime.timezone(datetime.timedelta(hours=8)))  # noqa: E731
+    with caplog.at_level(logging.WARNING):
+        assert server_mod._check_timezone(utc_now) is False
+    assert any("TZ=Asia/Shanghai" in r.getMessage() for r in caplog.records)
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        assert server_mod._check_timezone(bj_now) is True
+    assert not caplog.records
+
+
 # ---------- 飞书长连接 ----------
 
 def test_feishu_reconnect_has_minimum_delay():

@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from jarvis import config
+from jarvis.db import ClosingConnection
 
 
 class TenantScopeError(RuntimeError):
@@ -85,7 +86,7 @@ class TenantStore:
 
     def _connect(self) -> sqlite3.Connection:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(self.path, timeout=5, isolation_level=None)
+        connection = sqlite3.connect(self.path, timeout=5, isolation_level=None, factory=ClosingConnection)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         path_key = str(self.path)
