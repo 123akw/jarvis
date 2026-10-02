@@ -15,3 +15,10 @@ def isolated_data_dir(tmp_path, monkeypatch):
     monkeypatch.delenv("FEISHU_APP_ID", raising=False)
     monkeypatch.delenv("FEISHU_APP_SECRET", raising=False)
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def no_background_home_model(monkeypatch):
+    """智能体主页的模型生成默认关掉：测试不打真模型、不留后台线程；要测的用例自己换 HomeService。"""
+    from jarvis import platform_home
+    monkeypatch.setattr(platform_home, "_service", platform_home.HomeService())
