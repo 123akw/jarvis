@@ -5,9 +5,12 @@
   "description": "贾维斯桌面悬浮窗：AI 光球悬浮球 + 快捷对话面板",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "pack:mac": "node tools/pack-mac.js",
+    "install:mac": "node tools/install-mac.js"
   },
   "devDependencies": {
+    "@electron/packager": "^20.3.0",
     "electron": "^38.2.0"
   },
   "allowScripts": {

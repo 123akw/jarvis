@@ -729,6 +729,10 @@ body.light .provider-tabs button.on{background:#fff;box-shadow:0 1px 3px rgba(0,
 .wx-steps li::marker{color:var(--jv-text-3)}
 .wx-steps code{font-family:var(--jv-mono);font-size:12.5px;padding:2px 7px;border-radius:6px;background:var(--jv-surface-2);color:var(--jv-text)}
 .wx-steps a{color:var(--jv-accent)}
+.wx-dev{margin:-8px 0 8px;font-size:13px;color:var(--jv-text-3)}
+.wx-dev summary{cursor:pointer;width:max-content;max-width:100%}
+.wx-dev .wx-hint{margin-top:8px;font-size:13px}
+.wx-dev code{font-family:var(--jv-mono);font-size:12px;padding:1px 6px;border-radius:6px;background:var(--jv-surface-2);color:var(--jv-text);overflow-wrap:anywhere}
 .wx-big{margin:16px 0 8px;font-family:var(--jv-font-display);font-size:20px;font-weight:600;color:var(--jv-text)}
 .wx-ok{width:60px;height:60px;margin:8px auto 4px;border-radius:50%;display:grid;place-items:center;
   color:#fff;background:var(--jv-success);font-size:28px}

@@ -94,6 +94,26 @@ test('safeStorage being unavailable fails closed without writing a plaintext tok
   assert.equal(fs.existsSync(path.join(directory, 'desktop-session.enc')), false)
 })
 
+test('keychain temporarily unavailable keeps the encrypted session file for later instead of discarding it', async () => {
+  const { instance, directory } = gateway()
+  await instance.login('owner', 'test-password')
+  const file = path.join(directory, 'desktop-session.enc')
+  const sealed = fs.readFileSync(file)
+  let available = false
+  const locked = createSessionGateway({
+    fetchImpl: async () => response(200, {}),
+    safeStorage: {
+      isEncryptionAvailable: () => available,
+      decryptString: value => Buffer.from(value.toString(), 'base64').toString(),
+    },
+    fs, path, dataDir: directory, server: 'https://example.test',
+  })
+  assert.equal(locked.authToken(), '')
+  assert.deepEqual(fs.readFileSync(file), sealed)
+  available = true
+  assert.equal(locked.authToken(), 'desktop-test-token')
+})
+
 test('request schemas reject extra fields, wrong desktop threads, and oversized messages', async () => {
   const { instance } = gateway()
   await assert.rejects(() => instance.request('session', { extra: true }), /body/i)

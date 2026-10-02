@@ -43,6 +43,25 @@ function sys(text) {
   log.append(el); log.scrollTop = log.scrollHeight
 }
 
+function note(text) {
+  const el = document.createElement('div')
+  el.className = 'sys'; el.textContent = text
+  log.append(el); log.scrollTop = log.scrollHeight
+}
+/* 对话里的文件下载链接（/api/files/<id>）：令牌只在主进程，交给它下载到「下载」文件夹 */
+async function downloadFileLink(href) {
+  note('正在下载文件…')
+  try {
+    const result = await window.jws.downloadFile(href)
+    if (result && result.ok) note(`已保存到「下载」：${result.name}`)
+    else if (result && result.status === 401) sys('登录已过期，请重新登录后再下载')
+    else if (result && result.status === 404) sys('文件不存在或已过期（文件空间保留 30 天）')
+    else sys('下载失败，请稍后再试')
+  } catch {
+    sys('下载失败，请稍后再试')
+  }
+}
+
 /* The renderer only names approved operations. Main owns token, headers and server URL. */
 async function api(operation, body = {}) {
   const result = await authenticatedApi.request(operation, body)
@@ -270,7 +289,13 @@ $('#clearbtn').addEventListener('click', async () => {
 })
 log.addEventListener('click', e => {  // 空态快捷芯片 / 来源链接 / 代码块复制
   const a = e.target.closest && e.target.closest('a[href]')
-  if (a) { e.preventDefault(); void window.jws.openExternalLink(a.href); return }
+  if (a) {
+    e.preventDefault()
+    const raw = a.getAttribute('href') || ''
+    if (raw.startsWith('/api/files/')) { void downloadFileLink(raw); return }  // 文件空间：带令牌下载
+    void window.jws.openExternalLink(a.href)
+    return
+  }
   const copyBtn = e.target.closest && e.target.closest('.codecopy')
   if (copyBtn) {
     const code = copyBtn.closest('.codeblock')?.querySelector('code')

@@ -370,7 +370,7 @@ export default function Hud({ session, onLogout }) {
             onApplied={() => setRefreshKey(key => key + 1)} />
         </Modal>
       ) : null}
-      {desktop.guide ? <DesktopGuide onClose={desktop.closeGuide} /> : null}
+      {desktop.guide ? <DesktopGuide {...desktop.guide} onClose={desktop.closeGuide} /> : null}
       {shareOpen && platform ? (
         <Suspense fallback={null}><ShareSheet platform={platform} onClose={() => setShareOpen(false)} /></Suspense>
       ) : null}

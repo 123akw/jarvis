@@ -61,7 +61,20 @@ cp .env.example .env
 cd desktop && npm install && npm start
 ```
 
-首次启动会自动展开登录面板，可在登录面板或设置页把服务器地址改为 HTTPS 私有部署地址；只在设置 `JWS_DESKTOP_DEV=1` 时允许本机 `http://127.0.0.1` / `[::1]` 开发地址。桌面端会要求输入用户名和口令，认证 Token 只由 Electron 主进程保存于系统加密存储，渲染界面无法读取。悬浮球置顶并跨工作区显示，点击后向左展开快捷聊天；默认全局唤醒键为 `⌥Space`，也可修改或停用。开机自启通过 `~/Library/LaunchAgents/com.jws.jarvis.desktop.plist` 实现。
+首次启动会自动展开登录面板，可在登录面板或设置页把服务器地址改为 HTTPS 私有部署地址；只在设置 `JWS_DESKTOP_DEV=1` 时允许本机 `http://127.0.0.1` / `[::1]` 开发地址。桌面端会要求输入用户名和口令，认证 Token 只由 Electron 主进程保存于系统加密存储，渲染界面无法读取。悬浮球置顶并跨工作区显示，点击后向左展开快捷聊天；默认全局唤醒键为 `⌥Space`，也可修改或停用。
+
+**打包成 Mac 应用（推荐日常使用）**：
+
+```bash
+cd desktop && npm install
+npm run pack:mac                 # 出 desktop/out/贾维斯-darwin-arm64/贾维斯.app（ad-hoc 签名，已声明 jws:// 协议）
+npm run install:mac              # 退出开发版 → 装到 ~/Applications/贾维斯.app → 登记 jws:// → 打开
+npm run install:mac -- --login   # 同上，并打开「开机自启」
+```
+
+打包版与 `npm start` 共用 `~/Library/Application Support/jws-desktop`（登录态、设置、单实例锁），首次启动如弹出钥匙串提示「贾维斯想要使用 jws-desktop Safe Storage」，点「始终允许」即可沿用原登录态（ad-hoc 签名每次重新打包都会再问一次；设 `JWS_SIGN_IDENTITY` 用固定证书签名可免）。开机自启：打包版登记为系统登录项（系统设置 → 通用 → 登录项），开发版仍用 `~/Library/LaunchAgents/com.jws.jarvis.desktop.plist`。
+
+**网页「桌面悬浮窗」一键唤起**：网页先探测本机 `127.0.0.1:17789`，在跑就直接唤起并接管登录态；探不到会带一次性票据打开 `jws://handoff`，把装好的贾维斯拉起来并在约 6 秒内自动完成接管。浏览器限制：Chrome / Edge 142+ 首次会询问是否允许本网站访问「此设备上的应用」，点「允许」（拒绝过的话在地址栏左侧网站设置里改回允许）；Safari 不允许 https 网页直连本机，只能经 `jws://` 由系统打开，询问「是否允许此网页打开“贾维斯”」时点「允许」。
 
 `npm install` 后提示缺少 Electron 二进制时，见 [FAQ](faq.md#npm-install-后提示缺少-electron-二进制怎么办)。
 
