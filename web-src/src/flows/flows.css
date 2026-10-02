@@ -339,7 +339,7 @@ body.light .fl-result-qr{box-shadow:0 0 0 1px rgba(0,0,0,.06),0 8px 24px rgba(0,
 
 /* ---------- 手机：列表与编辑器分屏，节点链改纵向 ---------- */
 @media (max-width:760px){
-  .fl-page{--fl-link:46px}
+  .fl-page{--fl-link:54px}
   .fl-body{grid-template-columns:minmax(0,1fr)}
   .fl-page[data-pane=list] .fl-main{display:none}
   .fl-page:not([data-pane=list]) .fl-side{display:none}

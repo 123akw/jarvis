@@ -219,7 +219,8 @@ export function RunHistory({ runs }) {
               {runs.map((r, i) => {
                 const url = r.output?.url || r.url
                 const when = relTime(r.finished_at || r.started_at)
-                const took = r.started_at && r.finished_at ? fmtMs(Date.parse(r.finished_at) - Date.parse(r.started_at)) : ''
+                const span = Date.parse(r.finished_at) - Date.parse(r.started_at)
+                const took = span > 0 ? fmtMs(span) : ''
                 const what = inputLabel(r.input)
                 return (
                   <li key={r.id ?? i} className="fl-hist-row">

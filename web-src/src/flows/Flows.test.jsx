@@ -346,6 +346,16 @@ describe('流程拼接页', () => {
     expect(api.runBodies[0]).toEqual({ file: { name: '纪要.txt', data_base64: 'QUJD' } })
   })
 
+  it('上层重渲染换了 onExpired 也不重新加载（不冲掉正在编辑的内容）', async () => {
+    const { rerender } = await renderPage()
+    const box = await screen.findByRole('textbox', { name: '流程名称' })
+    fireEvent.change(box, { target: { value: '改了一半' } })
+    rerender(<Flows session={{ username: 'demo' }} onExpired={() => {}} />)
+    await act(async () => {})
+    expect(global.fetch.mock.calls.filter(([u]) => u === '/api/flows')).toHaveLength(1)
+    expect(screen.getByRole('textbox', { name: '流程名称' })).toHaveValue('改了一半')
+  })
+
   it('登录过期调 onExpired', async () => {
     const { onExpired } = await renderPage({ listStatus: 401 })
     await waitFor(() => expect(onExpired).toHaveBeenCalled())

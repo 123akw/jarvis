@@ -114,12 +114,16 @@ export default function Flows({ session, onExpired }) {
   }, [])
   useEffect(() => { document.title = '我的流程 · 贾维斯' }, [])
 
-  const expired = useCallback(() => onExpired?.(), [onExpired])
+  // App 每次渲染都给新的 onExpired，放进 ref：不让它触发重新加载（会把正在编辑的流程冲掉）
+  const expiredRef = useRef(onExpired)
+  expiredRef.current = onExpired
+  const expired = useCallback(() => expiredRef.current?.(), [])
+  const knownProfession = session?.platform?.profession || null
 
   const load = useCallback(async () => {
     setLoadErr('')
     try {
-      const [cat, list, prof] = await Promise.all([getCatalog(), listFlows(), session?.platform?.profession ? null : getMyProfession()])
+      const [cat, list, prof] = await Promise.all([getCatalog(), listFlows(), knownProfession ? null : getMyProfession()])
       setCatalog(cat)
       setFlows(list)
       if (prof) setProfession(prof)
@@ -132,7 +136,7 @@ export default function Flows({ session, onExpired }) {
       if (err.message === '401') { expired(); return }
       setLoadErr(err.message || '加载失败')
     }
-  }, [session, expired])
+  }, [knownProfession, expired])
   useEffect(() => { load() }, [load])
 
   function leaveOk() {
