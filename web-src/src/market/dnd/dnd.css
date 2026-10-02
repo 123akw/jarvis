@@ -1,0 +1,164 @@
+/* 第十七轮：拖拽加入 / Dock 放置区 / 工具箱拖动排序（数字按 docs/design/2026-10-market-references.md §0、§6、第四节）。
+ * 只动 transform / opacity（Dock 接收态长高 12px 动一下 padding）；药丸是不透明底，不做实时模糊（跟手时每帧重算会掉帧）。
+ * 状态属性：卡片 data-dnd="idle|pressing|dragging"，Dock data-dock="idle|ready|over|reject|landing"（+ data-dock-tone）。
+ * prefers-reduced-motion：不倾斜、不缩放、不飞，状态瞬时切换，颜色变化保留。 */
+
+/* ---------- 拖拽源：插件卡 / 套装卡 ---------- */
+[data-dnd-source]{-webkit-tap-highlight-color:transparent}
+[data-dnd-source=plugin]{touch-action:pan-y}
+@media (hover:hover) and (pointer:fine){ :where([data-dnd-source]){cursor:grab} }
+/* 触屏：长按不弹系统菜单、不选中文字（长按是拖动） */
+@media (pointer:coarse){
+  [data-dnd-source],.jvm-box-list>li[data-sort-row]{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+  /* 按住：150ms 后轻轻压到 .98，作为长按的进度反馈；快速点按 / 滑动时看不出来 */
+  [data-dnd-source][data-dnd=pressing]{transform:scale(.98);transition:transform .1s var(--jv-ease,ease) .15s}
+}
+/* 被拎起的原卡片：.35 透明 + 1.5px 虚线占位 */
+[data-dnd-source][data-dnd=dragging][data-dnd=dragging]{opacity:.35;outline:1.5px dashed color-mix(in srgb,var(--jv-text) 35%,transparent);
+  outline-offset:-1.5px;transition:opacity .16s ease}
+
+body.jvd-dragging,body.jvd-dragging *{cursor:grabbing!important;-webkit-user-select:none!important;user-select:none!important}
+
+/* ---------- 跟手的药丸 ---------- */
+.jvd-ghost{position:fixed;left:0;top:0;z-index:2147483000;pointer-events:none;will-change:transform}
+.jvd-ghost-card{--jvd-tilt:0deg;position:relative;display:flex;align-items:center;gap:12px;width:max-content;min-width:120px;max-width:280px;min-height:56px;
+  padding:8px 16px 8px 8px;border-radius:16px;background:#2A2A31;color:var(--jv-text);font-family:var(--jv-font);
+  border:1px solid rgba(255,255,255,.12);box-shadow:0 12px 32px rgba(0,0,0,.36),0 2px 6px rgba(0,0,0,.2);
+  transform:rotate(calc(2deg + var(--jvd-tilt))) scale(1.04);transform-origin:28px 50%;
+  transition:transform .16s var(--jv-ease,ease),border-color .16s ease,background-color .16s ease,opacity .16s ease}
+body.light .jvd-ghost-card{background:#fff;border-color:rgba(0,0,0,.08)}
+.jvd-ghost-icon{flex:none;position:relative;width:40px;height:40px;display:grid;place-items:center;border-radius:12px;font-size:22px;line-height:1;
+  background:rgba(255,255,255,.08)}
+body.light .jvd-ghost-icon{background:#F0F0F4}
+/* 套装：前 3 个图标扇形叠放（±6°） */
+.jvd-ghost-icon.is-fan{background:none}
+.jvd-ghost-icon.is-fan i{position:absolute;inset:0;display:grid;place-items:center;border-radius:12px;font-style:normal;font-size:20px;
+  background:#3A3A42;box-shadow:0 0 0 1.5px #2A2A31}
+body.light .jvd-ghost-icon.is-fan i{background:#F0F0F4;box-shadow:0 0 0 1.5px #fff}
+.jvd-ghost-icon.is-fan i:nth-child(1){transform:translateX(-5px) rotate(-6deg)}
+.jvd-ghost-icon.is-fan i:nth-child(3){transform:translateX(5px) rotate(6deg)}
+.jvd-ghost-text{display:flex;flex-direction:column;min-width:0;line-height:22px}
+.jvd-ghost-text b{font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.jvd-ghost-text small{font-size:12px;line-height:16px;font-weight:500;color:var(--jv-text-3)}
+/* 右上角角标：套装是会新加的个数；越过 Dock 时变「+」或「⦸」 */
+.jvd-ghost-badge{position:absolute;top:-8px;right:-8px;min-width:22px;height:22px;padding:0 6px;border-radius:999px;display:grid;place-items:center;
+  background:var(--jv-accent);color:#fff;font:600 12px/1 var(--jv-font);box-shadow:0 0 0 2px #2A2A31}
+body.light .jvd-ghost-badge{box-shadow:0 0 0 2px #fff}
+.jvd-ghost-badge:empty{display:none}
+.jvd-ghost-badge[data-tone=deny]{background:var(--jv-warn)}
+.jvd-ghost-badge[data-tone=same]{background:var(--jv-text-3)}
+.jvd-ghost-tag{margin-left:auto;padding:2px 8px;border-radius:8px;font-size:12px;line-height:16px;font-weight:500;white-space:nowrap;background:var(--jv-danger);color:#fff}
+.jvd-ghost-tag:empty{display:none}
+/* 越过 Dock：回正、缩到 .9（准备放进去） */
+.jvd-ghost.is-over .jvd-ghost-card{transform:rotate(0deg) scale(.9)}
+.jvd-ghost[data-tone=ok].is-over .jvd-ghost-card{border-color:color-mix(in srgb,var(--jv-accent) 70%,transparent)}
+.jvd-ghost[data-tone=deny].is-over .jvd-ghost-card{border-color:color-mix(in srgb,var(--jv-warn) 70%,transparent)}
+
+/* 工具箱抽屉里拎起的一行：与原行同宽，不倾斜 */
+.jvd-ghost.is-row .jvd-ghost-card{max-width:none;min-height:0;padding:6px 10px 6px 8px;border-radius:16px;transform:scale(1.02);transform-origin:50% 50%;
+  animation:jvd-lift .16s var(--jv-ease,ease) both}
+.jvd-ghost.is-row .jvd-ghost-icon{width:34px;height:34px;border-radius:12px;font-size:19px}
+.jvd-ghost.is-row .jvd-ghost-text b{font-size:15px;font-weight:600}
+.jvd-ghost.is-row .jvd-ghost-tag{order:9}
+/* 拖出抽屉：半透明 + 「松手移除」 */
+.jvd-ghost.is-removing .jvd-ghost-card{opacity:.5;transform:scale(.98)}
+.jvd-ghost.is-removing .jvd-ghost-tag{opacity:1}
+
+/* ---------- 点「+」的飞入图标（外层管 X，内层管 Y 和缩放） ---------- */
+.jvd-fly{position:fixed;left:0;top:0;z-index:2147483000;pointer-events:none;will-change:transform}
+.jvd-fly-icon{display:grid;place-items:center;line-height:1;border-radius:12px;background:#2A2A31;box-shadow:0 4px 16px rgba(0,0,0,.24);
+  transform-origin:50% 50%;will-change:transform,opacity}
+body.light .jvd-fly-icon{background:#fff}
+
+/* ---------- Dock 放置区 ---------- */
+.jvm-dock-inner[data-dock]{position:relative;max-width:100%;
+  transition:max-width .3s var(--jv-ease,ease),padding .2s var(--jv-ease,ease),transform .16s var(--jv-ease,ease),
+    box-shadow .16s ease,border-color .16s ease,background-color .16s ease}
+/* 接收态：高 64 → 76，1.5px 40% 强调色虚线 */
+.jvm-dock-inner:is([data-dock=ready],[data-dock=over],[data-dock=reject]){padding-top:14px;padding-bottom:14px;border-width:1.5px;
+  border-style:dashed;border-color:color-mix(in srgb,var(--jv-accent) 40%,transparent)}
+.jvm-dock-inner[data-dock=ready][data-dock-tone=deny]{border-color:color-mix(in srgb,var(--jv-warn) 40%,transparent)}
+.jvm-dock-inner[data-dock=ready][data-dock-tone=same]{border-color:color-mix(in srgb,var(--jv-text) 25%,transparent)}
+/* 越过（能加入）：14% 强调色底 + 实线 + 放大 1.03 */
+.jvm-dock-inner[data-dock=over]{border-style:solid;border-color:var(--jv-accent);transform:scale(1.03);
+  background-color:color-mix(in srgb,var(--jv-accent) 14%,var(--m-glass,var(--jv-elevated)))}
+/* 越过（不能加入）：不加强调色，警示色描边 */
+.jvm-dock-inner[data-dock=reject]{border-style:solid;border-color:color-mix(in srgb,var(--jv-warn) 70%,transparent)}
+.jvm-dock-inner[data-dock=reject][data-dock-tone=same]{border-color:color-mix(in srgb,var(--jv-text) 35%,transparent)}
+/* 拖动中主按钮让一让（不抢视线，也不会被误放上去点着） */
+.jvm-dock-inner:is([data-dock=ready],[data-dock=over],[data-dock=reject]) .jvm-dock-go{opacity:.45;pointer-events:none}
+.jvm-dock-inner[data-dock] .jvm-dock-go{transition:opacity .16s ease}
+
+/* 文字区的提示：拖到这里加入 / 松手加入 · 将有 N 个 / ⦸ 原因 */
+.jvm-tray-count.jvd-cue{display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.jvd-cue[data-tone=ok]{color:var(--jv-text)}
+[data-dock=over] .jvd-cue[data-tone=ok]{color:var(--jv-accent)}
+.jvd-cue[data-tone=deny],.jvd-tip[data-tone=deny]{color:var(--jv-warn)}
+.jvd-cue[data-tone=same]{color:var(--jv-text-2)}
+.jvd-cue-mark{flex:none;font-weight:700;margin-right:4px}
+
+/* 越过 Dock：图标行末尾撑开 32px 空位（macOS Dock 的让位感）；落下时空位变实 */
+.jvm-tray-icons i.jvd-slot{margin-left:4px;background:transparent;box-shadow:none;outline:1.5px dashed var(--jv-accent);outline-offset:-1.5px;
+  animation:jvd-slot .2s var(--jv-ease,ease) both}
+.jvm-tray-icons.is-empty i.jvd-slot,.jvm-tray-icons i.jvd-slot:first-child{margin-left:-8px}
+.jvm-tray-icons i.jvd-slot.is-landing{outline-style:solid;background:color-mix(in srgb,var(--jv-accent) 18%,transparent);animation:none}
+
+/* Dock 上方的短提示（拒绝原因 / 第一次的用法提示） */
+.jvd-tip{animation:jvd-rise .24s var(--jv-ease,ease) both}
+
+/* 「已移除『xx』· 撤销」 */
+.jvd-undo{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:4px 4px 4px 16px;font-size:13px;line-height:20px;color:var(--jv-text);
+  animation:jvd-rise .24s var(--jv-ease,ease) both}
+.jvd-undo span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.jvd-undo-btn{flex:none;min-height:36px;padding:0 12px;border:0;border-radius:999px;background:transparent;color:var(--jv-accent);font:inherit;font-weight:600;cursor:pointer}
+.jvd-undo-btn:hover{background:var(--jv-hover)}
+.jvd-undo-btn:focus-visible{outline:2px solid var(--jv-accent);outline-offset:1px}
+.jvd-undo.is-dock{order:-1;pointer-events:auto;border-radius:999px;background:var(--m-glass,var(--jv-elevated));border:1px solid var(--m-line,var(--jv-border));
+  box-shadow:0 4px 16px rgba(0,0,0,.24)}
+.jvd-undo.is-inline{margin-top:12px;border-radius:12px;background:var(--jv-surface-2)}
+
+/* ---------- 手机：往下滚时 Dock 收成小条，少挡内容 ---------- */
+@media (max-width:719px){
+  .jvm-dock.is-mini .jvm-dock-inner{max-width:300px;padding:4px;gap:4px}
+  .jvm-dock.is-mini .jvm-tray{height:40px;gap:8px}
+  .jvm-dock.is-mini .jvm-tray-label{display:none}
+  .jvm-dock.is-mini .jvm-tray-count{font-size:15px}
+  .jvm-dock.is-mini .jvm-tray-icons i{width:28px;height:28px;font-size:14px}
+  .jvm-dock.is-mini .jvm-dock-go{height:40px;padding:0 12px 0 16px}
+}
+
+/* ---------- 工具箱抽屉：拖动排序 / 拖出移除 ---------- */
+.jvd-grip{flex:none;width:20px;height:36px;margin:0 -4px 0 -4px;display:grid;place-items:center;border-radius:8px;
+  color:var(--jv-text-3);touch-action:none;cursor:grab}
+@media (hover:hover) and (pointer:fine){
+  .jvm-box-list>li[data-sort-row]{cursor:grab}
+  .jvm-box-list>li[data-sort-row] button{cursor:pointer}
+  .jvm-box-list>li[data-sort-row]:hover .jvd-grip{color:var(--jv-text-2)}
+}
+.jvm-box-list>li[data-dnd-press]{transform:scale(.98);transition:transform .1s var(--jv-ease,ease) .15s}
+.jvm-box-list>li[data-sort=placeholder]{background:transparent;outline:1.5px dashed color-mix(in srgb,var(--jv-text) 25%,transparent);outline-offset:-1.5px}
+.jvm-box-list>li[data-sort=placeholder]>*{visibility:hidden}
+.jvm-box-list>li[data-sort=gone]{opacity:0}
+.jvm-box-list.is-sorting{overflow-anchor:none}
+.jvd-box-foot{position:relative}
+.jvd-box-foot.is-sorting .jvm-box-actions{visibility:hidden}
+.jvd-trash{position:absolute;inset:-4px 0;display:flex;align-items:center;justify-content:center;gap:8px;border-radius:16px;
+  border:1.5px dashed color-mix(in srgb,var(--jv-danger) 55%,transparent);background:color-mix(in srgb,var(--jv-danger) 7%,transparent);
+  color:var(--jv-danger);font-size:13px;font-weight:600;animation:jvd-rise .16s var(--jv-ease,ease) both;
+  transition:background-color .16s ease,transform .16s var(--jv-ease,ease),border-color .16s ease}
+.jvd-trash[data-over]{border-style:solid;background:color-mix(in srgb,var(--jv-danger) 18%,transparent);transform:scale(1.03)}
+
+@keyframes jvd-lift{from{transform:scale(1);box-shadow:0 0 0 rgba(0,0,0,0)}}
+@keyframes jvd-rise{from{opacity:0;transform:translateY(6px)}}
+@keyframes jvd-slot{from{width:0;margin-left:0;opacity:0}}
+
+@media (prefers-reduced-motion:reduce){
+  [data-dnd-source][data-dnd=pressing],.jvm-box-list>li[data-dnd-press]{transform:none}
+  [data-dnd-source][data-dnd=dragging][data-dnd=dragging]{transition:none}
+  .jvd-ghost-card,.jvd-ghost.is-over .jvd-ghost-card,.jvd-ghost.is-row .jvd-ghost-card,.jvd-ghost.is-removing .jvd-ghost-card,
+  .jvm-dock-inner[data-dock=over],.jvd-trash[data-over]{transform:none}
+  .jvm-dock-inner[data-dock],.jvm-dock-inner[data-dock] .jvm-dock-go,.jvd-ghost-card,.jvm-box-list>li[data-sort-row],.jvd-trash{transition:none!important}
+  .jvm-tray-icons i.jvd-slot,.jvd-ghost.is-row .jvd-ghost-card{animation:none}
+  .jvd-tip,.jvd-undo,.jvd-trash{animation:jvd-fade .12s ease both}
+}
+@keyframes jvd-fade{from{opacity:0}}
