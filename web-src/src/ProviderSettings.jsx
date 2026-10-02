@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { getDesktopSettings, getMeetingSettings, getProviderSettings, getRadio, getVoiceSettings, restoreIntegration, restoreLLMSettings, saveDesktopSettings, saveIntegration, saveLLMSettings, saveMeetingSettings, saveRadio, saveVoiceSettings, testIntegration, testLLMSettings } from './api.js'
+import DeliverySettings from './DeliverySettings.jsx'
 import { desktopWindow, pingDesktop } from './desktopWake.js'
 import { ModalHead } from './Modal.jsx'
 
@@ -36,7 +37,7 @@ export default function ProviderSettings({ session, onClose, onExpired, onApplie
     <div className="jv-modal-body">
     <SettingsTabs tab={tab} onChange={next => { setTab(next); setMessage('') }} owner={session.role === 'Owner'} />
     <div role="tabpanel" id={`settings-panel-${tab}`} aria-labelledby={`settings-tab-${tab}`}>
-    {tab === 'voice' ? <VoiceSettingsPane onMessage={setMessage} onExpired={onExpired} /> : null}
+    {tab === 'voice' ? <><VoiceSettingsPane onMessage={setMessage} onExpired={onExpired} /><DeliverySettings onMessage={setMessage} onExpired={onExpired} /></> : null}
     {tab === 'desktop' ? <DesktopMeetingPane onMessage={setMessage} onExpired={onExpired} /> : null}
     {tab === 'llm' ? <div className="provider-pane">
       <label>Provider<select aria-label="Provider" value={provider} onChange={event => { const id = event.target.value; const item = settings.catalog.find(row => row.id === id); setProvider(id); setBaseUrl(item?.base_url || ''); setKeep(false); setApiKey('') }}>{settings.catalog.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
@@ -135,7 +136,7 @@ function VoiceSettingsPane({ onMessage, onExpired }) {
     <label>晨报电台（留空关闭）
       <input aria-label="晨报时间" type="time" value={radioTime} onChange={event => setRadioTime(event.target.value)} />
     </label>
-    <p className="provider-risk">音色与语速只影响你自己的语音通话答复（网页与桌面端共用）。晨报电台会在每天设定时间把「天气+日程+待办」做成语音条+文字发到你的微信——需要先在微信里对贾维斯说「提醒发给我」完成绑定。</p>
+    <p className="provider-risk">音色与语速只影响你自己的语音通话答复（网页与桌面端共用）。晨报电台会在每天设定时间把「天气+日程+待办」做成语音条+文字发到你的微信（或飞书，按下方「主动找你」勾选的渠道）——微信需要先对贾维斯说「提醒发给我」完成绑定。</p>
     <div className="provider-actions"><button className="primary" disabled={busy || !voice} onClick={save}>{busy ? '保存中…' : '保存'}</button></div>
   </div>
 }

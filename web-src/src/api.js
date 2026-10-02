@@ -46,6 +46,14 @@ export async function getPendingReminders() {
   return parse(await fetch('/api/reminders/pending'))
 }
 
+/* 提醒「稍后 / 完成」：at 是这次响铃时刻（领取到的 item.at），服务端幂等 */
+export async function snoozeReminder(id, at, minutes = 10) {
+  return parse(await fetch(`/api/reminders/${id}/snooze`, { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ at, minutes }) }))
+}
+export async function completeReminder(id, at) {
+  return parse(await fetch(`/api/reminders/${id}/done`, { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ at }) }))
+}
+
 /* ---- 任务台写接口 ---- */
 function jsonHeaders() { return { 'Content-Type': 'application/json', ...csrfHeaders() } }
 export async function addTodo(content) {
@@ -92,6 +100,14 @@ export async function getRadio() {
 }
 export async function saveRadio(time) {
   return parse(await fetch('/api/radio', { method: 'PUT', headers: jsonHeaders(), body: JSON.stringify({ time }) }))
+}
+
+/* ---- 主动找你：送达渠道与免打扰 ---- */
+export async function getDelivery() {
+  return parse(await fetch('/api/delivery'))
+}
+export async function saveDelivery(body) {
+  return parse(await fetch('/api/delivery', { method: 'PUT', headers: jsonHeaders(), body: JSON.stringify(body) }))
 }
 
 /* ---- 人设工坊 ---- */
