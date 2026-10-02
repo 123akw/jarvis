@@ -1,0 +1,21 @@
+{
+  "id": "pdf",
+  "name": "PDF 工具箱",
+  "version": "1.0.0",
+  "icon": "📄",
+  "category": "documents",
+  "summary": "合并、拆分、抽页、旋转、提取文字，PDF 的常用活一句话搞定",
+  "kind": "tool",
+  "tier": "free",
+  "price": 0,
+  "professions": ["office", "student", "teacher"],
+  "examples": ["把这两个 PDF 合成一个", "把第 3 到 5 页单独拆出来", "这个 PDF 有多少页，讲了什么"],
+  "entry": "tools.py",
+  "tools": ["pdf_info", "pdf_extract_text", "pdf_merge", "pdf_split", "pdf_extract_pages", "pdf_rotate"],
+  "steps": [],
+  "requires": ["files"],
+  "python_packages": ["pypdf"],
+  "author": "JWS-Agent",
+  "homepage": "",
+  "source": {"type": "builtin"}
+}
