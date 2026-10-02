@@ -55,10 +55,18 @@ JWS-Agent/
 │   ├── channels/feishu/   # 飞书机器人（长连接收事件、流式卡片回复、账号绑定）
 │   ├── voice/             # 语音通话、会议转写、场景与情绪、说话人分离
 │   ├── search/            # SearchService 与搜索 provider
+│   ├── plugins/           # 插件框架：加载器、导入、子进程沙箱、MCP 客户端；packs/ 是 49 个官方插件（MIT-0）
+│   ├── platforms.py       # 智能体工坊：市场开号、智能体（平台）存储、按插件绑定工具
+│   ├── platform_home.py   # 智能体主页的问候与快捷问题
+│   ├── flows/             # 积木流程：存储、执行器、积木、公开结果页
+│   ├── files.py           # 文件空间（对话附件与工具生成的文件）
+│   ├── history_index.py   # 翻旧账：跨会话全文检索
 │   ├── web/               # 零构建的网页端（web-src 构建产物）
-│   └── tools/             # 27 项工具及注册表
+│   └── tools/             # 27 项核心工具及注册表
 ├── web-src/               # 网页端 React + Vite 源码
-├── desktop/               # macOS Electron 悬浮球与设置页
+├── desktop/               # macOS Electron 悬浮球与设置页（npm run pack:mac / install:mac 打包为 贾维斯.app）
+├── .agents/plugins/       # 官方插件源 marketplace.json（兼容 Codex / ChatGPT 插件源格式）
+├── examples/              # 插件模板（MIT-0）、示例插件、示例插件源
 ├── skills/                # 技能热加载目录（放 SKILL.md 即生效）
 ├── wechat/                # 命令行备用网关
 ├── deploy/searxng/        # 可选的本地 SearXNG Compose（AGPL-3.0）
@@ -70,4 +78,4 @@ JWS-Agent/
 └── .env.example
 ```
 
-各轮开发与验收记录见 [`PROGRESS.md`](../PROGRESS.md)。
+各轮开发与验收记录见 [`PROGRESS.md`](../PROGRESS.md)，面向用户的更新见 [`CHANGELOG.md`](../CHANGELOG.md)。

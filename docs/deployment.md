@@ -39,7 +39,7 @@ cp .env.example .env
 .venv/bin/jarvis-web
 ```
 
-默认监听 `http://127.0.0.1:7789`。首位 Owner 在首次启动时由 `.env` 中的 `JARVIS_ADMIN_USERNAME`/`JARVIS_ADMIN_PASSWORD` 自动创建；用它登录后，在右上角头像菜单「账户设置」的「用户管理」里可邀请 Member（没有公开注册入口），Member 用被分配的用户名口令登录即可，各自的数据完全隔离。登录后可创建和删除会话、查看历史、停止生成、复制回复，并在「今日」板查看日程、待办和备忘；后端每轮对话后继续使用同一条线程记忆。
+默认监听 `http://127.0.0.1:7789`：首页 `/` 是智能体市场，登录在 `/login`，主应用在 `/app`。首位 Owner 在首次启动时由 `.env` 中的 `JARVIS_ADMIN_USERNAME`/`JARVIS_ADMIN_PASSWORD` 自动创建；用它登录后，在右上角头像菜单「账户设置」的「用户管理」里可邀请 Member，也可以在市场里直接为客户生成专属智能体账号（游客自助开号默认关闭，见 [配置参考](configuration.md) 的 `JARVIS_MARKET_SIGNUP`），Member 用被分配的用户名口令登录即可，各自的数据完全隔离。登录后可创建和删除会话、查看历史、停止生成、复制回复，并在「今日」板查看日程、待办和备忘；后端每轮对话后继续使用同一条线程记忆。
 
 语音通话、会议纪要、语音唤醒、通话场景与情绪、发图片 / 视频的用法见 [功能详解 · 使用指南](features.md#使用指南)。
 
@@ -82,6 +82,12 @@ npm run install:mac -- --login   # 同上，并打开「开机自启」
 
 仓库提供的 SearXNG Compose 从仓库外的 root-only 运行时文件读取随机 secret，不把实际 secret 写入仓库、README 或命令参数。生产环境应限制该文件及 Docker socket 仅由 root 管理；Docker 管理员仍处在运行时 secret 的信任边界内。文件位置、权限、生成方式和 Compose 启动检查详见 [`deploy/searxng/README.md`](../deploy/searxng/README.md)，请勿打印或提交实际值。
 
+`.env` 里有模型 Key、会话密钥、`JARVIS_SECRETS_KEY` 等全部机密，必须只允许 root 读取：systemd 以 root 读 `EnvironmentFile`，服务进程（以及导入的第三方插件子进程）不需要、也不应该能读它。部署脚本里如果有 `chmod -R a+rX <程序目录>` 一类放宽读权限的步骤，之后一定要补一句：
+
+```bash
+chmod 600 /opt/jarvis/.env
+```
+
 是否可以把默认 Web 服务直接暴露到公网，见 [FAQ](faq.md#可以把默认-web-服务直接暴露到公网吗)。
 
 ## 多用户、备份与回滚
@@ -96,6 +102,7 @@ npm run install:mac -- --login   # 同上，并打开「开机自启」
 - `wechat_token` 只是唯一 active Owner 的微信桥登录态；它不在 SQLite 中，不参与 legacy 导入，升级/回滚时都不得删除、改名或覆盖。
 - 若升级失败：先停服并保留失败现场，恢复旧程序；用升级前快照恢复 `jarvis.db`；将每个 `<name>.tenant-v1.bak` 复制回对应 `<name>`（如 `memos.json.tenant-v1.bak` → `memos.json`）；若升级前已有 `accounts.sqlite3` 则恢复其快照，否则把新文件移到隔离目录保留而不要删除；`wechat_token` 原样保留。恢复或重试升级后，预期 Web/Desktop/OpenAI 会话全部重新登录；微信 Token 若未失效可自动恢复，否则再扫码。
 - 个人微信固定属于唯一 active Owner。即使网页端误显示入口，后端也会在没有唯一 Owner 时拒绝连接、状态与写入。
+- 智能体工坊、插件与文件也都在 `JARVIS_DATA_DIR` 里，随完整备份一起走：`accounts.sqlite3` 里的 `tenant_platforms`、`tenant_flows`、`tenant_flow_runs`，以及 `plugins/`（导入的插件、`_state.json`、`_config.json` 里加密的 MCP Key）和 `files/`（对话附件与生成的文件）。`plugins/_config.json` 里的密钥用 `JARVIS_SECRETS_KEY` 加密，恢复时主密钥必须是同一个。
 
 Provider 主密钥相关文件（`provider-active.json`、`provider-generations/`、`provider-audit.jsonl`）的备份要求见 [配置参考](configuration.md#多用户-provider--api-设置)。
 
