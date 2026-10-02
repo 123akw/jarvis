@@ -235,8 +235,14 @@ body.light .hud{background:radial-gradient(1100px 560px at 50% -20%,rgba(0,122,2
   padding:10px 16px;font-size:15px;line-height:1.65;white-space:pre-wrap;word-break:break-word;
   max-height:320px;overflow-y:auto}
 .row-jarvis{position:relative;animation:jv-rise .3s var(--jv-ease)}
-/* 长对话「轻量虚拟化」：视口外的消息跳过样式/布局/绘制，高度用上次实测值占位 */
-.row-user,.row-jarvis{content-visibility:auto;contain-intrinsic-size:auto 160px}
+/* 长对话「轻量虚拟化」只留给桌面 Chromium / Firefox：视口外的消息跳过渲染、先按 160px 占位，滚到附近才量出真实高度，
+ * 这一跳靠滚动锚定抵消。Safari / iOS 的锚定靠不住，往上翻时内容会一跳一跳（WebKit 实测每翻 2000px 跳 7 次、共 540px）；
+ * 而 400 条消息关掉它，流式时布局耗时只多 ~0.2ms/帧——所以触屏与 Safari（唯一支持 hanging-punctuation 的引擎）不用。 */
+@media (hover:hover) and (pointer:fine){
+  @supports not (hanging-punctuation:first){
+    .row-user,.row-jarvis{content-visibility:auto;contain-intrinsic-size:auto 160px}
+  }
+}
 .jtag{display:flex;align-items:center;gap:8px;height:22px;margin-bottom:6px;font-size:12.5px;font-weight:600;
   letter-spacing:.04em;color:var(--jv-text-2)}
 .jdot{width:12px;height:12px;border-radius:50%;flex:none;background:var(--jv-ai-gradient)}
@@ -371,6 +377,15 @@ body.light .jbody .hljs-built_in,body.light .jbody .hljs-type,body.light .jbody 
 .inputwrap{position:absolute;left:0;right:0;bottom:0;z-index:2;padding:30px 16px 18px;pointer-events:none;
   background:linear-gradient(to bottom,transparent,var(--jv-bg) 58%)}
 .inputwrap>*{pointer-events:auto}
+/* 「回到底部」：往上翻、离底较远时浮在输入条上方正中 */
+.jv-jump{position:absolute;left:50%;top:-22px;width:40px;height:40px;margin-left:-20px;display:grid;place-items:center;
+  border:1px solid var(--jv-border);border-radius:50%;background:var(--jv-elevated);color:var(--jv-text-2);
+  -webkit-backdrop-filter:var(--jv-blur);backdrop-filter:var(--jv-blur);box-shadow:var(--jv-shadow);
+  animation:jv-rise .24s var(--jv-ease)}
+.jv-jump::before{content:'';position:absolute;inset:-4px;border-radius:50%}   /* 触控热区补到 48px */
+.jv-jump:hover{color:var(--jv-text)}
+.jv-jump:active{transform:scale(.94)}
+.jv-jump-ico{transform:rotate(180deg)}
 .upload-err,.upload-note{max-width:calc(var(--jv-read) + 16px);margin:0 auto 8px;padding:8px 14px;border-radius:12px;font-size:13px;
   color:var(--jv-danger);background:var(--jv-elevated);-webkit-backdrop-filter:var(--jv-blur);backdrop-filter:var(--jv-blur)}
 .upload-note{display:flex;align-items:center;gap:10px;color:var(--jv-text-2);animation:jv-rise .24s var(--jv-ease)}
