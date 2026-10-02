@@ -336,6 +336,11 @@ class AccountStore:
             "SELECT id FROM audit ORDER BY created_at DESC LIMIT -1 OFFSET ?)", (_AUDIT_LIMIT,)
         )
 
+    def record_audit(self, action: str, user_id: str | None = None, detail: str = "") -> None:
+        """账户之外的业务审计（如市场开号记下是谁开的）：与账户写操作同一张 audit 表。"""
+        with self._connect() as connection:
+            self._audit(connection, action, user_id, str(detail)[:200])
+
     def _ensure_bootstrap(self) -> None:
         with self._connect() as connection:
             if connection.execute("SELECT 1 FROM users LIMIT 1").fetchone():

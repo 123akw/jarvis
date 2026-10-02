@@ -135,9 +135,21 @@ def skill_sections() -> str:
     return "\n".join(parts)
 
 
+def platform_section() -> str:
+    """当前租户的智能平台身份段（平台名、职业人设、装了哪些技能）；没有平台或读取失败返回空。"""
+    try:
+        from jarvis.platforms import prompt_section
+        return prompt_section()
+    except Exception:
+        return ""
+
+
 def compose_system_prompt() -> str:
-    """每轮组装系统提示词：基础人设 + 用户人设偏好 + 长期记忆画像 + 技能（都是慢变部分）。"""
+    """每轮组装系统提示词：基础人设 + 智能平台身份 + 用户人设偏好 + 长期记忆画像 + 技能（都是慢变部分）。"""
     parts = [SYSTEM_PROMPT]
+    platform = platform_section()
+    if platform:
+        parts.append(platform)
     persona = persona_prefs()
     overrides = []
     address = persona.get("address", "")

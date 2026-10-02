@@ -150,6 +150,16 @@ class TenantStore:
         )
 
     @staticmethod
+    def _schema_v5_statements() -> tuple[str, ...]:
+        """v5（2026-10 智能平台工坊）：一个账号一个平台，slug 全站唯一（公开入口 /p/<slug>）。
+
+        plugins 是插件 id 的 JSON 数组；created_via 记开通方式（guest 游客市场注册 /
+        owner 由 Owner 代开 / account 已登录账号自己装），created_by 是代开的 Owner。"""
+        return (
+            "CREATE TABLE IF NOT EXISTS tenant_platforms (owner_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, id TEXT NOT NULL UNIQUE, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL, tagline TEXT NOT NULL DEFAULT '', icon TEXT NOT NULL, accent TEXT NOT NULL, profession TEXT NOT NULL DEFAULT '', plugins TEXT NOT NULL DEFAULT '[]', created_via TEXT NOT NULL DEFAULT 'account', created_by TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
+        )
+
+    @staticmethod
     def _schema_v6_statements() -> tuple[str, ...]:
         """v6（2026-10 平台工坊·流程）：积木流程 + 每次运行的记录与公开结果页。
 
@@ -189,6 +199,7 @@ class TenantStore:
         TenantStore._apply_version(connection, 2, TenantStore._schema_v2_statements())
         TenantStore._apply_version(connection, 3, TenantStore._schema_v3_statements())
         TenantStore._apply_version(connection, 4, TenantStore._schema_v4_statements())
+        TenantStore._apply_version(connection, 5, TenantStore._schema_v5_statements())
         TenantStore._apply_version(connection, 6, TenantStore._schema_v6_statements())
         from jarvis.history_index import ensure_fts   # 延迟导入：history_index 依赖本模块
         ensure_fts(connection)

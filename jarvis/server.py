@@ -1700,6 +1700,16 @@ def spa_platform(slug: str):
     return FileResponse(_WEB / "index.html")
 
 
+# ---- 智能平台工坊：插件市场、平台开通、/p/<slug> 的 PWA 入口（逻辑在 jarvis/platforms.py） ----
+from jarvis import platforms  # noqa: E402
+
+platforms.register(
+    app, accounts=_accounts, request_principal=_request_principal, write_authorized=_write_authorized,
+    deny=_deny, csrf_deny=_csrf_deny, client_address=_client_address,
+    environment_llm=lambda: _provider_store._environment_llm(),
+)
+
+
 if (_WEB / "assets").is_dir():
     app.mount("/assets", StaticFiles(directory=_WEB / "assets"), name="assets")
 

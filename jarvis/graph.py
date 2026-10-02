@@ -252,6 +252,7 @@ def build_agent(
     model=None,
     checkpointer=None,
     pandascore_token_getter=None,
+    tool_names=None,
 ):
     service = build_search_service() if search_service is None else search_service
     tools = (
@@ -259,6 +260,9 @@ def build_agent(
         if pandascore_token_getter is None
         else build_tools(service, pandascore_token_getter=pandascore_token_getter)
     )
+    if tool_names is not None:
+        # 智能平台账号只绑定平台插件对应的工具（jarvis/platforms.py 的 agent_tool_names）
+        tools = [item for item in tools if item.name in tool_names]
     if model is None:
         config.load_env()
         model = ChatOpenAI(

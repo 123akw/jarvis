@@ -61,6 +61,20 @@
 | `JARVIS_HISTORY_BACKFILL` | `1` | 启动 5 秒后在后台把存量对话回填进「翻旧账」全文索引（每个账号串行、不阻塞启动）；`0` 关闭回填，新对话仍会实时入索引 |
 | `DASHSCOPE_ASR_MAX_SILENCE_MS` | `500` | 语音通话判停静音阈值（毫秒，有效范围 200–6000） |
 
+## 智能平台市场
+
+市场里挑好插件后生成一组专属账号口令，登录后是按所选插件组成的智能体（只绑定这些插件的工具，外加 now / calc）。已登录的 Owner 随时可以替别人开号，不受下面的开关、邀请码、限流和名额约束；以下变量只管游客自助开通。
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `JARVIS_MARKET_SIGNUP` | `off` | 游客自助开通：`off` 关闭 / `invite` 凭邀请码 / `open` 公开。设成 `invite` 却没配邀请码时按 `off` 处理 |
+| `JARVIS_MARKET_INVITE_CODE` | 无 | `invite` 模式的邀请码（常量时间比较，首尾空格忽略） |
+| `JARVIS_MARKET_SIGNUP_MAX` | `50` | 游客经市场开出的账号总数上限，满了返回「名额已用完」 |
+| `JARVIS_MARKET_SIGNUP_PER_IP` | `3` | 同一 IP 每小时最多自助开几个号（比赛现场同一 Wi-Fi 下人多时可调大） |
+| `JARVIS_PUBLIC_URL` | 无 | 平台对外地址前缀，如 `https://jws.example.cn`；不设时按反代的 `X-Forwarded-Proto` / `X-Forwarded-Host` 与 `Host` 拼 |
+
+插件推荐在有描述时会用服务器默认模型（`JARVIS_PROVIDER` / `JARVIS_MODEL` 那一套）挑插件，约 8 秒超时、输出不合规就退回关键词规则；没配 key 时只走规则。推荐接口每个 IP 每分钟 10 次。
+
 ## 搜索与正文提取链
 
 > 搜索默认按 `SearXNG → DDGS → 可选 Tavily` 降级，正文提取默认按 `Trafilatura → 可选 Playwright` 降级。私有演示入口已启用本机 SearXNG，并在不可用时回退无需付费 key 的 DDGS；不保证 Tavily 或 PandaScore 已配置。自建 SearXNG、Tavily key 和 PandaScore token 都是可选增强，不是上线前置条件。
