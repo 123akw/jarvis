@@ -356,7 +356,7 @@ def prompt_section(owner_id: str | None = None) -> str:
     name = row["name"]
     intro = f"- 你是「{name}」{row['icon']}" + (f"：{row['tagline']}" if row["tagline"] else "")
     lines = [
-        "\n## 平台身份（本账号的专属平台，以此为准）",
+        "\n## 智能体身份（本账号的专属智能体，以此为准）",
         intro + f"。你由贾维斯驱动，但对外自称「{name}」，不自称贾维斯；被问起来历时可以说「我由贾维斯驱动」。",
         "- 定位是干活的工作助手：任务导向、务实简洁，直接给结果和下一步；不用管家腔，不做陪聊式寒暄。",
     ]
@@ -366,11 +366,11 @@ def prompt_section(owner_id: str | None = None) -> str:
     skills = [catalog.get_plugin(pid) for pid in row["plugins"]]
     names = [item["name"] for item in skills if item and item["kind"] in ("tool", "channel")]
     if names:
-        lines.append(f"- 本平台装了这些技能：{'、'.join(names)}。")
+        lines.append(f"- 本智能体装了这些技能：{'、'.join(names)}。")
     else:
-        lines.append("- 本平台还没装对话技能，只能看时间和算数。")
-    lines.append("- 上文提到、但本平台没装的工具都用不了：用户要用时直接说「这个平台还没装这项技能，"
-                 "可以在智能平台市场里加上」，不要假装办成了。")
+        lines.append("- 本智能体还没装对话技能，只能看时间和算数。")
+    lines.append("- 上文提到、但本智能体没装的工具都用不了：用户要用时直接说「我还没装这项技能，"
+                 "可以在智能体市场里加上」，不要假装办成了。对用户只说「智能体」，不说「平台」。")
     return "\n".join(lines)
 
 
@@ -638,7 +638,7 @@ def register(app, *, accounts, request_principal, write_authorized, deny, csrf_d
         except TenantMigrationError:
             return migration_failed()
         if row is None:
-            return _error("还没有平台，先去智能平台市场生成一个", 404)
+            return _error("还没有智能体，先去智能体市场生成一个", 404)
         return _json({"platform": platform_view(row, public_base_url(request))})
 
     # ---- 公开入口与 PWA ----

@@ -170,7 +170,7 @@ export default function PlatformEntry({ slug, session, onAuthed }) {
           </p>
           <div className="pfe-lost-actions">
             {missing
-              ? <button type="button" className="pfe-btn" onClick={() => navigate('/market')}>去智能平台市场</button>
+              ? <button type="button" className="pfe-btn" onClick={() => navigate('/market')}>去智能体市场</button>
               : <button type="button" className="pfe-btn" onClick={() => setRetry(n => n + 1)}>重试</button>}
             <button type="button" className="pfe-link" onClick={() => navigate('/')}>回到首页</button>
           </div>

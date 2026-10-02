@@ -235,7 +235,7 @@ export default function Hud({ session, onLogout }) {
   ]
   const logoutCommand = { id: 'logout', label: '退出登录', icon: 'logout', danger: true, run: quit }
   const platformCommands = [
-    { id: 'market', label: '智能平台市场', hint: platform ? '添加插件' : '拼一个自己的智能体', icon: 'store', keywords: '插件 技能 市场 工坊 market', run: () => navigate('/market') },
+    { id: 'market', label: '智能体市场', hint: platform ? '添加插件' : '拼一个自己的智能体', icon: 'store', keywords: '插件 技能 市场 工坊 market', run: () => navigate('/market') },
     { id: 'flows', label: '我的流程', icon: 'flow', keywords: '流程 积木 自动化 flow', run: () => navigate('/flows') },
     ...(platform ? [
       { id: 'share', label: '分享我的智能体', hint: '二维码 · 链接', icon: 'share', keywords: '分享 二维码 链接 主屏 安装 平台 share', run: () => setShareOpen(true) },

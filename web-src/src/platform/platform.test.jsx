@@ -159,7 +159,7 @@ describe('主应用按平台定制', () => {
     await user.click(screen.getByRole('button', { name: '账户与设置' }))
     const menu = screen.getByRole('menu')
     const names = within(menu).getAllByRole('menuitem').map(el => el.textContent)
-    for (const label of ['智能平台市场', '我的流程', '分享我的智能体', '智能体设置']) {
+    for (const label of ['智能体市场', '我的流程', '分享我的智能体', '智能体设置']) {
       expect(names.some(n => n.includes(label))).toBe(true)
     }
     expect(within(menu).getByText('由贾维斯驱动')).toBeInTheDocument()
@@ -222,7 +222,7 @@ describe('主应用按平台定制', () => {
 
     await user.click(screen.getByRole('button', { name: '账户与设置' }))
     const names = within(screen.getByRole('menu')).getAllByRole('menuitem').map(el => el.textContent)
-    expect(names.some(n => n.includes('智能平台市场'))).toBe(true)
+    expect(names.some(n => n.includes('智能体市场'))).toBe(true)
     expect(names.some(n => n.includes('我的流程'))).toBe(true)
     expect(names.some(n => n.includes('分享我的智能体') || n.includes('智能体设置'))).toBe(false)
     expect(screen.queryByText('由贾维斯驱动')).toBeNull()
@@ -232,7 +232,7 @@ describe('主应用按平台定制', () => {
     window.history.replaceState({}, '', '/')
     fireEvent.keyDown(window, { key: 'k', metaKey: true })
     await user.type(screen.getByRole('combobox', { name: '搜索命令' }), '市场')
-    expect(screen.getAllByRole('option')[0]).toHaveTextContent('智能平台市场')
+    expect(screen.getAllByRole('option')[0]).toHaveTextContent('智能体市场')
     await user.keyboard('{Enter}')
     expect(window.location.pathname).toBe('/market')
   })
@@ -383,7 +383,7 @@ describe('/p/<slug> 平台入口', () => {
     expect(await screen.findByRole('heading', { name: '没有找到这个智能体' })).toBeInTheDocument()
     expect(headHref('manifest')).toBeUndefined()
     expect(screen.queryByLabelText('口令')).toBeNull()
-    await user.click(screen.getByRole('button', { name: '去智能平台市场' }))
+    await user.click(screen.getByRole('button', { name: '去智能体市场' }))
     expect(window.location.pathname).toBe('/market')
   })
 

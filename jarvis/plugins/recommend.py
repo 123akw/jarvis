@@ -143,7 +143,7 @@ def _rule_reason(profession_id: str | None, guessed: bool, hits: list[tuple[str,
 # ---------- 模型推荐 ----------
 
 SYSTEM_PROMPT = (
-    "你是「智能平台市场」的选品顾问。用户会描述自己的职业和想做的事，你要从给定的插件清单里"
+    "你是「智能体市场」的选品顾问。用户会描述自己的职业和想做的事，你要从给定的插件清单里"
     "挑出最合适的 3 到 8 个，并判断最接近的职业。只能使用清单里出现的 id，不要编造。"
     "只输出一个 JSON 对象，不要任何解释或 Markdown：\n"
     '{"profession": "职业 id 或 null", "plugins": ["插件 id", ...], "reason": "一句话说明为什么这样配，不超过 60 字，口语化"}'

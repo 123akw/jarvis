@@ -124,7 +124,7 @@ def test_platform_identity_and_persona_reach_the_model(env):
     assert system.startswith(SYSTEM_PROMPT)
     assert "你是「小林奶茶」🧋：订单排班一手抓" in system and "由贾维斯驱动" in system
     assert "小店的经营助手" in system and "干活的工作助手" in system   # 职业人设与定位
-    assert "本平台装了这些技能：日程提醒、待办清单" in system
+    assert "本智能体装了这些技能：日程提醒、待办清单" in system
 
 
 def test_owner_and_accounts_without_platform_keep_the_full_prompt(env):
