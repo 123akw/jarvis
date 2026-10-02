@@ -376,4 +376,13 @@ describe('流程拼接页', () => {
     const { onExpired } = await renderPage({ listStatus: 401 })
     await waitFor(() => expect(onExpired).toHaveBeenCalled())
   })
+
+  it('「返回对话」回主应用 /app（首页 / 现在是市场）', async () => {
+    window.history.replaceState({}, '', '/flows')
+    await renderPage()
+    await screen.findByRole('textbox', { name: '流程名称' })
+    fireEvent.click(screen.getByRole('button', { name: '返回对话' }))
+    expect(window.location.pathname).toBe('/app')
+    window.history.replaceState({}, '', '/')
+  })
 })

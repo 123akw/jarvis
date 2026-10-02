@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import Icon from '../Icon.jsx'
 import Presence, { prefersReducedMotion } from '../Presence.jsx'
 import { DESC_MAX, recommendedIds } from './model.js'
+import { detailHref, linkClick } from './PluginCard.jsx'
 
 const WAIT_LINES = ['正在了解你的行当…', '从插件市场里挑合适的…', '顺手排一条流程…']
 
@@ -44,7 +45,7 @@ function FlowChain({ flow, byId }) {
   )
 }
 
-function Result({ rec, catalog, picked, onToggle, onAddAll }) {
+function Result({ rec, catalog, picked, onToggle, onAddAll, onOpen }) {
   const byId = new Map(catalog.plugins.map(p => [p.id, p]))
   const plugins = rec.plugins.map(id => byId.get(id)).filter(Boolean)
   const pickedSet = new Set(picked)
@@ -64,7 +65,12 @@ function Result({ rec, catalog, picked, onToggle, onAddAll }) {
             return (
               <li key={p.id} className={on ? 'is-on' : ''}>
                 <span className="jvm-rec-icon" aria-hidden="true">{p.icon}</span>
-                <span className="jvm-rec-name">{p.name}{p.tier === 'pro' ? <span className="jvm-badge is-pro">专业版</span> : null}</span>
+                <span className="jvm-rec-name">
+                  {onOpen ? (
+                    <a href={detailHref(p.id)} onClick={e => linkClick(e, () => onOpen(p.id))}>{p.name}</a>
+                  ) : p.name}
+                  {p.tier === 'pro' ? <span className="jvm-badge is-pro">专业版</span> : null}
+                </span>
                 {on ? <span className="jvm-rec-in">已在工具箱</span> : null}
                 <button type="button" className={`jvm-add is-mini${on ? ' is-on' : ''}`} aria-pressed={on}
                   aria-label={on ? `移出工具箱：${p.name}` : `加入工具箱：${p.name}`} onClick={() => onToggle(p.id)}>
@@ -88,8 +94,10 @@ function Result({ rec, catalog, picked, onToggle, onAddAll }) {
   )
 }
 
-/** 「帮我推荐」：选职业，或用一句话描述 → 推荐插件与流程，一键全部加入。市场里的辅助，不是前置步骤 */
-export default function Recommend({ catalog, draft, recState, onPickProfession, onDescription, onDescribe, onToggle, onAddAll }) {
+/** 「帮我推荐」：选职业，或用一句话描述 → 推荐插件与流程，一键全部加入。市场里的辅助，不是前置步骤。
+ *  手机上默认不展开（让插件先露出来），首屏「一句话帮我推荐」点开，右上角可收起；宽屏常驻右侧。 */
+export default function Recommend({ catalog, draft, recState, onPickProfession, onDescription, onDescribe, onToggle, onAddAll,
+  collapsible = false, onOpenChange, descRef, onOpen }) {
   const { profession, description, recommendation } = draft
   const recRef = useRef(null)
   // 手机上结果区可能在一屏外：开始推荐时把它滚进视野，让人看到「正在挑」
@@ -102,43 +110,53 @@ export default function Recommend({ catalog, draft, recState, onPickProfession, 
     if (description.trim() && recState.status !== 'loading') onDescribe()
   }
   return (
-    <section className="jvm-helper" aria-labelledby="jvm-helper-title">
-      <h2 id="jvm-helper-title" className="jvm-helper-title"><Icon name="sparkles" size={16} />帮我推荐</h2>
-      <p className="jvm-helper-sub">选个职业，或者用一句话说说你的情况。</p>
-      <fieldset className="jvm-prof">
-        <legend className="sr-only">你是做什么的</legend>
-        {catalog.professions.map(p => (
-          <label key={p.id} className={`jvm-prof-chip${profession === p.id ? ' is-on' : ''}`} title={p.summary || undefined}>
-            <input type="radio" name="jvm-profession" value={p.id} checked={profession === p.id}
-              onChange={() => onPickProfession(p.id)} className="sr-only" />
-            <span aria-hidden="true">{p.icon}</span>{p.name}
-          </label>
-        ))}
-      </fieldset>
-      <form className="jvm-describe" onSubmit={submit}>
-        <label htmlFor="jvm-desc" className="sr-only">用一句话描述你的情况</label>
-        <div className="jvm-describe-box">
-          <textarea id="jvm-desc" rows={2} maxLength={DESC_MAX} value={description}
-            placeholder="比如：我开奶茶店，想管订单和员工排班"
-            onChange={e => onDescription(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) submit(e) }} />
-          <button type="submit" className="jvm-describe-go" disabled={!description.trim() || recState.status === 'loading'}
-            aria-label="按描述推荐">
-            <Icon name="up" size={17} />
+    <section className="jvm-helper" id="jvm-helper" aria-labelledby="jvm-helper-title">
+      <header className="jvm-helper-head">
+        <h2 id="jvm-helper-title" className="jvm-helper-title"><Icon name="sparkles" size={16} />帮我推荐</h2>
+        {collapsible ? (
+          <button type="button" className="jvm-helper-close" aria-expanded="true" aria-controls="jvm-helper-body"
+            onClick={() => onOpenChange?.(false)} aria-label="收起帮我推荐">
+            <Icon name="chevron" size={16} />
           </button>
-        </div>
-      </form>
-      <div ref={recRef} className="jvm-rec-anchor" />
-      {recState.status === 'loading' ? <Waiting /> : null}
-      {recState.status === 'error' ? (
-        <div className="jvm-alert" role="alert">
-          <span>{recState.error}</span>
-          <button type="button" className="jvm-link" onClick={recState.retry}>再试一次</button>
-        </div>
-      ) : null}
-      {recState.status !== 'loading' && recommendation ? (
-        <Result rec={recommendation} catalog={catalog} picked={draft.picked} onToggle={onToggle} onAddAll={onAddAll} />
-      ) : null}
+        ) : null}
+      </header>
+      <div id="jvm-helper-body">
+        <p className="jvm-helper-sub">选个职业，或者用一句话说说你的情况。</p>
+        <fieldset className="jvm-prof">
+          <legend className="sr-only">你是做什么的</legend>
+          {catalog.professions.map(p => (
+            <label key={p.id} className={`jvm-prof-chip${profession === p.id ? ' is-on' : ''}`} title={p.summary || undefined}>
+              <input type="radio" name="jvm-profession" value={p.id} checked={profession === p.id}
+                onChange={() => onPickProfession(p.id)} className="sr-only" />
+              <span aria-hidden="true">{p.icon}</span>{p.name}
+            </label>
+          ))}
+        </fieldset>
+        <form className="jvm-describe" onSubmit={submit}>
+          <label htmlFor="jvm-desc" className="sr-only">用一句话描述你的情况</label>
+          <div className="jvm-describe-box">
+            <textarea id="jvm-desc" ref={descRef} rows={2} maxLength={DESC_MAX} value={description}
+              placeholder="比如：我开奶茶店，想管订单和员工排班"
+              onChange={e => onDescription(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) submit(e) }} />
+            <button type="submit" className="jvm-describe-go" disabled={!description.trim() || recState.status === 'loading'}
+              aria-label="按描述推荐">
+              <Icon name="up" size={17} />
+            </button>
+          </div>
+        </form>
+        <div ref={recRef} className="jvm-rec-anchor" />
+        {recState.status === 'loading' ? <Waiting /> : null}
+        {recState.status === 'error' ? (
+          <div className="jvm-alert" role="alert">
+            <span>{recState.error}</span>
+            <button type="button" className="jvm-link" onClick={recState.retry}>再试一次</button>
+          </div>
+        ) : null}
+        {recState.status !== 'loading' && recommendation ? (
+          <Result rec={recommendation} catalog={catalog} picked={draft.picked} onToggle={onToggle} onAddAll={onAddAll} onOpen={onOpen} />
+        ) : null}
+      </div>
     </section>
   )
 }

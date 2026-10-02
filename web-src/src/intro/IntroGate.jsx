@@ -32,7 +32,7 @@ function whenIdle(cb) {
 export default function IntroGate({ authed = false }) {
   const name = useMemo(() => pickIntro({
     search: window.location.search, storage: safeSessionStorage(), reducedMotion: prefersReducedMotion(),
-    fallback: introAllowed(window.location.pathname) ? DEFAULT_INTRO : null,   // 品牌平台入口、流程页不播贾维斯开场
+    fallback: introAllowed(window.location.pathname, window.location.search) ? DEFAULT_INTRO : null,   // 只在市场首页播：登录页、主应用、品牌平台入口、流程页都不播
   }), [])
   const Intro = useMemo(() => (name ? lazy(INTROS[name]) : null), [name])
   // 同步标记「正在播」：登录页可能在下一个任务里就挂载，得在它读之前就位

@@ -11,10 +11,13 @@ import App from './App.jsx'
 
 describe('app authentication transitions', () => {
   afterEach(cleanup)
+  afterEach(() => { window.history.replaceState({}, '', '/') })
   it('keeps the password-change reason after account UI unmounts', async () => {
+    window.history.replaceState({}, '', '/app')
     const user = userEvent.setup()
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'password changed' }))
     expect(screen.getByRole('status')).toHaveTextContent('口令已更新，请重新登录。')
+    expect(window.location.pathname).toBe('/login')
   })
 })

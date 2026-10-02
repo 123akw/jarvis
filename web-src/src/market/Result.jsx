@@ -4,7 +4,7 @@ import Icon from '../Icon.jsx'
 import Modal, { ModalHead } from '../Modal.jsx'
 import { QrCode } from '../qr.jsx'
 import { drawAccountCard } from './accountCard.js'
-import { loginPath } from './model.js'
+import { loginPath } from './model.js'   // = routes.js 的 loginHref(username)
 
 function CopyButton({ text, label, wideLabel, onCopied, className = '' }) {
   const [state, setState] = useState('')
@@ -87,7 +87,7 @@ export default function Result({ platform, plugins, secret, username, signedIn, 
         <button type="button" className="jvm-btn jvm-btn--hero" onClick={onLogin}>
           {signedIn ? '退出当前账号，去登录' : '去登录'}
         </button>
-        {signedIn ? <button type="button" className="jvm-link" onClick={onHome}>回到我的贾维斯</button> : null}
+        {signedIn ? <button type="button" className="jvm-link" onClick={onHome}>回到我的智能体</button> : null}
         <button type="button" className="jvm-link" onClick={onReset}>再做一个</button>
       </div>
 

@@ -3,7 +3,7 @@ import { login, logout } from '../api.js'
 import Icon from '../Icon.jsx'
 import { clearPrefillParam, readPrefillUser, sameUser } from '../loginParam.js'
 import Presence, { prefersReducedMotion } from '../Presence.jsx'
-import { navigate } from '../routes.js'
+import { APP_PATH, MARKET_PATH, navigate } from '../routes.js'
 import { applyTheme, currentTheme } from '../theme.js'
 import { InstallSheet } from './InstallGuide.jsx'
 import { getPublicPlatform } from './platform.js'
@@ -80,7 +80,7 @@ function LoginCard({ name, onAuthed, switchFrom = '', onKeep }) {
     }
     // 卡片先退，再进主应用（主应用按这个账号的平台定制）
     setLeaving(true)
-    timer.current = setTimeout(() => { onAuthed?.(session); navigate('/') }, prefersReducedMotion() ? 0 : 320)
+    timer.current = setTimeout(() => { onAuthed?.(session); navigate(APP_PATH) }, prefersReducedMotion() ? 0 : 320)
   }
 
   return (
@@ -129,7 +129,7 @@ function SignedIn({ session, onAuthed }) {
         <span className="avatar lg" aria-hidden="true">{name.slice(0, 1).toUpperCase() || '·'}</span>
         <span className="pfe-who-name">{name}</span>
       </div>
-      <button type="button" className="pfe-btn" onClick={() => navigate('/')}>进入我的智能体</button>
+      <button type="button" className="pfe-btn" onClick={() => navigate(APP_PATH)}>进入我的智能体</button>
       <button type="button" className="pfe-link" onClick={() => void switchAccount()} disabled={busy}>换个账号登录</button>
     </div>
   )
@@ -175,11 +175,19 @@ export default function PlatformEntry({ slug, session, onAuthed }) {
           <p className="pfe-lost-text">
             {missing ? '链接可能输错了，或者它已经改名。可以找分享给你的人再要一次。' : '网络好像不太稳，稍后再试一次。'}
           </p>
+          {/* 首页就是市场：找不到时主按钮去市场、次按钮进自己的智能体；网络问题时主按钮重试、次按钮回首页 */}
           <div className="pfe-lost-actions">
-            {missing
-              ? <button type="button" className="pfe-btn" onClick={() => navigate('/market')}>去智能体市场</button>
-              : <button type="button" className="pfe-btn" onClick={() => setRetry(n => n + 1)}>重试</button>}
-            <button type="button" className="pfe-link" onClick={() => navigate('/')}>回到首页</button>
+            {missing ? (
+              <>
+                <button type="button" className="pfe-btn" onClick={() => navigate(MARKET_PATH)}>去智能体市场</button>
+                <button type="button" className="pfe-link" onClick={() => navigate(APP_PATH)}>进入我的智能体</button>
+              </>
+            ) : (
+              <>
+                <button type="button" className="pfe-btn" onClick={() => setRetry(n => n + 1)}>重试</button>
+                <button type="button" className="pfe-link" onClick={() => navigate(MARKET_PATH)}>回到首页</button>
+              </>
+            )}
           </div>
         </main>
       </div>

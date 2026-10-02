@@ -76,7 +76,7 @@ describe('插件市场：来源、不可用与插件管理', () => {
   beforeEach(() => {
     vi.stubGlobal('sessionStorage', memoryStorage())
     vi.stubGlobal('localStorage', memoryStorage())
-    window.history.replaceState({}, '', '/market')
+    window.history.replaceState({}, '', '/')
   })
   afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
@@ -96,14 +96,17 @@ describe('插件市场：来源、不可用与插件管理', () => {
     expect(broken).toHaveClass('is-off')
     expect(within(broken).getByText(/暂不可用：缺少 Python 包：openpyxl/)).toBeInTheDocument()
     expect(within(broken).getByRole('button', { name: '加入工具箱：Excel 工具箱' })).toBeDisabled()
-    expect(screen.queryByRole('article', { name: '回声测试' })).toBeNull()   // 社区插件在「已导入」页签
-    await user.click(screen.getByRole('tab', { name: /已导入/ }))
-    const community = await screen.findByRole('article', { name: '回声测试' })
+    // 第十五轮：社区插件与官方插件同列，靠徽标和「来源」筛选区分；来源链接在详情里
+    const community = screen.getByRole('article', { name: '回声测试' })
     expect(within(community).getByText('社区')).toBeInTheDocument()
-    expect(within(community).getByRole('link', { name: /来源 @abcdef1/ })).toHaveAttribute('href', expect.stringContaining('github.com/acme/echo'))
+    await user.click(within(screen.getByRole('group', { name: '按来源' })).getByRole('button', { name: '社区' }))
+    expect(screen.queryByRole('article', { name: '待办清单' })).toBeNull()
+    await user.click(within(screen.getByRole('article', { name: '回声测试' })).getByRole('link', { name: '回声测试' }))
+    const detail = await screen.findByRole('dialog', { name: '插件详情：回声测试' })
+    expect(within(detail).getByRole('link', { name: /源代码 @abcdef1/ })).toHaveAttribute('href', expect.stringContaining('github.com/acme/echo'))
     expect(screen.queryByRole('button', { name: '导入插件' })).toBeNull()
     expect(screen.queryByRole('button', { name: '管理插件' })).toBeNull()
-    expect(screen.queryByRole('tab', { name: /示例插件源/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /示例插件源/ })).toBeNull()
   })
 
   it('Owner：导入插件 → 信任预览（权限、依赖、来源 commit、隐私政策）→ 确认安装', async () => {
@@ -151,9 +154,11 @@ describe('插件市场：来源、不可用与插件管理', () => {
     const user = userEvent.setup()
     vi.stubGlobal('confirm', () => true)
     render(<Market session={session} />)
-    const tab = await screen.findByRole('tab', { name: /示例插件源/ })
-    expect(screen.getByRole('tab', { name: /官方/ })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: /已导入/ })).toBeInTheDocument()
+    // 插件源成为「来源」筛选里的一项（与官方 / 社区并列）
+    const tab = await screen.findByRole('button', { name: '示例插件源' })
+    const sourceGroup = screen.getByRole('group', { name: '按来源' })
+    expect(within(sourceGroup).getByRole('button', { name: '官方' })).toBeInTheDocument()
+    expect(within(sourceGroup).getByRole('button', { name: '社区' })).toBeInTheDocument()
     await user.click(tab)
     await user.click(await screen.findByRole('button', { name: '预览安装：节日祝福语' }))
     expect(await screen.findByRole('region', { name: '安装预览：节日祝福语' })).toBeInTheDocument()
