@@ -1,0 +1,533 @@
+[
+ {
+  "id": "schedule",
+  "name": "日程提醒",
+  "icon": "📅",
+  "category": "efficiency",
+  "summary": "说一句话就记下安排，到点提醒你",
+  "kind": "tool",
+  "tools": [
+   "schedule_add",
+   "schedule_list",
+   "schedule_del"
+  ],
+  "step": null,
+  "requires": [],
+  "tier": "free",
+  "price": 0,
+  "professions": [
+   "shop_owner",
+   "freelancer",
+   "project_manager",
+   "sales",
+   "teacher",
+   "student",
+   "office"
+  ]
+ },
+ {
+  "id": "todo",
+  "name": "待办清单",
+  "icon": "✅",
+  "category": "efficiency",
+  "summary": "要办的事随口一说就记下，办完勾掉",
+  "kind": "tool",
+  "tools": [
+   "todo_add",
+   "todo_list",
+   "todo_done"
+  ],
+  "step": null,
+  "requires": [],
+  "tier": "free",
+  "price": 0,
+  "professions": [
+   "shop_owner",
+   "freelancer",
+   "project_manager",
+   "sales",
+   "teacher",
+   "student",
+   "creator",
+   "office"
+  ]
+ },
+ {
+  "id": "memo",
+  "name": "随手记",
+  "icon": "📝",
+  "category": "efficiency",
+  "summary": "灵感、地址、电话随手存，用时一问就有",
+  "kind": "tool",
+  "tools": [
+   "memo_add",
+   "memo_list",
+   "memo_del"
+  ],
+  "step": null,
+  "requires": [],
+  "tier": "free",
+  "price": 0,
+  "professions": [
+   "shop_owner",
+   "freelancer",
+   "teacher",
+   "creator"
+  ]
+ },
+ {
+  "id": "memory",
+  "name": "记住你的习惯",
+  "icon": "🧠",
+  "category": "ai",
+  "summary": "记住你和客户的偏好，越用越顺手",
+  "kind": "tool",
+  "tools": [
+   "profile_remember",
+   "profile_list",
+   "profile_forget"
+  ],
+  "step": null,
+  "requires": [],
+  "tier": "free",
+  "price": 0,
+  "professions": [
+   "shop_owner",
+   "sales"
+  ]
+ },
+ {
+  "id": "weather",
+  "name": "查天气",
+  "icon": "🌤️",
+  "category": "life",
+  "summary": "出门前问一句，穿什么、带不带伞都告诉你",
+  "kind": "tool",
+  "tools": [
+   "weather",
+   "weather_here",
+   "my_location"
+  ],
+  "step": null,
+  "requires": [],
+  "tier": "free",
+  "price": 0,
+  "professions": [
+   "shop_owner"
+  ]
+ },
+ {
+  "id": "search",
+  "name": "上网查资料",
+  "icon": "🔎",
+  "category": "info",
+  "summary": "查最新消息和网页，回答附上来源",
+  "kind": "tool",
+  "tools": [
+   "web_search",
+   "web_extract"
+  ],
+  "step": null,
+  "requires": [],
+  "tier": "free",
+  "price": 0,
+  "professions": [
+   "shop_owner",
+   "freelancer",
+   "project_manager",
+   "teacher",
+   "student",
+   "creator"
+  ]
+ },
+ {
+  "id": "recall",
+  "name": "找回聊过的话",
+  "icon": "🗂️",
+  "category": "efficiency",
+  "summary": "以前聊过的事，一句话就翻出来",
+  "kind": "tool",
+  "tools": [
+   "recall_history"
+  ],
+  "step": null,
+  "requires": [],
+  "tier": "free",
+  "price": 0,
+  "professions": [
+   "freelancer",
+   "project_manager",
+   "sales",
+   "student"
+  ]
+ },
+ {
+  "id": "movies",
+  "name": "查影视评分",
+  "icon": "🎬",
+  "category": "info",
+  "summary": "一部片子几个平台的评分和人数，一次看全",
+  "kind": "tool",
+  "tools": [
+   "movie_ratings"
+  ],
+  "step": null,
+  "requires": [],
+  "tier": "free",
+  "price": 0,
+  "professions": [
+   "creator"
+  ]
+ },
+ {
+  "id": "esports",
+  "name": "查电竞比分",
+  "icon": "🎮",
+  "category": "info",
+  "summary": "关注的战队最近打得怎么样，赛果一问便知",
+  "kind": "tool",
+  "tools": [
+   "esports_scores"
+  ],
+  "step": null,
+  "requires": [],
+  "tier": "free",
+  "price": 0,
+  "professions": []
+ },
+ {
+  "id": "tickets",
+  "name": "查票价与入口",
+  "icon": "🎫",
+  "category": "life",
+  "summary": "演出、展览门票多平台比价，提醒手续费",
+  "kind": "tool",
+  "tools": [
+   "ticket_search"
+  ],
+  "step": null,
+  "requires": [],
+  "tier": "free",
+  "price": 0,
+  "professions": []
+ },
+ {
+  "id": "meeting",
+  "name": "会议纪要",
+  "icon": "🎙️",
+  "category": "efficiency",
+  "summary": "开会时自动记下双方发言，会后出纪要发邮箱",
+  "kind": "tool",
+  "tools": [
+   "meeting_start",
+   "meeting_stop"
+  ],
+  "step": null,
+  "requires": [
+   "desktop"
+  ],
+  "tier": "pro",
+  "price": 9.9,
+  "professions": [
+   "project_manager",
+   "office"
+  ]
+ },
+ {
+  "id": "feishu",
+  "name": "飞书",
+  "icon": "🪶",
+  "category": "communication",
+  "summary": "在飞书里直接找它办事、收提醒",
+  "kind": "channel",
+  "tools": [],
+  "step": null,
+  "requires": [],
+  "tier": "free",
+  "price": 0,
+  "professions": [
+   "freelancer",
+   "project_manager",
+   "sales",
+   "office"
+  ]
+ },
+ {
+  "id": "wechat",
+  "name": "微信技能包",
+  "icon": "💬",
+  "category": "communication",
+  "summary": "在微信里和它办事，提醒和晨报直接发到微信",
+  "kind": "channel",
+  "tools": [],
+  "step": null,
+  "requires": [
+   "wechat_owner"
+  ],
+  "tier": "pro",
+  "price": 9.9,
+  "professions": []
+ },
+ {
+  "id": "input_text",
+  "name": "文字输入",
+  "icon": "✍️",
+  "category": "documents",
+  "summary": "贴一段文字作为流程的起点",
+  "kind": "step",
+  "tools": [],
+  "step": {
+   "role": "input",
+   "accepts": [],
+   "produces": [
+    "text"
+   ],
+   "options": [
+    {
+     "key": "label",
+     "label": "输入框提示",
+     "type": "text",
+     "default": "贴一段文字"
+    }
+   ]
+  },
+  "requires": [],
+  "tier": "free",
+  "price": 0,
+  "professions": []
+ },
+ {
+  "id": "input_file",
+  "name": "资料上传",
+  "icon": "📎",
+  "category": "documents",
+  "summary": "上传 PDF、Word、TXT、图片，自动读出文字",
+  "kind": "step",
+  "tools": [],
+  "step": {
+   "role": "input",
+   "accepts": [],
+   "produces": [
+    "text"
+   ],
+   "options": []
+  },
+  "requires": [],
+  "tier": "free",
+  "price": 0,
+  "professions": []
+ },
+ {
+  "id": "split_file",
+  "name": "文件拆分",
+  "icon": "✂️",
+  "category": "documents",
+  "summary": "长资料按章节或段落拆成几份，逐份处理",
+  "kind": "step",
+  "tools": [],
+  "step": {
+   "role": "process",
+   "accepts": [
+    "text"
+   ],
+   "produces": [
+    "parts",
+    "text"
+   ],
+   "options": [
+    {
+     "key": "mode",
+     "label": "拆分方式",
+     "type": "select",
+     "choices": [
+      "chapter",
+      "paragraph",
+      "size"
+     ],
+     "default": "chapter"
+    },
+    {
+     "key": "max_parts",
+     "label": "最多几段",
+     "type": "number",
+     "default": 8
+    }
+   ]
+  },
+  "requires": [],
+  "tier": "free",
+  "price": 0,
+  "professions": []
+ },
+ {
+  "id": "ai_extract",
+  "name": "AI 提炼",
+  "icon": "✨",
+  "category": "ai",
+  "summary": "提要点、列待办、写摘要和周报，一步搞定",
+  "kind": "step",
+  "tools": [],
+  "step": {
+   "role": "process",
+   "accepts": [
+    "text",
+    "parts"
+   ],
+   "produces": [
+    "text",
+    "items"
+   ],
+   "options": [
+    {
+     "key": "task",
+     "label": "做什么",
+     "type": "select",
+     "choices": [
+      "要点",
+      "待办",
+      "摘要",
+      "周报",
+      "改写"
+     ],
+     "default": "要点"
+    },
+    {
+     "key": "instruction",
+     "label": "补充要求",
+     "type": "text",
+     "default": ""
+    }
+   ]
+  },
+  "requires": [],
+  "tier": "free",
+  "price": 0,
+  "professions": []
+ },
+ {
+  "id": "to_todo",
+  "name": "加到待办",
+  "icon": "📌",
+  "category": "output",
+  "summary": "上一步整理出的事项，逐条写进待办清单",
+  "kind": "step",
+  "tools": [],
+  "step": {
+   "role": "output",
+   "accepts": [
+    "items",
+    "text"
+   ],
+   "produces": [],
+   "options": []
+  },
+  "requires": [],
+  "tier": "free",
+  "price": 0,
+  "professions": []
+ },
+ {
+  "id": "feishu_send",
+  "name": "发到飞书",
+  "icon": "📨",
+  "category": "output",
+  "summary": "把结果发给你绑定的飞书",
+  "kind": "step",
+  "tools": [],
+  "step": {
+   "role": "output",
+   "accepts": [
+    "text"
+   ],
+   "produces": [],
+   "options": []
+  },
+  "requires": [
+   "feishu_bound"
+  ],
+  "tier": "free",
+  "price": 0,
+  "professions": []
+ },
+ {
+  "id": "feishu_doc",
+  "name": "汇总到飞书文档",
+  "icon": "📄",
+  "category": "output",
+  "summary": "结果汇总成一篇飞书文档，没权限时改为发消息",
+  "kind": "step",
+  "tools": [],
+  "step": {
+   "role": "output",
+   "accepts": [
+    "text",
+    "parts"
+   ],
+   "produces": [
+    "links"
+   ],
+   "options": []
+  },
+  "requires": [
+   "feishu_bound"
+  ],
+  "tier": "pro",
+  "price": 9.9,
+  "professions": []
+ },
+ {
+  "id": "wechat_send",
+  "name": "发到微信",
+  "icon": "📲",
+  "category": "output",
+  "summary": "把结果发到你的微信",
+  "kind": "step",
+  "tools": [],
+  "step": {
+   "role": "output",
+   "accepts": [
+    "text"
+   ],
+   "produces": [],
+   "options": []
+  },
+  "requires": [
+   "wechat_owner"
+  ],
+  "tier": "pro",
+  "price": 9.9,
+  "professions": []
+ },
+ {
+  "id": "web_page",
+  "name": "生成网页与二维码",
+  "icon": "🔗",
+  "category": "output",
+  "summary": "结果生成一个手机好看的网页，扫码就能打开",
+  "kind": "step",
+  "tools": [],
+  "step": {
+   "role": "output",
+   "accepts": [
+    "text",
+    "parts",
+    "links"
+   ],
+   "produces": [
+    "links"
+   ],
+   "options": [
+    {
+     "key": "title",
+     "label": "网页标题",
+     "type": "text",
+     "default": ""
+    }
+   ]
+  },
+  "requires": [],
+  "tier": "free",
+  "price": 0,
+  "professions": []
+ }
+]

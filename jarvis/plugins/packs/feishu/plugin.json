@@ -1,0 +1,30 @@
+{
+  "id": "feishu",
+  "name": "飞书",
+  "version": "1.0.0",
+  "icon": "🪶",
+  "category": "communication",
+  "summary": "在飞书里直接找它办事、收提醒",
+  "kind": "channel",
+  "tier": "free",
+  "price": 0,
+  "professions": [
+    "freelancer",
+    "project_manager",
+    "sales",
+    "office"
+  ],
+  "examples": [
+    "（在飞书里）明早9点提醒我交周报"
+  ],
+  "entry": null,
+  "tools": [],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "homepage": "",
+  "source": {
+    "type": "builtin"
+  }
+}

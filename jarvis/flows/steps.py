@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import math
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import PurePath
 from typing import Any, Callable
 
@@ -70,6 +70,8 @@ class StepSpec:
     requires: tuple = ()
     timeout: float = DEFAULT_TIMEOUT
     run: Callable | None = field(default=None, compare=False)
+    summary: str = ""            # 插件包提供的积木：市场里的一句话介绍（可选）
+    icon: str = ""               # 插件包提供的积木：图标（可选，缺省用插件的图标）
 
     def meta(self) -> dict:
         """契约 4.1 的 Plugin.step 形状（平台目录可直接引用，保持单一事实来源）。"""
@@ -480,6 +482,21 @@ STEPS: dict[str, StepSpec] = {spec.id: spec for spec in (
     StepSpec("web_page", "生成网页与二维码", ROLE_OUTPUT, ("text", "parts", "links"), ("links",),
              (_text("title", "网页标题", 40),), run=run_web_page),
 )}
+
+
+CORE_STEP_IDS = frozenset(STEPS)
+
+
+def sync_pack_steps(pack_steps: dict) -> None:
+    """插件包提供的积木（第十四轮）：由插件注册表整体同步进来——新的加上、停用 / 卸载的拿掉。
+
+    九个核心积木永远在；与核心积木同名的一律忽略（冲突已在加载器里拒绝）。"""
+    for key in [key for key in STEPS if key not in CORE_STEP_IDS and key not in pack_steps]:
+        STEPS.pop(key, None)
+    for key, spec in pack_steps.items():
+        if key in CORE_STEP_IDS or not isinstance(spec, StepSpec) or spec.run is None:
+            continue
+        STEPS[key] = spec if spec.id == key else replace(spec, id=key)
 
 
 def step_catalog() -> dict[str, dict]:

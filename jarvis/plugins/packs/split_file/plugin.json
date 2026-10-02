@@ -1,0 +1,27 @@
+{
+  "id": "split_file",
+  "name": "文件拆分",
+  "version": "1.0.0",
+  "icon": "✂️",
+  "category": "documents",
+  "summary": "长资料按章节或段落拆成几份，逐份处理",
+  "kind": "step",
+  "tier": "free",
+  "price": 0,
+  "professions": [],
+  "examples": [
+    "把一份长文档按章节拆开"
+  ],
+  "entry": null,
+  "tools": [],
+  "steps": [
+    "split_file"
+  ],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "homepage": "",
+  "source": {
+    "type": "builtin"
+  }
+}

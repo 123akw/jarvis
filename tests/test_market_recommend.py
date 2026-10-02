@@ -185,3 +185,12 @@ def test_window_limiter_slides():
     assert limiter.hit("a") == 60 and limiter.hit("b") is None
     clock[0] = 61
     assert limiter.hit("a") is None
+
+
+def test_model_empty_text_falls_back_to_rules_and_logs(caplog):
+    """思考型模型把 max_tokens 用在思考上时会返回空串：要退回规则并留日志，不能悄悄吞掉。"""
+    assert rec.MODEL_MAX_TOKENS >= 1500
+    with caplog.at_level("WARNING", logger="jarvis.plugins.recommend"):
+        result = rec.Recommender(lambda system, user: "  ").recommend(None, "开奶茶店，想管排班")
+    assert result["source"] == "rules" and result["plugins"]
+    assert any("empty text" in record.getMessage() for record in caplog.records)

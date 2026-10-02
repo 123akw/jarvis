@@ -1739,6 +1739,14 @@ platforms.register(
     environment_llm=lambda: _provider_store._environment_llm(),
 )
 
+# ---- 插件管理（第十四轮）：导入 / 启停 / 卸载 / 插件源，仅 Owner（逻辑在 jarvis/plugins/） ----
+from jarvis.plugins import routes as plugin_routes  # noqa: E402
+
+plugin_routes.register(
+    app, accounts=_accounts, request_principal=_request_principal, write_authorized=_write_authorized,
+    deny=_deny, csrf_deny=_csrf_deny,
+)
+
 
 if (_WEB / "assets").is_dir():
     app.mount("/assets", StaticFiles(directory=_WEB / "assets"), name="assets")

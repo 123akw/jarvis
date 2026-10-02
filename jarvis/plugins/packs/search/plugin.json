@@ -1,0 +1,36 @@
+{
+  "id": "search",
+  "name": "上网查资料",
+  "version": "1.0.0",
+  "icon": "🔎",
+  "category": "info",
+  "summary": "查最新消息和网页，回答附上来源",
+  "kind": "tool",
+  "tier": "free",
+  "price": 0,
+  "professions": [
+    "shop_owner",
+    "freelancer",
+    "project_manager",
+    "teacher",
+    "student",
+    "creator"
+  ],
+  "examples": [
+    "帮我查查最近的行业新闻",
+    "这个问题网上最新的说法是什么"
+  ],
+  "entry": null,
+  "tools": [
+    "web_search",
+    "web_extract"
+  ],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "homepage": "",
+  "source": {
+    "type": "builtin"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "id": "feishu_send",
+  "name": "发到飞书",
+  "version": "1.0.0",
+  "icon": "📨",
+  "category": "output",
+  "summary": "把结果发给你绑定的飞书",
+  "kind": "step",
+  "tier": "free",
+  "price": 0,
+  "professions": [],
+  "examples": [
+    "整理好的通知发到我飞书"
+  ],
+  "entry": null,
+  "tools": [],
+  "steps": [
+    "feishu_send"
+  ],
+  "requires": [
+    "feishu_bound"
+  ],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "homepage": "",
+  "source": {
+    "type": "builtin"
+  }
+}

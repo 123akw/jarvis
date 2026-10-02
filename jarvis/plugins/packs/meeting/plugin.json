@@ -1,0 +1,34 @@
+{
+  "id": "meeting",
+  "name": "会议纪要",
+  "version": "1.0.0",
+  "icon": "🎙️",
+  "category": "efficiency",
+  "summary": "开会时自动记下双方发言，会后出纪要发邮箱",
+  "kind": "tool",
+  "tier": "pro",
+  "price": 9.9,
+  "professions": [
+    "project_manager",
+    "office"
+  ],
+  "examples": [
+    "开始记会议纪要，主题是周例会",
+    "会开完了，停止记录"
+  ],
+  "entry": null,
+  "tools": [
+    "meeting_start",
+    "meeting_stop"
+  ],
+  "steps": [],
+  "requires": [
+    "desktop"
+  ],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "homepage": "",
+  "source": {
+    "type": "builtin"
+  }
+}

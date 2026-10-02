@@ -226,6 +226,7 @@ def test_no_argument_build_agent_constructs_runtime_tools_instead_of_using_modul
 
     monkeypatch.setattr(graph_mod, "build_tools", fake_build_tools, raising=False)
     monkeypatch.setattr(graph_mod, "TOOLS", compatibility_tools, raising=False)
+    monkeypatch.setattr(graph_mod, "plugin_tools", lambda exclude=(): [])   # 只看核心工具的来源
     monkeypatch.setattr(graph_mod.config, "load_env", lambda: None)
     monkeypatch.setattr(graph_mod.config, "model_name", lambda: "fake-model")
     monkeypatch.setattr(graph_mod.config, "base_url", lambda: "https://model.invalid")

@@ -1,0 +1,28 @@
+{
+  "id": "tickets",
+  "name": "查票价与入口",
+  "version": "1.0.0",
+  "icon": "🎫",
+  "category": "life",
+  "summary": "演出、展览门票多平台比价，提醒手续费",
+  "kind": "tool",
+  "tier": "free",
+  "price": 0,
+  "professions": [],
+  "examples": [
+    "这场演出的票哪里买划算",
+    "热门景点的门票现在多少钱"
+  ],
+  "entry": null,
+  "tools": [
+    "ticket_search"
+  ],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "homepage": "",
+  "source": {
+    "type": "builtin"
+  }
+}

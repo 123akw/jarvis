@@ -1,0 +1,29 @@
+{
+  "id": "feishu_doc",
+  "name": "汇总到飞书文档",
+  "version": "1.0.0",
+  "icon": "📄",
+  "category": "output",
+  "summary": "结果汇总成一篇飞书文档，没权限时改为发消息",
+  "kind": "step",
+  "tier": "pro",
+  "price": 9.9,
+  "professions": [],
+  "examples": [
+    "资料要点存成飞书文档"
+  ],
+  "entry": null,
+  "tools": [],
+  "steps": [
+    "feishu_doc"
+  ],
+  "requires": [
+    "feishu_bound"
+  ],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "homepage": "",
+  "source": {
+    "type": "builtin"
+  }
+}

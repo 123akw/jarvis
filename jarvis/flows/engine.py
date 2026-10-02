@@ -76,7 +76,17 @@ def _option(spec_option: dict, raw, step_name: str):
     return text
 
 
+def _ensure_pack_steps() -> None:
+    """插件包提供的积木在插件注册表首次加载时注册进 STEPS；保存流程前确保已经加载过。"""
+    try:
+        from jarvis.plugins.loader import registry
+        registry()
+    except Exception as exc:   # 插件系统出问题不能拖垮核心积木
+        log.warning("plugin registry load failed: %s", type(exc).__name__)
+
+
 def normalize_steps(raw_steps) -> list[dict]:
+    _ensure_pack_steps()
     if not isinstance(raw_steps, list) or not raw_steps:
         raise FlowValidationError("流程里还没有积木")
     if len(raw_steps) > MAX_STEPS:

@@ -1,0 +1,16 @@
+{
+  "id": "echo_tool",
+  "name": "回声测试",
+  "version": "0.1.0",
+  "icon": "🔊",
+  "category": "efficiency",
+  "summary": "测试夹具：最小的第三方插件，文本进、文本出",
+  "kind": "tool",
+  "examples": ["把这句话大声说一遍"],
+  "entry": "tools.py",
+  "tools": ["echo_shout", "echo_slow", "echo_crash", "echo_fail", "echo_env", "echo_count"],
+  "python_packages": [],
+  "author": "测试",
+  "homepage": "https://example.com/echo",
+  "timeout": 2
+}

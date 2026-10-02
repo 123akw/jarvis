@@ -1,0 +1,27 @@
+{
+  "id": "to_todo",
+  "name": "加到待办",
+  "version": "1.0.0",
+  "icon": "📌",
+  "category": "output",
+  "summary": "上一步整理出的事项，逐条写进待办清单",
+  "kind": "step",
+  "tier": "free",
+  "price": 0,
+  "professions": [],
+  "examples": [
+    "提炼出的待办一键加进清单"
+  ],
+  "entry": null,
+  "tools": [],
+  "steps": [
+    "to_todo"
+  ],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "homepage": "",
+  "source": {
+    "type": "builtin"
+  }
+}

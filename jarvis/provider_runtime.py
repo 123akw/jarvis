@@ -241,6 +241,7 @@ class RuntimeBundle:
     retired: bool = False
     closed: bool = False
     platform_rev: int = 0   # 建 bundle 时该账号智能平台的版本号；平台改了就重建（工具子集随之变）
+    plugins_gen: int = 0    # 建 bundle 时插件注册表的代数；导入 / 停用 / 卸载插件后重建（工具集随之变）
 
     def close(self) -> None:
         if self.closed: return
@@ -251,6 +252,14 @@ class RuntimeBundle:
                 try: close()
                 except Exception: pass
         close_async_client(self.async_client)
+
+
+def _plugins_generation() -> int:
+    try:
+        from jarvis.plugins import generation
+        return generation()
+    except Exception:
+        return 0
 
 
 def _platform_revision(user_id: str) -> int:
@@ -312,7 +321,9 @@ class AgentRuntimeManager:
     def _new(self, user_id: str, llm: ResolvedLLM | None = None) -> RuntimeBundle:
         resolved = llm or self.store.resolved_llm(user_id)
         revision = _platform_revision(user_id)   # 先取版本再建：建的途中平台又改了，下次 acquire 会再重建
+        plugins_gen = _plugins_generation()
         bundle = self._factory(user_id, resolved, self.store.integration_values())
+        bundle.plugins_gen = plugins_gen
         bundle.platform_rev = -1 if user_id in _PLATFORM_LOOKUP_FAILED else revision
         _PLATFORM_LOOKUP_FAILED.discard(user_id)
         return bundle
@@ -323,7 +334,8 @@ class AgentRuntimeManager:
         with self._lock:
             bundle = self._bundles.get(user_id)
             if (bundle is None or bundle.generation != resolved.generation
-                    or bundle.platform_rev != _platform_revision(user_id)):
+                    or bundle.platform_rev != _platform_revision(user_id)
+                    or bundle.plugins_gen != _plugins_generation()):
                 candidate = self._new(user_id, resolved)
                 old = self._bundles.get(user_id)
                 self._bundles[user_id] = candidate

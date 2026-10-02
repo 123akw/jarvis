@@ -1,0 +1,32 @@
+{
+  "id": "weather",
+  "name": "查天气",
+  "version": "1.0.0",
+  "icon": "🌤️",
+  "category": "life",
+  "summary": "出门前问一句，穿什么、带不带伞都告诉你",
+  "kind": "tool",
+  "tier": "free",
+  "price": 0,
+  "professions": [
+    "shop_owner"
+  ],
+  "examples": [
+    "明天会下雨吗",
+    "这周末天气怎么样"
+  ],
+  "entry": null,
+  "tools": [
+    "weather",
+    "weather_here",
+    "my_location"
+  ],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "homepage": "",
+  "source": {
+    "type": "builtin"
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "id": "schedule",
+  "name": "日程提醒",
+  "version": "1.0.0",
+  "icon": "📅",
+  "category": "efficiency",
+  "summary": "说一句话就记下安排，到点提醒你",
+  "kind": "tool",
+  "tier": "free",
+  "price": 0,
+  "professions": [
+    "shop_owner",
+    "freelancer",
+    "project_manager",
+    "sales",
+    "teacher",
+    "student",
+    "office"
+  ],
+  "examples": [
+    "明天下午3点开会",
+    "周五晚上提醒我交房租",
+    "我下周都有啥安排"
+  ],
+  "entry": null,
+  "tools": [
+    "schedule_add",
+    "schedule_list",
+    "schedule_del"
+  ],
+  "steps": [],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "homepage": "",
+  "source": {
+    "type": "builtin"
+  }
+}

@@ -15,16 +15,20 @@ CONTRACT_PLUGIN_IDS = {
 CONTRACT_PROFESSIONS = {"freelancer", "project_manager", "shop_owner", "sales", "teacher", "student", "creator", "office"}
 PLUGIN_KEYS = {"id", "name", "icon", "category", "summary", "kind", "tools", "step", "requires", "tier", "price",
                "professions", "examples", "available"}
+# 第十四轮插件包：目录项可以多带这些字段（来源、版本、加载状态）；pack 只出现在插件包提供的积木条目上
+EXTRA_KEYS = {"version", "author", "homepage", "source", "status", "reason", "builtin", "pack"}
 
 
 def test_plugin_ids_kinds_and_shape_match_the_contract():
-    assert {p["id"]: p["kind"] for p in plugins.PLUGINS} == CONTRACT_PLUGIN_IDS
+    kinds = {p["id"]: p["kind"] for p in plugins.PLUGINS}
+    assert {pid: kinds.get(pid) for pid in CONTRACT_PLUGIN_IDS} == CONTRACT_PLUGIN_IDS   # 只许加不许改
     categories = {c["id"] for c in plugins.CATEGORIES}
     assert categories == {"efficiency", "communication", "documents", "info", "life", "ai", "output"}
     for item in plugins.PLUGINS:
-        assert set(item) == PLUGIN_KEYS, item["id"]
+        assert PLUGIN_KEYS <= set(item) <= PLUGIN_KEYS | EXTRA_KEYS, item["id"]
         assert item["category"] in categories
-        assert item["name"] and item["icon"] and item["summary"] and item["examples"]
+        assert item["name"] and item["icon"] and item["summary"]
+        assert item["examples"] or "pack" in item, item["id"]
         assert item["tier"] in ("free", "pro") and isinstance(item["price"], (int, float))
         assert item["price"] == (plugins.PRO_PRICE if item["tier"] == "pro" else 0)
         assert set(item["requires"]) <= set(plugins.REQUIREMENTS)
@@ -42,11 +46,15 @@ def test_plugin_ids_kinds_and_shape_match_the_contract():
 
 def test_tool_plugins_map_onto_real_registered_tools_and_skip_base_and_owner_tools():
     registered = {tool.name for tool in TOOLS}
+    pack_tools = {tool.name for tool in plugins.pack_tools()}
+    assert not registered & pack_tools                     # 插件包工具不和核心工具重名
     mapped = set()
     for item in plugins.PLUGINS:
-        assert set(item["tools"]) <= registered, item["id"]
+        if item["status"] != "ok":
+            continue
+        assert set(item["tools"]) <= registered | pack_tools, item["id"]
         assert bool(item["tools"]) == (item["kind"] == "tool"), item["id"]
-        mapped |= set(item["tools"])
+        mapped |= set(item["tools"]) & registered
     # 每个工具恰好归属一个去处：插件、基础能力或 Owner 专属
     assert mapped | set(plugins.BASE_TOOLS) | set(plugins.OWNER_TOOLS) == registered
     assert not mapped & (set(plugins.BASE_TOOLS) | set(plugins.OWNER_TOOLS))
@@ -124,7 +132,9 @@ def accounts():
 
 
 def test_available_is_true_for_guests_and_computed_per_account(accounts, monkeypatch):
-    assert all(p["available"] for p in plugins.catalog(None)["plugins"])
+    # 游客：插件本身加载正常就可用（缺依赖的插件包对谁都不可用）
+    assert all(p["available"] == (p["status"] == "ok") for p in plugins.catalog(None)["plugins"])
+    assert all(p["available"] for p in plugins.catalog(None)["plugins"] if p["builtin"] and p["id"] in CONTRACT_PLUGIN_IDS)
     owner = accounts.unique_active_owner().user_id
     member = accounts.create_user("member1", "Member-pass-123", "Member")["id"]
     from jarvis.channels import feishu

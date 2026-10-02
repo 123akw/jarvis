@@ -1,0 +1,27 @@
+{
+  "id": "web_page",
+  "name": "生成网页与二维码",
+  "version": "1.0.0",
+  "icon": "🔗",
+  "category": "output",
+  "summary": "结果生成一个手机好看的网页，扫码就能打开",
+  "kind": "step",
+  "tier": "free",
+  "price": 0,
+  "professions": [],
+  "examples": [
+    "纪要做成网页，发个二维码给同事"
+  ],
+  "entry": null,
+  "tools": [],
+  "steps": [
+    "web_page"
+  ],
+  "requires": [],
+  "python_packages": [],
+  "author": "JWS-Agent",
+  "homepage": "",
+  "source": {
+    "type": "builtin"
+  }
+}
