@@ -4,10 +4,8 @@
 都被模型 API 拒绝。本文件每条用例都对应一次实测复现。
 """
 import subprocess
-import threading
 import time
 
-import httpx
 import pytest
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage
@@ -79,6 +77,12 @@ def test_tool_exception_becomes_error_tool_message(monkeypatch):
     assert result["messages"][-1].type == "ai"
 
 
+def _savers(tmp_path):
+    import sqlite3
+    return {"memory": InMemorySaver(),
+            "sqlite": graph_mod.SqliteSaver(sqlite3.connect(str(tmp_path / "ckpt.db"), check_same_thread=False))}
+
+
 def test_parallel_batch_with_one_crashing_tool_keeps_thread_healthy(monkeypatch):
     """实测：memo_add 与 sys_query 并行，后者抛异常 → 本轮崩、heal 删不掉 pending 里的
     ToolMessage（ValueError 被吞）→ 之后每轮 ValueError，线程永久坏掉。"""
@@ -98,10 +102,11 @@ def test_parallel_batch_with_one_crashing_tool_keeps_thread_healthy(monkeypatch)
     assert out["messages"][-1].content == "好的"
 
 
-def test_heal_repairs_crash_with_pending_tool_writes(monkeypatch):
+@pytest.mark.parametrize("kind", ["memory", "sqlite"])
+def test_heal_repairs_crash_with_pending_tool_writes(monkeypatch, tmp_path, kind):
     """即便本轮真的崩在工具节点（错误处理之外的 BaseException 场景），heal 也要能修好：
-    只删 checkpoint 里真实存在的消息，pending writes 随新 checkpoint 丢弃。"""
-    saver = InMemorySaver()
+    只删 checkpoint 里真实存在的消息，pending writes 随新 checkpoint 丢弃。生产用 SqliteSaver。"""
+    saver = _savers(tmp_path)[kind]
     config = {"configurable": {"thread_id": "t-heal"}}
     agent = _agent([_call("memo_add", {"content": "w"}, 41), _call("sys_query", {"command": "uptime"}, 42)], saver)
 
@@ -132,18 +137,23 @@ def test_heal_failure_is_logged(caplog):
 
 @pytest.mark.parametrize("expression", ["9**9**9", "10**10**8", "2**99999999", "(10**999)**(10**3)"])
 def test_calc_refuses_huge_power_quickly(expression):
-    """实测：9**9**9 占住 GIL 超过 60 秒，整个服务（所有用户）冻住。"""
-    from jarvis.tools.calc import calc
-    done = {}
-
-    def run():
-        done["out"] = calc.invoke({"expression": expression})
-
-    worker = threading.Thread(target=run, daemon=True)
-    worker.start()
-    worker.join(2)
-    assert not worker.is_alive(), "calc 必须在 2 秒内返回"
-    assert "太大" in done["out"]
+    """实测：9**9**9 占住 GIL 超过 60 秒，整个服务（所有用户）冻住。
+    放子进程里跑并设硬超时：一旦回归，用例 10 秒内失败，而不是把整个 pytest 挂住。"""
+    import json
+    import os
+    import sys
+    code = ("import json,sys; from jarvis.tools.calc import calc; "
+            "print(json.dumps(calc.invoke({'expression': sys.argv[1]})))")
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    started = time.monotonic()
+    try:
+        done = subprocess.run([sys.executable, "-c", code, expression], capture_output=True, text=True,
+                              timeout=10, cwd=root, env={**os.environ, "PYTHONPATH": root})
+    except subprocess.TimeoutExpired:
+        pytest.fail("calc 冻住超过 10 秒")
+    assert done.returncode == 0, done.stderr[-500:]
+    assert "太大" in json.loads(done.stdout.strip().splitlines()[-1])
+    assert time.monotonic() - started < 10
 
 
 @pytest.mark.parametrize("expression", ["1e308*10", "2.0**10000", "10**5000", "+".join(["1"] * 1200),

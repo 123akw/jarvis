@@ -299,9 +299,9 @@ async def http_error(_request: Request, error: StarletteHTTPException):
 
 @app.exception_handler(Exception)
 async def unhandled_error(request: Request, error: Exception):
-    """兜底：未捕获异常回人话 JSON，不回裸文本 Internal Server Error，也不泄露细节。"""
-    log.error("unhandled error on %s %s: %s", request.method, request.url.path,
-              type(error).__name__, exc_info=error)
+    """兜底：未捕获异常回人话 JSON，不回裸文本 Internal Server Error，也不泄露细节。
+    （Starlette 发完响应会继续上抛，uvicorn 照常打印完整堆栈，这里只补一行定位信息。）"""
+    log.error("unhandled error on %s %s: %s", request.method, request.url.path, type(error).__name__)
     return JSONResponse({"error": "服务器开小差了，请稍后再试"}, status_code=500,
                         headers={"Cache-Control": "no-store"})
 
