@@ -242,8 +242,16 @@ describe('插件详情：?plugin=<id>', () => {
     expect(within(dialog).getByRole('heading', { name: '它能做什么' })).toBeInTheDocument()
     expect(dialog).toHaveTextContent('城市天气')            // 工具名换成人话
     expect(within(dialog).getByRole('heading', { name: '试试这样问' })).toBeInTheDocument()
-    expect(within(dialog).getByText('开箱即用，不需要额外设置。')).toBeInTheDocument()
-    expect(dialog).toHaveTextContent('MIT-0')
+    // 第十七轮：「要不要配置」在信息条里一眼看到；没有要配的就不出「需要什么」
+    expect(within(dialog).getByText('开箱即用')).toBeInTheDocument()
+    expect(within(dialog).queryByRole('heading', { name: '需要什么' })).toBeNull()
+    // 许可证等收进「信息」折叠表：收起时摘要里能看到，展开后是完整的表
+    const info = within(dialog).getByRole('button', { name: /^信息/ })
+    expect(info).toHaveAttribute('aria-expanded', 'false')
+    expect(info).toHaveTextContent('MIT-0')
+    await user.click(info)
+    expect(info).toHaveAttribute('aria-expanded', 'true')
+    expect(within(dialog).getByText('许可证').nextSibling).toHaveTextContent('MIT-0')
 
     await user.click(within(dialog).getByRole('button', { name: '加入工具箱：查天气' }))
     expect(within(dialog).getByRole('button', { name: '移出工具箱：查天气' })).toHaveAttribute('aria-pressed', 'true')

@@ -1,0 +1,205 @@
+/* 插件详情（第十七轮）：手机底部整页抽屉 / 宽屏右侧抽屉。
+ * 自带一套局部变量（--pd-*），只建立在全局 --jv-* token 上，不依赖 market.css 的 --m-*。
+ * 信息层级参考 App Store 条目页：头部（大图标 + 名称 + 一句话 + 作者 · 来源 + 主按钮）→ 四格信息条 → 介绍「更多」
+ * → 它能做什么（前 3 条）→ 需要什么（有才出现）→ 试试这样问（chip）→「信息」折叠表 → 同类推荐。 */
+
+.jvm-pd-backdrop{
+  --pd-bg:#111115;
+  --pd-cell:rgba(255,255,255,.05);
+  --pd-tile:rgba(255,255,255,.08);
+  --pd-line:rgba(255,255,255,.08);
+  --pd-line-2:rgba(255,255,255,.14);
+  --pd-bar:rgba(17,17,21,.82);
+  --pd-accent:var(--jv-accent,#0A84FF);
+  --pd-ok:var(--jv-success,#30D158);
+  --pd-warn:var(--jv-warn,#FFB340);
+  --pd-info:#5AC8FA;
+  --pd-ease:var(--jv-ease,cubic-bezier(.2,.8,.2,1));
+  --pd-x:20px;   /* 内容左右留白：抽屉宽了就加大 */
+  position:fixed;inset:0;z-index:70;background:var(--jv-scrim);
+  -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);animation:jvm-pd-fade .25s var(--pd-ease) both;
+}
+body.light .jvm-pd-backdrop{
+  --pd-bg:#F5F5F7;
+  --pd-cell:#fff;
+  --pd-tile:#E9E9EE;
+  --pd-line:rgba(0,0,0,.08);
+  --pd-line-2:rgba(0,0,0,.14);
+  --pd-bar:rgba(245,245,247,.86);
+  --pd-info:#0071A4;
+}
+.jvm-pd{position:absolute;left:0;right:0;bottom:0;height:calc(100dvh - 12px - env(safe-area-inset-top));display:flex;flex-direction:column;
+  border-radius:24px 24px 0 0;background:var(--pd-bg);color:var(--jv-text);box-shadow:var(--jv-shadow-float);
+  outline:none;overflow:hidden;animation:jvm-pd-up .38s var(--pd-ease) both}
+.jvm-pd :focus-visible{outline:2px solid var(--pd-accent);outline-offset:2px}
+
+/* 顶栏：浮在内容上；头部滚出视野后变成玻璃条，露出小图标 + 名字 + 小按钮 */
+.jvm-pd-bar{position:absolute;left:0;right:0;top:0;z-index:3;height:52px;display:flex;align-items:center;gap:8px;
+  padding:0 12px 0 var(--pd-x);border-bottom:1px solid transparent;transition:background-color .2s,border-color .2s}
+.jvm-pd-bar.is-stuck{background:var(--pd-bar);border-bottom-color:var(--pd-line);
+  -webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px)}
+.jvm-pd-grab{position:absolute;left:50%;top:6px;width:36px;height:5px;margin-left:-18px;border-radius:999px;background:var(--pd-line-2)}
+.jvm-pd-close{flex:none;margin-left:auto;width:32px;height:32px;display:grid;place-items:center;border:0;border-radius:50%;
+  background:var(--pd-tile);color:var(--jv-text-2);cursor:pointer}
+.jvm-pd-close:hover{color:var(--jv-text);background:var(--jv-pressed)}
+.jvm-pd-mini{flex:1;min-width:0;display:flex;align-items:center;gap:10px;animation:jvm-pd-fade .2s var(--pd-ease) both}
+.jvm-pd-mini-icon{flex:none;width:30px;height:30px;display:grid;place-items:center;border-radius:8px;font-size:17px;background:var(--pd-tile)}
+.jvm-pd-mini-name{flex:1;min-width:0;font-size:15px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.jvm-pd-scroll{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;
+  padding:22px var(--pd-x) calc(32px + env(safe-area-inset-bottom))}
+
+/* ---------- 头部 ---------- */
+.jvm-pd-head{display:grid;grid-template-columns:76px minmax(0,1fr);gap:16px;align-items:start;padding-right:36px}
+.jvm-pd-icon{width:76px;height:76px;display:grid;place-items:center;border-radius:18px;font-size:40px;line-height:1;
+  background:linear-gradient(150deg,var(--pd-cell),var(--pd-tile));box-shadow:inset 0 0 0 1px var(--pd-line),0 14px 30px -18px rgb(0 0 0 / .55)}
+.jvm-pd-titles{min-width:0}
+.jvm-pd-titles h2{font-family:var(--jv-font-display);font-size:22px;font-weight:700;letter-spacing:-.02em;line-height:1.22;outline:none;overflow-wrap:anywhere}
+.jvm-pd-summary{margin-top:3px;font-size:14.5px;line-height:1.45;color:var(--jv-text-2);
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.jvm-pd-by{margin-top:4px;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:12.5px;color:var(--jv-text-3)}
+.jvm-pd-src{display:inline-flex;align-items:center;gap:3px;font-weight:600}
+.jvm-pd-src.is-official{color:var(--pd-accent)}
+.jvm-pd-act{margin-top:12px;display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+.jvm-pd-act-note{font-size:12.5px;color:var(--jv-text-3)}
+
+/* 加入工具箱：实心主色胶囊（App Store「获取」）；已加入改淡色底 */
+.jvm-pd-add{display:inline-flex;align-items:center;justify-content:center;gap:5px;height:36px;padding:0 16px 0 13px;border:0;border-radius:999px;
+  background:var(--pd-accent);color:#fff;font:inherit;font-size:14.5px;font-weight:650;white-space:nowrap;cursor:pointer;
+  transition:transform .15s var(--pd-ease),background-color .2s,color .2s,opacity .2s}
+.jvm-pd-add:hover:not(:disabled){filter:brightness(1.08)}
+.jvm-pd-add:active:not(:disabled){transform:scale(.96)}
+.jvm-pd-add:disabled{opacity:.4;cursor:not-allowed}
+.jvm-pd-add.is-on{background:color-mix(in srgb,var(--pd-accent) 16%,transparent);color:var(--pd-accent)}
+.jvm-pd-add.is-on .jv-icon{animation:jvm-pd-pop .3s var(--pd-ease)}
+.jvm-pd-add.is-mini{flex:none;height:30px;padding:0 12px 0 10px;font-size:13px}
+
+.jvm-pd-alert{margin-top:16px;padding:11px 14px;border-radius:14px;font-size:13.5px;line-height:1.6;color:var(--jv-text);
+  background:color-mix(in srgb,var(--pd-warn) 12%,transparent);border:1px solid color-mix(in srgb,var(--pd-warn) 30%,transparent)}
+.jvm-pd-alert b{display:block;color:var(--pd-warn);font-size:13px}
+.jvm-pd-alert.is-soft{background:var(--pd-cell);border-color:var(--pd-line)}
+.jvm-pd-alert.is-soft b{color:var(--jv-text-2)}
+
+/* ---------- 四格信息条 ---------- */
+.jvm-pd-strip{margin:18px calc(-1 * var(--pd-x)) 0;padding:12px calc(var(--pd-x) - 8px);display:grid;grid-template-columns:repeat(4,minmax(0,1fr));
+  border-top:1px solid var(--pd-line);border-bottom:1px solid var(--pd-line)}
+.jvm-pd-strip>div{min-width:0;display:flex;flex-direction:column;align-items:center;gap:4px;padding:2px 4px;text-align:center}
+.jvm-pd-strip>div+div{border-left:1px solid var(--pd-line)}
+.jvm-pd-strip dt{font-size:11px;font-weight:600;letter-spacing:.08em;color:var(--jv-text-3)}
+.jvm-pd-strip dd{margin:0;max-width:100%;font-size:14.5px;font-weight:650;color:var(--jv-text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.jvm-pd-strip .is-warn dd{color:var(--pd-warn)}
+
+/* 介绍：默认三行，「更多」展开（文字尾部渐隐） */
+.jvm-pd-desc{position:relative;margin-top:16px}
+.jvm-pd-desc p{font-size:14.5px;line-height:1.65;color:var(--jv-text-2);white-space:pre-line;overflow-wrap:anywhere}
+.jvm-pd-desc.is-clamped p{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}
+.jvm-pd-desc.is-clamped .jvm-pd-more{position:absolute;right:0;bottom:0;padding-left:44px;
+  background:linear-gradient(90deg,transparent,var(--pd-bg) 42%)}
+.jvm-pd-desc:not(.is-clamped) .jvm-pd-more{margin-top:4px}
+.jvm-pd-more{border:0;background:none;padding:2px 0;font:inherit;font-size:14px;font-weight:550;color:var(--pd-accent);cursor:pointer}
+.jvm-pd-more:hover{text-decoration:underline;text-underline-offset:3px}
+
+/* ---------- 分节 ---------- */
+.jvm-pd-sec{margin-top:26px}
+.jvm-pd-sec-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:10px}
+.jvm-pd-sec-head h3{font-family:var(--jv-font-display);font-size:17px;font-weight:680;letter-spacing:-.01em}
+.jvm-pd-hint{font-size:12px;color:var(--jv-text-3)}
+.jvm-pd-muted{font-size:14.5px;line-height:1.65;color:var(--jv-text-3)}
+
+/* 成组列表（iOS 内嵌分组）：它能做什么 / 需要什么 */
+.jvm-pd-list{list-style:none;margin:0;padding:0;border-radius:14px;background:var(--pd-cell);overflow:hidden}
+body.light .jvm-pd-list{box-shadow:0 1px 2px rgba(20,22,40,.04)}
+.jvm-pd-list li{position:relative;display:flex;align-items:flex-start;gap:12px;padding:11px 14px;font-size:14.5px;line-height:1.5}
+.jvm-pd-list li+li::before{content:"";position:absolute;top:0;left:46px;right:0;height:1px;background:var(--pd-line)}
+.jvm-pd-list small{display:block;margin-top:1px;font-size:12.5px;line-height:1.5;color:var(--jv-text-3)}
+.jvm-pd-list b{font-weight:600}
+.jvm-pd-list-icon{flex:none;width:20px;text-align:center;font-size:16px;line-height:1.4;color:var(--jv-text-3)}
+.jvm-pd-dot{flex:none;width:8px;height:8px;margin:7px 6px 0;border-radius:50%;background:var(--jv-text-3)}
+.jvm-pd-list .is-warn .jvm-pd-dot{background:var(--pd-warn)}
+.jvm-pd-list .is-ok .jvm-pd-dot{background:var(--pd-ok)}
+.jvm-pd-list .is-info .jvm-pd-dot{background:var(--pd-info)}
+
+/* 试试这样问：可点的 chip（点一下复制；右侧小钮带去「帮我推荐」） */
+.jvm-pd-chips{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:8px}
+.jvm-pd-chip{max-width:100%;display:inline-flex;align-items:stretch;border-radius:18px;background:var(--pd-cell);
+  box-shadow:inset 0 0 0 1px var(--pd-line);overflow:hidden;transition:box-shadow .2s}
+.jvm-pd-chip:hover{box-shadow:inset 0 0 0 1px var(--pd-line-2)}
+.jvm-pd-chip.is-ok{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--pd-ok) 55%,transparent)}
+.jvm-pd-chip-text{min-width:0;display:inline-flex;align-items:center;gap:8px;min-height:36px;padding:7px 12px 7px 14px;border:0;background:none;
+  color:var(--jv-text);font:inherit;font-size:14px;line-height:1.4;text-align:left;cursor:pointer}
+.jvm-pd-chip-q{min-width:0;overflow-wrap:anywhere}
+.jvm-pd-chip-state{flex:none;display:inline-flex;align-items:center;gap:3px;font-size:12px;color:var(--pd-ok)}
+.jvm-pd-chip-state:empty{display:none}
+.jvm-pd-chip.is-fail .jvm-pd-chip-state{color:var(--jv-danger)}
+.jvm-pd-chip-ask{flex:none;width:36px;display:grid;place-items:center;border:0;border-left:1px solid var(--pd-line);background:none;
+  color:#A78BFA;cursor:pointer}
+body.light .jvm-pd-chip-ask{color:#7C3AED}
+.jvm-pd-chip-text:hover,.jvm-pd-chip-ask:hover{background:var(--jv-hover)}
+
+/* ---------- 信息（折叠表，含来源链接） ---------- */
+.jvm-pd-info{margin-top:26px;border-top:1px solid var(--pd-line);border-bottom:1px solid var(--pd-line)}
+.jvm-pd-info h3{margin:0}
+.jvm-pd-info h3 button{width:100%;display:flex;align-items:center;gap:12px;min-height:50px;padding:0;border:0;background:none;color:inherit;
+  font:inherit;text-align:left;cursor:pointer}
+.jvm-pd-info-title{flex:none;font-family:var(--jv-font-display);font-size:17px;font-weight:680;letter-spacing:-.01em}
+.jvm-pd-info-peek{flex:1;min-width:0;text-align:right;font-size:13px;color:var(--jv-text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.jvm-pd-info h3 .jv-icon{flex:none;color:var(--jv-text-3);transform:rotate(90deg);transition:transform .2s var(--pd-ease)}
+.jvm-pd-info.is-open h3 .jv-icon{transform:rotate(-90deg)}
+.jvm-pd-info.is-open .jvm-pd-info-peek{visibility:hidden}
+.jvm-pd-table{margin:0 0 6px}
+.jvm-pd-table>div{display:grid;grid-template-columns:auto minmax(0,1fr);gap:16px;padding:10px 0;border-top:1px solid var(--pd-line);font-size:14px;line-height:1.5}
+.jvm-pd-table dt{color:var(--jv-text-3)}
+.jvm-pd-table dd{margin:0;text-align:right;color:var(--jv-text);overflow-wrap:anywhere}
+.jvm-pd-links{list-style:none;margin:0;padding:0 0 12px;display:flex;flex-wrap:wrap;gap:4px 18px}
+.jvm-pd-info:not(.is-open) .jvm-pd-links{padding-top:0}
+.jvm-pd-links a{display:inline-flex;align-items:center;min-height:32px;font-size:14px;color:var(--pd-accent);text-decoration:none}
+.jvm-pd-links a:hover{text-decoration:underline;text-underline-offset:3px}
+
+/* ---------- 同类推荐：横滑小卡 ---------- */
+.jvm-pd-related{list-style:none;margin:0 calc(-1 * var(--pd-x));padding:0 var(--pd-x) 4px;display:grid;grid-auto-flow:column;
+  grid-auto-columns:minmax(200px,64%);gap:10px;overflow-x:auto;scrollbar-width:none;scroll-snap-type:x mandatory;scroll-padding:0 var(--pd-x)}
+.jvm-pd-related::-webkit-scrollbar{display:none}
+.jvm-pd-related li{position:relative;scroll-snap-align:start;min-width:0}
+.jvm-pd-related a{height:100%;display:grid;grid-template-columns:40px minmax(0,1fr);grid-template-rows:auto auto;column-gap:10px;align-items:center;
+  padding:10px 12px;border-radius:14px;background:var(--pd-cell);box-shadow:inset 0 0 0 1px var(--pd-line);color:inherit;text-decoration:none;
+  transition:box-shadow .2s}
+.jvm-pd-related a:hover{box-shadow:inset 0 0 0 1px var(--pd-line-2)}
+.jvm-pd-rel-icon{grid-row:span 2;width:40px;height:40px;display:grid;place-items:center;border-radius:10px;font-size:21px;background:var(--pd-tile)}
+.jvm-pd-rel-name{font-size:14px;font-weight:620;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:34px}
+.jvm-pd-rel-sum{font-size:12px;color:var(--jv-text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.jvm-pd-rel-in{position:absolute;top:9px;right:10px;font-size:10.5px;font-weight:650;color:var(--pd-accent)}
+
+/* ---------- 宽屏：右侧抽屉 ---------- */
+@media (min-width:720px){
+  .jvm-pd-backdrop{--pd-x:28px}
+  .jvm-pd{left:auto;top:12px;right:12px;bottom:12px;width:min(520px,calc(100% - 24px));height:auto;border-radius:24px;
+    box-shadow:inset 0 0 0 1px var(--pd-line),var(--jv-shadow-float);animation:jvm-pd-left .38s var(--pd-ease) both}
+  .jvm-pd-grab{display:none}
+  .jvm-pd-bar{padding-right:14px}
+  .jvm-pd-scroll{padding-top:26px}
+  .jvm-pd-head{grid-template-columns:88px minmax(0,1fr);gap:18px}
+  .jvm-pd-icon{width:88px;height:88px;border-radius:20px;font-size:46px}
+  .jvm-pd-titles h2{font-size:24px}
+  .jvm-pd-related{grid-auto-columns:minmax(200px,46%)}
+}
+@media (max-width:360px){
+  .jvm-pd-backdrop{--pd-x:16px}
+  .jvm-pd-head{grid-template-columns:60px minmax(0,1fr);gap:12px}
+  .jvm-pd-icon{width:60px;height:60px;border-radius:14px;font-size:32px}
+  .jvm-pd-strip dd{font-size:13.5px}
+}
+/* 触屏：顶栏不做实时模糊（滑动时每帧重算会掉帧），换更实的底色 */
+@media (pointer:coarse){
+  .jvm-pd-bar.is-stuck{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--pd-bg)}
+}
+
+@keyframes jvm-pd-fade{from{opacity:0}}
+@keyframes jvm-pd-up{from{transform:translateY(40px);opacity:0}}
+@keyframes jvm-pd-left{from{transform:translateX(32px);opacity:0}}
+@keyframes jvm-pd-pop{0%{transform:scale(.5);opacity:0}70%{transform:scale(1.12)}100%{transform:none;opacity:1}}
+
+@media (prefers-reduced-motion:reduce){
+  .jvm-pd-backdrop,.jvm-pd,.jvm-pd-mini{animation:jvm-pd-fade .2s ease both}
+  .jvm-pd-add.is-on .jv-icon{animation:none}
+  .jvm-pd-add,.jvm-pd-bar,.jvm-pd-chip,.jvm-pd-related a,.jvm-pd-info h3 .jv-icon{transition:none}
+}
