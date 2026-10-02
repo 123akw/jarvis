@@ -1,29 +1,22 @@
 <div align="center"><a name="readme-top"></a>
 
-<img src="docs/assets/readme/logo-orb.png" width="96" alt="J.A.R.V.I.S. 悬浮球">
+<img src="docs/assets/readme/logo-presence.png" width="112" alt="J.A.R.V.I.S. 存在感光球">
 
 # J.A.R.V.I.S.
 
 **一个真正记得住、随时叫得到、能够采取行动的私人 AI 管家**
 
-贾维斯（JWS-Agent）把聊天、语音通话、长期记忆、日程待办和带来源的实时搜索放进同一个 Agent<br>
-网页 · macOS 悬浮球 · 终端 · 个人微信 · 飞书，共用一套能力与记忆
+贾维斯（JWS-Agent）把聊天、语音通话、长期记忆、日程待办和带来源的实时搜索放进同一个 Agent<br>网页 · macOS 悬浮球 · 终端 · 个人微信 · 飞书，共用一套能力与记忆
 
-[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![LangGraph](https://img.shields.io/badge/LangGraph-Agent-1C3C3C)](https://github.com/langchain-ai/langgraph)
-[![FastAPI](https://img.shields.io/badge/FastAPI-SSE-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
-[![Electron](https://img.shields.io/badge/Electron-38-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
-[![macOS](https://img.shields.io/badge/macOS-%E6%A1%8C%E9%9D%A2%E7%AB%AF-000000?logo=apple&logoColor=white)](https://www.apple.com/macos/)
-[![License](https://img.shields.io/badge/License-%E9%9D%9E%E5%95%86%E7%94%A8-E5484D)](#声明)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/) [![LangGraph](https://img.shields.io/badge/LangGraph-Agent-1C3C3C)](https://github.com/langchain-ai/langgraph) [![FastAPI](https://img.shields.io/badge/FastAPI-SSE-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/) [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/) [![Electron](https://img.shields.io/badge/Electron-38-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/) [![macOS](https://img.shields.io/badge/macOS-%E6%A1%8C%E9%9D%A2%E7%AB%AF-000000?logo=apple&logoColor=white)](https://www.apple.com/macos/) [![License](https://img.shields.io/badge/License-%E9%9D%9E%E5%95%86%E7%94%A8-E5484D)](#声明)
 
 **[快速开始](#快速开始)** · [功能详解](docs/features.md) · [部署](docs/deployment.md) · [配置](docs/configuration.md) · [微信与飞书](docs/channels.md) · [架构](docs/architecture.md) · [FAQ](docs/faq.md)
 
 <br>
 
-<img src="docs/assets/readme/web-dashboard.png" alt="JWS-Agent 网页端：Markdown 渲染与可交互任务台" width="100%">
+<img src="docs/assets/readme/web-chat.png" alt="JWS-Agent 网页端：一句话安排出差，自动写入日程与待办并列出行李清单" width="100%">
 
-<sub>网页端：流式 Markdown 对话，右侧是可勾选、可增删的日程 / 待办 / 备忘任务台</sub>
+<sub>一句话安排出差：调用工具写进日程和待办，再用表格列出行李清单，顺手提醒你对花生过敏（真实模型回答，演示数据）</sub>
 
 </div>
 
@@ -64,15 +57,23 @@
 
 <table>
 <tr>
-<td align="center" width="33%"><img src="docs/assets/readme/web-reminder.png" alt="日程到点主动提醒" width="100%"><br><sub>日程到点主动提醒</sub></td>
-<td align="center" width="33%"><img src="docs/assets/readme/web-memory.png" alt="记忆与人设面板" width="100%"><br><sub>记忆与人设：画像可查可删</sub></td>
-<td align="center" width="33%"><img src="docs/assets/readme/web-voice-scenes.png" alt="语音通话场景模式" width="100%"><br><sub>语音通话 9 种场景模式</sub></td>
+<td align="center" width="50%"><img src="docs/assets/readme/web-login.png" alt="登录页：存在感光球与问候" width="100%"><br><sub>登录页：会呼吸的 AI 光球，可切到 MOSS 形态</sub></td>
+<td align="center" width="50%"><img src="docs/assets/readme/web-empty.png" alt="新对话空态：光球、问候与建议卡" width="100%"><br><sub>新对话：光球 + 问候 + 一键建议</sub></td>
 </tr>
 <tr>
-<td align="center"><img src="docs/assets/readme/web-meetings-card.png" alt="会议纪要卡片" width="100%"><br><sub>会议纪要回看与重发</sub></td>
-<td align="center"><img src="docs/assets/readme/web-provider-settings.png" alt="每用户 Provider 与 API 设置" width="100%"><br><sub>每个账号独立的模型 API</sub></td>
-<td align="center"><img src="docs/assets/readme/web-light-theme.png" alt="亮色主题" width="100%"><br><sub>暗色 / 亮色一键切换</sub></td>
+<td align="center"><img src="docs/assets/readme/web-command-palette.png" alt="⌘K 命令面板" width="100%"><br><sub>⌘K 命令面板：搜会话、直达所有设置</sub></td>
+<td align="center"><img src="docs/assets/readme/web-today.png" alt="「今日」板：日程、待办、备忘" width="100%"><br><sub>「今日」板：日程 · 待办 · 备忘 · 会议纪要</sub></td>
 </tr>
+<tr>
+<td align="center"><img src="docs/assets/readme/web-voice-scenes.png" alt="语音通话与场景模式" width="100%"><br><sub>语音通话：光球随听 / 想 / 说变化，9 种场景</sub></td>
+<td align="center"><img src="docs/assets/readme/web-light-theme.png" alt="亮色主题" width="100%"><br><sub>亮色主题：代码高亮，一键切换</sub></td>
+</tr>
+<tr>
+<td align="center" colspan="2"><img src="docs/assets/readme/web-mobile.png" alt="手机版：新对话、对话与「今日」板" width="88%"><br><sub>手机版（390×844）：新对话 · 对话 · 「今日」板</sub></td>
+</tr>
+</table>
+
+<table>
 <tr>
 <td align="center"><img src="docs/assets/readme/desktop-chat.png" alt="桌面快捷聊天窗" width="66%"><br><sub>桌面端：原地展开的快捷聊天</sub></td>
 <td align="center"><img src="docs/assets/readme/desktop-meeting.png" alt="桌面会议纪要面板" width="66%"><br><sub>会议监控：我 / 对方双路实时字幕</sub></td>
@@ -86,7 +87,7 @@
 </tr>
 </table>
 
-<sub>网页截图在隔离演示环境实拍，桌面截图为 JWS_SHOT 自检模式实拍；数据均为虚构演示数据，无真实对话与凭据入图。全部 17 张截图与拍摄说明见 [截图画廊](docs/features.md#截图画廊)。</sub>
+<sub>网页截图为第九轮新界面，2026-10-02 在隔离演示环境实拍（桌面 1440×900、手机 390×844，均为 2 倍像素）；桌面端未改版，沿用 JWS_SHOT 自检模式实拍。数据均为虚构演示数据（对话由真实模型回答演示问题生成），无真实用户对话与凭据入图。提醒、记忆、会议纪要、设置中心等全部 24 张截图与拍摄说明见 [截图画廊](docs/features.md#截图画廊)。</sub>
 
 ## 快速开始
 
@@ -118,7 +119,7 @@ JARVIS_SESSION_SECRET=<openssl rand -hex 32 的输出>
 cd desktop && npm install && npm start     # macOS 桌面悬浮球（可选，需已有运行中的 Web 服务）
 ```
 
-用 Owner 登录后，可在「账户设置 → 用户管理」邀请成员。动态网页提取、桌面端登录与服务器地址、自建 SearXNG、备份与回滚见 [部署指南](docs/deployment.md)，全部环境变量见 [配置参考](docs/configuration.md)。
+用 Owner 登录后，可在右上角头像菜单「账户设置 → 用户管理」邀请成员。动态网页提取、桌面端登录与服务器地址、自建 SearXNG、备份与回滚见 [部署指南](docs/deployment.md)，全部环境变量见 [配置参考](docs/configuration.md)。
 
 ## 工作原理
 
@@ -138,6 +139,18 @@ flowchart LR
 网页与桌面端经 SSE 流式输出；每个入口使用独立的 `thread_id`，LangGraph 检查点落在 SQLite，重启后仍能接着聊。工具分层与搜索来源边界见 [架构说明](docs/architecture.md)。
 
 ## 最新动态
+
+<details>
+<summary><b>第九轮 · 2026-10-02</b>　网页端界面改版 · AI 光球 · ⌘K 命令面板 · 「今日」板</summary>
+
+- **设计系统**：苹果式的排版、间距与圆角，暗色 / 亮色两套设计 token 重做；手机竖屏同步适配。
+- **导航**：账户、记忆、设置中心、微信、悬浮窗、主题收进右上角头像菜单；⌘K 命令面板可搜会话、直达任意设置。
+- **「今日」板**：日程、待办、备忘与会议纪要收在一处，宽屏常驻、窄屏浮层。
+- **AI 光球 Presence**：WebGL 光球贯穿登录页、新对话空态与语音通话，随听 / 想 / 说变化。
+- **登录页**：重新设计并保留 J.A.R.V.I.S. / MOSS 双形态切换，登录页 JS 1282 → 352KB。
+- 测试基线 **pytest 657 / vitest 133 / desktop 124**，全部通过。
+
+</details>
 
 <details>
 <summary><b>第八轮 · 2026-10-02</b>　后端卡顿修复 · 流式渲染优化 · 语音延迟优化 · 飞书机器人接入</summary>
