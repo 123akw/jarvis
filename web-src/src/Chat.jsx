@@ -7,6 +7,7 @@ import {
   createStreamingView, handleCodeCopyClick, highlighterVersion, renderMarkdown, subscribeHighlighter,
 } from './markdown.js'
 import Icon from './Icon.jsx'
+import PlatformHome from './platform/PlatformHome.jsx'
 import Presence from './Presence.jsx'
 import { toolChipText } from './toolInfo.js'
 import VoiceCall from './VoiceCall.jsx'
@@ -147,7 +148,7 @@ function UserBubble({ text }) {
 }
 
 /** 单条消息行：memo 后流式刷新只重渲染正在生成的那一行，长对话不再整表重算 */
-const MsgRow = memo(function MsgRow({ m, prevUser, busy, onSend, onEdit }) {
+const MsgRow = memo(function MsgRow({ m, prevUser, busy, onSend, onEdit, who = 'J.A.R.V.I.S.' }) {
   if (m.kind === 'user') {
     return (
       <div className="row-user">
@@ -163,7 +164,7 @@ const MsgRow = memo(function MsgRow({ m, prevUser, busy, onSend, onEdit }) {
   const thinking = m.streaming && !m.raw && m.chips.length === 0 && !m.error
   return (
     <div className="row-jarvis">
-      <div className="jtag"><span className={`jdot${m.streaming && !thinking ? ' live' : ''}`} aria-hidden="true" />J.A.R.V.I.S.</div>
+      <div className="jtag"><span className={`jdot${m.streaming && !thinking ? ' live' : ''}`} aria-hidden="true" />{who}</div>
       {m.chips.length > 0 && (
         <div className="chips">
           {m.chips.map((c, i) => <ToolChip key={c.id || i} chip={c} />)}
@@ -236,7 +237,8 @@ const touchFirst = () => typeof matchMedia === 'function' && matchMedia('(pointe
 /** 手机宽度只留短提示：长提示会折成两行被单行输入框截断；触屏（含平板）也没有 Shift+Enter */
 const compactInput = () => typeof window !== 'undefined' && (window.innerWidth <= 640 || touchFirst())
 
-function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = null, locate = null, userName = '', fresh = false }) {
+/** home：有平台的账号传 { platform, plugins, flows }——空态换成平台主页、回答署名换成平台名；没有平台时为 null，一切照旧 */
+function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = null, locate = null, userName = '', fresh = false, home = null }) {
   const [msgs, setMsgs] = useState([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -445,21 +447,24 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
     setInput(raw); boxRef.current?.focus(); requestAnimationFrame(autoGrow)
   }, [])
 
+  // 空态建议：以「：」结尾的只预填输入框，其余直接发出
+  const pickSuggestion = s => (s.endsWith('：') ? (setInput(s), boxRef.current?.focus()) : send(s))
+
   let lastUser = ''   // 每条回答对应的上一条用户提问（重新回答 / 失败重试用）
   return (
     <section className="center" ref={rootRef}>
       <div className="log" ref={logRef} {...follow.handlers}>
         <div className="logcol">
-          {msgs.length === 0 && !busy && (
-            <EmptyState userName={userName} onPick={s =>
-              s.endsWith('：') ? (setInput(s), boxRef.current?.focus()) : send(s)} />
+          {msgs.length === 0 && !busy && (home?.platform
+            ? <PlatformHome platform={home.platform} plugins={home.plugins} flows={home.flows} onPick={pickSuggestion} />
+            : <EmptyState userName={userName} onPick={pickSuggestion} />
           )}
           {msgs.map(m => {
             const prevUser = m.kind === 'user' ? '' : lastUser
             if (m.kind === 'user') lastUser = m.raw
             return (
               <MsgRow key={m.id} m={m} prevUser={prevUser} busy={m.kind === 'user' ? false : busy}
-                onSend={onRowSend} onEdit={onRowEdit} />
+                onSend={onRowSend} onEdit={onRowEdit} who={home?.platform?.name || undefined} />
             )
           })}
         </div>

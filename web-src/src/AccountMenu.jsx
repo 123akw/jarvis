@@ -15,8 +15,9 @@ function Clock() {
 }
 
 /** 头像菜单：账户、记忆、设置、微信、悬浮窗、主题、退出全部收在这里；
- *  在线状态 / 定位 / 模型 / 版本 / 时钟作为次要信息放在菜单头部。 */
-export default function AccountMenu({ session, status, commands }) {
+ *  在线状态 / 定位 / 模型 / 版本 / 时钟作为次要信息放在菜单头部。
+ *  poweredBy：账号有自己的平台时，贾维斯退到菜单底部一行小字。 */
+export default function AccountMenu({ session, status, commands, poweredBy = false }) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef(null)
   const menuRef = useRef(null)
@@ -93,6 +94,7 @@ export default function AccountMenu({ session, status, commands }) {
                 {c.hint ? <span className="mi-hint">{c.hint}</span> : null}
               </button>
             )))}
+          {poweredBy ? <div className="menu-foot">由贾维斯驱动</div> : null}
         </div>
       ) : null}
     </div>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getFeishuStatus, logout } from './api.js'
 import AccountMenu from './AccountMenu.jsx'
 import AccountSettings from './AccountSettings.jsx'
@@ -11,13 +11,19 @@ import Icon from './Icon.jsx'
 import MemoryPanel from './MemoryPanel.jsx'
 import Modal, { useEscape } from './Modal.jsx'
 import Panels from './Panels.jsx'
+import { usePlatformHome, usePlatformTheme, usePwaHead } from './platform/usePlatform.js'
 import ProviderSettings from './ProviderSettings.jsx'
 import Reminders from './Reminders.jsx'
 import Threads from './Threads.jsx'
 import { createQuick, useUndoToast } from './UndoToast.jsx'
 import WeChatConnect from './WeChatConnect.jsx'
+import { navigate } from './routes.js'
 import { applyTheme, currentTheme, toggleTheme } from './theme.js'
 import { trackKeyboard } from './viewport.js'
+
+// 智能体的分享卡与设置只在点开时加载（二维码库不进首屏）
+const ShareSheet = lazy(() => import('./platform/ShareSheet.jsx'))
+const PlatformSettings = lazy(() => import('./platform/PlatformSettings.jsx'))
 
 function newThreadId() {
   return 't-' + (crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10))
@@ -96,6 +102,15 @@ export default function Hud({ session, onLogout }) {
   const [quickSeed, setQuickSeed] = useState(null)            // ⌘K「速记…」带给今日板输入框的草稿
   const [theme, setTheme] = useState(currentTheme)
   const desktop = useDesktopHandoff()
+  // 账号的平台（第十三轮，界面上叫「智能体」）：有平台时顶栏、主题色、新对话空态按它定制；没有平台一切照旧
+  const pf = usePlatformHome()
+  const platform = pf.platform
+  const [shareOpen, setShareOpen] = useState(false)
+  const [pfOpen, setPfOpen] = useState(false)
+  usePlatformTheme(platform?.accent)
+  usePwaHead(platform ? { slug: platform.slug, name: platform.name, accent: platform.accent, theme } : null)
+  const home = useMemo(() => (platform ? { platform, plugins: pf.plugins, flows: pf.flows } : null),
+    [platform, pf.plugins, pf.flows])
 
   useEffect(() => {
     applyTheme(theme)
@@ -219,12 +234,21 @@ export default function Hud({ session, onLogout }) {
     { id: 'theme', label: theme === 'light' ? '切换到暗色' : '切换到亮色', icon: theme === 'light' ? 'moon' : 'sun', keywords: '主题 外观 theme', run: () => setTheme(toggleTheme()) },
   ]
   const logoutCommand = { id: 'logout', label: '退出登录', icon: 'logout', danger: true, run: quit }
-  const menuCommands = [...settingsCommands, { id: 'sep-logout', sep: true }, logoutCommand]
+  const platformCommands = [
+    { id: 'market', label: '智能平台市场', hint: platform ? '添加插件' : '拼一个自己的智能体', icon: 'store', keywords: '插件 技能 市场 工坊 market', run: () => navigate('/market') },
+    { id: 'flows', label: '我的流程', icon: 'flow', keywords: '流程 积木 自动化 flow', run: () => navigate('/flows') },
+    ...(platform ? [
+      { id: 'share', label: '分享我的智能体', hint: '二维码 · 链接', icon: 'share', keywords: '分享 二维码 链接 主屏 安装 平台 share', run: () => setShareOpen(true) },
+      { id: 'platform', label: '智能体设置', hint: '名称 · 图标 · 主题色', icon: 'palette', keywords: '智能体 平台 名称 图标 颜色 插件', run: () => setPfOpen(true) },
+    ] : []),
+  ]
+  const menuCommands = [...platformCommands, { id: 'sep-platform', sep: true }, ...settingsCommands, { id: 'sep-logout', sep: true }, logoutCommand]
   const paletteCommands = [
     { id: 'new', label: '新对话', icon: 'compose', run: newChat },
     { id: 'quick', label: '速记…', hint: '待办或日程，写上时间就是日程', icon: 'plus', keywords: '速记 待办 日程 提醒 添加 新建 quick add todo', run: () => openQuick('') },
     { id: 'sidebar', label: leftOpen ? '收起会话栏' : '展开会话栏', icon: 'sidebar', keywords: '历史 会话', run: toggleLeft },
     { id: 'today', label: todayOpen ? '收起今日' : '打开今日', hint: '日程 · 待办 · 备忘 · 会议纪要', icon: 'today', run: () => setToday(!todayOpen) },
+    ...platformCommands,
     ...settingsCommands,
     logoutCommand,
   ]
@@ -248,10 +272,20 @@ export default function Hud({ session, onLogout }) {
             aria-controls="jv-sidebar" title="会话历史">
             <Icon name="sidebar" />
           </button>
-          <span className="wordmark">J.A.R.V.I.S.</span>
+          {platform ? (
+            <span className="pf-wordmark" title={platform.name}>
+              <span className="pf-tile xs" aria-hidden="true">{platform.icon || '✨'}</span>
+              <span className="pf-wordmark-name">{platform.name}</span>
+            </span>
+          ) : <span className="wordmark">J.A.R.V.I.S.</span>}
         </div>
         <div className="tb-center">
-          <span className="tb-title" title={title}>{title}</span>
+          <span className="tb-title" title={title}>
+            {/* 手机上左侧只剩智能体图标：新对话时标题位显示智能体名字 */}
+            {platform && !threadList.some(t => t.id === thread)
+              ? <><span className="pf-title-name">{platform.name}</span><span className="pf-title-new">{title}</span></>
+              : title}
+          </span>
           <span className="tb-meta" title={`${status.label}${status.place ? ` · ${status.place}` : ''}`}>
             <span className={`status-dot ${status.state}`} aria-hidden="true" />
             <span className="tb-model">{dash?.model || status.label}</span>
@@ -270,7 +304,7 @@ export default function Hud({ session, onLogout }) {
             <Icon name="today" />
             {pending > 0 && !todayOpen ? <span className="badge-dot" aria-hidden="true" /> : null}
           </button>
-          <AccountMenu session={session} status={status} commands={menuCommands} />
+          <AccountMenu session={session} status={status} commands={menuCommands} poweredBy={Boolean(platform)} />
         </div>
       </header>
       <Reminders onExpired={onLogout} />
@@ -280,14 +314,16 @@ export default function Hud({ session, onLogout }) {
       <main className="jv-main">
         <aside id="jv-sidebar" ref={sideRef} tabIndex={-1} className={`jv-sidebar${leftOpen ? ' open' : ''}`} aria-label="会话历史"
           inert={!leftOpen || undefined}>
-          <div className="sb-brand" aria-hidden="true">J.A.R.V.I.S.</div>
+          <div className={`sb-brand${platform ? ' pf-sb-brand' : ''}`} aria-hidden="true">
+            {platform ? <><span className="pf-tile xs">{platform.icon || '✨'}</span>{platform.name}</> : 'J.A.R.V.I.S.'}
+          </div>
           <Threads current={thread} refreshKey={refreshKey}
             onSelect={selectThread} onNew={newChat}
             onExpired={onLogout} onLoaded={setThreadList} />
         </aside>
         <Chat threadId={thread} location={geo} onBusy={setBusy} injected={injected} locate={locate}
           fresh={freshRef.current.has(thread) && !threadList.some(t => t.id === thread)}
-          onTurnDone={onTurnDone} onExpired={onLogout} userName={session?.username || ''} />
+          onTurnDone={onTurnDone} onExpired={onLogout} userName={session?.username || ''} home={home} />
         <aside id="jv-today" ref={todayRef} tabIndex={-1} className={`jv-today${todayOpen ? ' open' : ''}`} aria-label="今日"
           inert={!todayOpen || undefined}>
           <div className="today-card">
@@ -332,6 +368,16 @@ export default function Hud({ session, onLogout }) {
         </Modal>
       ) : null}
       {desktop.guide ? <DesktopGuide onClose={desktop.closeGuide} /> : null}
+      {shareOpen && platform ? (
+        <Suspense fallback={null}><ShareSheet platform={platform} onClose={() => setShareOpen(false)} /></Suspense>
+      ) : null}
+      {pfOpen && pf.saved ? (
+        <Suspense fallback={null}>
+          <PlatformSettings platform={pf.saved} plugins={pf.plugins} onPreview={pf.setDraft} onExpired={onLogout}
+            onSaved={next => { pf.setPlatform(next); pf.setDraft(null) }}
+            onClose={() => { setPfOpen(false); pf.setDraft(null) }} />
+        </Suspense>
+      ) : null}
     </div>
   )
 }
