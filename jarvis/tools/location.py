@@ -168,7 +168,8 @@ def coding_status() -> str:
 
 @tool
 def my_location() -> str:
-    """查询领导当前所在位置（网页端定位或 IP 推断）。"""
+    """查询领导当前所在位置（网页端浏览器定位优先，否则按 IP 推断到城市）。
+    领导问「我在哪」时使用；查本地天气直接用 weather_here，不必先查位置。"""
     loc = get_location()
     if not loc:
         return "还没拿到定位。请领导在网页端允许浏览器定位，或直接告诉我所在城市。"

@@ -32,7 +32,7 @@ def memo_add(content: str) -> str:
 
 @tool
 def memo_list() -> str:
-    """列出所有备忘及其编号。"""
+    """列出所有备忘及其编号。领导问「我让你记过什么」，或要删备忘但不确定编号时使用。"""
     memos = all_memos()
     if not memos:
         return "备忘录是空的。"
@@ -43,5 +43,5 @@ def memo_list() -> str:
 def memo_del(memo_id: int) -> str:
     """按编号删除一条备忘。编号不确定时先调 memo_list 查看。"""
     if not TenantStore().delete_memo(memo_id):
-        return f"没找到编号 {memo_id} 的备忘。"
+        return f"没找到编号 {memo_id} 的备忘；先用 memo_list 看看现有编号。"
     return f"已删除编号 {memo_id} 的备忘。"

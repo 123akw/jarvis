@@ -435,17 +435,20 @@ def make_entertainment_tools(
 
     @tool("movie_ratings", args_schema=MovieRatingsArgs)
     def bound_movie_ratings(title: str, year: str = "") -> str:
-        """查询电影在多个评分平台的实时评分、分制和评价人数。"""
+        """查询电影在豆瓣、IMDb、烂番茄、Metacritic 等平台的实时评分、分制和评价人数。
+        问评分、口碑时用它而不是 web_search；同名电影带上映年份区分。"""
         return entertainment.movie_ratings(title=title, year=year)
 
     @tool("esports_scores", args_schema=EsportsScoresArgs)
     def bound_esports_scores(team: str, game: str = "", date: str = "") -> str:
-        """查询电竞战队的近期比赛、比分、状态和来源。"""
+        """查询电竞战队的近期比赛、比分、状态和来源（如「BLG 昨天赢了吗」）。
+        战队名用常见简称即可，项目如 lol、cs2、valorant。"""
         return entertainment.esports_scores(team=team, game=game, date=date)
 
     @tool("ticket_search", args_schema=TicketSearchArgs)
     def bound_ticket_search(event: str, city: str = "", date: str = "") -> str:
-        """查询活动的公开售票平台、展示价格、余票说明和购票链接。"""
+        """查询演出、赛事、活动的公开售票平台、展示价格、余票说明和购票链接。
+        领导问「门票多少钱／哪里买票」时用它；只查公开信息，不登录、不下单、不支付。"""
         return entertainment.ticket_search(event=event, city=city, date=date)
 
     return bound_movie_ratings, bound_esports_scores, bound_ticket_search

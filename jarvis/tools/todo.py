@@ -21,7 +21,8 @@ def all_todos() -> list[dict]:
 
 @tool(args_schema=TodoAddArgs)
 def todo_add(content: str) -> str:
-    """新增一条要办的事项（无具体时间点）。有明确时间点的用 schedule_add。"""
+    """新增一条要办、但没有具体时间点的事项，如「给车做保养」「交电费」。
+    有明确时间点、需要到点提醒的用 schedule_add；只是记下一条信息用 memo_add。"""
     content = content.strip()[:MAX_CONTENT_CHARS]
     if not content:
         return "待办内容不能为空，请告诉我要办什么。"
@@ -31,7 +32,8 @@ def todo_add(content: str) -> str:
 
 @tool
 def todo_list() -> str:
-    """列出待办事项：未完成的逐条列出，已完成的报数量。"""
+    """列出待办：未完成的逐条列出（含编号），已完成的只报数量。
+    领导问「还有什么要做」，或要勾掉某项但不确定编号时使用。"""
     items = all_todos()
     pending = [x for x in items if not x["done"]]
     done = len(items) - len(pending)
@@ -43,10 +45,11 @@ def todo_list() -> str:
 
 @tool(args_schema=TodoDoneArgs)
 def todo_done(todo_id: int) -> str:
-    """领导说某件事办完了时，按编号把待办勾成已完成。编号不确定先调 todo_list。"""
+    """领导说某件事办完了时，按编号把待办勾成已完成。
+    编号不确定先调 todo_list 按内容找到编号，不要猜。"""
     found, was_done, content = TenantStore().mark_todo_done(todo_id)
     if not found:
-        return f"没找到编号 {todo_id} 的待办。"
+        return f"没找到编号 {todo_id} 的待办；先用 todo_list 按内容找到正确编号。"
     if was_done:
         return f"编号 {todo_id} 早已完成。"
     return f"已完成勾掉（编号 {todo_id}）：{content}"

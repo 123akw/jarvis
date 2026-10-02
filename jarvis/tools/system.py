@@ -15,8 +15,8 @@ class SysQueryArgs(BaseModel):
 
 @tool(args_schema=SysQueryArgs)
 def sys_query(command: str) -> str:
-    """查询服务器本机状态（时间、运行时长、磁盘、目录）。仅限白名单四条命令，
-    不能执行任何其他 shell 操作。"""
+    """查询贾维斯所在服务器的本机状态（时间、运行时长、磁盘、目录）。仅限白名单四条命令，
+    不能执行任何其他 shell 操作；问的是领导自己电脑的状态时它帮不上，要如实说明。"""
     cmd = command.strip()
     if cmd not in _WHITELIST:
         return f"已拒绝执行「{command}」：不在白名单（date、uptime、df -h、ls）内。"

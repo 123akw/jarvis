@@ -103,10 +103,10 @@ class TavilySearch:
 
 
 class WebSearchArgs(BaseModel):
-    query: str = Field(description="要联网检索的问题或关键词，最多 300 字")
+    query: str = Field(description="关键词组合，最多 300 字，带上时间、地点、专有名词，如「杭州亚运会 闭幕式 时间」")
     topic: str = Field(
         default="general",
-        description="general 查一般网页；news 查近期新闻",
+        description="general 查一般网页；news 查近期新闻（最近几天的事件用 news）",
     )
     time_range: str = Field(
         default="",
@@ -125,7 +125,7 @@ class WebSearchArgs(BaseModel):
 
 
 class WebExtractArgs(BaseModel):
-    url: str = Field(description="要提取正文的公开 HTTP(S) 网页 URL")
+    url: str = Field(description="要提取正文的公开 HTTP(S) 网页 URL，通常取自 web_search 结果里的「来源」")
 
 
 _default_service = SearchService(
@@ -138,7 +138,8 @@ def make_web_extract_tool(service: SearchService) -> BaseTool:
 
     @tool("web_extract", args_schema=WebExtractArgs)
     def bound_web_extract(url: str) -> str:
-        """安全提取公开网页正文；返回带来源、时间与不可信资料边界的文本。"""
+        """读取一个公开网页的正文（带来源、时间与不可信资料边界）。
+        搜索摘要不够回答、需要看原文细节时，对搜索结果里最相关的链接使用；一个问题最多读 3 个不同网页。"""
         # 提取失败必须回失败文本而不是抛异常：异常会穿透 agent.invoke，
         # 让微信/网页整轮回复直接失败（FetchError 事故，2026-08-12）。
         try:
@@ -162,7 +163,8 @@ def web_search(
     domains: list[str] | None = None,
     max_results: int = 5,
 ) -> str:
-    """检索实时公开网页或新闻。回答近期、新闻、票价、比分、评分等问题时使用。"""
+    """检索实时公开网页或新闻。领导问「最近／最新／今天」的事、新闻动态、你不确定的事实时使用；
+    闲聊、常识、改写类问题不要搜。一个问题最多搜 2 次，别把同一问题换个措辞反复搜。"""
     request = _validated_request(query, topic, time_range, domains, max_results)
     if isinstance(request, str):
         return request
