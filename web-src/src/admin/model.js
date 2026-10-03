@@ -16,8 +16,9 @@ export function fmtCompact(n) {
   const v = Number(n) || 0
   const a = Math.abs(v)
   if (a < 10000) return fmtInt(v)
-  if (a < 1e8) return `${trim((v / 1e4).toFixed(a < 1e5 ? 1 : 0))} 万`
-  return `${trim((v / 1e8).toFixed(a < 1e9 ? 2 : 1))} 亿`
+  const fmt = (x, d) => Number(trim(x.toFixed(d))).toLocaleString('zh-CN', { maximumFractionDigits: d })
+  if (a < 1e8) return `${fmt(v / 1e4, a < 1e5 ? 1 : 0)} 万`
+  return `${fmt(v / 1e8, a < 1e9 ? 2 : 1)} 亿`
 }
 
 /** 估算花费（元）：0 → ¥0；不到 1 分 → <¥0.01；千元以内两位小数；再往上取整加千分位 */
