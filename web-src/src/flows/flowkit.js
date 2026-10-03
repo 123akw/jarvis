@@ -16,6 +16,7 @@ export const TYPE_META = {
   condition: { label: '条件分支', icon: '🔀', tone: 'logic' },
   template: { label: '文本拼接', icon: '📝', tone: 'logic' },
   step: { label: '积木', icon: '🧱', tone: 'out' },
+  approval: { label: '发送前确认', icon: '✋', tone: 'wait' },
   end: { label: '结束', icon: '🏁', tone: 'end' },
 }
 
@@ -225,6 +226,8 @@ export function describeNode(node, graph, idx = EMPTY_IDX) {
       if (summary) return clip(summary, 48)
       return known ? `用现成积木「${known.name}」` : '用现成积木'
     }
+    case 'approval':
+      return '先停下，把要发出去的内容给你看，你点同意才往下走'
     case 'end':
       return d.page ? '给出最终结果，并生成一个能分享的结果网页' : '给出最终结果'
     default:
@@ -468,7 +471,29 @@ export function whenLabel(date, now = new Date()) {
 
 /* ---------- 时间与状态文案 ---------- */
 
-export const RUN_STATUS = { ok: '完成', error: '失败', running: '运行中', busy: '排队中', cancelled: '已停止', skipped: '没走到' }
+export const RUN_STATUS = {
+  ok: '完成', error: '失败', running: '运行中', busy: '排队中', cancelled: '已停止', skipped: '没走到',
+  waiting: '等你确认', rejected: '你没同意', expired: '确认过期了', quota: '今天用量到上限了',
+}
+
+/** 运行从哪来（契约 §2 的 source），运行记录里显示 */
+export const RUN_SOURCE = {
+  manual: '手动运行', schedule: '定时运行', chat: '对话里叫跑的', message: '收到消息触发', webhook: '链接触发',
+  rerun: '重跑', test: '试跑', resume: '确认后接着跑',
+}
+export const sourceLabel = src => RUN_SOURCE[src] || ''
+
+/** 确认还剩多久：「还剩 23 小时」「还剩 40 分钟」「快到期了」；过了返回「已过期」，读不出时间返回 '' */
+export function remainLabel(expiresAt, now = Date.now()) {
+  const t = toMs(expiresAt)
+  if (!Number.isFinite(t)) return ''
+  const s = Math.round((t - now) / 1000)
+  if (s <= 0) return '已过期'
+  if (s < 120) return '快到期了'
+  if (s < 3600) return `还剩 ${Math.floor(s / 60)} 分钟`
+  if (s < 86400 * 2) return `还剩 ${Math.floor(s / 3600)} 小时`
+  return `还剩 ${Math.floor(s / 86400)} 天`
+}
 
 const toMs = iso => {
   if (!iso) return NaN

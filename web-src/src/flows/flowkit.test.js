@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   blankDraft, catalogIndex, chainLabel, clearDraft, copyName, describeNode, DRAFT_KEY, fmtMs, graphPlugins, humanVars, nextRuns, requirements,
   nextRun, nodeInfo, orderNodes, readDraft, relTime, safeHref, scheduleLabel, startFields, thumbLayout, whenLabel, writeDraft,
+  RUN_STATUS, remainLabel, sourceLabel,
 } from './flowkit.js'
 
 const node = (id, type, data = {}, x = 0, y = 0) => ({ id, type, position: { x, y }, data })
@@ -202,5 +203,24 @@ describe('flowkit：草稿与文案', () => {
     expect(safeHref('https://x.cn/r')).toBe('https://x.cn/r')
     expect(safeHref('javascript:alert(1)')).toBe('')
     expect(safeHref('//evil.com')).toBe('')
+  })
+
+  it('第二十轮：运行状态 / 来源说人话，确认还剩多久', () => {
+    expect(RUN_STATUS.waiting).toBe('等你确认')
+    expect(RUN_STATUS.rejected).toBe('你没同意')
+    expect(RUN_STATUS.expired).toBe('确认过期了')
+    expect(['manual', 'schedule', 'chat', 'message', 'webhook', 'rerun'].map(sourceLabel))
+      .toEqual(['手动运行', '定时运行', '对话里叫跑的', '收到消息触发', '链接触发', '重跑'])
+    expect(sourceLabel('')).toBe('')
+    expect(sourceLabel('别的')).toBe('')
+    const now = Date.parse('2026-10-05T12:00:00Z')
+    expect(remainLabel('2026-10-06T11:30:00Z', now)).toBe('还剩 23 小时')
+    expect(remainLabel('2026-10-05T12:40:00Z', now)).toBe('还剩 40 分钟')
+    expect(remainLabel('2026-10-05T12:01:00Z', now)).toBe('快到期了')
+    expect(remainLabel('2026-10-08T12:00:00Z', now)).toBe('还剩 3 天')
+    expect(remainLabel('2026-10-05T11:00:00Z', now)).toBe('已过期')
+    expect(remainLabel('', now)).toBe('')
+    expect(nodeInfo(node('a', 'approval', {}))).toMatchObject({ name: '发送前确认', icon: '✋', tone: 'wait' })
+    expect(describeNode(node('a', 'approval', {}), MORNING)).toMatch('你点同意才往下走')
   })
 })

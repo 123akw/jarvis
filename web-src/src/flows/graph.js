@@ -28,8 +28,21 @@ export const TYPE_INFO = {
   condition: { label: '条件分支', hint: '按条件走不同的路' },
   template: { label: '文本拼接', hint: '把前面几步的结果拼成一段话' },
   step: { label: '积木', hint: '现成的处理 / 输出积木' },
+  approval: { label: '发送前确认', hint: '跑到这里先停下，把要发出去的内容给你看，你点同意才往下走' },
   end: { label: '结束', hint: '最终结果长什么样' },
 }
+
+/** 「发送前确认」等多久（小时，契约 §3.1：1–72，默认 24） */
+export const APPROVAL_HOURS = { min: 1, max: 72, default: 24 }
+/** 确认节点的等待时长：没设按默认；设了但不合法原样返回 NaN（校验报错） */
+export function approvalHours(data) {
+  const v = data?.timeout_hours
+  if (v === undefined || v === null || v === '') return APPROVAL_HOURS.default
+  const n = Number(v)
+  return Number.isInteger(n) ? n : NaN
+}
+/** 确认节点的通知方式：notify 没设 = 跟着账号的送达设置 */
+export const followsAccountNotify = data => !data?.notify || typeof data.notify !== 'object'
 export const NODE_TYPES = Object.keys(TYPE_INFO)
 
 export const FIELD_TYPES = [
@@ -224,6 +237,10 @@ export function createNode(graph, item, position = { x: 0, y: 0 }) {
     if (typeof data.template !== 'string') data.template = ''
   } else if (type === 'step') {
     data.options = { ...defaultOptions(item.options), ...(data.options || {}) }
+  } else if (type === 'approval') {
+    if (typeof data.message !== 'string') data.message = ''
+    data.editable = data.editable !== false
+    if (data.timeout_hours === undefined) data.timeout_hours = APPROVAL_HOURS.default
   } else if (type === 'end') {
     if (typeof data.output !== 'string') data.output = ''
     data.page = !!data.page
@@ -603,6 +620,7 @@ export function outputsOf(node, item = null, outputs = null) {
     case 'tool':
       return pick(['text', 'items'])
     case 'template':
+    case 'approval':   // 同意后，（改过的）内容就是它的产出
       return pick(['text'])
     case 'step': {
       const all = ['text', 'items', 'title', 'links', 'parts']
@@ -810,6 +828,15 @@ export function validateGraph(graph, { itemOf = () => undefined, sys = DEFAULT_S
     } else if (node.type === 'step') {
       if (item === null) at('step', 'error', 'run', '这个积木已经下架了，删掉换一个')
       else if (item?.available === false) at('avail', 'error', 'run', item.reason || '这个积木现在用不了')
+    } else if (node.type === 'approval') {
+      const hours = approvalHours(d)
+      if (!(hours >= APPROVAL_HOURS.min && hours <= APPROVAL_HOURS.max)) {
+        at('hours', 'error', 'save', `等多久要在 ${APPROVAL_HOURS.min} 到 ${APPROVAL_HOURS.max} 小时之间`)
+      }
+      if (String(d.message ?? '').length > MAX_TEXT) at('msg', 'error', 'save', `给你看的内容太长了，最多 ${MAX_TEXT} 字`)
+      if (!followsAccountNotify(d) && !d.notify.feishu && !d.notify.desktop) {
+        at('notify', 'warn', '', '两种提醒都关了：不会通知你，只能到「我的流程」顶部的「等你确认」里找')
+      }
     }
 
     // 连线：孤立 / 没连到开始 / 结果没送到结束
@@ -820,7 +847,8 @@ export function validateGraph(graph, { itemOf = () => undefined, sys = DEFAULT_S
     if (!outputs.has(node.id) && node.type !== 'end') {
       const reach = descendants(graph, node.id)
       const ok = [...reach].some(id => outputs.has(id))
-      if (!(outs.get(node.id) || []).length) at('out', 'warn', '', '后面还没接节点，这一步的结果没送到「结束」')
+      if (!(outs.get(node.id) || []).length && node.type === 'approval') at('out', 'warn', '', '确认后面还没接下一步：你点了同意，也没有东西会发出去')
+      else if (!(outs.get(node.id) || []).length) at('out', 'warn', '', '后面还没接节点，这一步的结果没送到「结束」')
       else if (!ok) at('out', 'warn', '', '这一路没有接到「结束」，结果不会出现在最终结果里')
       else if (node.type === 'condition') {
         const used = new Set(edges.filter(e => e.source === node.id).map(e => e.sourceHandle))
@@ -909,6 +937,12 @@ export function nodeSummary(node, graph, { item = null, sys = DEFAULT_SYS, skill
       }
       return bits.join(' · ') || clip(item?.summary || '', 56) || '直接用就行'
     }
+    case 'approval': {
+      const what = String(d.message || '').trim() ? `给你看：${clip(h(d.message), 36)}` : '把上一步的文字给你看'
+      const hours = approvalHours(d)
+      const wait = Number.isFinite(hours) ? `${hours} 小时内确认` : '等多久没设对'
+      return `${what} · ${wait}${d.editable !== false ? '，可以改' : ''}`
+    }
     case 'end': {
       const what = d.output ? clip(h(d.output), 48) : '前一步的结果'
       return `输出：${what}${d.page ? ' · 生成结果网页' : ''}`
@@ -996,8 +1030,11 @@ export function autoLayout(graph, sizes = {}) {
 /* ---------- 运行事件 → 节点状态（契约 §3.3） ---------- */
 
 export function startRunState(now = Date.now()) {
-  return { status: 'running', runId: '', nodes: {}, order: [], output: null, error: '', errorNode: '', ms: 0, startedAt: now }
+  return { status: 'running', runId: '', nodes: {}, order: [], output: null, error: '', errorNode: '', ms: 0, startedAt: now, approval: null }
 }
+
+/** 运行停在「发送前确认」：等用户去确认页处理（第二十轮） */
+export const isWaiting = run => run?.status === 'waiting'
 
 const hash = ev => (ev.config_hash ? { config_hash: String(ev.config_hash) } : {})
 
@@ -1027,7 +1064,17 @@ export function runReducer(state, ev) {
       const next = put({ status: 'error', ms: num(ev.ms), message: ev.message || '这一步没走通', ...hash(ev) })
       return { ...next, error: ev.message || '这一步没走通', errorNode: id }
     }
+    case 'node_wait': {   // 跑到「发送前确认」：停下等用户去确认页
+      if (!id) return s
+      const approval = { id: String(ev.approval_id || ''), url: String(ev.url || ''), expires_at: ev.expires_at || '' }
+      return { ...put({ status: 'waiting', approval, ...hash(ev) }), approval }
+    }
     case 'run_done': {
+      if (ev.status === 'waiting') {
+        const a = ev.approval && typeof ev.approval === 'object' ? ev.approval : null
+        const approval = a ? { id: String(a.id || ''), url: String(a.url || ''), expires_at: a.expires_at || '' } : s.approval
+        return { ...s, status: 'waiting', ms: num(ev.ms, s.ms), error: '', approval }
+      }
       const ok = ev.status === 'ok'
       return {
         ...s, status: ok ? 'ok' : 'error', ms: num(ev.ms, s.ms), output: ev.output || null,
@@ -1044,6 +1091,47 @@ export function runReducer(state, ev) {
   }
 }
 
+/** 运行记录里的状态 → 画布运行状态（确认后接着跑的那段记成 resuming，不锁画布） */
+const DETAIL_STATUS = { ok: 'ok', error: 'error', running: 'resuming', busy: 'resuming', waiting: 'waiting', rejected: 'rejected', expired: 'expired', cancelled: 'stopped' }
+const DETAIL_NODE = { ok: 'ok', error: 'error', skipped: 'skipped', running: 'running', waiting: 'waiting', cancelled: 'stopped' }
+
+/**
+ * 运行详情（GET /api/flows/{id}/runs/{run_id}，与运行记录列表项同结构）→ 画布运行状态。
+ * 运行停在确认时，画布轮询它看「同意后接着跑」到哪一步了；没给的字段沿用之前的。
+ */
+export function runFromDetail(prev, detail) {
+  if (!detail || typeof detail !== 'object') return prev
+  const base = prev || startRunState()
+  const status = DETAIL_STATUS[detail.status] || base.status
+  const nodes = { ...base.nodes }
+  const order = [...base.order]
+  let errorNode = base.errorNode
+  for (const n of Array.isArray(detail.nodes) ? detail.nodes : []) {
+    const id = n?.node_id
+    if (!id) continue
+    const was = nodes[id] || {}
+    const st = DETAIL_NODE[n.status] || was.status || 'ok'
+    nodes[id] = {
+      ...was, status: st, ms: n.ms === null || n.ms === undefined ? was.ms : num(n.ms),
+      summary: n.summary ?? was.summary ?? '', preview: n.preview ?? was.preview ?? '',
+      ...(st === 'error' ? { message: n.summary || was.message || '这一步没走通' } : {}),
+      ...(st !== 'waiting' && was.status === 'waiting' ? { approval: null } : {}),
+      title: was.title || n.title || '', type: was.type || n.node_type || '',
+    }
+    if (!order.includes(id)) order.push(id)
+    if (st === 'error') errorNode = id
+  }
+  const output = detail.output_text || detail.page_url || (Array.isArray(detail.links) && detail.links.length)
+    ? { text: String(detail.output_text || ''), links: Array.isArray(detail.links) ? detail.links : [], page_url: detail.page_url || '' }
+    : base.output
+  return {
+    ...base, status, nodes, order, output, errorNode: status === 'error' ? errorNode : base.errorNode,
+    runId: base.runId || String(detail.id || ''), ms: num(detail.ms, base.ms),
+    error: status === 'error' ? (detail.error || base.error || '流程没跑完') : status === 'rejected' || status === 'expired' ? (detail.error || '') : '',
+    approval: base.approval,
+  }
+}
+
 /** 连线在运行中的样子：flowing（数据正在流过去）、done、skipped，或 '' */
 export function edgeRunState(edge, run) {
   if (!run || !edge) return ''
@@ -1055,7 +1143,7 @@ export function edgeRunState(edge, run) {
   const branch = src.output?.branch
   if (branch !== undefined && branch !== null && (edge.sourceHandle ?? null) !== branch) return 'skipped'
   if (tgt?.status === 'running') return 'flowing'
-  if (tgt?.status === 'ok' || tgt?.status === 'error') return 'done'
+  if (tgt?.status === 'ok' || tgt?.status === 'error' || tgt?.status === 'waiting') return 'done'
   return run.status === 'running' ? 'flowing' : ''
 }
 
