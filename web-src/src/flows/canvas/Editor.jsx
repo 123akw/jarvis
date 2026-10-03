@@ -14,12 +14,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../../Icon.jsx'
 import Modal, { ModalHead, useEscape } from '../../Modal.jsx'
 import { TourButton, useTour } from '../../tour/index.jsx'
-import { fileToBase64, getFlow, getNodeCatalog, runGraph, saveFlow } from '../api.js'
+import { fileToBase64, getFlow, getNodeCatalog, getRun, runGraph, saveFlow } from '../api.js'
 import {
   addNode, autoLayout, canRedo, canUndo, chosenBranch, cleanGraph, COL, commit, connect, createHistory, createNode,
   defaultHandle, dependents, duplicateNode, emptyGraph, fmtMs, hashStale, insertAfter, insertOnEdge, issuesByNode,
   LIMIT_MSG, MAX_NODES, moveNodes, nodeById, nodeSummary, nodeTitle, normalizeGraph, redo, removeEdges, removeNodes,
-  runReducer, settle, staleNodes, START_ID, startRunState, topoOrder, transient, undo, updateNodeData, validateGraph,
+  runFromDetail, runReducer, settle, staleNodes, START_ID, startRunState, topoOrder, transient, undo, updateNodeData, validateGraph,
 } from '../graph.js'
 import Canvas, { fitCanvas } from './Canvas.jsx'
 import { indexCatalog, itemOf } from './catalog.js'
@@ -32,6 +32,8 @@ import './canvas.css'
 
 const NARROW = '(max-width: 760px)'
 const AUTOSAVE_MS = 2000
+/** 停在「发送前确认」时多久问一次运行到哪了（毫秒）：等确认时慢一点，同意后接着跑时快一点 */
+export const WAIT_POLL_MS = { waiting: 5000, resuming: 2000 }
 const INPUTS_KEY = id => `jvf-inputs:${id}`
 
 function useMedia(query) {
@@ -134,14 +136,19 @@ function SaveState({ state, onProblem }) {
   return <span className={`fc-savestate is-${state}`} role="status"><i aria-hidden="true" />{text}</span>
 }
 
+const DOCK_TEXT = {
+  stopped: '上次运行：已停止', waiting: '等你确认 · 点开看看', resuming: '你同意了，正在接着跑…',
+  rejected: '上次运行：你没同意', expired: '上次运行：确认过期了',
+}
+
 function RunDock({ run, onOpen }) {
   const st = run?.status
   const text = !st ? '运行面板' : st === 'running' ? '运行中…' : st === 'ok' ? `上次运行：完成${run.ms ? ` · ${fmtMs(run.ms)}` : ''}`
-    : st === 'stopped' ? '上次运行：已停止' : '上次运行：没跑通'
+    : DOCK_TEXT[st] || '上次运行：没跑通'
   return (
     <button type="button" className={`fc-run-dock${st ? ` is-${st}` : ''}`} onClick={onOpen} data-tour="flow-run-panel"
       aria-label={`打开运行面板（${text}）`}>
-      {st === 'running' ? <i className="fc-spin" aria-hidden="true" /> : <Glyph name="play" size={11} />}
+      {st === 'running' || st === 'resuming' ? <i className="fc-spin" aria-hidden="true" /> : st === 'waiting' ? <Glyph name="wait" size={12} /> : <Glyph name="play" size={11} />}
       <span>{text}</span>
     </button>
   )
@@ -589,9 +596,39 @@ export default function Editor({ flowId = 'new', initial = null, onSaved, onBack
     if (abortRef.current === ctrl) abortRef.current = null
     state = { ...state, ms: state.ms || Date.now() - state.startedAt }
     setRun(state)
-    setAnnounce(state.status === 'ok' ? '运行完成' : state.status === 'stopped' ? '已停止运行' : `没跑通：${state.error}`)
+    setAnnounce(state.status === 'ok' ? '运行完成' : state.status === 'stopped' ? '已停止运行'
+      : state.status === 'waiting' ? '已发给你确认，去确认页处理' : `没跑通：${state.error}`)
     if (later) savedCb.current?.(later)
   }
+
+  /* 停在「发送前确认」：隔一会儿问一下这次运行到哪了（用户在确认页同意 / 拒绝后，这里跟着变） */
+  const runRef = useRef(run)
+  runRef.current = run
+  const pollStatus = run?.status === 'waiting' || run?.status === 'resuming' ? run.status : ''
+  const pollRunId = run?.runId || ''
+  useEffect(() => {
+    const fid = idRef.current
+    if (!pollStatus || !pollRunId || !fid) return undefined
+    let alive = true
+    const t = setTimeout(async () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') { if (alive) setRun(r => (r ? { ...r } : r)); return }
+      try {
+        const detail = await getRun(fid, pollRunId)
+        const r = runRef.current
+        if (!alive || !r || r.runId !== pollRunId) return
+        const next = runFromDetail(r, detail)
+        if (next.status !== r.status) {
+          setAnnounce({ ok: '确认后接着跑完了', error: `没跑通：${next.error}`, rejected: '你没同意，后面的步骤没跑', expired: '确认过期了', resuming: '你同意了，正在接着跑' }[next.status] || '')
+        }
+        setRun(next === r ? { ...r } : next)
+      } catch (err) {
+        if (!alive) return
+        if (err.message === '401') { expired(); return }
+        setRun(r => (r ? { ...r } : r))   // 网络抖一下：过一会儿再问
+      }
+    }, WAIT_POLL_MS[pollStatus])
+    return () => { alive = false; clearTimeout(t) }
+  }, [pollStatus, pollRunId, run, expired])
 
   function stopRun() {
     abortRef.current?.abort()

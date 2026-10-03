@@ -483,6 +483,13 @@ export const RUN_SOURCE = {
 }
 export const sourceLabel = src => RUN_SOURCE[src] || ''
 
+/** 确认页地址：有 id 就用站内 /approve/<id>；没有就用服务端给的地址（只放行站内路径与 http(s)） */
+export function approveHref(approval) {
+  const id = String(approval?.id || '')
+  if (/^[A-Za-z0-9_-]{6,64}$/.test(id)) return `/approve/${id}`
+  return safeHref(approval?.url)
+}
+
 /** 确认还剩多久：「还剩 23 小时」「还剩 40 分钟」「快到期了」；过了返回「已过期」，读不出时间返回 '' */
 export function remainLabel(expiresAt, now = Date.now()) {
   const t = toMs(expiresAt)

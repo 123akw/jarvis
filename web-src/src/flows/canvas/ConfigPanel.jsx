@@ -2,8 +2,9 @@ import { useCallback, useId, useMemo, useState } from 'react'
 import Icon from '../../Icon.jsx'
 import { MARKET_PATH } from '../../routes.js'
 import {
-  canConnect, choiceList, conditionHandles, FIELD_TYPES, FILE_VAR_LABEL, fileFirstGroups, handleLabel, isFileArg, LIST_FIELDS,
-  MAX_FIELDS, MAX_TEXT, nodeById, nodeTitle, OPS, START_ID, topoOrder, UNARY_OPS, varLabel, varOptions,
+  APPROVAL_HOURS, approvalHours, canConnect, choiceList, conditionHandles, FIELD_TYPES, FILE_VAR_LABEL, fileFirstGroups,
+  followsAccountNotify, handleLabel, isFileArg, LIST_FIELDS, MAX_FIELDS, MAX_TEXT, nodeById, nodeTitle, OPS, START_ID, topoOrder,
+  UNARY_OPS, varLabel, varOptions,
 } from '../graph.js'
 import { itemOf, needsPlugin, unavailableReason } from './catalog.js'
 import Glyph, { NodeIcon } from './glyphs.jsx'
@@ -242,6 +243,67 @@ function ConditionForm({ node, patch, locked, groups, vi }) {
   )
 }
 
+/* ---------- 发送前确认（第二十轮） ---------- */
+
+const HOUR_PRESETS = [1, 2, 4, 8, 12, 24, 48, 72]
+const hourText = h => (h >= 24 && h % 24 === 0 ? `${h / 24} 天（${h} 小时）` : `${h} 小时`)
+
+function ApprovalForm({ node, patch, locked, vi, typeTrigger }) {
+  const d = node.data || {}
+  const id = useId()
+  const hours = approvalHours(d)
+  const valid = hours >= APPROVAL_HOURS.min && hours <= APPROVAL_HOURS.max
+  const presets = Number.isFinite(hours) && !HOUR_PRESETS.includes(hours) ? [...HOUR_PRESETS, hours].sort((a, b) => a - b) : HOUR_PRESETS
+  const custom = !followsAccountNotify(d)
+  const notify = custom ? d.notify : { feishu: true, desktop: true }
+  const setNotify = p => patch(x => ({ ...x, notify: { feishu: !!notify.feishu, desktop: !!notify.desktop, ...p } }))
+  return (
+    <div className="fc-cfg-sec">
+      <div className="fc-cfg-note" role="note" data-type="approval">
+        <Glyph name="approval" size={15} />
+        <p>运行到这里会先停下，把下面的内容发给你确认：点「同意」才接着往下走，点「拒绝」后面的步骤就不跑了。</p>
+      </div>
+      <Field label="给你看的内容" htmlFor={`${id}-msg`} hint="不填就把上一步的文字给你看。">
+        <VarInput {...vi} id={`${id}-msg`} tour rows={5} value={d.message || ''} maxLength={MAX_TEXT} label="给你看的内容"
+          placeholder={typeTrigger ? '比如：今天的早报要发到飞书群了，看一眼：（打 / 插入前面步骤的结果）' : '比如：今天的早报要发到飞书群了，看一眼：（点「变量」插入）'}
+          onChange={v => patch({ message: v }, `${node.id}.message`)} />
+      </Field>
+      <label className="fc-check fc-check--card">
+        <input type="checkbox" checked={d.editable !== false} disabled={locked} onChange={e => patch({ editable: e.target.checked })} />
+        <span><b>确认时可以改内容</b><small>改过的内容会当作这一步的结果，接着往下发</small></span>
+      </label>
+      <Field label="最多等多久" htmlFor={`${id}-hours`} hint="过了时间还没处理就作废，后面的步骤不跑。">
+        <select id={`${id}-hours`} className="fc-select" value={Number.isFinite(hours) ? String(hours) : ''} disabled={locked}
+          aria-invalid={!valid || undefined} onChange={e => patch({ timeout_hours: Number(e.target.value) })}>
+          {!Number.isFinite(hours) ? <option value="">请选择…</option> : null}
+          {presets.map(h => <option key={h} value={h}>{hourText(h)}</option>)}
+        </select>
+      </Field>
+      <Field label="怎么提醒你" id={`${id}-nt`}>
+        <div className="fc-seg" role="radiogroup" aria-labelledby={`${id}-nt`}>
+          {[[false, '跟着我的送达设置'], [true, '这一步自己选']].map(([v, l]) => (
+            <button key={l} type="button" role="radio" aria-checked={custom === v} disabled={locked} className={custom === v ? 'is-on' : ''}
+              onClick={() => patch(x => {
+                if (v === custom) return x
+                if (!v) { const { notify: _drop, ...rest } = x; return rest }
+                return { ...x, notify: { feishu: true, desktop: true } }
+              })}>{l}</button>
+          ))}
+        </div>
+        {custom ? (
+          <div className="fc-row fc-notify" role="group" aria-label="提醒方式">
+            <label className="fc-check"><input type="checkbox" checked={!!notify.feishu} disabled={locked} onChange={e => setNotify({ feishu: e.target.checked })} />飞书</label>
+            <label className="fc-check"><input type="checkbox" checked={!!notify.desktop} disabled={locked} onChange={e => setNotify({ desktop: e.target.checked })} />桌面通知</label>
+          </div>
+        ) : null}
+        <p className="fc-field-hint">
+          {custom ? '飞书要先绑定才收得到。' : '按你在设置里选的送达方式提醒。'}不管怎么选，「我的流程」顶部都会出现「等你确认」。
+        </p>
+      </Field>
+    </div>
+  )
+}
+
 /* ---------- 连线：前面接着 / 下一步 ---------- */
 
 function Upstream({ node, graph, locked, onDisconnect, onSelectNode }) {
@@ -461,6 +523,8 @@ export function ConfigBody({
         </Field>
       </div>
     )
+  } else if (node.type === 'approval') {
+    form = <ApprovalForm node={node} patch={patch} locked={locked} vi={vi} typeTrigger={typeTrigger} />
   } else if (node.type === 'end') {
     form = (
       <div className="fc-cfg-sec">
@@ -546,7 +610,7 @@ export function typeLabelOf(node, item) {
   if (node.type === 'tool') return item?.plugin_name ? `插件工具 · ${item.plugin_name}` : '插件工具'
   if (node.type === 'llm' && node.data?.skill) return '技能'
   if (node.type === 'step') return item?.role === 'output' ? '积木 · 输出' : '积木'
-  return { start: '开始', llm: 'AI 处理', condition: '条件分支', template: '文本拼接', end: '结束' }[node.type] || '节点'
+  return { start: '开始', llm: 'AI 处理', condition: '条件分支', template: '文本拼接', approval: '发送前确认', end: '结束' }[node.type] || '节点'
 }
 
 /** 桌面：右侧浮在画布上的面板 */

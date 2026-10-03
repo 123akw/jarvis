@@ -2,7 +2,7 @@ import '@testing-library/jest-dom/vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CATALOG } from './testFixtures.js'
-import Editor from './Editor.jsx'
+import Editor, { WAIT_POLL_MS } from './Editor.jsx'
 
 /* ---- React Flow 在 jsdom 里要的替身（官方测试指南的做法）：尺寸、ResizeObserver、DOMMatrix ---- */
 beforeAll(() => {
@@ -65,11 +65,23 @@ const COND = {
 
 let api
 function mockApi({ flow = null, catalogStatus = 200, flowStatus = 200, putStatus = 200 } = {}) {
-  const state = { posts: [], puts: [], runs: [], stream: null }
+  const state = { posts: [], puts: [], runs: [], stream: null, details: [], runDetail: null, tests: [], testResult: null }
   const json = (body, status = 200) => ({ ok: status < 400, status, json: async () => body })
   global.fetch = vi.fn(async (url, init = {}) => {
     const method = init.method || 'GET'
     if (url === '/api/flows/nodes') return json(catalogStatus === 200 ? CATALOG : { error: '坏了' }, catalogStatus)
+    // 第二十轮：运行详情（等确认时轮询）、试跑一步
+    let r = url.match(/^\/api\/flows\/([^/]+)\/runs\/([^/]+)$/)
+    if (r && method === 'GET') {
+      state.details.push(r[2])
+      return state.runDetail ? json({ run: state.runDetail }) : json({ error: '没有这次运行' }, 404)
+    }
+    r = url.match(/^\/api\/flows\/([^/]+)\/nodes\/([^/]+)\/test$/)
+    if (r) {
+      state.tests.push({ id: r[1], node: r[2], body: JSON.parse(init.body || '{}') })
+      const res = typeof state.testResult === 'function' ? await state.testResult() : (state.testResult || { body: { status: 'ok', ms: 10, output: { text: '好' } } })
+      return json(res.body, res.status || 200)
+    }
     if (url === '/api/flows' && method === 'POST') {
       const body = JSON.parse(init.body)
       state.posts.push(body)
@@ -729,5 +741,124 @@ describe('画布编辑器：原文件', () => {
     expect(links[0].closest('.fc-rn')).toHaveTextContent('开始')
     fireEvent.click(within(panel).getByText('读到 120 字'))   // 展开开始那一行：正文里不再列一遍原件
     expect(within(panel).getAllByRole('link', { name: /原件：/ })).toHaveLength(1)
+  })
+})
+
+/* ---- 第二十轮：发送前确认 ---- */
+const APPROVAL_FLOW = {
+  nodes: [START,
+    { id: 'n1', type: 'llm', position: { x: 320, y: 0 }, data: { title: '写成早报', prompt: '总结 {{start.text}}', output: 'text' } },
+    { id: 'ap', type: 'approval', position: { x: 640, y: 0 }, data: { title: '发前给我看看', message: '', editable: true, timeout_hours: 24 } },
+    { id: 'end', type: 'end', position: { x: 960, y: 0 }, data: { title: '结束', output: '{{ap.text}}', page: false } }],
+  edges: [{ id: 'e1', source: 'start', target: 'n1', sourceHandle: null }, { id: 'e2', source: 'n1', target: 'ap', sourceHandle: null },
+    { id: 'e3', source: 'ap', target: 'end', sourceHandle: null }],
+}
+
+describe('画布编辑器：发送前确认（第二十轮）', () => {
+  const poll = { ...WAIT_POLL_MS }
+  beforeEach(() => { WAIT_POLL_MS.waiting = 30; WAIT_POLL_MS.resuming = 30 })
+  afterEach(() => { Object.assign(WAIT_POLL_MS, poll) })
+
+  it('节点面板「基础」里有它；加进来后配置：给你看的内容、能不能改、等多久、怎么提醒；存进节点数据', async () => {
+    await open()
+    const palette = screen.getByLabelText('节点面板')
+    const basic = within(palette).getByRole('heading', { name: /^基础/ }).closest('section')
+    fireEvent.click(within(basic).getByRole('button', { name: /发送前确认/ }))
+    const cfg = await screen.findByRole('region', { name: /节点设置：发送前确认/ })
+    expect(within(cfg).getByRole('note')).toHaveTextContent('点「同意」才接着往下走')
+    expect(within(cfg).getByLabelText('给你看的内容')).toBeInTheDocument()
+    const editable = within(cfg).getByRole('checkbox', { name: /确认时可以改内容/ })
+    expect(editable).toBeChecked()
+    fireEvent.click(editable)
+    const hours = within(cfg).getByRole('combobox', { name: '最多等多久' })
+    expect(hours).toHaveValue('24')
+    expect([...hours.options].map(o => o.textContent)).toEqual(['1 小时', '2 小时', '4 小时', '8 小时', '12 小时', '1 天（24 小时）', '2 天（48 小时）', '3 天（72 小时）'])
+    fireEvent.change(hours, { target: { value: '4' } })
+    expect(within(cfg).getByRole('radio', { name: '跟着我的送达设置' })).toHaveAttribute('aria-checked', 'true')
+    expect(within(cfg).queryByRole('checkbox', { name: '飞书' })).toBeNull()
+    fireEvent.click(within(cfg).getByRole('radio', { name: '这一步自己选' }))
+    fireEvent.click(within(cfg).getByRole('checkbox', { name: '桌面通知' }))
+    expect(nodeCard('发送前确认')).toHaveTextContent('把上一步的文字给你看 · 4 小时内确认')
+    fireEvent.keyDown(window, { key: 's', metaKey: true })
+    await waitFor(() => expect(api.posts).toHaveLength(1))
+    const ap = savedGraph().nodes.find(n => n.type === 'approval')
+    expect(ap.data).toEqual({ title: '发送前确认', message: '', editable: false, timeout_hours: 4, notify: { feishu: true, desktop: false } })
+    expect(edgesOf(savedGraph())).toContain(`${ap.id}>end`)   // 插在「结束」前面
+    // 两种都关了：提醒一下，不拦保存
+    fireEvent.click(within(cfg).getByRole('checkbox', { name: '飞书' }))
+    expect(within(cfg).getByText(/两种提醒都关了/)).toBeInTheDocument()
+    fireEvent.click(within(cfg).getByRole('radio', { name: '跟着我的送达设置' }))
+    expect(within(cfg).queryByText(/两种提醒都关了/)).toBeNull()
+  })
+
+  it('运行停在确认：节点「等你确认」+「去确认」，运行面板说已发给你；同意后轮询到接着跑、跑完', async () => {
+    mockApi({ flow: { id: 'f1', name: '早报', graph: APPROVAL_FLOW } })
+    render(<Editor flowId="f1" {...props()} />)
+    await screen.findByDisplayValue('早报')
+    fireEvent.click(screen.getByRole('button', { name: /^运行$/ }))
+    const panel = await screen.findByRole('region', { name: '运行流程' })
+    fireEvent.change(within(panel).getByLabelText(/要处理的文字/), { target: { value: '今天的事' } })
+    fireEvent.click(within(panel).getByRole('button', { name: /开始运行/ }))
+    await waitFor(() => expect(api.runs).toHaveLength(1))
+    const expires = new Date(Date.now() + 23.5 * 3600e3).toISOString()
+    await act(async () => {
+      const s = api.stream
+      s.send({ type: 'run_start', run_id: 'r1' })
+      s.send({ type: 'node_done', node_id: 'start', ms: 2 })
+      s.send({ type: 'node_done', node_id: 'n1', ms: 800, output: { text: '早报草稿' } })
+      s.send({ type: 'node_start', node_id: 'ap' })
+      s.send({ type: 'node_wait', node_id: 'ap', approval_id: 'apv123', url: 'https://j.example.com/approve/apv123', expires_at: expires })
+      s.send({ type: 'run_done', status: 'waiting', approval: { id: 'apv123', url: 'https://j.example.com/approve/apv123', expires_at: expires } })
+      s.close()
+    })
+    const final = await within(panel).findByText('已发给你确认', { selector: '.fc-final-title' })
+    const box = final.closest('.fc-final')
+    expect(box).toHaveTextContent('「发前给我看看」在等你看一眼')
+    expect(box).toHaveTextContent('还剩 23 小时')
+    expect(within(box).getByRole('link', { name: /去确认/ })).toHaveAttribute('href', '/approve/apv123')
+    expect(within(box).getByRole('link', { name: /去确认/ })).toHaveAttribute('target', '_blank')
+    const card = nodeCard('发前给我看看')
+    expect(card).toHaveAttribute('data-run', 'waiting')
+    expect(within(card).getByRole('img', { name: '等你确认' })).toBeInTheDocument()
+    expect(within(card).getByRole('link', { name: /去确认/ })).toHaveAttribute('href', '/approve/apv123')
+    expect(within(panel).getByText('已发给你确认', { selector: '.fc-rn-wait span' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '停止' })).toBeNull()   // 等确认不占着画布
+    // 还没处理：一直问，但不变
+    await waitFor(() => expect(api.details.length).toBeGreaterThan(0))
+    expect(api.details[0]).toBe('r1')
+    // 用户在确认页点了同意：接着跑
+    api.runDetail = { id: 'r1', status: 'running', nodes: [
+      { node_id: 'start', status: 'ok' }, { node_id: 'n1', status: 'ok', ms: 800 },
+      { node_id: 'ap', status: 'ok', summary: '你同意了' }, { node_id: 'end', status: 'running' }] }
+    expect(await within(panel).findByText('你同意了，正在接着往下跑…')).toBeInTheDocument()
+    expect(nodeCard('发前给我看看')).toHaveAttribute('data-run', 'ok')
+    api.runDetail = { id: 'r1', status: 'ok', ms: 6000, output_text: '**早报发好了**', page_url: '', links: [],
+      nodes: [{ node_id: 'ap', status: 'ok' }, { node_id: 'end', status: 'ok', ms: 3 }] }
+    await waitFor(() => expect(panel.querySelector('.fc-final strong')).toHaveTextContent('早报发好了'))
+    const asked = api.details.length
+    await act(async () => { await new Promise(r => setTimeout(r, 120)) })
+    expect(api.details.length).toBe(asked)   // 跑完就不再问了
+  })
+
+  it('等确认时被拒绝：面板说人话，节点不再显示「去确认」；左下角入口也说清楚', async () => {
+    mockApi({ flow: { id: 'f1', name: '早报', graph: APPROVAL_FLOW } })
+    render(<Editor flowId="f1" {...props()} />)
+    await screen.findByDisplayValue('早报')
+    fireEvent.click(screen.getByRole('button', { name: /^运行$/ }))
+    const panel = await screen.findByRole('region', { name: '运行流程' })
+    fireEvent.change(within(panel).getByLabelText(/要处理的文字/), { target: { value: 'x' } })
+    fireEvent.click(within(panel).getByRole('button', { name: /开始运行/ }))
+    await waitFor(() => expect(api.runs).toHaveLength(1))
+    await act(async () => {
+      api.stream.send({ type: 'run_start', run_id: 'r2' })
+      api.stream.send({ type: 'node_wait', node_id: 'ap', approval_id: 'apv456' })
+      api.stream.send({ type: 'run_done', status: 'waiting' })
+    })
+    await within(panel).findByText('已发给你确认', { selector: '.fc-final-title' })
+    api.runDetail = { id: 'r2', status: 'rejected', error: '', nodes: [{ node_id: 'ap', status: 'skipped' }] }
+    expect(await within(panel).findByText('你没同意，后面的步骤没跑', { selector: '.fc-final-title' })).toBeInTheDocument()
+    expect(within(nodeCard('发前给我看看')).queryByRole('link', { name: /去确认/ })).toBeNull()
+    fireEvent.click(within(panel).getByRole('button', { name: '收起运行面板' }))
+    expect(screen.getByRole('button', { name: /打开运行面板（上次运行：你没同意）/ })).toBeInTheDocument()
   })
 })

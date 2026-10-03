@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { copyText } from '../../clipboard.js'
 import Icon from '../../Icon.jsx'
 import { handleCodeCopyClick, renderMarkdown } from '../../markdown.js'
+import { approveHref, remainLabel } from '../flowkit.js'
 import { fmtMs, handleLabel, nodeById, nodeTitle, START_ID } from '../graph.js'
 import { itemOf } from './catalog.js'
 import Glyph, { NodeIcon } from './glyphs.jsx'
@@ -67,6 +68,17 @@ export function NodeOutput({ state, files: showFiles = true }) {
   )
 }
 
+/** 「去确认」：新标签页打开确认页（画布留着；处理完运行面板自己会更新） */
+export function ApproveLink({ approval, className = 'jv-btn jv-btn--sm jv-btn--primary', children = '去确认' }) {
+  const href = approveHref(approval)
+  if (!href) return null
+  return (
+    <a className={className} href={href} target="_blank" rel="noopener noreferrer" aria-label={`${children}（在新标签页打开）`}>
+      <Glyph name="approval" size={14} />{children}
+    </a>
+  )
+}
+
 /** 这一步一句话：出错原因、没走到、条件走了哪条、或引擎给的 summary */
 export function stepLine(state, node) {
   if (!state) return ''
@@ -74,6 +86,7 @@ export function stepLine(state, node) {
   if (state.status === 'skipped') return state.reason || '没走到这里'
   if (state.status === 'running') return '运行中…'
   if (state.status === 'stopped') return '停了'
+  if (state.status === 'waiting') return '等你确认'
   const branch = state.output?.branch
   if (node?.type === 'condition' && branch !== undefined && branch !== null) return `走了「${handleLabel(node, branch) || '否则'}」`
   return state.summary || ''
@@ -135,6 +148,9 @@ function NodeRow({ id, state, graph, index, onFocusNode, onLocate }) {
       <li className={`fc-rn is-${state.status}`}>
         <button type="button" className="fc-rn-row" onClick={focus} aria-label={`${title}：${stepLine(state, node) || ''}，在画布上找到它`}>{head}</button>
         <FileLinks files={files} />
+        {state.status === 'waiting' ? (
+          <p className="fc-rn-wait"><span>已发给你确认</span><ApproveLink approval={state.approval} className="fc-link" /></p>
+        ) : null}
       </li>
     )
   }
@@ -164,6 +180,30 @@ function FinalResult({ run, onLocate, graph }) {
   }, [done, run?.runId])
   if (!done) return null
   if (run.status === 'stopped') return <div className="fc-final is-stopped" role="status" ref={ref}><p>已停止运行。</p></div>
+  if (run.status === 'waiting') {
+    const at = run.order.map(id => nodeById(graph, id)).find(n => n && run.nodes[n.id]?.status === 'waiting')
+    const remain = remainLabel(run.approval?.expires_at)
+    return (
+      <div className="fc-final is-waiting" role="status" ref={ref}>
+        <p className="fc-final-title"><Glyph name="wait" size={15} />已发给你确认</p>
+        <p>{at ? `「${nodeTitle(at)}」` : '这一步'}在等你看一眼：同意了接着往下跑，拒绝就停在这里。{remain && remain !== '已过期' ? `${remain}。` : ''}</p>
+        <div className="fc-final-acts"><ApproveLink approval={run.approval} /></div>
+        <p className="fc-field-hint">通知里的链接也能打开确认页。处理完，这里会自己更新。</p>
+      </div>
+    )
+  }
+  if (run.status === 'resuming') {
+    return <div className="fc-final is-resuming" role="status" ref={ref}><p><i className="fc-spin" aria-hidden="true" />你同意了，正在接着往下跑…</p></div>
+  }
+  if (run.status === 'rejected' || run.status === 'expired') {
+    return (
+      <div className="fc-final is-stopped" role="status" ref={ref}>
+        <p className="fc-final-title">{run.status === 'rejected' ? '你没同意，后面的步骤没跑' : '确认过期了，后面的步骤没跑'}</p>
+        {run.error ? <p>{run.error}</p> : null}
+        <p>{run.status === 'rejected' ? '想改了再发，可以调整后再跑一次。' : '想发的话，再跑一次就行。'}</p>
+      </div>
+    )
+  }
   if (run.status === 'error') {
     const at = run.errorNode ? nodeById(graph, run.errorNode) : null
     const step = at ? run.order.indexOf(at.id) + 1 : 0
@@ -206,7 +246,9 @@ export default function RunPanel({
   const missing = fields.filter(f => f.required && isEmpty(valueOf(f)))
   const progress = run?.order || []
   const doneCount = progress.filter(id => ['ok', 'skipped'].includes(run.nodes[id]?.status)).length
-  const say = !run ? '' : running ? `运行中，已完成 ${doneCount} 步` : run.status === 'ok' ? '完成' : run.status === 'stopped' ? '已停止' : `没跑通：${run.error}`
+  const say = !run ? '' : running ? `运行中，已完成 ${doneCount} 步` : run.status === 'ok' ? '完成' : run.status === 'stopped' ? '已停止'
+    : run.status === 'waiting' ? '已发给你确认，去确认页处理' : run.status === 'resuming' ? '你同意了，正在接着跑'
+      : run.status === 'rejected' ? '你没同意，后面的步骤没跑' : run.status === 'expired' ? '确认过期了' : `没跑通：${run.error}`
 
   function submit(e) {
     e.preventDefault()
