@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import { unreadText, useAdminUnread } from '../admin/useAdminUnread.js'
 import Icon from '../Icon.jsx'
+import { navigate } from '../routes.js'
 
 const isMac = () => {
   try { return /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '') } catch { return false }
@@ -78,7 +80,7 @@ function TourIcon() {
   )
 }
 
-/** 已登录时的头像菜单：账号名、进入我的智能体、我的流程、（管理员）插件管理、退出登录。
+/** 已登录时的头像菜单：账号名、进入我的智能体、我的流程、（管理员）插件管理与管理后台、退出登录。
  *  点头像开合；Esc / 点外面 / 选完一项都收起，焦点回到头像；方向键在菜单项之间移动。 */
 function AccountMenu({ me, onEnter, onFlows, onAdmin, onLogout, onTour }) {
   const [open, setOpen] = useState(false)
@@ -87,6 +89,7 @@ function AccountMenu({ me, onEnter, onFlows, onAdmin, onLogout, onTour }) {
   const menuRef = useRef(null)
   const name = me.username || '已登录'
   const owner = me.role === 'Owner'
+  const adminUnread = useAdminUnread(owner)
   const close = (refocus = true) => {
     setOpen(false)
     if (refocus) btnRef.current?.focus()
@@ -128,6 +131,17 @@ function AccountMenu({ me, onEnter, onFlows, onAdmin, onLogout, onTour }) {
           {onFlows ? <button type="button" role="menuitem" onClick={pick(onFlows)}><Icon name="flow" size={16} />我的流程</button> : null}
           {owner && onAdmin ? (
             <button type="button" role="menuitem" onClick={pick(onAdmin)}><Icon name="store" size={16} />插件管理</button>
+          ) : null}
+          {owner ? (
+            <button type="button" role="menuitem" onClick={pick(() => navigate('/admin'))}>
+              <Icon name="chart" size={16} />管理后台
+              {adminUnread ? (
+                <span title={unreadText(adminUnread)}
+                  style={{ marginLeft: 'auto', width: 7, height: 7, flex: 'none', borderRadius: '50%', background: 'var(--jv-danger)' }}>
+                  <span className="sr-only">（{unreadText(adminUnread)}）</span>
+                </span>
+              ) : null}
+            </button>
           ) : null}
           {onTour ? <button type="button" role="menuitem" onClick={pick(onTour)}><TourIcon />新手引导</button> : null}
           <span className="jvm-account-sep" role="separator" />
