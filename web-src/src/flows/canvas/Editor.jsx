@@ -389,7 +389,8 @@ export default function Editor({ flowId = 'new', initial = null, onSaved, onBack
     let res
     if (where.edgeId) res = insertOnEdge(g, where.edgeId, node)
     else if (where.after) {
-      res = insertAfter(g, where.after, where.handle ?? null, node)
+      // 从出口拖线到空白处（带松手位置）：另起一条分路放在松手处；点「+」：插进原来的链里
+      res = insertAfter(g, where.after, where.handle ?? null, node, { splice: !where.position })
       if (!res.error && where.position) res = { graph: moveNodes(res.graph, { [node.id]: where.position }) }
     } else if (where.position) res = { graph: addNode(g, node) }
     else {

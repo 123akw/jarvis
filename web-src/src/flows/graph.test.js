@@ -11,6 +11,7 @@ import {
 /* ---- 小工厂 ---- */
 const N = (id, type, data = {}, x = 0, y = 0) => ({ id, type, position: { x, y }, data })
 const E = (id, source, target, sourceHandle = null) => ({ id, source, target, sourceHandle })
+const edgesOf = g => g.edges.map(e => `${e.source}>${e.target}`).sort()
 const START = N('start', 'start', { title: '开始', fields: [{ key: 'text', label: '要处理的文字', type: 'paragraph', required: true }] })
 
 /** start → n1(AI) → n2(条件: c1/else) → n3(拼接, c1) / n4(工具, else) → end */
@@ -225,6 +226,13 @@ describe('插入（自动连线）', () => {
     const cond = createNode(g, { type: 'condition', data: {} })
     const r2 = insertAfter(g, 'n1', null, cond)
     expect(r2.graph.edges.find(e => e.target === 'n2')).toMatchObject({ source: cond.id, sourceHandle: 'c1' })
+  })
+
+  it('insertAfter：splice=false 时另起一条分路（从出口拖线到空白处）', () => {
+    const g = emptyGraph()
+    const node = createNode(g, { type: 'template', data: { template: 'x' } })
+    const { graph } = insertAfter(g, 'start', null, node, { splice: false })
+    expect(edgesOf(graph)).toEqual(['start>end', 'start>n1'])
   })
 
   it('insertAfter：结束后面接不了；节点数到上限也加不了', () => {

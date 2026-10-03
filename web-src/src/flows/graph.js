@@ -391,9 +391,9 @@ function makeRoom(graph, id) {
 
 /**
  * 把节点接到 after 的某个出口后面：那个出口原来接着的节点改接到新节点后面（链中间插一步）；
- * 新节点是「结束」时不改原有连线，另起一条。返回 { graph, error }。
+ * 新节点是「结束」或 splice=false（从出口拖线到空白处）时不改原有连线，另起一条分路。返回 { graph, error }。
  */
-export function insertAfter(graph, after, handle, node) {
+export function insertAfter(graph, after, handle, node, { splice: allowSplice = true } = {}) {
   const prev = nodeById(graph, after)
   if (!prev || !node) return { graph, error: '找不到要接在后面的节点' }
   if (prev.type === 'end') return { graph, error: '「结束」后面不能再接' }
@@ -404,7 +404,7 @@ export function insertAfter(graph, after, handle, node) {
   const placed = { ...node, position: spot }
   let g = addNode(graph, placed)
   const outs = graph.edges.filter(e => e.source === after && (e.sourceHandle ?? null) === h)
-  const splice = outs.length > 0 && placed.type !== 'end'
+  const splice = allowSplice && outs.length > 0 && placed.type !== 'end'
   if (splice) {
     const outHandle = defaultHandle(placed)
     const moved = new Set(outs.map(e => e.id))
