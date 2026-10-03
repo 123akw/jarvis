@@ -1049,12 +1049,14 @@ def voice_settings_put(request: Request, body: VoiceSettingsIn):
 
 def _tool_label(name) -> dict:
     """工具芯片的显示名：插件提供的工具（含导入的第三方插件）带上所属插件的图标和名字，前端认不出时用它。"""
+    from jarvis.tools.flows_tool import TOOL_LABELS as flow_labels   # 第二十轮：「运行流程」「我的流程」
+    label = flow_labels.get(name)
     try:
         from jarvis.plugins import tool_display
-        label = tool_display(name)
+        label = label or tool_display(name)
     except Exception:
-        label = None
-    return {"label": label} if label else {}
+        pass
+    return {"label": dict(label)} if label else {}
 
 
 class UploadIn(BaseModel):

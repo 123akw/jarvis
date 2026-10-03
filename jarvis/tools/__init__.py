@@ -9,6 +9,7 @@ from langchain_core.tools import BaseTool, tool
 from jarvis.tools.calc import calc
 from jarvis.tools.clock import now
 from jarvis.tools.entertainment import make_entertainment_tools, render_search_failure
+from jarvis.tools.flows_tool import flow_list, flow_run
 from jarvis.tools.location import coding_status, my_location
 from jarvis.tools.meeting import meeting_start, meeting_stop
 from jarvis.tools.memo import memo_add, memo_del, memo_list
@@ -33,6 +34,7 @@ _LOCAL_TOOLS = [
     meeting_start, meeting_stop,
     sys_query,
     recall_history,
+    flow_list, flow_run,
 ]
 
 
@@ -111,5 +113,6 @@ __all__ = [
     "meeting_start", "meeting_stop",
     "sys_query",
     "recall_history",
+    "flow_list", "flow_run",
     "web_search", "web_extract", "movie_ratings", "esports_scores", "ticket_search",
 ]

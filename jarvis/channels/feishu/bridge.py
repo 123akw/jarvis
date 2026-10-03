@@ -308,6 +308,7 @@ TOOL_LABELS = {
     "sys_query": "系统查询", "web_search": "联网搜索", "web_extract": "读取网页",
     "movie_ratings": "查电影评分", "esports_scores": "查电竞比分", "ticket_search": "查票务",
     "meeting_start": "开始会议纪要", "meeting_stop": "结束会议纪要", "recall_history": "翻聊天记录",
+    "flow_run": "运行流程", "flow_list": "看我的流程",
 }
 
 
