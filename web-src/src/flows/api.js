@@ -1,7 +1,7 @@
 import { csrfHeaders } from '../api.js'
 
-/* 流程页的接口封装（第十三轮契约 docs/proposals/2026-10-round13-platform.md 4.2 / 4.3；
- * 第十八轮节点图接口见 docs/proposals/2026-10-round18-flows.md §3，文件末尾「v2」一节）。
+/* 流程页的接口封装（第十八轮节点图契约见 docs/proposals/2026-10-round18-flows.md §3，文件末尾「v2」一节；
+ * 第十三轮的线性积木接口 createFlow / updateFlow / runFlow 已随旧页面删除）。
  * 约定与 ../api.js 一致：401 抛 Error('401') 交给页面调 onExpired；其余错误一律换成人话。 */
 
 function httpError(status, reason) {
@@ -34,46 +34,18 @@ async function request(url, init) {
 
 const json = () => ({ 'Content-Type': 'application/json', ...csrfHeaders() })
 
-/** 积木元数据：kind=step 或带 step 的插件 + 职业模板 */
-export function getCatalog() {
-  return request('/api/market/catalog')
-}
-
-/** 当前账号智能体的职业（把对口模板排前面）；还没有智能体或接口未就绪都当 null */
-export async function getMyProfession() {
-  try {
-    const data = await request('/api/platform')
-    return data?.platform?.profession || null
-  } catch (err) {
-    if (err.message === '401') throw err
-    return null
-  }
-}
-
 export async function listFlows() {
   const data = await request('/api/flows')
   return Array.isArray(data.flows) ? data.flows : []
-}
-
-/** 只发契约里的 {plugin, options}：本地新加的步骤还没有服务端 id */
-function payload(name, steps) {
-  return JSON.stringify({ name, steps: steps.map(s => ({ plugin: s.plugin, options: s.options || {} })) })
-}
-
-export async function createFlow(name, steps) {
-  return (await request('/api/flows', { method: 'POST', headers: json(), body: payload(name, steps) })).flow
-}
-
-export async function updateFlow(id, name, steps) {
-  return (await request(`/api/flows/${encodeURIComponent(id)}`, { method: 'PUT', headers: json(), body: payload(name, steps) })).flow
 }
 
 export async function deleteFlow(id) {
   return request(`/api/flows/${encodeURIComponent(id)}`, { method: 'DELETE', headers: csrfHeaders() })
 }
 
-/** 最近几次运行；兼容 {runs:[…]} 与直接返回数组两种写法 */
-export async function listRuns(id, limit = 5) {
+/** 最近几次运行（契约 §3.3：{runs: [{id, status, started_at, finished_at, ms, input_summary, nodes, output_text, page_url, error}]}）；
+ *  兼容直接返回数组的写法 */
+export async function listRuns(id, limit = 20) {
   const data = await request(`/api/flows/${encodeURIComponent(id)}/runs?limit=${limit}`)
   if (Array.isArray(data)) return data
   return Array.isArray(data.runs) ? data.runs : []
@@ -96,17 +68,6 @@ export function sseLineParser() {
     }
     return out
   }
-}
-
-/**
- * 运行流程：POST /api/flows/{id}/run → text/event-stream，逐个产出事件
- * {type:'run_start'|'step_start'|'step_done'|'step_error'|'run_done', …}。signal 用于中途取消。
- */
-export async function* runFlow(id, input, signal = null) {
-  const body = {}
-  if (input?.text) body.text = input.text
-  if (input?.file) body.file = { name: input.file.name, data_base64: input.file.data_base64 }
-  yield* streamRun(id, body, signal)
 }
 
 async function* streamRun(id, body, signal) {
@@ -170,14 +131,15 @@ export async function saveFlow({ id = '', name, summary = '', graph }) {
   return data.flow
 }
 
-/** 模板库：{ categories: [{ id, label }], templates: [{ id, name, summary, category, icon, plugins, graph }] } */
+/** 模板库：{ categories: [{ id, label }], templates: [{ id, name, summary, category, icon, plugins, graph, needs }] } */
 export function getTemplates() {
   return request('/api/flows/templates')
 }
 
-/** 一句话生成流程草稿（不落库）：{ draft: { name, summary, graph }, notes: [人话说明], source: 'model'|'template' } */
-export function composeFlow(description) {
-  return request('/api/flows/compose', { method: 'POST', headers: json(), body: JSON.stringify({ description }) })
+/** 一句话生成流程草稿（不落库）：{ draft: { name, summary, graph }, notes: [人话说明], source: 'model'|'template' }。
+ *  signal 用于用户点「取消」时中止 */
+export function composeFlow(description, signal = undefined) {
+  return request('/api/flows/compose', { method: 'POST', headers: json(), body: JSON.stringify({ description }), signal })
 }
 
 /** 定时运行：{ trigger: { kind, schedule, inputs, notify, enabled, next_run_at, last_run_at, last_status } | null } */
@@ -195,4 +157,15 @@ export async function setTrigger(id, trigger) {
  */
 export async function* runGraph(id, inputs = {}, signal = null) {
   yield* streamRun(id, { inputs }, signal)
+}
+
+/** 飞书绑定情况（定时运行的通知渠道用）：{ configured, bound }；读不到（接口出错）按没绑定处理，401 照常抛 */
+export async function getFeishuStatus() {
+  try {
+    const s = await request('/api/feishu/status')
+    return { configured: s.configured !== false, bound: Boolean(s.bound) }
+  } catch (err) {
+    if (err.message === '401') throw err
+    return { configured: true, bound: false }
+  }
 }
