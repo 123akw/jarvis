@@ -28,7 +28,9 @@ log = logging.getLogger("jarvis")
 MAX_DESCRIPTION = 300
 RATE_LIMIT = 6                 # 同一账号每分钟最多生成几次
 RATE_WINDOW = 60.0
-MODEL_TIMEOUT = 90.0
+MODEL_TIMEOUT = 60.0           # 单次模型调用的上限
+RETRY_MIN_SECONDS = 10.0       # 第一次花太久、剩下不到这么多秒就不重试了
+MAX_NOTES = 4
 MAX_MODEL_NODES = 20           # 模型给的节点（不含开始）超过这个数就不要了
 MAX_NAME = 20
 MAX_SUMMARY = 60
@@ -36,18 +38,7 @@ MAX_TOOL_LINE = 90
 
 # 流程里不该自动跑的工具：删除 / 勾掉 / 需要桌面端现场开会的
 HIDDEN_TOOLS = frozenset({"memo_del", "schedule_del", "todo_done", "profile_forget", "meeting_start", "meeting_stop"})
-CORE_TOOL_LABELS = {
-    "weather": "查城市天气和 3 天预报", "weather_here": "按定位查天气", "my_location": "查我在哪",
-    "web_search": "联网搜索网页或新闻", "web_extract": "读一个网页的正文",
-    "schedule_add": "加一条日程", "schedule_list": "列出日程（今天、明天会标出）",
-    "todo_add": "加一条待办", "todo_list": "列出未完成的待办",
-    "memo_add": "记一条备忘", "memo_list": "列出备忘",
-    "profile_remember": "记住一件关于我的事", "profile_list": "列出记住的关于我的事",
-    "recall_history": "翻以前的聊天记录", "movie_ratings": "查电影评分", "esports_scores": "查电竞比分",
-    "ticket_search": "查演出票价与购票入口",
-}
 OPS = ("contains", "not_contains", "equals", "not_equals", "empty", "not_empty", "gt", "lt", "ge", "le")
-_FIRST_CLAUSE = re.compile(r"[。；;\n]")
 _FENCE = re.compile(r"^\s*```[A-Za-z]*\s*$", re.M)
 
 _POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="jarvis-flow-compose")
@@ -97,30 +88,6 @@ def _clip(text, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def _tool_schema(tool) -> dict:
-    schema = getattr(tool, "args_schema", None)
-    try:
-        if isinstance(schema, dict):
-            return schema
-        if schema is not None and hasattr(schema, "model_json_schema"):
-            return schema.model_json_schema()
-    except Exception:
-        pass
-    return {"properties": dict(getattr(tool, "args", {}) or {})}
-
-
-def _tool_objects() -> dict:
-    out = {}
-    try:
-        from jarvis.tools import TOOLS
-        out.update({t.name: t for t in TOOLS})
-    except Exception as exc:
-        log.info("core tools unavailable for compose: %s", type(exc).__name__)
-    for tool in templates_mod._registry().pack_tools:
-        out[tool.name] = tool
-    return out
-
-
 @dataclass
 class Catalog:
     """当前账号能放进流程的节点：{工具名: {...}}、{技能 id: {...}}、{积木 id: {...}}。"""
@@ -131,45 +98,41 @@ class Catalog:
 
 
 def build_catalog(user_id: str, deps=None, access: templates_mod.Access | None = None) -> Catalog:
-    """Owner：全部已启用插件；智能体账号：全部列出，没装的标「未装」，提示里让模型优先用装了的。"""
+    """可用节点清单（工具名、人话名、参数复用引擎的节点目录 jarvis/flows/nodes.py）。
+    Owner：全部已启用插件；智能体账号：全部列出，没装的标「未装」，提示里让模型优先用装了的。"""
+    from jarvis.flows import nodes
     reg = templates_mod._registry()
     access = access or templates_mod.Access.load(user_id, deps)
     catalog = Catalog(access=access)
-    objects = _tool_objects()
     for entry in reg.entries:
         if entry.get("status") != "ok":
             continue
         installed = access.installed_has(entry["id"])
         if entry.get("kind") == "skill":
-            catalog.skills[entry["id"]] = {"name": entry["name"], "summary": entry.get("summary") or "",
-                                           "installed": installed}
+            if nodes.skill_body(entry["id"]) is not None:
+                catalog.skills[entry["id"]] = {"name": entry["name"], "summary": entry.get("summary") or "",
+                                               "installed": installed}
             continue
-        labels = {t["name"]: t.get("label") or "" for t in entry.get("tool_info") or []}
+        if entry.get("kind") not in ("tool", "channel"):
+            continue
         for name in entry.get("tools") or ():
-            tool = objects.get(name)
+            tool = nodes.find_tool(name, access.deps)
             if tool is None or name in HIDDEN_TOOLS:
                 continue
-            schema = _tool_schema(tool)
-            required = set(schema.get("required") or [])
-            args = []
-            for arg, prop in (schema.get("properties") or {}).items():
-                desc = _FIRST_CLAUSE.split(str((prop or {}).get("description") or ""), maxsplit=1)[0]
-                args.append({"name": arg, "required": arg in required, "label": _clip(desc, 18)})
-            label = labels.get(name) or CORE_TOOL_LABELS.get(name) or \
-                _FIRST_CLAUSE.split(str(tool.description or ""), maxsplit=1)[0]
-            catalog.tools[name] = {"plugin": entry["id"], "plugin_name": entry["name"], "label": _clip(label, 30),
-                                   "args": args, "installed": installed}
+            args = [{"name": a["name"], "required": a["required"], "label": a["label"] if a["label"] != a["name"] else "",
+                     "enum": a.get("enum")} for a in nodes.tool_args(tool)]
+            catalog.tools[name] = {"plugin": entry["id"], "plugin_name": entry["name"],
+                                   "label": nodes.tool_label(entry, name, tool), "args": args, "installed": installed}
     flow_steps = templates_mod._steps()
     for step_id, spec in flow_steps.STEPS.items():
-        if spec.role == flow_steps.ROLE_INPUT:
+        if spec.role not in (flow_steps.ROLE_PROCESS, flow_steps.ROLE_OUTPUT):
             continue
-        plugin = templates_mod.step_plugin(step_id)
-        entry = reg.entry_by_id.get(step_id) or reg.entry_by_id.get(plugin)
-        if entry is None or entry.get("status") != "ok":
+        entry = reg.entry_by_id.get(step_id) or {}
+        if entry and entry.get("status") != "ok":
             continue
-        catalog.steps[step_id] = {"name": spec.name, "role": spec.role, "plugin": plugin,
-                                  "summary": entry.get("summary") or "",
-                                  "options": [o for o in spec.options], "installed": access.installed_has(step_id)}
+        catalog.steps[step_id] = {"name": spec.name, "role": spec.role,
+                                  "summary": spec.summary or entry.get("summary") or "",
+                                  "options": nodes.step_options(spec), "installed": True}
     return catalog
 
 
@@ -179,7 +142,9 @@ def catalog_text(catalog: Catalog) -> str:
 
     lines = ["### 插件工具（type=tool，写 plugin 和 tool，参数带 * 的必填）"]
     for name, item in catalog.tools.items():
-        args = "、".join(f"{a['name']}{'*' if a['required'] else ''}" + (f"（{a['label']}）" if a["label"] else "")
+        args = "、".join(f"{a['name']}{'*' if a['required'] else ''}"
+                        + (f"（{a['label']}" + (f"：{'|'.join(map(str, a['enum']))}" if a.get("enum") else "") + "）"
+                           if a["label"] or a.get("enum") else "")
                         for a in item["args"]) or "无"
         line = f"- {item['plugin']}/{name}{mark(item)}：{item['label']}｜参数 {args}"
         lines.append(line if len(line) <= MAX_TOOL_LINE * 2 else line[: MAX_TOOL_LINE * 2 - 1] + "…")
@@ -390,9 +355,6 @@ def _node_data(raw: dict, kind: str, catalog: Catalog, notes: list[str]) -> dict
         args_in = src.get("args") if isinstance(src.get("args"), dict) else {}
         known = {a["name"] for a in item["args"]}
         args = {k: _text(v, 2000) for k, v in args_in.items() if k in known and _text(v, 2000)}
-        missing = [a["label"] or a["name"] for a in item["args"] if a["required"] and a["name"] not in args]
-        if missing:
-            notes.append(f"「{title}」还缺「{'、'.join(missing)}」，打开后填上再运行")
         return {"title": title, "plugin": item["plugin"], "tool": name, "args": args}
     if kind == "condition":
         cases = []
@@ -607,6 +569,29 @@ def draft_from_model(obj: dict, catalog: Catalog, description: str) -> tuple[dic
     return {"name": name, "summary": summary, "graph": clean}, notes
 
 
+# ---------- 运行前检查（参数类问题喂回模型） ----------
+
+def check_runnable(graph: dict, user_id: str, deps=None) -> str:
+    """用引擎的运行前检查（executor.preflight）找参数类问题：提示词空、必填参数没填、条件没设、没连上……
+    与账号环境有关的（飞书没绑定、智能体没装插件、模型没配）按「全都满足」放过——那些进 notes，不算设计错误。"""
+    from dataclasses import replace
+    from jarvis.flows import executor, nodes
+    from jarvis.plugins import REQUIREMENTS
+    base = deps if deps is not None else templates_mod.default_deps()
+    try:
+        relaxed = replace(base, feishu_ready=lambda uid: True, wechat_owner=lambda uid: True,
+                          compose=base.compose or (lambda uid, prompt: ""))
+    except TypeError:   # 不是 FlowDeps（测试替身）：照原样查
+        relaxed = base
+    account = nodes.Account(user_id=user_id, installed=None, status=dict.fromkeys(REQUIREMENTS, True))
+    try:
+        found = executor.preflight(graph, user_id, relaxed, account)
+    except Exception as exc:   # 检查本身出错不拦草稿
+        log.warning("flow compose preflight failed: %s", type(exc).__name__)
+        return ""
+    return found[1] if found else ""
+
+
 # ---------- 人话说明 ----------
 
 def _chain(graph: dict) -> str:
@@ -614,31 +599,43 @@ def _chain(graph: dict) -> str:
     titles = [by_id[i]["data"].get("title") or "" for i in templates_mod.topo_order(graph)
               if by_id[i]["type"] not in ("start", "end")]
     titles = [t for t in titles if t]
-    if len(titles) > 8:
-        titles = titles[:8] + ["…"]
+    if len(titles) > 6:
+        titles = titles[:6] + ["…"]
     return " → ".join(titles)
 
 
-def describe(graph: dict, access: templates_mod.Access) -> list[str]:
-    notes = []
-    chain = _chain(graph)
-    if chain:
-        notes.append(f"我用了 {chain}")
+def _problems(graph: dict, access: templates_mod.Access) -> list[str]:
+    out = []
+    for item in access.details(graph):
+        reason = item["reason"]
+        if not reason:
+            continue
+        if "绑定飞书" in reason:
+            reason = "飞书还没绑定，运行前要先到设置里绑定"
+        if reason not in out:
+            out.append(reason)
+    return out
+
+
+def _fields_note(graph: dict) -> list[str]:
     start = next((n for n in graph["nodes"] if n["id"] == graph_mod.START_ID), None)
     fields = (start or {}).get("data", {}).get("fields") or []
-    if fields:
-        notes.append("运行时要填：" + "、".join(f["label"] for f in fields))
-    if any(n["type"] == "condition" for n in graph["nodes"]):
-        notes.append("里面有条件分支：按条件只走其中一路")
-    for pid in templates_mod.graph_plugins(graph):
-        problem = access.problem(pid)
-        if not problem:
-            continue
-        if "绑定飞书" in problem:
-            problem = "飞书还没绑定，运行前要先到设置里绑定"
-        if problem not in notes:
-            notes.append(problem)
-    return notes
+    return ["运行时要填：" + "、".join(f["label"] for f in fields)] if fields else []
+
+
+def _cap(notes: list[str]) -> list[str]:
+    out = []
+    for note in notes:
+        if note and note not in out:
+            out.append(note)
+    return out[:MAX_NOTES]
+
+
+def describe(graph: dict, access: templates_mod.Access, extra: list[str] | None = None) -> list[str]:
+    """notes：先说用了哪些节点，再说运行前要办的事（绑定、装插件、没填的参数），最后说运行时要填什么；最多 4 条。"""
+    chain = _chain(graph)
+    return _cap(([f"我用了 {chain}"] if chain else []) + _problems(graph, access) + list(extra or [])
+                + _fields_note(graph))
 
 
 # ---------- 退回模板 ----------
@@ -684,11 +681,11 @@ def fallback(description: str, reason: str, access: templates_mod.Access) -> dic
     best, score = match_template(description, templates)
     if best is not None and score > 0:
         draft = {"name": best["name"], "summary": best["summary"], "graph": best["graph"]}
-        notes = [f"这次没能按你的话直接生成（{reason}），先给你最接近的模板「{best['name']}」，打开后可以在画布里改"]
+        head = f"这次没完全想明白（{reason}），我按模板「{best['name']}」先给你搭了一个，打开后可以改"
     else:
         draft = generic_draft(description)
-        notes = [f"这次没能按你的话直接生成（{reason}），先给你一个「AI 按要求处理」的简单流程，打开后可以在画布里加节点"]
-    return {"draft": draft, "notes": notes + describe(draft["graph"], access), "source": "template"}
+        head = f"这次没完全想明白（{reason}），先给你搭了个「AI 按要求处理」的简单流程，打开后可以加节点"
+    return {"draft": draft, "notes": _cap([head] + describe(draft["graph"], access)), "source": "template"}
 
 
 # ---------- 入口 ----------
@@ -709,19 +706,55 @@ def _call_model(compose_fn, user_id: str, prompt: str, timeout: float) -> str:
         raise ComposeError("模型暂时不可用") from None
 
 
-def compose_draft(user_id: str, description: str, *, deps=None, timeout: float = MODEL_TIMEOUT) -> dict:
-    """→ {draft: {name, summary, graph}, notes: [人话], source: "model"|"template"}；不落库。"""
+RETRY = """
+
+## 你上一次给的结果
+{previous}
+
+## 上一次的问题
+{problem}
+请改正这个问题，重新输出完整的 JSON 对象（不要代码块，不要解释）。"""
+
+
+def compose_draft(user_id: str, description: str, *, deps=None, timeout: float = MODEL_TIMEOUT,
+                  clock=time.monotonic) -> dict:
+    """→ {draft: {name, summary, graph}, notes: [人话], source: "model"|"template"}；不落库。
+
+    第一次的结果解析 / 校验不过，或运行前检查查出参数类问题，就把问题（人话）喂回模型重试一次；
+    重试后仍校验不过才退回模板。只差参数类问题的草稿照样给出，把问题写进 notes。"""
     access = templates_mod.Access.load(user_id, deps)
     compose_fn = getattr(deps, "compose", None)
-    try:
-        if compose_fn is None:
-            raise ComposeError("还没有可用的模型")
-        catalog = build_catalog(user_id, deps, access)
-        raw = _call_model(compose_fn, user_id, build_prompt(description, catalog), timeout)
-        draft, extra = draft_from_model(parse_reply(raw), catalog, description)
-    except ComposeError as exc:
-        log.info("flow compose fell back to template: %s", exc)
-        return fallback(description, str(exc), access)
-    notes = describe(draft["graph"], access)
-    notes += [n for n in extra if n not in notes]
-    return {"draft": copy.deepcopy(draft), "notes": notes, "source": "model"}
+    if compose_fn is None:
+        return fallback(description, "还没有可用的模型", access)
+    catalog = build_catalog(user_id, deps, access)
+    prompt = build_prompt(description, catalog)
+    deadline = clock() + timeout * 1.5
+    kept = None          # 校验通过、只差参数类问题的草稿：(draft, extra notes, problem)
+    reason, raw = "", ""
+    for attempt in (1, 2):
+        left = timeout if attempt == 1 else min(timeout, deadline - clock())
+        if left < RETRY_MIN_SECONDS and attempt == 2:
+            break
+        ask = prompt if attempt == 1 else prompt + RETRY.format(previous=_clip(raw, 3000) or "（空）", problem=reason)
+        try:
+            raw = _call_model(compose_fn, user_id, ask, left)
+        except ComposeError as exc:   # 模型不可用 / 超时：不再重试
+            reason = str(exc)
+            break
+        try:
+            draft, extra = draft_from_model(parse_reply(raw), catalog, description)
+        except ComposeError as exc:
+            reason = str(exc)
+            log.info("flow compose attempt %d rejected: %s", attempt, reason)
+            continue
+        problem = check_runnable(draft["graph"], user_id, deps)
+        if not problem:
+            return {"draft": copy.deepcopy(draft), "notes": describe(draft["graph"], access, extra), "source": "model"}
+        kept, reason = (draft, extra, problem), problem
+        log.info("flow compose attempt %d needs fixing: %s", attempt, problem)
+    if kept is not None:
+        draft, extra, problem = kept
+        return {"draft": copy.deepcopy(draft), "notes": describe(draft["graph"], access, [*extra, problem]),
+                "source": "model"}
+    log.info("flow compose fell back to template: %s", reason)
+    return fallback(description, reason or "AI 给的结果看不懂", access)

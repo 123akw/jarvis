@@ -134,7 +134,7 @@ def test_needs_are_human_readable():
     by_id = {t["id"]: t for t in TEMPLATES}
     assert "需要绑定飞书" in by_id["morning_brief"]["needs"]
     assert by_id["morning_brief"]["suggest_trigger"] == {"repeat": "daily", "time": "07:30"}
-    assert any("高德地图" in n and "Key" in n for n in by_id["trip_plan"]["needs"])
+    assert T.static_needs(["amap", "feishu_send"]) == ["「高德地图」要先请管理员在插件管理里填好 Key", "需要绑定飞书"]
     assert by_id["essay_review"]["needs"] == []
     for t in TEMPLATES:
         for need in t["needs"]:
@@ -180,3 +180,19 @@ def test_http_templates_requires_login_and_is_not_a_flow_id():
     assert len(body["templates"]) >= 12 and body["categories"][0] == {"id": "office", "label": "办公"}
     first = body["templates"][0]
     assert set(first) >= {"id", "name", "summary", "category", "icon", "plugins", "graph", "needs"}
+
+
+@pytest.mark.parametrize("template_id", TEMPLATE_IDS)
+def test_template_passes_engine_preflight(template_id, owner_id):
+    """引擎「运行前严格」：Owner + 飞书已绑定的替身环境下，每个模板都不该有提示词空、必填参数没填、没连上之类的问题。"""
+    from dataclasses import replace
+    from jarvis.flows import engine, executor, nodes
+    from jarvis.plugins import REQUIREMENTS
+    from jarvis.tenancy import TenantStore
+    graph = validate_graph(T.get_template(template_id)["graph"])
+    deps = engine.FlowDeps(tenant_store=TenantStore, compose=lambda uid, prompt: "",
+                           feishu_ready=lambda uid: True, wechat_owner=lambda uid: True)
+    account = nodes.Account(user_id=owner_id, installed=None, status=dict.fromkeys(REQUIREMENTS, True))
+    assert executor.preflight(graph, owner_id, deps, account) is None
+    from jarvis.flows import compose as C
+    assert C.check_runnable(graph, owner_id, replace(deps, feishu_ready=lambda uid: False)) == ""

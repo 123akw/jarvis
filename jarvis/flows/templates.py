@@ -5,7 +5,7 @@
 - 职业套餐里的旧线性流程（jarvis/plugins 的 ``_flow``）挑几条用 ``graph_from_steps`` 换算后一并收进来；
 - ``plugins`` / ``needs`` 由节点图推出来（需要绑定飞书、要先填 Key……），``plugin_details`` 按当前账号
   标出能不能用（智能体账号没装的插件也列出，并说明到哪里加）；
-- :class:`Access` 与 :func:`graph_plugins` / :func:`layout` / :func:`check_refs` 也给「一句话生成」用。
+- :class:`Access`（包着引擎的 nodes.Account）与 :func:`layout` / :func:`check_refs` 也给「一句话生成」用。
 """
 from __future__ import annotations
 
@@ -31,12 +31,6 @@ CATEGORIES = (
 )
 CATEGORY_IDS = tuple(c["id"] for c in CATEGORIES)
 
-REQUIREMENT_REASONS = {
-    "feishu_bound": "先在设置里绑定飞书",
-    "wechat_owner": "只有管理员账号能用",
-    "desktop": "要先打开电脑上的贾维斯桌面端",
-    "files": "文件功能暂时不可用",
-}
 REQUIREMENT_NEEDS = {
     "feishu_bound": "需要绑定飞书",
     "wechat_owner": "只有管理员账号能发微信",
@@ -60,28 +54,10 @@ def _steps():
     return flow_steps
 
 
-def step_plugin(step_id: str) -> str:
-    """积木 → 用户眼里的插件 id：核心积木就是自己；插件包提供的积木（word_out）归到它的插件（word）。"""
-    entry = _registry().entry_by_id.get(step_id) or {}
-    return entry.get("pack") or step_id
-
-
 def graph_plugins(graph: dict) -> list[str]:
-    """节点图用到的插件（按节点顺序去重）：工具的插件、技能、积木。"""
-    out: list[str] = []
-    for node in graph.get("nodes") or []:
-        data = node.get("data") or {}
-        kind = node.get("type")
-        pid = ""
-        if kind == "tool":
-            pid = data.get("plugin") or ""
-        elif kind == "llm":
-            pid = data.get("skill") or ""
-        elif kind == "step" and data.get("step"):
-            pid = step_plugin(data["step"])
-        if pid and pid not in out:
-            out.append(pid)
-    return out
+    """节点图用到的插件（按节点顺序去重：工具的插件、技能、积木）——与引擎的流程列表同一口径。"""
+    from jarvis.flows import nodes
+    return nodes.graph_plugins(graph)
 
 
 def static_needs(plugins: list[str]) -> list[str]:
@@ -103,75 +79,60 @@ def static_needs(plugins: list[str]) -> list[str]:
     return needs
 
 
-class Access:
-    """当前账号能用哪些插件：智能体账号只认装了的；绑定 / 桌面端 / 文件等前置条件（与引擎的运行前检查同口径）。"""
+def default_deps():
+    from jarvis.flows.engine import FlowDeps
+    from jarvis.tenancy import TenantStore
+    return FlowDeps(tenant_store=TenantStore)
 
-    def __init__(self, user_id: str, *, installed: list[str] | None = None, status: dict | None = None):
-        self.user_id = user_id
-        self.installed = installed
-        self.status = status or {}
+
+class Access:
+    """当前账号对节点能不能用：复用引擎的 :class:`jarvis.flows.nodes.Account`（智能体账号只认装了的插件、
+    绑定 / 桌面端 / 文件等前置条件），积木按引擎的运行前检查只看前置条件——和画布、运行时说的一样。"""
+
+    def __init__(self, account, deps):
+        self.account, self.deps = account, deps
 
     @classmethod
     def load(cls, user_id: str, deps=None) -> "Access":
-        installed = None
-        try:
-            from jarvis.platforms import agent_platform
-            row = agent_platform(user_id)
-            installed = list(row["plugins"]) if row is not None else None
-        except Exception as exc:
-            log.info("flow extras platform lookup failed: %s", type(exc).__name__)
-        try:
-            from jarvis.plugins import requirement_status
-            status = dict(requirement_status(user_id))
-        except Exception as exc:
-            log.info("flow extras requirement lookup failed: %s", type(exc).__name__)
-            status = {}
-        if deps is not None:   # 飞书 / 微信以注入的依赖为准（测试可替换）
-            for key, attr, args in (("feishu_bound", "feishu_ready", (user_id,)),
-                                    ("wechat_owner", "wechat_owner", (user_id,))):
-                check = getattr(deps, attr, None)
-                if check is None:
-                    continue
-                try:
-                    status[key] = bool(check(*args))
-                except Exception:
-                    status[key] = False
-        return cls(user_id, installed=installed, status=status)
+        from jarvis.flows import nodes
+        deps = deps if deps is not None else default_deps()
+        return cls(nodes.Account.load(user_id, deps), deps)
 
     @property
-    def is_agent(self) -> bool:
-        return self.installed is not None
+    def user_id(self) -> str:
+        return self.account.user_id
 
     def installed_has(self, plugin_id: str) -> bool:
-        if self.installed is None:
-            return True
-        entry = _registry().entry_by_id.get(plugin_id) or {}
-        return plugin_id in self.installed or (entry.get("pack") or "") in self.installed
+        return self.account.installed is None or plugin_id in self.account.installed
 
-    def problem(self, plugin_id: str) -> str:
-        """能用返回空串，否则返回人话原因。"""
-        entry = _registry().entry_by_id.get(plugin_id)
-        if entry is None:
-            return "这个插件已经停用或卸载了"
-        name = entry.get("name") or plugin_id
-        if not self.installed_has(plugin_id):
-            return f"这个智能体还没装「{name}」，到智能体设置里加上就能用"
-        if entry.get("status") == "needs_config":
-            return f"「{name}」要先请管理员在插件管理里填好 Key"
-        if entry.get("status") != "ok":
-            return f"「{name}」暂时不可用：{entry.get('reason') or '插件加载失败'}"
-        for need in entry.get("requires") or ():
-            if not self.status.get(need, False):
-                reason = REQUIREMENT_REASONS.get(need, "暂时用不了")
-                return reason if need != "feishu_bound" else f"「{name}」要{reason}"
+    def node_problem(self, node: dict) -> str:
+        """插件类节点对这个账号的可用性问题（不查参数、提示词这些画布里改的东西）；能用返回空串。"""
+        data, kind = node.get("data") or {}, node.get("type")
+        if kind == "tool":
+            return self.account.tool_problem(data.get("plugin") or "", data.get("tool") or "", self.deps)
+        if kind == "llm" and data.get("skill"):
+            return self.account.skill_problem(data["skill"])
+        if kind == "step":
+            from jarvis.flows.engine import requirement_problem
+            if data.get("step") not in _steps().STEPS:
+                return "这个积木已经不在了（可能插件被停用了）"
+            return requirement_problem(data["step"], self.user_id, self.deps) or ""
         return ""
 
-    def details(self, plugins: list[str]) -> list[dict]:
+    def details(self, graph: dict) -> list[dict]:
+        """[{id, name, icon, available, reason}]：节点图用到的每个插件。"""
         entries = _registry().entry_by_id
+        problems: dict[str, str] = {}
+        for node in graph.get("nodes") or []:
+            pids = graph_plugins({"nodes": [node]})
+            if pids and pids[0] not in problems:
+                problems[pids[0]] = self.node_problem(node)
+            elif pids and not problems[pids[0]]:
+                problems[pids[0]] = self.node_problem(node)
         out = []
-        for pid in plugins:
+        for pid in graph_plugins(graph):
             entry = entries.get(pid) or {}
-            reason = self.problem(pid)
+            reason = problems.get(pid, "")
             out.append({"id": pid, "name": entry.get("name") or pid, "icon": entry.get("icon") or "🧩",
                         "available": not reason, "reason": reason})
         return out
@@ -641,19 +602,24 @@ def _builtin() -> list[dict]:
             keywords=("新闻", "资讯", "行业", "动态", "摘要", "每天"),
             trigger={"repeat": "daily", "time": "08:30"}),
         _template(
-            "trip_plan", "周末出游攻略", "life", "🧳",
-            "查目的地天气、用高德搜景点，排好行程、预算表和行前清单",
+            "trip_plan", "周末出游攻略（看天气排）", "life", "🧳",
+            "先查目的地天气：有雨就排室内为主的行程，天晴排户外，附预算表和行前清单",
             [_start(_field("city", "去哪个城市", required=True, placeholder="比如：苏州"),
                     _field("days", "玩几天", "select", options=("1 天", "2 天", "3 天"), default="2 天"),
                     _field("who", "和谁去、预算", placeholder="比如：带老人，人均 1000")),
              _tool("n1", "查天气", "weather", "weather", city="{{start.city}}"),
-             _tool("n2", "搜景点", "amap", "amap__maps_text_search", keywords="景点", city="{{start.city}}"),
-             _llm("n3", "排行程", "排一份{{start.city}}{{start.days}}的行程，同行与预算：{{start.who}}。"
-                  "结合天气安排室内外，参考搜到的景点（挑顺路的）。附预算表和行前清单。" + NO_ASK
-                  + "\n\n天气：{{n1.text}}\n\n景点：{{n2.text}}", skill="trip_plan"),
-             _end("end", "出游攻略", "{{n3.text}}", page=True)],
-            _edges(("start", "n1"), ("start", "n2"), ("n1", "n3"), ("n2", "n3"), ("n3", "end")),
-            keywords=("旅行", "旅游", "出游", "攻略", "行程", "景点", "周末", "高德")),
+             _cond("n2", "会下雨吗", _case("rain", "有雨", ("n1.text", "contains", "雨"))),
+             _llm("n3", "排雨天行程", "排一份{{start.city}}{{start.days}}的行程，这几天有雨：以博物馆、老街、室内展馆和美食为主，"
+                  "户外安排在雨小的时段。同行与预算：{{start.who}}。附预算表和行前清单（记得带伞）。" + NO_ASK
+                  + "\n\n天气：{{n1.text}}", skill="trip_plan"),
+             _end("end", "雨天攻略", "{{n3.text}}", page=True),
+             _llm("n4", "排晴天行程", "排一份{{start.city}}{{start.days}}的行程，这几天天气不错：多安排户外景点和散步路线，"
+                  "注意防晒。同行与预算：{{start.who}}。附预算表和行前清单。" + NO_ASK
+                  + "\n\n天气：{{n1.text}}", skill="trip_plan"),
+             _end("end2", "晴天攻略", "{{n4.text}}", page=True)],
+            _edges(("start", "n1"), ("n1", "n2"), ("n2", "n3", "rain"), ("n3", "end"), ("n2", "n4", "else"),
+                   ("n4", "end2")),
+            keywords=("旅行", "旅游", "出游", "攻略", "行程", "景点", "周末", "下雨")),
         _template(
             "weekly_menu", "一周菜单 + 买菜清单", "life", "🍲",
             "按人数和口味排一周晚饭，列好买菜清单并加进待办",
@@ -733,7 +699,7 @@ def templates_for(user_id: str, deps=None) -> dict:
     access = Access.load(user_id, deps)
     templates = []
     for item in all_templates():
-        details = access.details(item["plugins"])
+        details = access.details(item["graph"])
         templates.append({
             "id": item["id"], "name": item["name"], "summary": item["summary"], "category": item["category"],
             "icon": item["icon"], "plugins": item["plugins"], "graph": item["graph"], "needs": item["needs"],
