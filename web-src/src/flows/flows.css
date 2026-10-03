@@ -8,13 +8,13 @@
 .fh-page{
   --fh-start:#64C8F5;--fh-ai:#A894FF;--fh-tool:#4FD1C5;--fh-logic:#F5C451;--fh-out:#F7B46A;--fh-end:#5FD38D;
   --fh-card:#16161B;--fh-stage:rgba(255,255,255,.022);--fh-dot:rgba(255,255,255,.075);
-  --fh-lift:0 12px 32px rgba(0,0,0,.36);
+  --fh-lift:0 12px 32px rgba(0,0,0,.36);--fh-seg-on:rgba(255,255,255,.13);--fh-sheet:#242429;
   position:fixed;inset:0;display:flex;flex-direction:column;color:var(--jv-text);
   background:radial-gradient(1100px 560px at 50% -20%,rgba(94,92,230,.12),transparent 62%),var(--jv-bg)}
 body.light .fh-page{
   --fh-start:#0B8DC4;--fh-ai:#6B55E6;--fh-tool:#0F8A80;--fh-logic:#B7791F;--fh-out:#D2711C;--fh-end:#248A3D;
   --fh-card:#FFFFFF;--fh-stage:#F6F6F9;--fh-dot:rgba(0,0,0,.09);
-  --fh-lift:0 12px 32px rgba(0,0,0,.08);
+  --fh-lift:0 12px 32px rgba(0,0,0,.08);--fh-seg-on:#FFFFFF;--fh-sheet:#FCFCFE;
   background:radial-gradient(1100px 560px at 50% -20%,rgba(0,122,255,.07),transparent 62%),var(--jv-bg)}
 .fh-page [data-tone=start]{--tone:var(--fh-start)}
 .fh-page [data-tone=ai]{--tone:var(--fh-ai)}
@@ -164,7 +164,7 @@ body.light .fh-page{
 .fh-tab{flex:none;height:32px;padding:0 14px;border:none;border-radius:8px;background:transparent;color:var(--jv-text-2);
   font-size:13.5px;white-space:nowrap;transition:background .2s,color .2s}
 .fh-tab:hover{color:var(--jv-text)}
-.fh-tab.is-on{background:var(--fh-card);color:var(--jv-text);font-weight:500;box-shadow:0 1px 2px rgba(0,0,0,.24)}
+.fh-tab.is-on{background:var(--fh-seg-on);color:var(--jv-text);font-weight:500;box-shadow:0 1px 2px rgba(0,0,0,.24)}
 body.light .fh-tab.is-on{box-shadow:0 1px 2px rgba(0,0,0,.08),0 0 0 1px rgba(0,0,0,.04)}
 .fh-tpl-grid{list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(244px,1fr));gap:16px}
 .fh-tpl-grid>li{display:flex;min-width:0}
@@ -215,8 +215,11 @@ body.light .fh-tab.is-on{box-shadow:0 1px 2px rgba(0,0,0,.08),0 0 0 1px rgba(0,0
 .fh-notes ul{display:grid;gap:4px;margin:8px 0 0 20px;font-size:13px;line-height:1.55;color:var(--jv-text-2)}
 .fh-notes li.is-warn{color:var(--jv-warn)}
 .fh-preview .fh-form-err{margin-top:12px}
-.fh-preview-actions,.fh-sheet-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px;margin-top:24px}
-.fh-sheet-actions{margin-top:4px}
+.fh-preview-actions,.fh-sheet-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px}
+/* 弹层底部操作区：长内容滚动时也一直看得见「打开编辑 / 保存」 */
+.fh-sheet-foot{position:sticky;bottom:0;z-index:2;display:grid;gap:12px;margin:24px -28px -28px;padding:16px 28px 28px;
+  border-top:1px solid var(--jv-border);background:var(--fh-sheet);border-radius:0 0 22px 22px}
+.fh-sheet-foot-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
 .fh-preview-actions .jv-btn--primary{gap:4px;padding-right:12px}
 
 /* ---------- 删除确认 ---------- */
@@ -280,6 +283,7 @@ body.light .fh-tab.is-on{box-shadow:0 1px 2px rgba(0,0,0,.08),0 0 0 1px rgba(0,0
 
 /* ---------- 定时运行 ---------- */
 .fh-sched-form{display:grid;gap:24px}
+.fh-sched-form .fh-sheet-foot{margin-top:0}
 .fh-switch-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 16px;border-radius:12px;background:var(--jv-surface-2)}
 .fh-switch-label{display:grid;gap:2px;min-width:0}
 .fh-switch-label b{font-size:14.5px;font-weight:600}
@@ -292,13 +296,13 @@ body.light .fh-tab.is-on{box-shadow:0 1px 2px rgba(0,0,0,.08),0 0 0 1px rgba(0,0
 .fh-switch.is-on i{transform:translateX(20px)}
 .fh-fieldset{min-width:0;border:none;display:grid;gap:12px;transition:opacity .2s}
 .fh-fieldset:disabled{opacity:.45}
-.fh-legend{float:left;width:100%;margin-bottom:12px;padding:0;font-size:13px;font-weight:600;color:var(--jv-text-2)}
+.fh-legend{float:left;width:100%;margin:0;padding:0;font-size:13px;font-weight:600;color:var(--jv-text-2)}
 .fh-legend+*{clear:both}
 .fh-seg{display:flex;gap:4px;padding:4px;border-radius:12px;background:var(--jv-surface-2)}
 .fh-seg-item,.fh-day{position:relative;display:grid;place-items:center;cursor:pointer;transition:background .2s,color .2s,border-color .2s}
 .fh-seg-item input,.fh-day input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:inherit}
 .fh-seg-item{flex:1;height:32px;border-radius:8px;font-size:13.5px;color:var(--jv-text-2)}
-.fh-seg-item.is-on{background:var(--fh-card);color:var(--jv-text);font-weight:500;box-shadow:0 1px 2px rgba(0,0,0,.24)}
+.fh-seg-item.is-on{background:var(--fh-seg-on);color:var(--jv-text);font-weight:500;box-shadow:0 1px 2px rgba(0,0,0,.24)}
 body.light .fh-seg-item.is-on{box-shadow:0 1px 2px rgba(0,0,0,.08),0 0 0 1px rgba(0,0,0,.04)}
 .fh-seg-item:has(input:focus-visible),.fh-day:has(input:focus-visible){outline:2px solid var(--jv-accent);outline-offset:2px}
 .fh-fieldset:disabled .fh-seg-item,.fh-fieldset:disabled .fh-day{cursor:default}
@@ -323,8 +327,7 @@ body.light .fh-field input,body.light .fh-field select,body.light .fh-field text
 .fh-check>span>span{font-size:12.5px;line-height:1.5;color:var(--jv-text-3)}
 .fh-check.is-off{cursor:not-allowed;border-style:dashed}
 .fh-check.is-off b{color:var(--jv-text-3)}
-.fh-next{padding:12px 16px;border-radius:12px;font-size:14px;line-height:1.55;color:var(--jv-text-2);
-  background:color-mix(in srgb,var(--jv-accent) 8%,transparent)}
+.fh-next{flex:1 1 200px;min-width:0;font-size:14px;line-height:1.55;color:var(--jv-text-2)}
 .fh-next b{color:var(--jv-text);font-weight:600}
 
 /* ---------- 提示条 ---------- */
@@ -366,7 +369,10 @@ body.light .fh-field input,body.light .fh-field select,body.light .fh-field text
   .fh-drawer::before{content:'';position:absolute;top:8px;left:50%;width:36px;height:4px;margin-left:-18px;border-radius:2px;
     background:var(--jv-text-3);opacity:.45}
   .fh-drawer-head{padding:24px 12px 12px 20px}
+  .fh-preview-actions,.fh-sheet-actions{flex:1 1 100%}
   .fh-preview-actions .jv-btn,.fh-sheet-actions .jv-btn{flex:1;height:44px}
+  .fh-sheet-foot{margin:24px -20px calc(-28px - env(safe-area-inset-bottom));
+    padding:12px 20px calc(16px + env(safe-area-inset-bottom));border-radius:0}
   .fh-preview-stage .fh-thumb{aspect-ratio:2/1}
 }
 @media (pointer:coarse){

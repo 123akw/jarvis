@@ -50,12 +50,14 @@ export default function Preview({
             </ul>
           </div>
         ) : null}
-        {error ? <p className="fh-form-err" role="alert">{error}</p> : null}
-        <div className="fh-preview-actions">
-          {secondary ? <button type="button" className="jv-btn" onClick={onSecondary} disabled={busy}>{secondary}</button> : null}
-          <button type="button" className="jv-btn jv-btn--primary" onClick={onPrimary} disabled={busy} data-autofocus>
-            {primary}<Icon name="chevron" size={15} />
-          </button>
+        <div className="fh-sheet-foot">
+          {error ? <p className="fh-form-err" role="alert">{error}</p> : null}
+          <div className="fh-preview-actions">
+            {secondary ? <button type="button" className="jv-btn" onClick={onSecondary} disabled={busy}>{secondary}</button> : null}
+            <button type="button" className="jv-btn jv-btn--primary" onClick={onPrimary} disabled={busy} data-autofocus>
+              {primary}<Icon name="chevron" size={15} />
+            </button>
+          </div>
         </div>
       </div>
     </Modal>

@@ -206,13 +206,17 @@ export default function ScheduleSheet({ flow, onClose, onSaved, onExpired }) {
             ) : null}
           </fieldset>
 
-          <p className="fh-next" aria-live="polite">
-            {form.enabled ? (next ? <>下次运行：<b>{whenLabel(next)}</b></> : '时间没填好，按「08:00」这样填') : '关掉后不会自动运行，随时可以打开流程手动运行。'}
-          </p>
-          {err ? <p className="fh-form-err" role="alert">{err}</p> : null}
-          <div className="fh-sheet-actions">
-            <button type="button" className="jv-btn" onClick={onClose}>取消</button>
-            <button type="submit" className="jv-btn jv-btn--primary" disabled={saving}>{saving ? '保存中…' : '保存'}</button>
+          <div className="fh-sheet-foot">
+            {err ? <p className="fh-form-err" role="alert">{err}</p> : null}
+            <div className="fh-sheet-foot-row">
+              <p className="fh-next" aria-live="polite">
+                {form.enabled ? (next ? <>下次运行：<b>{whenLabel(next)}</b></> : '时间没填好，按「08:00」这样填') : '关掉后不会自动运行，随时可以打开流程手动运行'}
+              </p>
+              <div className="fh-sheet-actions">
+                <button type="button" className="jv-btn" onClick={onClose}>取消</button>
+                <button type="submit" className="jv-btn jv-btn--primary" disabled={saving}>{saving ? '保存中…' : '保存'}</button>
+              </div>
+            </div>
           </div>
         </form>
       )}

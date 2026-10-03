@@ -5,8 +5,8 @@ import { chainLabel, thumbLayout } from './flowkit.js'
  * size：card（列表卡片）· lg（预览弹层，节点里写图标与名字）。 */
 
 const SIZES = {
-  card: { w: 320, h: 128, pad: 14, maxScale: 0.4 },
-  lg: { w: 600, h: 200, pad: 18, maxScale: 0.62 },
+  card: { w: 360, h: 128, pad: 16, maxScale: 0.42, minChars: 4 },
+  lg: { w: 600, h: 180, pad: 20, maxScale: 0.62, minChars: 2 },
 }
 
 function clipText(s, n) {
@@ -16,7 +16,8 @@ function clipText(s, n) {
 }
 
 export default function Thumb({ graph, idx, size = 'card', className = '', label = '' }) {
-  const lay = useMemo(() => thumbLayout(graph, SIZES[size] || SIZES.card, idx), [graph, size, idx])
+  const conf = SIZES[size] || SIZES.card
+  const lay = useMemo(() => thumbLayout(graph, conf, idx), [graph, conf, idx])
   const aria = label || `流程图：${chainLabel(graph, idx)}`
   return (
     <svg className={`fh-thumb fh-thumb--${size}${className ? ` ${className}` : ''}`} viewBox={`0 0 ${lay.w} ${lay.h}`}
@@ -27,11 +28,12 @@ export default function Thumb({ graph, idx, size = 'card', className = '', label
       {lay.nodes.map(n => {
         const r = Math.min(8, n.h / 3)
         const font = Math.min(13, Math.max(7, n.h * 0.36))
-        const showIcon = n.h >= 14
-        const iconX = n.x + Math.max(4, n.h * 0.22) + 3
-        const textX = iconX + font * 1.05 + 4
+        const showIcon = n.h >= 10
+        const textX = n.x + Math.max(4, n.h * 0.22) + 3 + font * 1.05 + 4
         const room = Math.floor((n.x + n.w - textX - 4) / font)
-        const title = showIcon && room >= 2 ? clipText(n.name, room) : ''
+        const title = showIcon && room >= conf.minChars ? clipText(n.name, room) : ''
+        // 写得下名字：图标靠左、名字跟在后面；写不下：只在正中放图标
+        const iconX = title ? n.x + Math.max(4, n.h * 0.22) + 3 : n.x + n.w / 2 - font * 0.55
         return (
           <g key={n.id} className="fh-thumb-node" data-tone={n.tone}>
             <rect x={n.x} y={n.y} width={n.w} height={n.h} rx={r} />
