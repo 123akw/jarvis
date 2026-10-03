@@ -61,6 +61,12 @@ async def lifespan(_app: FastAPI):
     distiller = None
     janitor = SessionJanitor(_accounts)  # 定期删掉过期/早已吊销的会话行
     janitor.start()
+    flow_scheduler = None   # 流程定时运行（第十八轮，jarvis/flows/extras.py）
+    if os.getenv("JARVIS_FLOW_SCHEDULER_ENABLED", "1") != "0":
+        try:
+            flow_scheduler = flows.start_scheduler(notifier=_notifier)
+        except Exception:   # 起不来只记日志，不拖垮整站
+            log.exception("流程定时运行启动失败")
     hb = heartbeat.maybe_create(
         owner_getter=_accounts.unique_active_owner,
         compose=_heartbeat_compose,
@@ -100,6 +106,8 @@ async def lifespan(_app: FastAPI):
     finally:
         history_stop.set()
         janitor.stop()
+        if flow_scheduler is not None:
+            flow_scheduler.stop()
         if hb is not None:
             hb.stop()
         if scanner is not None:
@@ -1715,7 +1723,7 @@ def integration_restore(name: str, request: Request, body: SettingsDeleteIn):
 # ---------- 静态页 ----------
 # 前端顶层页面（web-src/src/routes.js）都是同一个单页应用：
 #   /        智能体市场（主域名首页）     /login   登录页（?u= 预填账号，?next= 登录后去哪）
-#   /app     主应用（对话 / 今日板）      /flows   积木流程       /p/<slug>   智能体品牌入口
+#   /app     主应用（对话 / 今日板）      /flows   积木流程（/flows/<id> 画布）   /p/<slug>   智能体品牌入口
 # 旧链接兼容：/market → /；/?u=X（第十四轮市场结果页的二维码、旧分享）→ /login?u=X。查询参数原样带上。
 # 前端也做同样的跳转（站内跳转不经服务端），这里先跳省一次白屏，也让扫码的手机直接落到登录页。
 
@@ -1747,6 +1755,12 @@ def spa_page():
 
 @app.get("/p/{slug}")
 def spa_platform(slug: str):
+    return FileResponse(_WEB / "index.html")
+
+
+@app.get("/flows/{flow_id}")
+def spa_flow(flow_id: str):
+    """流程画布 /flows/<id>（第十八轮）：前端路由，id 的合法性由前端与 /api/flows/{id} 判断。"""
     return FileResponse(_WEB / "index.html")
 
 
@@ -1858,6 +1872,12 @@ memory_receipts.register(app, request_principal=_request_principal, panel_write=
 briefing.register(app, request_principal=_request_principal, panel_write=_panel_write,
                   tenant_store=lambda: _tenant_store(), bundle_for=lambda uid: _bundle_for(uid),
                   chunk_text=_chunk_text, deny=_deny)
+
+# ---- 新手引导看过没（第十八轮）：按账号记在 tenant_prefs，逻辑在 jarvis/onboarding.py ----
+from jarvis import onboarding  # noqa: E402
+
+onboarding.register(app, request_principal=_request_principal, panel_write=_panel_write, deny=_deny,
+                    tenant_store=lambda: _tenant_store())
 
 
 # ---- 积木流程（第十三轮平台工坊）：/api/flows*、公开结果页 /r/<token>，逻辑在 jarvis/flows/ ----

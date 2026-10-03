@@ -1,6 +1,7 @@
 import { csrfHeaders } from '../api.js'
 
-/* 流程拼接页的接口封装（契约见 docs/proposals/2026-10-round13-platform.md 4.2 / 4.3）。
+/* 流程页的接口封装（第十三轮契约 docs/proposals/2026-10-round13-platform.md 4.2 / 4.3；
+ * 第十八轮节点图接口见 docs/proposals/2026-10-round18-flows.md §3，文件末尾「v2」一节）。
  * 约定与 ../api.js 一致：401 抛 Error('401') 交给页面调 onExpired；其余错误一律换成人话。 */
 
 function httpError(status, reason) {
@@ -105,6 +106,10 @@ export async function* runFlow(id, input, signal = null) {
   const body = {}
   if (input?.text) body.text = input.text
   if (input?.file) body.file = { name: input.file.name, data_base64: input.file.data_base64 }
+  yield* streamRun(id, body, signal)
+}
+
+async function* streamRun(id, body, signal) {
   let r
   try {
     r = await fetch(`/api/flows/${encodeURIComponent(id)}/run`, { method: 'POST', headers: json(), body: JSON.stringify(body), signal })
@@ -140,4 +145,54 @@ export function fileToBase64(file) {
     reader.onerror = () => reject(new Error('读取文件失败，换一个试试'))
     reader.readAsDataURL(file)
   })
+}
+
+/* ---------- v2：节点图（第十八轮） ---------- */
+
+const flowUrl = id => `/api/flows/${encodeURIComponent(id)}`
+
+/** 节点目录：{ groups: [{ id, label, items: [节点模板] }], vars: { sys: [...] } }（契约 §3.2） */
+export function getNodeCatalog() {
+  return request('/api/flows/nodes')
+}
+
+/** 一条流程（含节点图）：{ id, name, summary, graph, trigger, updated_at } */
+export async function getFlow(id) {
+  return (await request(flowUrl(id))).flow
+}
+
+/** 保存：没有 id 新建（POST），有 id 覆盖（PUT）。返回服务端规整后的 flow */
+export async function saveFlow({ id = '', name, summary = '', graph }) {
+  const body = JSON.stringify({ name, summary, graph })
+  const data = id
+    ? await request(flowUrl(id), { method: 'PUT', headers: json(), body })
+    : await request('/api/flows', { method: 'POST', headers: json(), body })
+  return data.flow
+}
+
+/** 模板库：{ categories: [{ id, label }], templates: [{ id, name, summary, category, icon, plugins, graph }] } */
+export function getTemplates() {
+  return request('/api/flows/templates')
+}
+
+/** 一句话生成流程草稿（不落库）：{ draft: { name, summary, graph }, notes: [人话说明], source: 'model'|'template' } */
+export function composeFlow(description) {
+  return request('/api/flows/compose', { method: 'POST', headers: json(), body: JSON.stringify({ description }) })
+}
+
+/** 定时运行：{ trigger: { kind, schedule, inputs, notify, enabled, next_run_at, last_run_at, last_status } | null } */
+export async function getTrigger(id) {
+  return (await request(`${flowUrl(id)}/trigger`)).trigger || null
+}
+
+export async function setTrigger(id, trigger) {
+  return (await request(`${flowUrl(id)}/trigger`, { method: 'PUT', headers: json(), body: JSON.stringify(trigger) })).trigger || null
+}
+
+/**
+ * 运行节点图流程：inputs 按开始节点的字段 key 给值（文件给 { name, data_base64 }）。
+ * 逐个产出事件 {type:'run_start'|'node_start'|'node_done'|'node_skip'|'node_error'|'run_done', …}（契约 §3.4）。
+ */
+export async function* runGraph(id, inputs = {}, signal = null) {
+  yield* streamRun(id, { inputs }, signal)
 }

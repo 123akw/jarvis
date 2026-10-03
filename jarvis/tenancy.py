@@ -172,6 +172,19 @@ class TenantStore:
         )
 
     @staticmethod
+    def _schema_v7_statements() -> tuple[str, ...]:
+        """v7（2026-10 第十八轮·流程画布）：流程改为节点图 + 定时触发。
+
+        - ``tenant_flows.graph``：节点图 JSON（``{"nodes": [...], "edges": [...]}``，见 jarvis/flows/graph.py）；
+          空串表示还是 v6 的线性 ``steps``，读取时由 ``graph_from_steps`` 换算，不做离线批量改写；
+        - ``tenant_flow_triggers``：每个流程至多一个触发器（定时运行），由 jarvis/flows/schedule.py 读写。"""
+        return (
+            "ALTER TABLE tenant_flows ADD COLUMN graph TEXT NOT NULL DEFAULT ''",
+            "CREATE TABLE IF NOT EXISTS tenant_flow_triggers (owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, flow_id TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'schedule', config TEXT NOT NULL DEFAULT '{}', enabled INTEGER NOT NULL DEFAULT 1, next_run_at TEXT, last_run_at TEXT, last_status TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL, PRIMARY KEY(owner_id, flow_id))",
+            "CREATE INDEX IF NOT EXISTS tenant_flow_triggers_due ON tenant_flow_triggers(enabled, next_run_at)",
+        )
+
+    @staticmethod
     def _apply_version(connection: sqlite3.Connection, version: int, statements: tuple[str, ...]) -> None:
         if connection.execute("SELECT 1 FROM tenant_schema_migrations WHERE version=?", (version,)).fetchone():
             return
@@ -201,6 +214,7 @@ class TenantStore:
         TenantStore._apply_version(connection, 4, TenantStore._schema_v4_statements())
         TenantStore._apply_version(connection, 5, TenantStore._schema_v5_statements())
         TenantStore._apply_version(connection, 6, TenantStore._schema_v6_statements())
+        TenantStore._apply_version(connection, 7, TenantStore._schema_v7_statements())
         from jarvis.history_index import ensure_fts   # 延迟导入：history_index 依赖本模块
         ensure_fts(connection)
 

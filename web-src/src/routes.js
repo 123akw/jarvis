@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react'
  *   /              智能体市场（主域名首页，未登录也能逛）
  *   /login         登录页（?u=<用户名> 预填；?next= 登录后去哪，只接受站内路径）
  *   /app           主应用（对话 / 今日板，需登录）
- *   /flows         流程拼接：输入 → 工具 → 输出（需登录）
+ *   /flows         我的流程：流程列表、模板、一句话生成（需登录）
+ *   /flows/<id>    流程画布（第十八轮，节点图编辑与运行；<id> 为 new 时是新建）
  *   /p/<slug>      某个已生成平台的入口：品牌化登录页 / 装到主屏（PWA）
  * 旧链接兼容（redirectFor，地址栏原地替换、不留历史）：
  *   /market        → /（查询参数保留）
@@ -24,6 +25,8 @@ export function parseRoute(pathname = '/') {
   if (path === LOGIN_PATH) return { name: 'login', params: {} }
   if (path === APP_PATH) return { name: 'app', params: {} }
   if (path === '/flows') return { name: 'flows', params: {} }
+  const f = path.match(/^\/flows\/([A-Za-z0-9_-]{1,40})$/)
+  if (f) return { name: 'flows', params: { id: f[1] } }
   const m = path.match(/^\/p\/([A-Za-z0-9_-]{3,40})$/)
   if (m) return { name: 'platform', params: { slug: m[1] } }
   if (path === '/market') return { name: 'legacy-market', params: {} }
@@ -104,4 +107,9 @@ export function useRoute() {
 export function introAllowed(pathname = '/', search = '') {
   const to = redirectFor(pathname, search)
   return parseRoute(to ? to.split('?')[0] : pathname).name !== 'platform'
+}
+
+/** 流程画布地址（第十八轮）：flowHref() 是列表，flowHref('new') 新建，flowHref(id) 打开某条 */
+export function flowHref(id = '') {
+  return id ? `/flows/${encodeURIComponent(id)}` : '/flows'
 }

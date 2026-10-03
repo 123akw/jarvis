@@ -118,3 +118,16 @@ describe('useRoute', () => {
     expect(window.location.pathname).toBe('/')
   })
 })
+
+describe('流程画布路由（第十八轮）', () => {
+  it('/flows/<id> 仍是 flows 页面并带上 id；非法 id 回首页', async () => {
+    const { flowHref } = await import('./routes.js')
+    expect(parseRoute('/flows')).toEqual({ name: 'flows', params: {} })
+    expect(parseRoute('/flows/abc_123')).toEqual({ name: 'flows', params: { id: 'abc_123' } })
+    expect(parseRoute('/flows/new/')).toEqual({ name: 'flows', params: { id: 'new' } })
+    expect(parseRoute('/flows/a/b').name).toBe('notfound')
+    expect(flowHref()).toBe('/flows')
+    expect(flowHref('new')).toBe('/flows/new')
+    expect(redirectFor('/flows/abc')).toBe('')
+  })
+})
