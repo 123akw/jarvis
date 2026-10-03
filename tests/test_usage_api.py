@@ -134,8 +134,10 @@ def test_admin_usage_report_fields(owner_id, member_id, monkeypatch):
     assert "估算" in body["pricing"]["note"]
     today_only = _client().get("/api/admin/usage?days=1").json()
     assert today_only["range"]["days"] == 1 and today_only["totals"]["calls"] == 3
-    assert _client().get("/api/admin/usage?days=abc").json()["range"]["days"] == 7
-    assert _client().get("/api/admin/usage?days=9999").json()["range"]["days"] == 90
+    assert body["quota_defaults"] == {"daily_model_calls": 300, "daily_flow_runs": 100}
+    for asked, got in (("abc", 7), ("9999", 30), ("2", 1), ("4", 1), ("5", 7), ("18", 7), ("19", 30), ("0", 1), ("-3", 1)):
+        assert _client().get(f"/api/admin/usage?days={asked}").json()["range"]["days"] == got, asked   # 只有 1 / 7 / 30
+    assert len(_client().get("/api/admin/usage?days=30").json()["daily"]) == 30
 
 
 def test_last_active_ignores_service_threads(owner_id, member_id):
@@ -156,12 +158,14 @@ def test_quota_put_validates_and_returns_view(owner_id, member_id):
     assert quota["sources"] == {"daily_model_calls": "custom", "daily_flow_runs": "default"}
     r = c.put(f"/api/admin/quotas/{member_id}", json={"daily_flow_runs": -1})     # 只改一项：另一项保留
     assert r.json()["quota"]["daily_model_calls"] == 20 and r.json()["quota"]["daily_flow_runs"] is None
+    assert r.json()["quota"]["sources"] == {"daily_model_calls": "custom", "daily_flow_runs": "unlimited"}
+    assert c.put(f"/api/admin/quotas/{member_id}", json={"daily_flow_runs": 100_000}).status_code == 200
     r = c.put(f"/api/admin/quotas/{member_id}", json={"daily_model_calls": -1, "daily_flow_runs": -1})
     assert r.json()["quota"]["source"] == "unlimited"
     r = c.put(f"/api/admin/quotas/{member_id}", json={"daily_model_calls": None, "daily_flow_runs": None})
     assert r.json()["quota"]["source"] == "default" and r.json()["quota"]["daily_model_calls"] == 300
     for bad in ({"daily_model_calls": -2}, {"daily_model_calls": 1.5}, {"daily_model_calls": "10"},
-                {"daily_model_calls": True}, {"daily_flow_runs": 10_000_001}, {}, {"other": 1}):
+                {"daily_model_calls": True}, {"daily_flow_runs": 100_001}, {"daily_model_calls": 0}, {}, {"other": 1}):
         r = c.put(f"/api/admin/quotas/{member_id}", json=bad)
         assert r.status_code == 400 and r.json()["error"], bad
     assert c.put(f"/api/admin/quotas/{member_id}", json=[1, 2]).status_code == 400
@@ -171,16 +175,16 @@ def test_quota_put_validates_and_returns_view(owner_id, member_id):
 
 
 def test_alerts_list_and_mark_read(owner_id, member_id):
-    usage.alert("quota_model", "「bob」今天的模型调用次数用完了", "今天已用 3 次", owner_id=member_id)
-    usage.alert("channel_wechat", "微信长连接断开超过 5 分钟", "登录态失效")
+    usage.alert("quota_exhausted", "「bob」今天的模型调用次数用完了", "今天已用 3 次", owner_id=member_id)
+    usage.alert("channel_down", "微信长连接断开超过 5 分钟", "登录态失效")
     c = _client()
     body = c.get("/api/admin/alerts?limit=50").json()
     assert body["unread"] == 2 and len(body["alerts"]) == 2
-    quota = next(a for a in body["alerts"] if a["kind"] == "quota_model")
-    assert quota == {"id": quota["id"], "kind": "quota_model", "title": "「bob」今天的模型调用次数用完了",
+    quota = next(a for a in body["alerts"] if a["kind"] == "quota_exhausted")
+    assert quota == {"id": quota["id"], "kind": "quota_exhausted", "title": "「bob」今天的模型调用次数用完了",
                      "detail": "今天已用 3 次", "owner": {"id": member_id, "username": "bob"},
                      "created_at": quota["created_at"], "read": False}
-    assert next(a for a in body["alerts"] if a["kind"] == "channel_wechat")["owner"] is None
+    assert next(a for a in body["alerts"] if a["kind"] == "channel_down")["owner"] is None
     r = c.post("/api/admin/alerts/read", json={"ids": [quota["id"]]})
     assert r.status_code == 200 and r.json() == {"ok": True, "unread": 1}
     assert c.post("/api/admin/alerts/read", json={}).status_code == 400
@@ -234,7 +238,7 @@ def test_web_chat_blocked_when_quota_used_up(member_id, monkeypatch):
     assert _events(r) == [{"type": "error", "message": "今天的用量到上限了，明天再来，或请管理员调高", "code": "quota"}]
     assert seen == []
     assert TenantStore().get_thread("t-quota", owner_id=member_id) is None    # 没建线程
-    assert [row["kind"] for row in _alert_rows()] == ["quota_model"]
+    assert [row["kind"] for row in _alert_rows()] == ["quota_exhausted"]
     c.post("/api/chat", json={"message": "再来", "thread_id": "t-quota"})
     assert len(_alert_rows()) == 1                                     # 每账号每天一次
 
@@ -370,7 +374,7 @@ def test_scheduled_flow_failures_and_pause_alert_admin(owner_id, monkeypatch):
     failing = T.FakeRuntime([{"status": "error", "run_id": "x", "output": None, "error": "「写早报」没成功：模型暂时不可用"}])
     for day in range(12, 17):
         T._scheduler(failing, T.Clock(f"2026-10-{day} 08:00")).tick()
-    assert [kind for kind, _t, _o in fired] == ["flow_failing", "flow_failing", "flow_failing", "flow_paused"]
+    assert [kind for kind, _t, _o in fired] == ["flow_failed", "flow_failed", "flow_failed", "flow_paused"]
     assert fired[0][1] == "定时流程「早报」连续 2 次没跑成" and fired[-1][1] == "定时流程「早报」已自动暂停"
     assert all(owner == owner_id for _k, _t, owner in fired)
 
@@ -384,7 +388,7 @@ def test_server_configures_push_and_channel_probes(monkeypatch, owner_id):
     server_mod.usage.configure(
         notify=lambda uid, text: server_mod._notifier.send(uid, text, dt.datetime(2026, 10, 3, 9, 0), icon="⚠️"),
         channels=dict(usage._watch.channels))
-    usage.alert("channel_feishu", "飞书长连接断开超过 5 分钟", "长连接已断开")
+    usage.alert("channel_down", "飞书长连接断开超过 5 分钟", "长连接已断开")
     [item] = outbox.drain(owner_id)
     assert item["title"].startswith("管理提醒：飞书长连接断开超过 5 分钟")
     assert set(usage._watch.channels) == {"feishu", "wechat"}
