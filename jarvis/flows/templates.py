@@ -17,7 +17,10 @@ from jarvis.flows import graph as graph_mod
 
 log = logging.getLogger("jarvis")
 
-DX, DY = 280.0, 140.0          # 分层排版：层间距（横向）与同层节点间距（纵向）
+# 分层排版参数与画布「整理」（web-src/src/flows/graph.js）同一套：节点宽 240、层距 80 → 横向步长 320；
+# 节点高约 88、行距 40 → 纵向步长 128
+NODE_WIDTH, NODE_HEIGHT, LAYER_GAP, ROW_GAP = 240.0, 88.0, 80.0, 40.0
+DX, DY = NODE_WIDTH + LAYER_GAP, NODE_HEIGHT + ROW_GAP
 
 CATEGORIES = (
     {"id": "office", "label": "办公"},

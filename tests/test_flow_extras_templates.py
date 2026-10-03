@@ -124,8 +124,9 @@ def test_layout_aligns_branches_and_parallel_nodes():
                        {"source": "c", "target": "a", "sourceHandle": "yes"}, {"source": "a", "target": "a2"}]}
     T.layout(graph)
     pos = {n["id"]: n["position"] for n in graph["nodes"]}
-    assert pos["a"] == {"x": 560.0, "y": -70.0} and pos["b"] == {"x": 560.0, "y": 70.0}   # 第一个分支在上
-    assert pos["a2"] == {"x": 840.0, "y": -70.0}   # 单线延续时和上游对齐
+    assert (T.DX, T.DY) == (320.0, 128.0)   # 与画布「整理」同一套参数
+    assert pos["a"] == {"x": 640.0, "y": -64.0} and pos["b"] == {"x": 640.0, "y": 64.0}   # 第一个分支在上
+    assert pos["a2"] == {"x": 960.0, "y": -64.0}   # 单线延续时和上游对齐
 
 
 def test_needs_are_human_readable():
