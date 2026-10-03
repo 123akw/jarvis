@@ -43,7 +43,7 @@ PACKAGE_DIR = Path(__file__).resolve().parent / "packs"
 PACKS_DIR = PACKAGE_DIR          # 内置插件扫描目录（测试可替换）
 STATE_FILE = "_state.json"
 PRO_PRICE = 9.9
-BASE_TOOLS = ("now", "calc")
+BASE_TOOLS = ("now", "calc", "flow_list", "flow_run")   # 第二十轮：智能体账号也能在对话里跑自己的流程
 OWNER_TOOLS = ("coding_status", "sys_query")
 SANDBOX_TIMEOUT = 20.0
 

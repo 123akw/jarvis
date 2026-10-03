@@ -21,6 +21,8 @@ from jarvis.search.service import SearchService
 EXPECTED_TOOL_NAMES = {
     "now",
     "calc",
+    "flow_list",   # 第二十轮：对话里跑流程
+    "flow_run",
     "weather",
     "weather_here",
     "my_location",
@@ -92,13 +94,13 @@ def _build_tools():
     return tools_mod.build_tools
 
 
-def test_build_tools_registers_exactly_twenty_seven_unique_tools():
+def test_build_tools_registers_exactly_twenty_nine_unique_tools():
     """Dropping, duplicating, or renaming a tool breaks the Agent's public capability set."""
     tools = _build_tools()(FakeSearchService(generation=7))
     names = [item.name for item in tools]
 
-    assert len(names) == 27
-    assert len(set(names)) == 27
+    assert len(names) == 29
+    assert len(set(names)) == 29
     assert set(names) == EXPECTED_TOOL_NAMES
 
 

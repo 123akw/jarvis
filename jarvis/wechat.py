@@ -229,6 +229,7 @@ class WeChatBridge:
         self._dispatcher = None
         self._quick_reply = None   # (text) -> str | None：提醒的「稍后 / 好了」回复短语
         self._poll_failing_since = 0.0   # 长轮询从何时起一直失败（monotonic；0 = 正常），渠道巡检据此告警
+        self._message_hook = None  # (user_id, channel, text) -> str | None：消息触发流程（第二十轮）
 
     def configure(self, agent_getter, chunk_text, owner_getter=None, runtime_getter=None) -> None:
         """由 Web 服务注入 Agent 与消息文本转换器。"""
@@ -341,6 +342,22 @@ class WeChatBridge:
     def set_quick_reply(self, handler) -> None:
         with self._lock:
             self._quick_reply = handler
+
+    def set_message_hook(self, handler) -> None:
+        with self._lock:
+            self._message_hook = handler
+
+    def _try_message_hook(self, text: str) -> str | None:
+        """消息触发流程：命中就返回流程结果（要回复的文字）；没命中、没设或查不了返回 None 照常对话。"""
+        handler = self._message_hook
+        if handler is None or not text.strip() or not self._owner_getter:
+            return None
+        try:
+            owner = self._owner_getter()
+            return handler(owner.user_id, "wechat", text) if owner is not None else None
+        except Exception as exc:
+            log.warning("WeChat flow hook failed: %s", type(exc).__name__)
+            return None
 
     def _try_quick_reply(self, from_id: str, text: str) -> str | None:
         """只有收提醒的那个联系人发来的短语才可能是在回提醒；拿不准一律交给模型。"""
@@ -713,6 +730,10 @@ class WeChatBridge:
         self, client, token: str, from_id: str, context_token: str, text: str
     ) -> None:
         """计算并发送对一条私聊消息的回复；整段在回复工作池线程中运行。"""
+        hooked = self._try_message_hook(text)   # 命中消息触发的流程：由流程处理，不进对话
+        if hooked:
+            self._send_text_chunks(client, token, from_id, context_token, hooked)
+            return
         prompt = link_summary_prompt(text) or text  # 光发一条链接=让贾维斯读文总结
         try:
             answer = self._reply(prompt, from_id)
@@ -744,6 +765,10 @@ class WeChatBridge:
             )
             return
 
+        hooked = self._try_message_hook(heard)
+        if hooked:   # 语音也能触发流程：结果只发文字（链接念出来没意义）
+            self._send_text_chunks(client, token, from_id, context_token, f"（语音识别）你说的是：「{heard}」\n\n{hooked}")
+            return
         try:
             answer = self._reply(heard, from_id)
         except Exception as exc:
@@ -1088,3 +1113,8 @@ def poll_failing_seconds() -> float:
 def set_quick_reply(handler) -> None:
     """注入提醒回复短语处理器 (text) -> str | None（server.py 启动时设置）。"""
     _bridge.set_quick_reply(handler)
+
+
+def set_message_hook(handler) -> None:
+    """注入消息触发流程的处理器 (user_id, channel, text) -> str | None（server.py 启动时设置）。"""
+    _bridge.set_message_hook(handler)

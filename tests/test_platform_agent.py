@@ -24,8 +24,9 @@ def _all_tools() -> set[str]:
     """完整的贾维斯：核心工具 + 所有已启用插件包的工具（第十四轮起 PDF / Excel / Word 等）。"""
     from jarvis.plugins import pack_tools
     return {tool.name for tool in TOOLS} | {tool.name for tool in pack_tools()}
-SCHEDULE_TODO = {"now", "calc", "schedule_add", "schedule_list", "schedule_del", "todo_add", "todo_list", "todo_done"}
-WEATHER_SEARCH = {"now", "calc", "weather", "weather_here", "my_location", "web_search", "web_extract"}
+BASE = {"now", "calc", "flow_list", "flow_run"}   # 任何账号都有：看时间、算数、跑自己的流程（第二十轮）
+SCHEDULE_TODO = BASE | {"schedule_add", "schedule_list", "schedule_del", "todo_add", "todo_list", "todo_done"}
+WEATHER_SEARCH = BASE | {"weather", "weather_here", "my_location", "web_search", "web_extract"}
 
 
 class ToolRecordingModel(BaseChatModel):
@@ -113,7 +114,7 @@ def test_changing_plugins_rebuilds_only_that_accounts_agent(env):
     platforms.PlatformStore().update(alice, {"plugins": ["memo"]})
     with manager.acquire(alice) as rebuilt, manager.acquire(bob) as bob_again:
         assert rebuilt is not first and first.closed
-        assert _bound_tools(rebuilt) == {"now", "calc", "memo_add", "memo_list", "memo_del"}
+        assert _bound_tools(rebuilt) == BASE | {"memo_add", "memo_list", "memo_del"}
         assert bob_again is bob_first                             # 别人的 Agent 不受影响
 
 
