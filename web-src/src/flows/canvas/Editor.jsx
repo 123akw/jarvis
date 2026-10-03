@@ -540,7 +540,7 @@ export default function Editor({ flowId = 'new', initial = null, onSaved, onBack
           <Glyph name="save" size={15} /><span>{saving ? '保存中' : '保存'}</span>
         </button>
         {running ? (
-          <button type="button" className="jv-btn jv-btn--sm fc-stop" onClick={stopRun} data-tour="flow-run">
+          <button type="button" className="jv-btn jv-btn--sm fc-stop" onClick={stopRun} data-tour="flow-run" aria-label="停止运行">
             <Icon name="stop" size={14} />停止
           </button>
         ) : (
