@@ -4,13 +4,14 @@ import { flowHref, navigate } from '../routes.js'
 import { absTime, chainLabel, relTime, RUN_STATUS, scheduleLabel } from './flowkit.js'
 import Thumb from './Thumb.jsx'
 
-/* 「我的流程」卡片：缩略图、名称、上次运行、定时标记 + 更多菜单（打开 / 运行记录 / 定时运行 / 复制 / 删除）。
+/* 「我的流程」卡片：缩略图、名称、上次运行、触发方式标记（⏰ 定时 / 💬 消息 / 🔗 链接）
+ * + 更多菜单（打开 / 运行记录 / 触发方式 / 复制 / 删除）。
  * 整张卡是一个链接（伪元素铺满），菜单按钮叠在上面，避免按钮套按钮。 */
 
 const MENU = [
   { id: 'open', label: '打开', icon: 'pencil' },
   { id: 'runs', label: '运行记录', icon: 'list' },
-  { id: 'schedule', label: '定时运行', icon: 'today' },
+  { id: 'triggers', label: '触发方式', icon: 'sliders' },
   { id: 'copy', label: '复制', icon: 'copy' },
   { id: 'delete', label: '删除', icon: 'trash', danger: true },
 ]
@@ -67,14 +68,16 @@ export function triggerText(trigger) {
   return trigger.label || scheduleLabel(trigger.schedule)
 }
 
-/** 卡片上的定时标记：正常「每个工作日 08:00」；上次定时运行失败变红、点开看运行记录；连续失败被自动暂停的提示去处理 */
+const Emoji = ({ children }) => <span className="fh-chip-emoji" aria-hidden="true">{children}</span>
+
+/** 卡片上的定时标记：正常「⏰ 每个工作日 08:00」；上次定时运行失败变红、点开看运行记录；连续失败被自动暂停的提示去处理 */
 function TimerChip({ flow, onAction }) {
   const t = flow.trigger
   if (!t || t.kind !== 'schedule') return null
   if (t.enabled === false) {
     return (
       <button type="button" className="fh-flow-timer is-warn is-btn" onClick={() => onAction('schedule', flow)}>
-        <Icon name="today" size={13} />定时已暂停
+        <Emoji>⏰</Emoji><span>定时已暂停</span>
       </button>
     )
   }
@@ -82,15 +85,26 @@ function TimerChip({ flow, onAction }) {
     return (
       <button type="button" className="fh-flow-timer is-error is-btn" onClick={() => onAction('runs', flow)}
         title={triggerText(t)}>
-        <Icon name="today" size={13} />上次定时运行失败
+        <Emoji>⏰</Emoji><span>上次定时运行失败</span>
       </button>
     )
   }
   const label = triggerText(t)
-  return label ? <span className="fh-flow-timer"><Icon name="today" size={13} />{label}</span> : null
+  return label ? <span className="fh-flow-timer" title="定时运行"><Emoji>⏰</Emoji><span>{label}</span></span> : null
 }
 
-export default function FlowCard({ flow, idx, onAction }) {
+/** 收到消息 / 链接触发开着时的小标记 */
+function HookChips({ hooks }) {
+  if (!hooks) return null
+  return (
+    <>
+      {hooks.message ? <span className="fh-flow-timer is-hook" title="飞书 / 微信收到符合条件的消息时自动运行"><Emoji>💬</Emoji><span>收到消息</span></span> : null}
+      {hooks.webhook ? <span className="fh-flow-timer is-hook" title="别的工具往专属地址发一下就运行"><Emoji>🔗</Emoji><span>链接</span></span> : null}
+    </>
+  )
+}
+
+export default function FlowCard({ flow, idx, hooks = null, onAction }) {
   const [open, setOpen] = useState(false)
   const btnRef = useRef(null)
   const menuId = useId()
@@ -128,6 +142,7 @@ export default function FlowCard({ flow, idx, onAction }) {
             <span className={`status-dot ${last.dot}`} aria-hidden="true" />{last.text}
           </span>
           <TimerChip flow={flow} onAction={onAction} />
+          <HookChips hooks={hooks} />
         </p>
       </div>
       <button ref={btnRef} type="button" className="fh-more" aria-label={`「${name}」的更多操作`}

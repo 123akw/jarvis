@@ -387,6 +387,55 @@ body.light .fh-field input,body.light .fh-field select,body.light .fh-field text
 .fh-next b{color:var(--jv-text);font-weight:600}
 .fh-next-more{margin-top:2px;font-size:12.5px;color:var(--jv-text-3)}
 
+/* ---------- 触发方式（第二十轮）：定时 / 收到消息时 / 通过链接 ---------- */
+.fh-trig .jv-modal-body{padding-top:8px}
+.fh-trig-tabs{display:flex;width:100%;margin-bottom:20px}
+.fh-trig-tabs .fh-tab{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:0}
+.fh-trig-on{width:6px;height:6px;flex:none;border-radius:50%;background:var(--jv-success)}
+.fh-trig-panel{min-width:0}
+.fh-chip-emoji{font-size:12px;line-height:1}
+.fh-flow-timer.is-hook{color:var(--fh-tool);background:color-mix(in srgb,var(--fh-tool) 12%,transparent)}
+/* 关键词胶囊 */
+.fh-kw{display:grid;gap:4px;padding:6px;border-radius:8px;background:var(--jv-surface-2);border:1px solid transparent;cursor:text}
+.fh-kw:focus-within{border-color:var(--jv-accent);box-shadow:0 0 0 3px var(--jv-accent-soft)}
+.fh-kw-list{list-style:none;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.fh-kw-chip{display:inline-flex;align-items:center;gap:2px;height:28px;padding:0 4px 0 10px;border-radius:14px;font-size:13.5px;
+  color:var(--jv-text);background:var(--fh-seg-on);box-shadow:0 0 0 1px var(--jv-border)}
+.fh-kw-chip span{max-width:16em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fh-kw-chip button{width:22px;height:22px;display:grid;place-items:center;border:none;border-radius:50%;background:transparent;color:var(--jv-text-3)}
+.fh-kw-chip button:hover{background:var(--jv-hover);color:var(--jv-danger)}
+.fh-kw-input{flex:1 1 120px;min-width:120px}
+.fh-field .fh-kw-input input,.fh-kw-input input{width:100%;height:28px;padding:0 6px;border:none;background:transparent;box-shadow:none;color:var(--jv-text);font-size:14px;outline:none}
+.fh-kw-warn{padding:0 6px 2px;font-size:12.5px;color:var(--jv-warn)}
+/* 通过链接 */
+.fh-hook{display:grid;gap:16px}
+.fh-hook-intro{display:grid;justify-items:start;gap:16px;padding:20px;border-radius:12px;border:1.5px dashed color-mix(in srgb,var(--jv-text) 16%,transparent)}
+.fh-hook-lead{font-size:14.5px;line-height:1.65;color:var(--jv-text-2)}
+.fh-hook-fresh{display:grid;gap:8px;padding:16px;border-radius:12px;
+  background:color-mix(in srgb,var(--jv-warn) 9%,transparent);border:1.5px solid color-mix(in srgb,var(--jv-warn) 45%,transparent)}
+.fh-hook-once{display:flex;align-items:center;gap:8px;font-size:15px;color:var(--jv-text)}
+.fh-hook-once b{font-weight:700}
+.fh-hook-bang{width:22px;height:22px;flex:none;display:grid;place-items:center;border-radius:50%;font-size:14px;font-weight:800;color:#fff;background:var(--jv-warn)}
+.fh-hook-url{display:flex;gap:8px;align-items:center;min-width:0;margin-top:4px}
+.fh-hook-url input{flex:1;min-width:0;height:40px;padding:0 12px;border-radius:8px;border:1px solid var(--jv-border);background:var(--fh-card);
+  color:var(--jv-text);font-family:var(--jv-mono);font-size:13px;outline:none}
+.fh-hook-url input:focus{border-color:var(--jv-accent);box-shadow:0 0 0 3px var(--jv-accent-soft)}
+.fh-hook-url .jv-btn{flex:none;height:40px}
+.fh-hook-status{display:grid;gap:6px;padding:16px;border-radius:12px;background:var(--jv-surface-2)}
+.fh-hook-status>p:first-child{display:flex;align-items:center;gap:8px;font-size:14.5px}
+.fh-hook-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.fh-hook-confirm{display:grid;gap:12px;margin-top:6px;padding:12px;border-radius:8px;font-size:13.5px;line-height:1.6;color:var(--jv-text);
+  background:var(--fh-card);border:1px solid var(--jv-border)}
+.fh-hook-how{display:grid;gap:8px}
+.fh-hook-keys{list-style:none;display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--jv-text-2)}
+.fh-hook-keys li{display:inline-flex;align-items:center;gap:4px}
+.fh-hook-keys code,.fh-hook-code pre{font-family:var(--jv-mono)}
+.fh-hook-keys code{padding:1px 6px;border-radius:6px;font-size:12.5px;color:var(--jv-text);background:var(--jv-surface-2)}
+.fh-hook-code{position:relative;display:grid;gap:8px;justify-items:start}
+.fh-hook-code pre{width:100%;margin:0;padding:12px;border-radius:8px;overflow-x:auto;white-space:pre;font-size:12.5px;line-height:1.6;
+  color:var(--jv-text-2);background:var(--jv-code-bg);border:1px solid var(--jv-border)}
+.fh-hook-rules{display:grid;gap:4px;margin:4px 0 0 18px;font-size:13px;line-height:1.6;color:var(--jv-text-2)}
+
 /* ---------- 提示条 ---------- */
 .fh-toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));z-index:90;max-width:calc(100vw - 32px);
   padding:10px 16px;border-radius:12px;border:1px solid var(--jv-border);background:var(--jv-elevated);

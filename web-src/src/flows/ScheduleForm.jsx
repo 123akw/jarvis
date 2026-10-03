@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../Icon.jsx'
-import Modal, { ModalHead } from '../Modal.jsx'
 import { getFeishuStatus, getFlow, getTrigger, setTrigger } from './api.js'
 import { nextRuns, REPEATS, scheduleLabel, startFields, validTime, WEEKDAYS, whenLabel } from './flowkit.js'
 
-/* 定时运行弹层（契约 §3.4 trigger）：开关、重复（每天 / 工作日 / 每周几）、时间、预填输入（按开始节点字段）、
+/* 「触发方式」弹层的「定时」页签（第二十轮从定时运行弹层搬进 TriggerSheet；契约 §3.4 trigger）：开关、重复（每天 / 工作日 / 每周几）、时间、预填输入（按开始节点字段）、
  * 通知渠道（飞书没绑定灰显，可就地去绑定）、「下次运行：明天（周六）08:00」及之后 2 次。界面上不出现 cron。
  *   连续失败被服务端自动暂停的（kind 仍是 schedule、enabled 为 false）显示「已暂停」，打开开关保存即恢复。
  *   开始节点有必填的文件字段：定时运行没法带文件，开关不能打开并说明原因。保存调 setTrigger。 */
@@ -72,7 +71,7 @@ function InputField({ field, value, onChange, disabled }) {
   )
 }
 
-export default function ScheduleSheet({ flow, feishu: feishuProp = null, onBindFeishu, onOpenRuns, onClose, onSaved, onExpired }) {
+export default function ScheduleForm({ flow, feishu: feishuProp = null, onBindFeishu, onOpenRuns, onClose, onSaved, onExpired }) {
   const [state, setState] = useState({ status: 'loading' })   // loading · ready · error
   const [form, setForm] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -149,14 +148,13 @@ export default function ScheduleSheet({ flow, feishu: feishuProp = null, onBindF
 
   const feishuWhy = !feishu.configured ? '这台服务器还没接入飞书' : '还没绑定飞书'
   return (
-    <Modal label="定时运行" onClose={onClose} size="md" className="fh-sched" dismissOnBackdrop={false}>
-      <ModalHead title="定时运行" subtitle={flow.name || '未命名流程'} onClose={onClose} />
+    <>
       {state.status === 'loading' ? (
-        <div className="jv-modal-body"><p className="fh-muted" role="status">正在读取定时设置…</p></div>
+        <p className="fh-muted" role="status">正在读取定时设置…</p>
       ) : state.status === 'error' ? (
-        <div className="jv-modal-body"><p className="fh-form-err" role="alert">{state.error}</p></div>
+        <p className="fh-form-err" role="alert">{state.error}</p>
       ) : (
-        <form className="jv-modal-body fh-sched-form" onSubmit={save} noValidate>
+        <form className="fh-sched-form" onSubmit={save} noValidate>
           {state.paused ? (
             <div className="fh-paused" role="note">
               <p><b>定时运行已暂停</b>连续几次没跑成，贾维斯先停下来了，免得一直报错。看看运行记录找到原因，改好后打开开关保存就会继续。</p>
@@ -169,7 +167,7 @@ export default function ScheduleSheet({ flow, feishu: feishuProp = null, onBindF
               <span id="fh-sched-why">{fileBlock ? `开始时必须上传「${fileBlock.label || '文件'}」，定时运行没法带文件，所以不能定时` : '到点贾维斯自己跑一遍，不用开着网页'}</span>
             </span>
             <button type="button" role="switch" aria-checked={form.enabled} aria-labelledby="fh-sched-on" aria-describedby="fh-sched-why"
-              data-autofocus disabled={Boolean(fileBlock) && !form.enabled}
+              disabled={Boolean(fileBlock) && !form.enabled}
               className={`fh-switch${form.enabled ? ' is-on' : ''}`} onClick={() => set({ enabled: !form.enabled })}>
               <i aria-hidden="true" />
             </button>
@@ -257,6 +255,6 @@ export default function ScheduleSheet({ flow, feishu: feishuProp = null, onBindF
           </div>
         </form>
       )}
-    </Modal>
+    </>
   )
 }
