@@ -381,8 +381,9 @@ def register(app, *, request_principal, panel_write, deny, deps: engine.FlowDeps
         graph = view_graph(flow)
         view = {"id": flow["id"], "name": flow["name"], "summary": flow["summary"], "graph": graph,
                 "config_hashes": config_hashes(graph), "updated_at": flow["updated_at"], "trigger": trigger,
-                "last_run": last_run, "hooks": hooks or {"message": False, "webhook": False}}
+                "last_run": last_run}
         if not full:
+            view["hooks"] = hooks or {"message": False, "webhook": False}   # 卡片上的触发方式小标记
             view["node_count"] = len(graph.get("nodes") or [])
             view["plugins"] = nodes_mod.graph_plugins(graph)
         return view
