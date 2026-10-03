@@ -2,10 +2,11 @@ import { useCallback, useId, useMemo, useState } from 'react'
 import Icon from '../../Icon.jsx'
 import { MARKET_PATH } from '../../routes.js'
 import {
-  canConnect, choiceList, conditionHandles, FIELD_TYPES, FILE_VAR_LABEL, fileFirstGroups, handleLabel, isFileArg, LIST_FIELDS,
-  MAX_FIELDS, MAX_TEXT, nodeById, nodeTitle, OPS, START_ID, topoOrder, UNARY_OPS, varLabel, varOptions,
+  APPROVAL_HOURS, approvalHours, canConnect, fmtMs, choiceList, conditionHandles, FIELD_TYPES, FILE_VAR_LABEL, fileFirstGroups,
+  followsAccountNotify, handleLabel, isFileArg, LIST_FIELDS, MAX_FIELDS, MAX_TEXT, nodeById, nodeTitle, OPS, START_ID, topoOrder,
+  UNARY_OPS, varLabel, varOptions,
 } from '../graph.js'
-import { itemOf, needsPlugin, unavailableReason } from './catalog.js'
+import { itemOf, needsPlugin, SIDE_EFFECT_HINT, sideEffectOf, unavailableReason } from './catalog.js'
 import Glyph, { NodeIcon } from './glyphs.jsx'
 import { NodeOutput, stepLine } from './RunPanel.jsx'
 import { RunBadge } from './NodeCard.jsx'
@@ -242,6 +243,67 @@ function ConditionForm({ node, patch, locked, groups, vi }) {
   )
 }
 
+/* ---------- 发送前确认（第二十轮） ---------- */
+
+const HOUR_PRESETS = [1, 2, 4, 8, 12, 24, 48, 72]
+const hourText = h => (h >= 24 && h % 24 === 0 ? `${h / 24} 天（${h} 小时）` : `${h} 小时`)
+
+function ApprovalForm({ node, patch, locked, vi, typeTrigger }) {
+  const d = node.data || {}
+  const id = useId()
+  const hours = approvalHours(d)
+  const valid = hours >= APPROVAL_HOURS.min && hours <= APPROVAL_HOURS.max
+  const presets = Number.isFinite(hours) && !HOUR_PRESETS.includes(hours) ? [...HOUR_PRESETS, hours].sort((a, b) => a - b) : HOUR_PRESETS
+  const custom = !followsAccountNotify(d)
+  const notify = custom ? d.notify : { feishu: true, desktop: true }
+  const setNotify = p => patch(x => ({ ...x, notify: { feishu: !!notify.feishu, desktop: !!notify.desktop, ...p } }))
+  return (
+    <div className="fc-cfg-sec">
+      <div className="fc-cfg-note" role="note" data-type="approval">
+        <Glyph name="approval" size={15} />
+        <p>运行到这里会先停下，把下面的内容发给你确认：点「同意」才接着往下走，点「拒绝」后面的步骤就不跑了。</p>
+      </div>
+      <Field label="给你看的内容" htmlFor={`${id}-msg`} hint="不填就把上一步的文字给你看。">
+        <VarInput {...vi} id={`${id}-msg`} tour rows={5} value={d.message || ''} maxLength={MAX_TEXT} label="给你看的内容"
+          placeholder={typeTrigger ? '比如：今天的早报要发到飞书群了，看一眼：（打 / 插入前面步骤的结果）' : '比如：今天的早报要发到飞书群了，看一眼：（点「变量」插入）'}
+          onChange={v => patch({ message: v }, `${node.id}.message`)} />
+      </Field>
+      <label className="fc-check fc-check--card">
+        <input type="checkbox" checked={d.editable !== false} disabled={locked} onChange={e => patch({ editable: e.target.checked })} />
+        <span><b>确认时可以改内容</b><small>改过的内容会当作这一步的结果，接着往下发</small></span>
+      </label>
+      <Field label="最多等多久" htmlFor={`${id}-hours`} hint="过了时间还没处理就作废，后面的步骤不跑。">
+        <select id={`${id}-hours`} className="fc-select" value={Number.isFinite(hours) ? String(hours) : ''} disabled={locked}
+          aria-invalid={!valid || undefined} onChange={e => patch({ timeout_hours: Number(e.target.value) })}>
+          {!Number.isFinite(hours) ? <option value="">请选择…</option> : null}
+          {presets.map(h => <option key={h} value={h}>{hourText(h)}</option>)}
+        </select>
+      </Field>
+      <Field label="怎么提醒你" id={`${id}-nt`}>
+        <div className="fc-seg" role="radiogroup" aria-labelledby={`${id}-nt`}>
+          {[[false, '跟着我的送达设置'], [true, '这一步自己选']].map(([v, l]) => (
+            <button key={l} type="button" role="radio" aria-checked={custom === v} disabled={locked} className={custom === v ? 'is-on' : ''}
+              onClick={() => patch(x => {
+                if (v === custom) return x
+                if (!v) { const { notify: _drop, ...rest } = x; return rest }
+                return { ...x, notify: { feishu: true, desktop: true } }
+              })}>{l}</button>
+          ))}
+        </div>
+        {custom ? (
+          <div className="fc-row fc-notify" role="group" aria-label="提醒方式">
+            <label className="fc-check"><input type="checkbox" checked={!!notify.feishu} disabled={locked} onChange={e => setNotify({ feishu: e.target.checked })} />飞书</label>
+            <label className="fc-check"><input type="checkbox" checked={!!notify.desktop} disabled={locked} onChange={e => setNotify({ desktop: e.target.checked })} />桌面通知</label>
+          </div>
+        ) : null}
+        <p className="fc-field-hint">
+          {custom ? '飞书要先绑定才收得到。' : '按你在设置里选的送达方式提醒。'}不管怎么选，「我的流程」顶部都会出现「等你确认」。
+        </p>
+      </Field>
+    </div>
+  )
+}
+
 /* ---------- 连线：前面接着 / 下一步 ---------- */
 
 function Upstream({ node, graph, locked, onDisconnect, onSelectNode }) {
@@ -349,11 +411,67 @@ export function fileArgHint(graph) {
   return `要的是文件：先在「开始」里加一个「文件」输入，再点「变量」插入它的「${FILE_VAR_LABEL}」。`
 }
 
+/* ---------- 试跑这一步（第二十轮，契约 §3.2） ---------- */
+
+/** 节点数据的指纹：试跑之后又改过配置，结果就可能不同了 */
+export const dataSig = node => JSON.stringify(node?.data || {})
+
+/** 「试跑这一步」按钮 + 一句说明（会发出去 / 会写入的节点先说清楚：试跑不会真的发送 / 写入） */
+function TestBar({ node, item, test, blocked, onTest }) {
+  const hintId = useId()
+  const kind = sideEffectOf(node, item)
+  const busy = test?.status === 'running'
+  return (
+    <div className="fc-testbar">
+      <button type="button" className="jv-btn jv-btn--sm fc-test-btn" onClick={onTest} disabled={busy || !!blocked}
+        aria-describedby={hintId}>
+        {busy ? <i className="fc-spin" aria-hidden="true" /> : <Glyph name="flask" size={14} />}
+        {busy ? '正在试跑…' : test ? '再试跑一次' : '试跑这一步'}
+      </button>
+      <p className={`fc-field-hint${kind && !blocked ? ' is-effect' : ''}`} id={hintId}>
+        {blocked || (kind ? SIDE_EFFECT_HINT[kind] : '只跑这一步：用上次运行的结果当输入，不往下跑')}
+      </p>
+    </div>
+  )
+}
+
+/** 试跑的结果：标「试跑」；服务端的提醒（比如「试跑不会真的发送」）放最前面；缺输入时给「去填开始的输入」 */
+function TestResult({ node, item, test, onOpenRun }) {
+  if (test.status === 'running') {
+    return <div className="fc-test is-running" role="status"><i className="fc-spin" aria-hidden="true" />正在试跑这一步…</div>
+  }
+  const ok = test.status === 'ok'
+  const stale = test.sig !== undefined && test.sig !== dataSig(node)
+  const needInputs = !ok && /开始的输入|完整跑一次/.test(test.error || '')
+  const kind = sideEffectOf(node, item)
+  const note = test.note || (ok && kind ? SIDE_EFFECT_HINT[kind] : '')
+  const branch = test.output?.branch
+  return (
+    <section className={`fc-test is-${ok ? 'ok' : 'error'}`} aria-label="试跑结果">
+      <p className="fc-test-head">
+        <span className="fc-test-tag">试跑</span>
+        <b>{ok ? '跑通了' : '没跑通'}</b>
+        {ok && test.summary ? <span className="fc-test-sum">{test.summary}</span> : null}
+        {test.ms ? <span className="fc-test-ms">{fmtMs(test.ms)}</span> : null}
+      </p>
+      {stale ? <p className="fc-test-stale"><Glyph name="warn" size={13} />改过了，再试跑结果可能不同</p> : null}
+      {note ? <p className="fc-test-note"><Glyph name="warn" size={13} /><span>{note}</span></p> : null}
+      {ok ? (
+        <>
+          {node.type === 'condition' && branch !== undefined && branch !== null ? <p className="fc-test-line">会走「{handleLabel(node, branch) || '否则'}」</p> : null}
+          <NodeOutput state={{ output: test.output || {} }} />
+        </>
+      ) : <p className="fc-test-err" role="alert">{test.error || '这一步没跑通，换个输入再试试'}</p>}
+      {needInputs && onOpenRun ? <button type="button" className="jv-btn jv-btn--sm" onClick={onOpenRun}>去填开始的输入</button> : null}
+    </section>
+  )
+}
+
 /* ---------- 主体 ---------- */
 
 export function ConfigBody({
   node, graph, index, sys, issues = [], locked, onPatch, onDelete, onConnect, onDisconnect, onSelectNode, onAddNext,
-  runState = null, onOpenRun, typeTrigger = true,
+  runState = null, onOpenRun, typeTrigger = true, test = null, onTest = null, testBlocked = '',
 }) {
   const [tab, setTab] = useState('settings')
   const item = itemOf(index, node)
@@ -461,6 +579,8 @@ export function ConfigBody({
         </Field>
       </div>
     )
+  } else if (node.type === 'approval') {
+    form = <ApprovalForm node={node} patch={patch} locked={locked} vi={vi} typeTrigger={typeTrigger} />
   } else if (node.type === 'end') {
     form = (
       <div className="fc-cfg-sec">
@@ -476,36 +596,44 @@ export function ConfigBody({
     )
   }
 
+  const testable = !!onTest && node.id !== START_ID
+  const runTest = () => { setTab('last'); onTest(node.id) }
   const tabs = (
     <div className="fc-tabs" role="tablist" aria-label="设置与上次结果">
       {[['settings', '设置'], ['last', '上次结果']].map(([v, l]) => (
         <button key={v} type="button" role="tab" id={`${tabId}-${v}`} aria-selected={tab === v} aria-controls={`${tabId}-${v}-panel`}
           className={tab === v ? 'is-on' : ''} onClick={() => setTab(v)}>
-          {l}{v === 'last' && runState?.status ? <RunBadge run={runState} /> : null}
+          {l}{v === 'last' && test ? <span className="fc-test-tag" aria-label="（有试跑结果）">试跑</span>
+            : v === 'last' && runState?.status ? <RunBadge run={runState} /> : null}
         </button>
       ))}
     </div>
   )
+  const testBar = testable ? <TestBar node={node} item={item} test={test} blocked={testBlocked} onTest={runTest} /> : null
 
   if (tab === 'last') {
+    const lastRun = runState?.status ? (
+      <>
+        <p className={`fc-last-line is-${runState.status}`}>
+          <RunBadge run={runState} />
+          <span>{runState.stale ? '改过了，再运行结果可能不同' : stepLine(runState, node) || '完成'}</span>
+        </p>
+        {runState.status === 'ok' || runState.status === 'error' ? <NodeOutput state={runState} /> : null}
+      </>
+    ) : null
     return (
       <>
         {tabs}
         <div role="tabpanel" id={`${tabId}-last-panel`} aria-labelledby={`${tabId}-last`} className="fc-last">
-          {runState?.status ? (
-            <>
-              <p className={`fc-last-line is-${runState.status}`}>
-                <RunBadge run={runState} />
-                <span>{runState.stale ? '改过了，再运行结果可能不同' : stepLine(runState, node) || '完成'}</span>
-              </p>
-              {runState.status === 'ok' || runState.status === 'error' ? <NodeOutput state={runState} /> : null}
-            </>
-          ) : (
+          {test ? <TestResult node={node} item={item} test={test} onOpenRun={onOpenRun} /> : null}
+          {test && lastRun ? <h4 className="fc-cfg-h fc-last-sub">上次运行</h4> : null}
+          {lastRun || (!test ? (
             <div className="fc-last-empty">
-              <p>还没运行过，点右上角「运行」试一次。</p>
+              <p>{testable ? '还没运行过。可以点右上角「运行」把整条跑一遍，或者只试跑这一步。' : '还没运行过，点右上角「运行」试一次。'}</p>
               {onOpenRun ? <button type="button" className="jv-btn jv-btn--sm jv-btn--primary" onClick={onOpenRun}>运行</button> : null}
             </div>
-          )}
+          ) : null)}
+          {testBar}
         </div>
       </>
     )
@@ -515,6 +643,7 @@ export function ConfigBody({
     <>
       {tabs}
       <div role="tabpanel" id={`${tabId}-settings-panel`} aria-labelledby={`${tabId}-settings`}>
+        {testBar}
         {issues.length ? (
           <ul className="fc-cfg-issues" aria-label="这个节点还差这些">
             {issues.map(i => <li key={i.key} className={`is-${i.level}`}><Glyph name="warn" size={13} />{i.message}</li>)}
@@ -546,7 +675,7 @@ export function typeLabelOf(node, item) {
   if (node.type === 'tool') return item?.plugin_name ? `插件工具 · ${item.plugin_name}` : '插件工具'
   if (node.type === 'llm' && node.data?.skill) return '技能'
   if (node.type === 'step') return item?.role === 'output' ? '积木 · 输出' : '积木'
-  return { start: '开始', llm: 'AI 处理', condition: '条件分支', template: '文本拼接', end: '结束' }[node.type] || '节点'
+  return { start: '开始', llm: 'AI 处理', condition: '条件分支', template: '文本拼接', approval: '发送前确认', end: '结束' }[node.type] || '节点'
 }
 
 /** 桌面：右侧浮在画布上的面板 */

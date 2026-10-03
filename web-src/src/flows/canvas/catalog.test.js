@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { indexCatalog, itemKeyOf, itemOf, needsPlugin, searchCatalog, unavailableReason } from './catalog.js'
+import { indexCatalog, itemKeyOf, itemOf, needsPlugin, searchCatalog, SIDE_EFFECT_HINT, sideEffectOf, unavailableReason } from './catalog.js'
 import { CATALOG } from './testFixtures.js'
 
 describe('节点目录索引', () => {
   const idx = indexCatalog(CATALOG)
 
-  it('分组按 基础 / 插件工具 / 技能 / 积木 排；基础缺的补上；开始节点不进面板', () => {
+  it('分组按 基础 / 插件工具 / 技能 / 积木 排；基础缺的补上（含发送前确认）；开始节点不进面板', () => {
     expect(idx.groups.map(g => g.id)).toEqual(['basic', 'tools', 'skills', 'steps'])
-    expect(idx.groups[0].items.map(i => i.key)).toEqual(['llm', 'condition', 'template', 'end'])
+    expect(idx.groups[0].items.map(i => i.key)).toEqual(['llm', 'condition', 'template', 'approval', 'end'])
+    expect(itemOf(idx, { type: 'approval', data: {} }).title).toBe('发送前确认')
     expect(idx.byKey.has('start')).toBe(false)
     expect(idx.sys.map(s => s.key)).toEqual(['date', 'time'])
     expect(idx.skills.map(s => s.key)).toEqual(['skill:work_report'])
@@ -31,7 +32,32 @@ describe('节点目录索引', () => {
     expect(itemOf(idx, { type: 'llm', data: {} }).key).toBe('llm')
     expect(itemOf(idx, { type: 'condition', data: {} }).key).toBe('condition')
     expect(itemOf(indexCatalog(null), tool)).toBeUndefined()
-    expect(indexCatalog(null).groups[0].items).toHaveLength(4)
+    expect(indexCatalog(null).groups[0].items).toHaveLength(5)
+  })
+
+  it('试跑提醒：会发出去的积木、会写数据的工具、发送前确认；目录的 side_effect 标记优先', () => {
+    const step = s => ({ type: 'step', data: { step: s } })
+    const tool = t => ({ type: 'tool', data: { plugin: 'p', tool: t } })
+    expect(sideEffectOf(step('feishu_send'))).toBe('send')
+    expect(sideEffectOf(step('wechat_send'))).toBe('send')
+    expect(sideEffectOf(step('to_todo'))).toBe('write')
+    expect(sideEffectOf(step('ai_extract'))).toBe('')
+    expect(sideEffectOf(tool('todo_add'))).toBe('write')
+    expect(sideEffectOf(tool('memo_del'))).toBe('write')
+    expect(sideEffectOf(tool('excel__write_cells'))).toBe('')   // 与服务端同一套规则：write 不在其中（插件声明的以试跑说明为准）
+    expect(sideEffectOf(tool('meeting_start'))).toBe('write')
+    expect(sideEffectOf(tool('workday_calc_add'))).toBe('')
+    expect(sideEffectOf(step('web_page'))).toBe('write')
+    expect(sideEffectOf(step('custom_out'), { role: 'output' })).toBe('write')
+    expect(sideEffectOf(tool('weather__now'))).toBe('')
+    expect(sideEffectOf(tool('web_search'))).toBe('')
+    expect(sideEffectOf({ type: 'approval', data: {} })).toBe('confirm')
+    expect(sideEffectOf({ type: 'llm', data: {} })).toBe('')
+    expect(sideEffectOf(tool('weather__now'), { side_effect: 'send' })).toBe('send')
+    expect(sideEffectOf(tool('todo_add'), { side_effect: false })).toBe('')
+    expect(sideEffectOf(step('web_page'), { side_effect: true, role: 'output' })).toBe('send')
+    expect(SIDE_EFFECT_HINT.send).toBe('试跑只看要发的内容，不会真的发送')
+    expect(SIDE_EFFECT_HINT.write).toMatch('不会真的写入')
   })
 
   it('不可用原因与「去加插件」', () => {

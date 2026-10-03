@@ -7,6 +7,8 @@ const BASIC_FALLBACK = [
   { key: 'llm', type: 'llm', title: 'AI 处理', summary: '让 AI 按你的要求处理前面的内容', data: { title: 'AI 处理', prompt: '', output: 'text' } },
   { key: 'condition', type: 'condition', title: '条件分支', summary: '按条件走不同的路', data: { title: '条件分支' } },
   { key: 'template', type: 'template', title: '文本拼接', summary: '把前面几步的结果拼成一段话', data: { title: '文本拼接', template: '' } },
+  { key: 'approval', type: 'approval', title: '发送前确认', icon: '✋', summary: '跑到这里先停下，你看过、点同意再往下发',
+    data: { title: '发送前确认', message: '', editable: true, timeout_hours: 24 } },
   { key: 'end', type: 'end', title: '结束', summary: '最终结果长什么样，要不要生成结果网页', data: { title: '结束', output: '', page: false } },
 ]
 
@@ -124,8 +126,50 @@ export function itemOf(index, node) {
   const key = itemKeyOf(node)
   if (index.byKey.has(key)) return index.byKey.get(key)
   if (node.type === 'llm' && node.data?.skill) return null
-  if (['llm', 'condition', 'template', 'end'].includes(node.type)) return index.byKey.get(node.type) || undefined
+  if (BASIC_TYPES.includes(node.type)) return index.byKey.get(node.type) || undefined
   return null
+}
+
+const BASIC_TYPES = ['llm', 'condition', 'template', 'approval', 'end']
+
+/* 试跑一步时的提醒（契约 §3.2）：会往外发东西的积木 / 会写数据的工具，试跑只看内容、不真的发送 / 写入。
+ * 目录项带 side_effect（'send' | 'write'）时以它为准；没有就按服务端试跑时的同一套规则推
+ * （jarvis/flows/nodes.py tool_writes：工具名按非字母数字切开后含 add / del / delete / remove / done / remember / forget，
+ *  或是开始 / 结束记会议；输出积木一律只预演）。插件清单里声明了 write 能力的工具前端看不到，以试跑结果里的说明为准。 */
+const SEND_STEPS = new Set(['feishu_send', 'wechat_send'])
+const WRITE_STEPS = new Set(['feishu_doc', 'to_todo', 'web_page'])
+const WRITE_TOKENS = new Set(['add', 'del', 'delete', 'remove', 'done', 'remember', 'forget'])
+const WRITE_TOOLS = new Set(['meeting_start', 'meeting_stop'])
+const READ_ONLY_TOOLS = new Set(['workday_calc_add'])
+const toolWrites = name => {
+  const n = String(name || '').toLowerCase()
+  if (READ_ONLY_TOOLS.has(n)) return false
+  return WRITE_TOOLS.has(n) || n.split(/[^a-z0-9]+/).some(t => WRITE_TOKENS.has(t))
+}
+
+/** 节点试跑时的副作用：'send'（会发出去）· 'write'（会写进去）· 'confirm'（发送前确认）· ''（没有） */
+export function sideEffectOf(node, item) {
+  if (!node) return ''
+  if (node.type === 'approval') return 'confirm'
+  const flag = item?.side_effect
+  if (flag === 'send' || flag === 'write') return flag
+  if (flag === true) return node.type === 'step' && item?.role === 'output' ? 'send' : 'write'
+  if (flag === false) return ''
+  if (node.type === 'step') {
+    const step = node.data?.step || ''
+    if (SEND_STEPS.has(step)) return 'send'
+    if (WRITE_STEPS.has(step) || item?.role === 'output') return 'write'
+    return ''
+  }
+  if (node.type === 'tool') return toolWrites(node.data?.tool) ? 'write' : ''
+  return ''
+}
+
+/** 试跑前的一句提醒（人话） */
+export const SIDE_EFFECT_HINT = {
+  send: '试跑只看要发的内容，不会真的发送',
+  write: '试跑不会真的写入，只看看会写什么',
+  confirm: '试跑只看给你确认的内容，不会真的发给你确认',
 }
 
 /** 搜索：标题、简介、插件名都算；返回与 groups 同形但只留命中的 */

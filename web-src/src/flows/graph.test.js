@@ -6,6 +6,7 @@ import {
   normalizeGraph, outputsOf, parseVars, redo, referencesOf, removeEdges, removeNodes, renameRefs, runReducer,
   settle, splitVars, startRunState, topoOrder, transient, undo, updateNodeData, upstream, validateGraph, varLabel,
   varOptions, chosenBranch, dependents, duplicateNode, staleNodes, hashStale, fileFirstGroups, isFileArg, startVar,
+  approvalHours, followsAccountNotify, isWaiting, MAX_TEXT, runFromDetail,
 } from './graph.js'
 
 /* ---- 小工厂 ---- */
@@ -717,5 +718,119 @@ describe('原文件变量', () => {
     expect(validateGraph(bad, { itemOf }).some(i => i.block === 'save' && i.message === '第 1 个输入项的内部名字不对，删掉重加一个')).toBe(true)
     const text = fileFlow('{{start.report_file}}', [{ key: 'report', label: '报表', type: 'text' }])
     expect(msgs(text)).toContain('「报表」已经不是文件输入了，没有原文件：改回「文件」类型，或重新选一个')
+  })
+})
+
+describe('发送前确认节点（第二十轮）', () => {
+  /** start → n1(AI) → ap(确认) → f(发飞书) → end */
+  const withApproval = (data = {}, { tail = true } = {}) => ({
+    nodes: [
+      START,
+      N('n1', 'llm', { title: '写成早报', prompt: '总结 {{start.text}}', output: 'text' }, 320),
+      N('ap', 'approval', { title: '发前给我看看', message: '', editable: true, timeout_hours: 24, ...data }, 640),
+      ...(tail ? [N('f', 'step', { step: 'feishu_send', options: {} }, 960), N('end', 'end', { title: '结束', output: '{{ap.text}}' }, 1280)]
+        : [N('end', 'end', { title: '结束', output: '{{n1.text}}' }, 960, 200)]),
+    ],
+    edges: tail
+      ? [E('e1', 'start', 'n1'), E('e2', 'n1', 'ap'), E('e3', 'ap', 'f'), E('e4', 'f', 'end')]
+      : [E('e1', 'start', 'n1'), E('e2', 'n1', 'ap'), E('e5', 'n1', 'end')],
+  })
+  const issuesOf = g => validateGraph(g, { itemOf: () => undefined }).filter(i => i.nodeId === 'ap')
+
+  it('createNode 补默认：内容空（用上一步的文字）、允许修改、等 24 小时；通知跟着账号设置', () => {
+    const node = createNode(emptyGraph(), { type: 'approval', title: '发送前确认', data: { title: '发送前确认' } })
+    expect(node.data).toEqual({ title: '发送前确认', message: '', editable: true, timeout_hours: 24 })
+    expect(followsAccountNotify(node.data)).toBe(true)
+    expect(followsAccountNotify({ notify: { feishu: true, desktop: false } })).toBe(false)
+    const kept = createNode(emptyGraph(), { type: 'approval', data: { editable: false, timeout_hours: 6 } })
+    expect(kept.data).toMatchObject({ editable: false, timeout_hours: 6, title: '发送前确认' })
+  })
+
+  it('能被下游引用的产出是「文字」；变量标签说人话', () => {
+    expect(outputsOf(N('ap', 'approval', {}))).toEqual([{ field: 'text', label: '文字' }])
+    expect(varLabel(withApproval(), 'ap', 'text').label).toBe('发前给我看看 · 文字')
+    expect(varOptions(withApproval(), 'end').map(g => g.id)).toEqual(['start', 'n1', 'ap', 'f', 'sys'])
+  })
+
+  it('校验：等多久 1–72 小时拦保存；内容超长拦保存；两种提醒都关了提醒；后面没接下一步提醒', () => {
+    expect(issuesOf(withApproval())).toEqual([])
+    expect(approvalHours({})).toBe(24)
+    expect(approvalHours({ timeout_hours: '6' })).toBe(6)
+    for (const bad of [0, 73, 1.5, 'abc']) {
+      const hit = issuesOf(withApproval({ timeout_hours: bad })).find(i => i.key === 'ap-hours')
+      expect(hit).toMatchObject({ block: 'save', message: '等多久要在 1 到 72 小时之间' })
+    }
+    expect(issuesOf(withApproval({ timeout_hours: 72 }))).toEqual([])
+    expect(issuesOf(withApproval({ message: 'x'.repeat(MAX_TEXT + 1) })).map(i => i.block)).toContain('save')
+    const quiet = issuesOf(withApproval({ notify: { feishu: false, desktop: false } }))
+    expect(quiet).toEqual([expect.objectContaining({ level: 'warn', block: '', message: expect.stringContaining('两种提醒都关了') })])
+    expect(issuesOf(withApproval({ notify: { feishu: true, desktop: false } }))).toEqual([])
+    const dangling = issuesOf(withApproval({}, { tail: false }))
+    expect(dangling.map(i => i.message)).toEqual(['确认后面还没接下一步：你点了同意，也没有东西会发出去'])
+  })
+
+  it('节点卡摘要：给你看什么 · 多久内确认 · 能不能改', () => {
+    const g = withApproval()
+    const ap = g.nodes.find(n => n.id === 'ap')
+    expect(nodeSummary(ap, g)).toBe('把上一步的文字给你看 · 24 小时内确认，可以改')
+    const custom = { ...ap, data: { ...ap.data, message: '早报：{{n1.text}}', editable: false, timeout_hours: 2 } }
+    expect(nodeSummary(custom, g)).toBe('给你看：早报：「写成早报 · 文字」 · 2 小时内确认')
+    expect(nodeSummary({ ...ap, data: { timeout_hours: 99 } }, g)).toContain('99 小时内确认')
+    expect(nodeSummary({ ...ap, data: { timeout_hours: 'x' } }, g)).toContain('等多久没设对')
+  })
+
+  it('运行：node_wait 让确认节点「等你确认」，run_done waiting 整条停下（不算出错）', () => {
+    let s = startRunState(0)
+    for (const ev of [
+      { type: 'run_start', run_id: 'r1' },
+      { type: 'node_start', node_id: 'n1' }, { type: 'node_done', node_id: 'n1', ms: 300, output: { text: '早报' } },
+      { type: 'node_start', node_id: 'ap' },
+      { type: 'node_wait', node_id: 'ap', approval_id: 'a1', url: '/approve/a1', expires_at: '2026-10-04T08:00:00Z' },
+      { type: 'run_done', status: 'waiting', approval: { id: 'a1', url: 'https://j.cn/approve/a1', expires_at: '2026-10-04T08:00:00Z' } },
+    ]) s = runReducer(s, ev)
+    expect(s.status).toBe('waiting')
+    expect(isWaiting(s)).toBe(true)
+    expect(s.error).toBe('')
+    expect(s.nodes.ap).toMatchObject({ status: 'waiting', approval: { id: 'a1', url: '/approve/a1' } })
+    expect(s.approval).toEqual({ id: 'a1', url: 'https://j.cn/approve/a1', expires_at: '2026-10-04T08:00:00Z' })
+    expect(s.nodes.n1.status).toBe('ok')
+    expect(edgeRunState(E('e2', 'n1', 'ap'), s)).toBe('done')
+    expect(edgeRunState(E('e3', 'ap', 'f'), s)).toBe('')
+    // run_done 没带 approval 时沿用 node_wait 的
+    const t = runReducer(runReducer(startRunState(0), { type: 'node_wait', node_id: 'ap', approval_id: 'a2', url: '/approve/a2' }), { type: 'run_done', status: 'waiting' })
+    expect(t.approval.id).toBe('a2')
+    // 联调：node_wait 还带 summary / preview / ms / config_hash
+    const w = runReducer(startRunState(0), { type: 'node_wait', node_id: 'ap', approval_id: 'a3', summary: '等你确认（86 字）', preview: '今天…', ms: 12, config_hash: 'h9' })
+    expect(w.nodes.ap).toMatchObject({ status: 'waiting', summary: '等你确认（86 字）', preview: '今天…', ms: 12, config_hash: 'h9' })
+    // 运行详情里被拒绝 / 过期的节点
+    const r = runFromDetail(w, { status: 'rejected', nodes: [{ node_id: 'ap', status: 'rejected', summary: '你拒绝了' }] })
+    expect(r.nodes.ap.status).toBe('rejected')
+  })
+
+  it('运行详情 → 画布状态：确认后接着跑（resuming）→ 完成；拒绝 / 过期 / 出错', () => {
+    let s = startRunState(0)
+    s = runReducer(s, { type: 'node_done', node_id: 'n1', ms: 300, output: { text: '早报' } })
+    s = runReducer(s, { type: 'node_wait', node_id: 'ap', approval_id: 'a1', url: '/approve/a1' })
+    s = runReducer(s, { type: 'run_done', status: 'waiting' })
+    const resumed = runFromDetail(s, { id: 'r1', status: 'running', nodes: [
+      { node_id: 'n1', status: 'ok', ms: 300, summary: '写好了' },
+      { node_id: 'ap', status: 'ok', ms: 0, summary: '你同意了' },
+      { node_id: 'f', title: '发到飞书', node_type: 'step', status: 'running' },
+    ] })
+    expect(resumed.status).toBe('resuming')
+    expect(resumed.order).toEqual(['n1', 'ap', 'f'])
+    expect(resumed.nodes.ap).toMatchObject({ status: 'ok', summary: '你同意了', approval: null })
+    expect(resumed.nodes.n1.output).toEqual({ text: '早报' })   // 没给的沿用之前的
+    expect(resumed.nodes.f).toMatchObject({ status: 'running', title: '发到飞书', type: 'step' })
+    const done = runFromDetail(resumed, { status: 'ok', ms: 5000, output_text: '**早报**', page_url: '/r/x', links: [{ label: '飞书', url: 'https://f' }],
+      nodes: [{ node_id: 'f', status: 'ok', ms: 400 }, { node_id: 'end', status: 'ok' }] })
+    expect(done).toMatchObject({ status: 'ok', ms: 5000, error: '', output: { text: '**早报**', page_url: '/r/x' } })
+    expect(done.order).toEqual(['n1', 'ap', 'f', 'end'])
+    expect(runFromDetail(s, { status: 'rejected', error: '你没同意，后面的步骤没跑' })).toMatchObject({ status: 'rejected', error: '你没同意，后面的步骤没跑' })
+    expect(runFromDetail(s, { status: 'expired' }).status).toBe('expired')
+    const bad = runFromDetail(s, { status: 'error', error: '「发到飞书」没发出去', nodes: [{ node_id: 'f', status: 'error', summary: '飞书没绑定' }] })
+    expect(bad).toMatchObject({ status: 'error', errorNode: 'f', error: '「发到飞书」没发出去' })
+    expect(bad.nodes.f.message).toBe('飞书没绑定')
+    expect(runFromDetail(s, null)).toBe(s)
   })
 })

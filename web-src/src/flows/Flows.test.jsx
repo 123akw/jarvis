@@ -29,6 +29,7 @@ vi.mock('../tour/index.jsx', () => ({
 
 import { DRAFT_KEY, nextRuns, whenLabel } from './flowkit.js'
 import Flows from './Flows.jsx'
+import { defaultMessageField, hookFlags, lastStatusText } from './TriggerSheet.jsx'
 
 /* ---- 契约假数据（docs/proposals/2026-10-round18-flows.md §3） ---- */
 const n = (id, type, data = {}, x = 0, y = 0) => ({ id, type, position: { x, y }, data })
@@ -91,14 +92,46 @@ const RUNS = { runs: [
     page_url: '', output_text: '', error: '「查实时天气」没走通', nodes: [] },
 ] }
 
+/** SSE 响应：一次把事件都给出去（重跑用） */
+function sseResponse(events) {
+  const chunks = events.map(ev => new TextEncoder().encode(`data: ${JSON.stringify(ev)}\n\n`))
+  let i = 0
+  return { ok: true, status: 200, body: { getReader: () => ({ read: async () => (i < chunks.length ? { done: false, value: chunks[i++] } : { done: true }), releaseLock() {} }) } }
+}
+
 let api
-function mockApi({ flows = FLOWS, listStatus = 200, composeFail = 0, trigger = null, feishuBound = false } = {}) {
-  const state = { flows: flows.map(f => ({ ...f })), calls: [], composeFail, trigger, feishuBound }
+const CHANNELS = { feishu: { ready: true, reason: '' }, wechat: { ready: false, reason: '微信只有管理员账号能用' } }
+
+function mockApi({ flows = FLOWS, listStatus = 200, composeFail = 0, trigger = null, feishuBound = false, runs = RUNS, hooks = {}, approvals = null } = {}) {
+  const state = { flows: flows.map(f => ({ ...f })), calls: [], composeFail, trigger, feishuBound, rerun: null, hooks: { ...hooks }, tokens: 0, hookFail: '', approvals }
   const res = (body, status = 200) => ({ ok: status < 400, status, json: async () => body })
   global.fetch = vi.fn(async (url, init = {}) => {
     const method = init.method || 'GET'
     const body = init.body ? JSON.parse(init.body) : undefined
     state.calls.push({ url, method, body })
+    if (/^\/api\/flows\/[^/]+\/runs\/[^/]+\/rerun$/.test(url)) {
+      const r = state.rerun || { events: [] }
+      return r.status ? res(r.body || {}, r.status) : sseResponse(r.events)
+    }
+    if (/^\/api\/flows\/[^/]+\/runs/.test(url) && runs !== RUNS) return res(runs)
+    if (url.startsWith('/api/approvals?')) return state.approvals ? res(state.approvals) : res({ error: 'not mocked' }, 404)
+    // 第二十轮：触发方式（收到消息 / 通过链接）
+    let h = url.match(/^\/api\/flows\/([^/]+)\/hooks$/)
+    if (h) return res(state.hooks[h[1]] || { message: null, webhook: null, channels: CHANNELS })
+    h = url.match(/^\/api\/flows\/([^/]+)\/hooks\/(message|webhook)$/)
+    if (h) {
+      const cur = state.hooks[h[1]] || { message: null, webhook: null, channels: CHANNELS }
+      if (h[2] === 'message') {
+        if (state.hookFail) return res({ error: state.hookFail }, 409)
+        state.hooks[h[1]] = { ...cur, message: { ...body, last_hit_at: null } }
+        return res({ message: state.hooks[h[1]].message })
+      }
+      if (method === 'DELETE') { state.hooks[h[1]] = { ...cur, webhook: null }; return res({ webhook: null }) }
+      state.tokens += 1
+      const webhook = { enabled: true, created_at: new Date().toISOString(), last_hit_at: null, url_hint: `…k${state.tokens}Zx` }
+      state.hooks[h[1]] = { ...cur, webhook }
+      return res({ webhook, url: `https://jarvis.example.com/api/hooks/tok${state.tokens}abcdefk${state.tokens}Zx` })
+    }
     if (url === '/api/flows' && method === 'GET') return listStatus === 200 ? res({ flows: state.flows }) : res({ error: '数据库开小差了' }, listStatus)
     if (url === '/api/flows' && method === 'POST') return res({ flow: { id: 'copy1', name: body.name, summary: body.summary, graph: body.graph } })
     if (url === '/api/flows/templates') return res(TEMPLATES)
@@ -308,7 +341,7 @@ describe('「我的流程」首页', () => {
     fireEvent.click(more)
     const menu = screen.getByRole('menu', { name: '「工作日早报」的操作' })
     const items = within(menu).getAllByRole('menuitem')
-    expect(items.map(i => i.textContent)).toEqual(['打开', '运行记录', '定时运行', '复制', '删除'])
+    expect(items.map(i => i.textContent)).toEqual(['打开', '运行记录', '触发方式', '复制', '删除'])
     expect(items[0]).toHaveFocus()
     fireEvent.keyDown(menu, { key: 'ArrowDown' })
     expect(items[1]).toHaveFocus()
@@ -335,7 +368,7 @@ describe('「我的流程」首页', () => {
     expect(screen.getByRole('dialog', { name: '运行记录：工作日早报' })).toBeInTheDocument()
     fireEvent.keyDown(window, { key: 'Escape' })
     fireEvent.click(screen.getByRole('button', { name: '定时已暂停' }))
-    expect(screen.getByRole('dialog', { name: '定时运行' })).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: '触发方式' })).toBeInTheDocument()
   })
 
   it('复制：存一份「副本」放到最前面', async () => {
@@ -399,11 +432,276 @@ describe('「我的流程」首页', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
+  it('运行记录：来源说人话（重复的不再标）；等你确认 / 没同意的状态；每条「再跑」，在等确认的不能再跑', async () => {
+    const now = Date.now()
+    const runs = { runs: [
+      { id: 'r5', status: 'waiting', source: 'chat', started_at: new Date(now - 60e3).toISOString(), input_summary: '城市：北京', nodes: [],
+        approval: { id: 'apv777', expires_at: new Date(now + 4.5 * 3600e3).toISOString() } },
+      { id: 'r4', status: 'rejected', source: 'webhook', started_at: new Date(now - 600e3).toISOString(), input_summary: '', nodes: [] },
+      { id: 'r3', status: 'ok', source: 'manual', started_at: new Date(now - 3600e3).toISOString(), input_summary: '手动运行', nodes: [] },
+    ] }
+    await renderHome({ runs })
+    fireEvent.click(screen.getByRole('button', { name: '「工作日早报」的更多操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '运行记录' }))
+    const drawer = screen.getByRole('dialog', { name: '运行记录：工作日早报' })
+    const list = await within(drawer).findByRole('list', { name: '最近的运行' })
+    const items = within(list).getAllByRole('listitem')
+    expect(items[0]).toHaveTextContent('等你确认对话里叫跑的')
+    expect(items[1]).toHaveTextContent('你没同意链接触发')
+    expect(within(items[2]).queryByText('手动运行', { selector: '.fh-run-src' })).toBeNull()   // 摘要里说过了
+    expect(within(items[0]).queryByRole('button', { name: /用这次的输入再跑/ })).toBeNull()
+    expect(within(items[1]).getByRole('button', { name: /用这次的输入再跑/ })).toBeInTheDocument()
+    // 等确认的那条：详情里给「去确认」
+    fireEvent.click(within(items[0]).getByRole('button', { name: /等你确认/ }))
+    expect(within(drawer).getByRole('heading', { name: '这次运行在等你确认' })).toBeInTheDocument()
+    expect(within(drawer).getByText(/对话里叫跑的/)).toBeInTheDocument()
+    const go = within(drawer).getByRole('link', { name: '去确认' })
+    expect(go).toHaveAttribute('href', '/approve/apv777')
+    expect(within(drawer).getByRole('note')).toHaveTextContent('还剩 4 小时')
+    fireEvent.click(go)
+    expect(where()).toBe('/approve/apv777')
+  })
+
+  it('用这次的输入再跑：就地显示每一步与结果；回到全部记录会重新加载；在详情里也能再跑；接口拒了说人话', async () => {
+    await renderHome()
+    api.rerun = { events: [
+      { type: 'run_start', run_id: 'r9' },
+      { type: 'node_start', node_id: 'w', node_type: 'tool', title: '查实时天气' },
+      { type: 'node_done', node_id: 'w', ms: 900, summary: '北京 多云' },
+      { type: 'node_start', node_id: 'n1', node_type: 'llm' },
+      { type: 'node_done', node_id: 'n1', ms: 2100, summary: '写好了' },
+      { type: 'run_done', status: 'ok', ms: 3100, output: { text: '**新的早报**', page_url: '/r/new', links: [] } },
+    ] }
+    fireEvent.click(screen.getByRole('button', { name: '「工作日早报」的更多操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '运行记录' }))
+    const drawer = screen.getByRole('dialog', { name: '运行记录：工作日早报' })
+    await within(drawer).findAllByRole('button', { name: /完成|失败/ })
+    fireEvent.click(within(drawer).getAllByRole('button', { name: /用这次的输入再跑/ })[0])
+    expect(await within(drawer).findByRole('heading', { name: '这次运行完成' })).toBeInTheDocument()
+    expect(calls('/api/flows/f1/runs/r2/rerun', 'POST')).toHaveLength(1)
+    const steps = within(drawer).getByRole('region', { name: '每一步的进度' })
+    expect(within(steps).getByText('查实时天气')).toBeInTheDocument()
+    expect(within(steps).getByText('北京 多云')).toBeInTheDocument()
+    expect(within(steps).getByText('写成早报')).toBeInTheDocument()   // 事件没带名字：用那次记录里的
+    const result = within(drawer).getByRole('region', { name: '最终结果' })
+    expect(result.querySelector('strong')).toHaveTextContent('新的早报')
+    expect(within(result).getByRole('link', { name: /打开结果网页/ })).toHaveAttribute('href', 'http://localhost/r/new')
+    expect(within(drawer).getByText(/用的是 .* 的输入/)).toBeInTheDocument()
+    fireEvent.click(within(drawer).getByRole('button', { name: /全部记录/ }))
+    await waitFor(() => expect(calls('/api/flows/f1/runs?limit=20')).toHaveLength(2))
+    // 详情里的完整按钮；这回接口说今天的用量到上限了
+    api.rerun = { status: 429, body: { error: '今天的用量到上限了，明天再来，或请管理员调高' } }
+    fireEvent.click((await within(drawer).findAllByRole('button', { name: /失败/ }))[0])
+    fireEvent.click(within(drawer).getByRole('button', { name: '用这次的输入再跑' }))
+    expect(await within(drawer).findByRole('alert')).toHaveTextContent('今天的用量到上限了')
+    expect(within(drawer).getByRole('heading', { name: '没能再跑' })).toBeInTheDocument()
+  })
+
+  it('顶部「等你确认 · N」：没有待确认不出现；有就出现，点开是列表（流程名、哪一步、预览、还剩多久），点一条进确认页', async () => {
+    const { container } = await renderHome()
+    await waitFor(() => expect(calls('/api/approvals?status=pending&limit=20')).toHaveLength(1))
+    expect(screen.queryByRole('button', { name: /等你确认/ })).toBeNull()
+    cleanup()
+    const now = Date.now()
+    await renderHome({ approvals: { pending: 2, approvals: [
+      { id: 'apv111', flow: { id: 'f1', name: '工作日早报' }, title: '发群前给我看看', preview: '今天北京晴，18–26 度。上午 10 点周会。', status: 'pending',
+        created_at: new Date(now - 600e3).toISOString(), expires_at: new Date(now + 23.5 * 3600e3).toISOString() },
+      { id: 'apv222', flow: { id: 'f2', name: '会议纪要转待办' }, title: '加待办前确认', preview: '1. 订会议室', status: 'pending',
+        created_at: new Date(now - 7200e3).toISOString(), expires_at: new Date(now + 40 * 60e3).toISOString() },
+    ] } })
+    const bar = await screen.findByRole('button', { name: /等你确认 · 2/ })
+    expect(bar).toHaveTextContent('「工作日早报」等 2 个流程停在发送前，等你看一眼')
+    expect(bar.compareDocumentPosition(screen.getByRole('heading', { level: 1, name: '我的流程' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.click(bar)
+    const drawer = screen.getByRole('dialog', { name: '等你确认' })
+    const items = within(within(drawer).getByRole('list', { name: '等你确认的流程' })).getAllByRole('link')
+    expect(items.map(a => a.getAttribute('href'))).toEqual(['/approve/apv111', '/approve/apv222'])
+    expect(items[0]).toHaveTextContent('工作日早报还剩 23 小时停在「发群前给我看看」 · 10 分钟前今天北京晴')
+    expect(within(items[1]).getByText('还剩 40 分钟')).toHaveClass('is-soon')
+    fireEvent.click(items[1])
+    expect(where()).toBe('/approve/apv222')
+    expect(container).toBeTruthy()
+  })
+
+  it('触发方式的小工具：两种 hooks 写法都认；消息默认填进第一个长文字（没有再第一个文字）；上次触发的结果说人话', () => {
+    expect(hookFlags({ message: true, webhook: false })).toEqual({ message: true, webhook: false })
+    expect(hookFlags({ message: { enabled: true }, webhook: null })).toEqual({ message: true, webhook: false })
+    expect(hookFlags(null)).toEqual({ message: false, webhook: false })
+    expect(defaultMessageField([{ key: 'city', type: 'text' }, { key: 'note', type: 'paragraph' }])).toBe('note')
+    expect(defaultMessageField([{ key: 'n', type: 'number' }, { key: 'city', type: 'text' }])).toBe('city')
+    expect(defaultMessageField([{ key: 'f', type: 'file' }])).toBe('')
+    expect(lastStatusText('error')).toMatch('上次没跑通')
+    expect(lastStatusText('waiting')).toMatch('发送前确认')
+    expect(lastStatusText('ok')).toBe('')
+  })
+
+  it('联调：列表项自带 hooks 两个布尔时直接用、不再逐个去读；当时文件没存下来的运行「再跑」置灰并说原因', async () => {
+    const flows = [{ ...FLOWS[0], hooks: { message: true, webhook: false } }, { ...FLOWS[1], hooks: { message: false, webhook: true } }]
+    const runs = { runs: [{ id: 'r8', status: 'ok', source: 'manual', started_at: new Date(Date.now() - 3600e3).toISOString(), input_summary: '合同：a.pdf',
+      rerunnable: false, nodes: [] }] }
+    await renderHome({ flows, runs })
+    const card1 = screen.getByRole('link', { name: '工作日早报' }).closest('li')
+    const card2 = screen.getByRole('link', { name: '会议纪要转待办' }).closest('li')
+    expect(within(card1).getByText('收到消息')).toBeInTheDocument()
+    expect(within(card1).queryByText('链接')).toBeNull()
+    expect(within(card2).getByText('链接')).toBeInTheDocument()
+    expect(api.calls.filter(c => /\/hooks$/.test(c.url))).toHaveLength(0)
+    fireEvent.click(within(card1).getByRole('button', { name: '「工作日早报」的更多操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '运行记录' }))
+    const drawer = screen.getByRole('dialog', { name: '运行记录：工作日早报' })
+    const again = await within(drawer).findByRole('button', { name: /用这次的输入再跑.*要重新上传文件才能再跑/ })
+    expect(again).toBeDisabled()
+    fireEvent.click(within(drawer).getByRole('button', { name: /完成/ }))
+    expect(within(drawer).getByRole('button', { name: '用这次的输入再跑' })).toBeDisabled()
+    expect(within(drawer).getByText(/要重新上传文件才能再跑：这次用的文件当时没存下来/)).toBeInTheDocument()
+  })
+
+  it('卡片上的触发标记：⏰ 定时 / 💬 收到消息 / 🔗 链接，只显示开着的', async () => {
+    await renderHome({ hooks: { f1: { message: { enabled: true }, webhook: { enabled: true }, channels: CHANNELS }, f2: { message: { enabled: false }, webhook: null, channels: CHANNELS } } })
+    const card1 = screen.getByRole('link', { name: '工作日早报' }).closest('li')
+    await within(card1).findByText('收到消息')
+    expect(within(card1).getByText('链接')).toBeInTheDocument()
+    expect(within(card1).getByText('每个工作日 08:00').closest('.fh-flow-timer')).toHaveTextContent('⏰每个工作日 08:00')
+    const card2 = screen.getByRole('link', { name: '会议纪要转待办' }).closest('li')
+    expect(within(card2).queryByText('收到消息')).toBeNull()
+    expect(within(card2).queryByText('链接')).toBeNull()
+    expect(calls('/api/flows/f1/hooks')).toHaveLength(1)
+  })
+
+  it('触发方式：三个页签（← → 切换）；收到消息时——渠道没绑好灰显、关键词胶囊（≤20 字）、消息填进哪一项、必填拦下，保存后卡片出 💬', async () => {
+    await renderHome()
+    fireEvent.click(screen.getByRole('button', { name: '「会议纪要转待办」的更多操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '触发方式' }))
+    const dialog = screen.getByRole('dialog', { name: '触发方式' })
+    const tabs = within(dialog).getAllByRole('tab')
+    expect(tabs.map(t => t.textContent)).toEqual(['⏰定时', '💬收到消息时', '🔗通过链接'])
+    expect(tabs[0]).toHaveAttribute('aria-selected', 'true')
+    tabs[0].focus()
+    fireEvent.keyDown(tabs[0], { key: 'ArrowRight' })
+    expect(tabs[1]).toHaveFocus()
+    expect(tabs[1]).toHaveAttribute('aria-selected', 'true')
+    const panel = within(dialog).getByRole('tabpanel')
+    expect(await within(panel).findByRole('switch', { name: /收到消息时自动运行/ })).toHaveAttribute('aria-checked', 'true')
+    // 渠道：飞书好的默认勾上；微信没接好灰显并说原因
+    expect(within(panel).getByRole('checkbox', { name: /飞书/ })).toBeChecked()
+    const wx = within(panel).getByRole('checkbox', { name: /微信/ })
+    expect(wx).toBeDisabled()
+    expect(wx).toHaveAccessibleDescription('微信只有管理员账号能用')
+    // 没加关键词不让存
+    fireEvent.click(within(panel).getByRole('button', { name: '保存' }))
+    expect(within(panel).getByRole('alert')).toHaveTextContent('加至少一个关键词')
+    const kw = within(panel).getByRole('textbox', { name: '关键词' })
+    fireEvent.change(kw, { target: { value: '纪要' } })
+    fireEvent.keyDown(kw, { key: 'Enter' })
+    fireEvent.change(kw, { target: { value: '这是一个特别特别特别特别特别特别长的关键词啊' } })
+    fireEvent.keyDown(kw, { key: 'Enter' })
+    expect(within(panel).getByText('每个关键词不超过 20 个字')).toBeInTheDocument()
+    fireEvent.change(kw, { target: { value: '会议，周会' } })
+    fireEvent.keyDown(kw, { key: 'Enter' })
+    expect(within(panel).getByRole('list', { name: '已加的关键词' })).toHaveTextContent('纪要会议周会')
+    fireEvent.click(within(panel).getByRole('button', { name: '删掉关键词「周会」' }))
+    fireEvent.keyDown(kw, { key: 'Backspace' })   // 空输入框退格删最后一个
+    expect(within(panel).getByRole('list', { name: '已加的关键词' })).toHaveTextContent('纪要')
+    // 消息填进哪一项：默认第一个文字输入；改成不填 → 必填的「会议记录」没人填，拦下
+    const target = within(panel).getByRole('combobox', { name: '消息的文字填进哪一项' })
+    expect(target).toHaveValue('text')
+    expect(within(panel).getByText(/消息里带的文件会填进「录音或附件」/)).toBeInTheDocument()
+    fireEvent.change(target, { target: { value: '' } })
+    fireEvent.click(within(panel).getByRole('button', { name: '保存' }))
+    expect(within(panel).getByRole('alert')).toHaveTextContent('「会议记录」必须填，收到消息时没人填它')
+    fireEvent.change(target, { target: { value: 'text' } })
+    fireEvent.click(within(panel).getByRole('button', { name: '保存' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(calls('/api/flows/f2/hooks/message', 'PUT')[0].body).toEqual({
+      enabled: true, channels: ['feishu'], match: 'keywords', keywords: ['纪要'], input_field: 'text',
+    })
+    expect(screen.getByText('已保存：收到符合条件的消息就会自动运行')).toBeInTheDocument()
+    expect(within(screen.getByRole('link', { name: '会议纪要转待办' }).closest('li')).getByText('收到消息')).toBeInTheDocument()
+  })
+
+  it('收到消息时：选「所有消息」不用关键词；服务端拒了（同渠道已有别的流程收所有消息）说人话', async () => {
+    await renderHome()
+    api.hookFail = '飞书的「所有消息」已经交给「工作日早报」了，一个渠道只能有一个'
+    fireEvent.click(screen.getByRole('button', { name: '「会议纪要转待办」的更多操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '触发方式' }))
+    const dialog = screen.getByRole('dialog', { name: '触发方式' })
+    fireEvent.click(within(dialog).getByRole('tab', { name: /收到消息时/ }))
+    const panel = within(dialog).getByRole('tabpanel')
+    fireEvent.click(await within(panel).findByRole('radio', { name: '所有消息' }))
+    expect(within(panel).queryByRole('textbox', { name: '关键词' })).toBeNull()
+    fireEvent.click(within(panel).getByRole('button', { name: '保存' }))
+    expect(await within(panel).findByRole('alert')).toHaveTextContent('一个渠道只能有一个')
+    expect(calls('/api/flows/f2/hooks/message', 'PUT')[0].body).toMatchObject({ match: 'all', keywords: [] })
+  })
+
+  it('通过链接：生成后地址只显示一次（醒目提示、复制、调用示例、202 / 限流说明）；重置要确认、换新地址；关掉后回到没开的样子', async () => {
+    const writeText = vi.fn(async () => {})
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    await renderHome()
+    fireEvent.click(screen.getByRole('button', { name: '「会议纪要转待办」的更多操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '触发方式' }))
+    const dialog = screen.getByRole('dialog', { name: '触发方式' })
+    fireEvent.click(within(dialog).getByRole('tab', { name: /通过链接/ }))
+    const panel = within(dialog).getByRole('tabpanel')
+    fireEvent.click(await within(panel).findByRole('button', { name: /生成链接/ }))
+    expect(await within(panel).findByText('只显示这一次，请复制保存')).toBeInTheDocument()
+    const url = within(panel).getByRole('textbox', { name: '链接触发的地址' })
+    expect(url).toHaveValue('https://jarvis.example.com/api/hooks/tok1abcdefk1Zx')
+    expect(url).toHaveAttribute('readonly')
+    await waitFor(() => expect(url).toHaveFocus())
+    fireEvent.click(within(panel).getByRole('button', { name: /复制地址/ }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('https://jarvis.example.com/api/hooks/tok1abcdefk1Zx'))
+    expect(await within(panel).findByRole('button', { name: /已复制/ })).toBeInTheDocument()
+    const example = within(panel).getByLabelText('调用示例')
+    expect(example.textContent).toContain("curl -X POST 'https://jarvis.example.com/api/hooks/tok1abcdefk1Zx'")
+    // 示例按开始节点里的名字填（服务端按名字或内部名字都认），有默认值的用默认值
+    expect(example.textContent).toContain('"inputs":{"会议记录":"这里填会议记录","纪要风格":"简洁"}')
+    expect(panel).toHaveTextContent('每一项写开始节点里的名字（「会议记录」、「纪要风格」）')
+    expect(panel).toHaveTextContent('状态码 202')
+    expect(panel).toHaveTextContent('waiting 是停在发送前确认')
+    expect(panel).toHaveTextContent('这个流程正在跑时回 409')
+    expect(panel).toHaveTextContent('每分钟最多 30 次、今天的用量用完了，都回 429')
+    expect(panel).toHaveTextContent('链接关掉了、或流程删掉了回 410')
+    expect(panel).not.toHaveTextContent(/token|令牌/i)
+    expect(within(panel).getByText('链接触发已开启')).toBeInTheDocument()
+    expect(calls('/api/flows/f2/hooks/webhook', 'POST')).toHaveLength(1)
+    // 重置：先确认
+    fireEvent.click(within(panel).getByRole('button', { name: '重置链接' }))
+    expect(within(panel).getByText(/重置后旧地址马上失效/)).toBeInTheDocument()
+    fireEvent.click(within(panel).getByRole('button', { name: '确认重置' }))
+    await waitFor(() => expect(within(panel).getByRole('textbox', { name: '链接触发的地址' })).toHaveValue('https://jarvis.example.com/api/hooks/tok2abcdefk2Zx'))
+    // 卡片上出现 🔗
+    expect(within(screen.getByRole('link', { name: '会议纪要转待办' }).closest('li')).getByText('链接')).toBeInTheDocument()
+    // 关掉
+    fireEvent.click(within(panel).getByRole('button', { name: '关掉' }))
+    fireEvent.click(within(panel).getByRole('button', { name: '确认关掉' }))
+    expect(await within(panel).findByRole('button', { name: /生成链接/ })).toBeInTheDocument()
+    expect(within(panel).queryByRole('textbox', { name: '链接触发的地址' })).toBeNull()
+    expect(calls('/api/flows/f2/hooks/webhook', 'DELETE')).toHaveLength(1)
+    expect(within(screen.getByRole('link', { name: '会议纪要转待办' }).closest('li')).queryByText('链接')).toBeNull()
+  })
+
+  it('通过链接：已开着时只给地址末尾，不再显示完整地址', async () => {
+    await renderHome({ hooks: { f2: { message: null, webhook: { enabled: true, created_at: '2026-10-01T08:00:00Z', last_hit_at: new Date(Date.now() - 7200e3).toISOString(), url_hint: '/api/hooks/Q7xz…', last_status: 'error' }, channels: CHANNELS } } })
+    fireEvent.click(screen.getByRole('button', { name: '「会议纪要转待办」的更多操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '触发方式' }))
+    const dialog = screen.getByRole('dialog', { name: '触发方式' })
+    fireEvent.click(within(dialog).getByRole('tab', { name: /通过链接/ }))
+    const panel = within(dialog).getByRole('tabpanel')
+    expect(await within(panel).findByText('链接触发已开启')).toBeInTheDocument()
+    expect(panel).toHaveTextContent('上次触发 2 小时前')
+    expect(panel).toHaveTextContent('地址形如「/api/hooks/Q7xz…」')
+    expect(panel).toHaveTextContent('上次没跑通，到运行记录里看看原因')
+    expect(within(panel).queryByRole('textbox', { name: '链接触发的地址' })).toBeNull()
+    expect(within(panel).getByLabelText('调用示例').textContent).toContain('这里换成你的地址')
+    expect(within(dialog).getByRole('tab', { name: /通过链接/ })).toHaveAccessibleName('通过链接（已开启）')
+  })
+
   it('定时运行：重复 / 时间 / 预填输入（文件字段说明）/ 飞书没绑定灰显 / 下次运行及之后 2 次；保存发契约格式并更新卡片', async () => {
     await renderHome()
     fireEvent.click(screen.getByRole('button', { name: '「会议纪要转待办」的更多操作' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '定时运行' }))
-    const dialog = screen.getByRole('dialog', { name: '定时运行' })
+    fireEvent.click(screen.getByRole('menuitem', { name: '触发方式' }))
+    const dialog = screen.getByRole('dialog', { name: '触发方式' })
     const sw = await within(dialog).findByRole('switch', { name: /按时自动运行/ })
     expect(sw).toHaveAttribute('aria-checked', 'true')
     // 飞书没绑定：灰显并给「去绑定飞书」
@@ -443,8 +741,8 @@ describe('「我的流程」首页', () => {
         notify: { feishu: true, desktop: false }, label: '每个工作日 08:00' },
     })
     fireEvent.click(screen.getByRole('button', { name: '「工作日早报」的更多操作' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '定时运行' }))
-    const dialog = screen.getByRole('dialog', { name: '定时运行' })
+    fireEvent.click(screen.getByRole('menuitem', { name: '触发方式' }))
+    const dialog = screen.getByRole('dialog', { name: '触发方式' })
     const sw = await within(dialog).findByRole('switch')
     expect(within(dialog).getByRole('radio', { name: '工作日' })).toBeChecked()
     expect(within(dialog).getByRole('checkbox', { name: /飞书/ })).toBeChecked()
@@ -466,8 +764,8 @@ describe('「我的流程」首页', () => {
         notify: { feishu: false, desktop: true }, label: '每天 09:00', last_status: 'error' },
     })
     fireEvent.click(screen.getByRole('button', { name: '「会议纪要转待办」的更多操作' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '定时运行' }))
-    let dialog = screen.getByRole('dialog', { name: '定时运行' })
+    fireEvent.click(screen.getByRole('menuitem', { name: '触发方式' }))
+    let dialog = screen.getByRole('dialog', { name: '触发方式' })
     expect(await within(dialog).findByText('定时运行已暂停')).toBeInTheDocument()
     const sw = within(dialog).getByRole('switch')
     expect(sw).toHaveAttribute('aria-checked', 'false')
@@ -480,8 +778,8 @@ describe('「我的流程」首页', () => {
       graph: { nodes: [n('start', 'start', { fields: [{ key: 'doc', label: '合同', type: 'file', required: true }] })], edges: [] } }
     await renderHome({ flows: [mustFile] })
     fireEvent.click(screen.getByRole('button', { name: '「合同速查」的更多操作' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '定时运行' }))
-    dialog = screen.getByRole('dialog', { name: '定时运行' })
+    fireEvent.click(screen.getByRole('menuitem', { name: '触发方式' }))
+    dialog = screen.getByRole('dialog', { name: '触发方式' })
     const blocked = await within(dialog).findByRole('switch')
     expect(blocked).toBeDisabled()
     expect(blocked).toHaveAttribute('aria-checked', 'false')

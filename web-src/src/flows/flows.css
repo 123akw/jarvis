@@ -6,13 +6,13 @@
  *   间距取 4 的倍数，圆角 8 / 12 / 16；持续动画只动 transform / opacity，减弱动态时全部关掉。
  * ===================================================================== */
 .fh-page{
-  --fh-start:#64C8F5;--fh-ai:#A894FF;--fh-tool:#4FD1C5;--fh-logic:#F5C451;--fh-out:#F7B46A;--fh-end:#5FD38D;
+  --fh-start:#64C8F5;--fh-ai:#A894FF;--fh-tool:#4FD1C5;--fh-logic:#F5C451;--fh-out:#F7B46A;--fh-end:#5FD38D;--fh-wait:#FF9F5A;
   --fh-card:#16161B;--fh-stage:rgba(255,255,255,.022);--fh-dot:rgba(255,255,255,.075);
   --fh-lift:0 12px 32px rgba(0,0,0,.36);--fh-seg-on:rgba(255,255,255,.13);--fh-sheet:#242429;
   position:fixed;inset:0;display:flex;flex-direction:column;color:var(--jv-text);
   background:radial-gradient(1100px 560px at 50% -20%,rgba(94,92,230,.12),transparent 62%),var(--jv-bg)}
 body.light .fh-page{
-  --fh-start:#0B8DC4;--fh-ai:#6B55E6;--fh-tool:#0F8A80;--fh-logic:#B7791F;--fh-out:#D2711C;--fh-end:#248A3D;
+  --fh-start:#0B8DC4;--fh-ai:#6B55E6;--fh-tool:#0F8A80;--fh-logic:#B7791F;--fh-out:#D2711C;--fh-end:#248A3D;--fh-wait:#C2470A;
   --fh-card:#FFFFFF;--fh-stage:#F6F6F9;--fh-dot:rgba(0,0,0,.09);
   --fh-lift:0 12px 32px rgba(0,0,0,.08);--fh-seg-on:#FFFFFF;--fh-sheet:#FCFCFE;
   background:radial-gradient(1100px 560px at 50% -20%,rgba(0,122,255,.07),transparent 62%),var(--jv-bg)}
@@ -22,6 +22,8 @@ body.light .fh-page{
 .fh-page [data-tone=logic]{--tone:var(--fh-logic)}
 .fh-page [data-tone=out]{--tone:var(--fh-out)}
 .fh-page [data-tone=end]{--tone:var(--fh-end)}
+.fh-page [data-tone=wait]{--tone:var(--fh-wait)}
+.fh-page .status-dot.wait{background:var(--fh-wait)}
 .fh-page ::-webkit-scrollbar{width:10px;height:10px}
 .fh-page ::-webkit-scrollbar-thumb{background:var(--jv-scroll);border-radius:8px;border:3px solid transparent;background-clip:content-box}
 .fh-flip{transform:scaleX(-1)}
@@ -264,11 +266,25 @@ body.light .fh-tab.is-on{box-shadow:0 1px 2px rgba(0,0,0,.08),0 0 0 1px rgba(0,0
 .fh-drawer-sub{margin-top:2px;font-size:13px;color:var(--jv-text-3);overflow-wrap:anywhere}
 .fh-drawer-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:12px 16px calc(24px + env(safe-area-inset-bottom))}
 .fh-run-list{list-style:none;display:grid;gap:4px}
-.fh-run{width:100%;display:flex;align-items:center;gap:12px;padding:12px;border:none;border-radius:12px;background:transparent;text-align:left;
+.fh-run-li{display:flex;align-items:center;gap:4px;min-width:0}
+.fh-run{flex:1;min-width:0;width:100%;display:flex;align-items:center;gap:12px;padding:12px;border:none;border-radius:12px;background:transparent;text-align:left;
   transition:background .2s}
 .fh-run:hover{background:var(--jv-hover)}
 .fh-run-main{flex:1;min-width:0;display:grid;gap:2px}
-.fh-run-top{display:flex;align-items:baseline;gap:8px}
+.fh-run-top{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;min-width:0}
+.fh-run-src{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:8px;font-size:12px;color:var(--jv-text-2);background:var(--jv-surface-2)}
+/* 「再跑」：每条记录右边一颗小按钮（详情里是完整的「用这次的输入再跑」） */
+.fh-rerun-btn{flex:none;display:inline-flex;align-items:center;gap:4px;height:32px;padding:0 10px;border-radius:16px;
+  border:1px solid var(--jv-border);background:transparent;color:var(--jv-text-2);font-size:12.5px;white-space:nowrap;transition:background .2s,color .2s}
+.fh-rerun-btn:hover{background:var(--jv-hover);color:var(--jv-text)}
+.fh-rerun-full{margin-top:12px;gap:6px}
+.fh-rerun-stop{margin-top:12px;gap:6px;color:var(--jv-danger);background:color-mix(in srgb,var(--jv-danger) 12%,transparent)}
+.fh-rerun .fh-rdetail-head h3{gap:10px}
+.fh-rerun-foot{margin:16px 4px 0}
+.fh-wait-box{display:grid;justify-items:start;gap:8px;margin-top:12px;padding:12px 16px;border-radius:12px;font-size:13.5px;line-height:1.6;color:var(--jv-text-2);
+  background:color-mix(in srgb,var(--fh-wait) 9%,transparent);border:1px solid color-mix(in srgb,var(--fh-wait) 30%,transparent)}
+.fh-wait-box b{display:block;color:var(--jv-text);font-weight:600}
+.fh-wait-box .jv-btn{text-decoration:none}
 .fh-run-top b{font-size:14.5px;font-weight:600}
 .fh-run-top time{font-size:12.5px;color:var(--jv-text-3)}
 .fh-run-meta{font-size:12.5px;color:var(--jv-text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -292,7 +308,14 @@ body.light .fh-tab.is-on{box-shadow:0 1px 2px rgba(0,0,0,.08),0 0 0 1px rgba(0,0
 .fh-nres-mark{width:22px;height:22px;flex:none;display:grid;place-items:center;margin-top:1px;border-radius:50%;color:#fff;background:var(--jv-success)}
 .fh-nres-mark .jv-icon{stroke-width:2.6}
 .fh-nres[data-state=error] .fh-nres-mark{background:var(--jv-danger)}
-.fh-nres[data-state=skipped] .fh-nres-mark{background:var(--jv-surface-2)}
+.fh-nres[data-state=skipped] .fh-nres-mark,.fh-nres[data-state=stopped] .fh-nres-mark,
+.fh-nres[data-state=rejected] .fh-nres-mark,.fh-nres[data-state=expired] .fh-nres-mark{background:var(--jv-surface-2)}
+.fh-rerun-off{margin-top:12px;font-size:13px;line-height:1.55;color:var(--jv-text-3)}
+.fh-rerun-btn:disabled{opacity:.45;cursor:not-allowed}
+.fh-rerun-btn:disabled:hover{background:transparent;color:var(--jv-text-2)}
+.fh-nres[data-state=running] .fh-nres-mark{background:var(--jv-accent-soft)}
+.fh-nres[data-state=waiting] .fh-nres-mark{background:var(--fh-wait)}
+.fh-nres-spin{width:10px;height:10px;border-radius:50%;border:1.5px solid var(--jv-accent);border-right-color:transparent;animation:fh-rot .8s linear infinite}
 .fh-nres-mark i{width:8px;height:1.5px;border-radius:1px;background:var(--jv-text-3)}
 .fh-nres[data-state=skipped] .fh-nres-body{opacity:.6}
 .fh-nres-body{flex:1;min-width:0}
@@ -349,6 +372,7 @@ body.light .fh-field input,body.light .fh-field select,body.light .fh-field text
 .fh-time input{width:148px;font-variant-numeric:tabular-nums}
 .fh-field.is-off .fh-field-label{color:var(--jv-text-3)}
 .fh-field-note{font-size:12.5px;line-height:1.55;color:var(--jv-text-3)}
+.fh-field-note.is-warn{color:var(--jv-warn)}
 .fh-check{display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:12px;border:1px solid var(--jv-border)}
 .fh-check-label{flex:1;min-width:0;display:flex;align-items:flex-start;gap:12px;cursor:pointer}
 .fh-check input{width:18px;height:18px;flex:none;margin-top:2px;accent-color:var(--jv-accent)}
@@ -368,6 +392,79 @@ body.light .fh-field input,body.light .fh-field select,body.light .fh-field text
 .fh-next b{color:var(--jv-text);font-weight:600}
 .fh-next-more{margin-top:2px;font-size:12.5px;color:var(--jv-text-3)}
 
+/* ---------- 触发方式（第二十轮）：定时 / 收到消息时 / 通过链接 ---------- */
+.fh-trig .jv-modal-body{padding-top:8px}
+.fh-trig-tabs{display:flex;width:100%;margin-bottom:20px}
+.fh-trig-tabs .fh-tab{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:0}
+.fh-trig-on{width:6px;height:6px;flex:none;border-radius:50%;background:var(--jv-success)}
+.fh-trig-panel{min-width:0}
+.fh-chip-emoji{font-size:12px;line-height:1}
+.fh-flow-timer.is-hook{color:var(--fh-tool);background:color-mix(in srgb,var(--fh-tool) 12%,transparent)}
+/* 关键词胶囊 */
+.fh-kw{display:grid;gap:4px;padding:6px;border-radius:8px;background:var(--jv-surface-2);border:1px solid transparent;cursor:text}
+.fh-kw:focus-within{border-color:var(--jv-accent);box-shadow:0 0 0 3px var(--jv-accent-soft)}
+.fh-kw-list{list-style:none;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.fh-kw-chip{display:inline-flex;align-items:center;gap:2px;height:28px;padding:0 4px 0 10px;border-radius:14px;font-size:13.5px;
+  color:var(--jv-text);background:var(--fh-seg-on);box-shadow:0 0 0 1px var(--jv-border)}
+.fh-kw-chip span{max-width:16em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fh-kw-chip button{width:22px;height:22px;display:grid;place-items:center;border:none;border-radius:50%;background:transparent;color:var(--jv-text-3)}
+.fh-kw-chip button:hover{background:var(--jv-hover);color:var(--jv-danger)}
+.fh-kw-input{flex:1 1 120px;min-width:120px}
+.fh-field .fh-kw-input input,.fh-kw-input input{width:100%;height:28px;padding:0 6px;border:none;background:transparent;box-shadow:none;color:var(--jv-text);font-size:14px;outline:none}
+.fh-kw-warn{padding:0 6px 2px;font-size:12.5px;color:var(--jv-warn)}
+/* 通过链接 */
+.fh-hook{display:grid;gap:16px}
+.fh-hook-intro{display:grid;justify-items:start;gap:16px;padding:20px;border-radius:12px;border:1.5px dashed color-mix(in srgb,var(--jv-text) 16%,transparent)}
+.fh-hook-lead{font-size:14.5px;line-height:1.65;color:var(--jv-text-2)}
+.fh-hook-fresh{display:grid;gap:8px;padding:16px;border-radius:12px;
+  background:color-mix(in srgb,var(--jv-warn) 9%,transparent);border:1.5px solid color-mix(in srgb,var(--jv-warn) 45%,transparent)}
+.fh-hook-once{display:flex;align-items:center;gap:8px;font-size:15px;color:var(--jv-text)}
+.fh-hook-once b{font-weight:700}
+.fh-hook-bang{width:22px;height:22px;flex:none;display:grid;place-items:center;border-radius:50%;font-size:14px;font-weight:800;color:#fff;background:var(--jv-warn)}
+.fh-hook-url{display:flex;gap:8px;align-items:center;min-width:0;margin-top:4px}
+.fh-hook-url input{flex:1;min-width:0;height:40px;padding:0 12px;border-radius:8px;border:1px solid var(--jv-border);background:var(--fh-card);
+  color:var(--jv-text);font-family:var(--jv-mono);font-size:13px;outline:none}
+.fh-hook-url input:focus{border-color:var(--jv-accent);box-shadow:0 0 0 3px var(--jv-accent-soft)}
+.fh-hook-url .jv-btn{flex:none;height:40px}
+.fh-hook-status{display:grid;gap:6px;padding:16px;border-radius:12px;background:var(--jv-surface-2)}
+.fh-hook-status>p:first-child{display:flex;align-items:center;gap:8px;font-size:14.5px}
+.fh-hook-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.fh-hook-confirm{display:grid;gap:12px;margin-top:6px;padding:12px;border-radius:8px;font-size:13.5px;line-height:1.6;color:var(--jv-text);
+  background:var(--fh-card);border:1px solid var(--jv-border)}
+.fh-hook-how{display:grid;gap:8px}
+.fh-hook-keys{list-style:none;display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--jv-text-2)}
+.fh-hook-keys li{display:inline-flex;align-items:center;gap:4px}
+.fh-hook-keys code,.fh-hook-code pre{font-family:var(--jv-mono)}
+.fh-hook-keys code{padding:1px 6px;border-radius:6px;font-size:12.5px;color:var(--jv-text);background:var(--jv-surface-2)}
+.fh-hook-code{position:relative;display:grid;gap:8px;justify-items:start}
+.fh-hook-code pre{width:100%;margin:0;padding:12px;border-radius:8px;overflow-x:auto;white-space:pre;font-size:12.5px;line-height:1.6;
+  color:var(--jv-text-2);background:var(--jv-code-bg);border:1px solid var(--jv-border)}
+.fh-hook-rules{display:grid;gap:4px;margin:4px 0 0 18px;font-size:13px;line-height:1.6;color:var(--jv-text-2)}
+
+/* ---------- 等你确认（第二十轮）：首页顶部的入口条 + 列表抽屉 ---------- */
+.fh-pending{width:100%;display:flex;align-items:center;gap:12px;margin-bottom:24px;padding:12px 12px 12px 16px;border-radius:14px;text-align:left;
+  border:1px solid color-mix(in srgb,var(--fh-wait) 40%,transparent);background:color-mix(in srgb,var(--fh-wait) 10%,var(--fh-card));
+  color:var(--jv-text);box-shadow:var(--jv-shadow);animation:jv-rise .32s var(--jv-ease);transition:transform .2s var(--jv-ease),border-color .2s}
+.fh-pending:hover{transform:translateY(-1px);border-color:var(--fh-wait)}
+.fh-pending-dot{width:9px;height:9px;flex:none;border-radius:50%;background:var(--fh-wait);
+  box-shadow:0 0 0 4px color-mix(in srgb,var(--fh-wait) 22%,transparent);animation:jv-breathe 2s ease-in-out infinite}
+.fh-pending b{flex:none;font-size:15px;font-weight:600}
+.fh-pending-text{flex:1;min-width:0;font-size:13.5px;color:var(--jv-text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fh-pending-go{flex:none;color:var(--jv-text-3)}
+.fh-ap-list{list-style:none;display:grid;gap:8px}
+.fh-ap{display:flex;align-items:center;gap:12px;padding:14px 12px 14px 16px;border-radius:12px;border:1px solid var(--jv-border);
+  background:var(--fh-card);color:inherit;text-decoration:none;transition:background .2s,border-color .2s}
+.fh-ap:hover{border-color:color-mix(in srgb,var(--fh-wait) 45%,var(--jv-border))}
+.fh-ap-main{flex:1;min-width:0;display:grid;gap:4px}
+.fh-ap-top{display:flex;align-items:center;gap:8px;min-width:0}
+.fh-ap-top b{flex:1;min-width:0;font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fh-ap-left{flex:none;height:22px;display:inline-flex;align-items:center;padding:0 8px;border-radius:8px;font-size:12px;font-weight:500;
+  color:var(--jv-text-2);background:var(--jv-surface-2)}
+.fh-ap-left.is-soon{color:var(--fh-wait);background:color-mix(in srgb,var(--fh-wait) 13%,transparent)}
+.fh-ap-step{font-size:12.5px;color:var(--jv-text-3)}
+.fh-ap-preview{font-size:13.5px;line-height:1.55;color:var(--jv-text-2);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow-wrap:anywhere}
+.fh-ap-more{margin-top:12px}
+
 /* ---------- 提示条 ---------- */
 .fh-toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));z-index:90;max-width:calc(100vw - 32px);
   padding:10px 16px;border-radius:12px;border:1px solid var(--jv-border);background:var(--jv-elevated);
@@ -379,6 +476,7 @@ body.light .fh-field input,body.light .fh-field select,body.light .fh-field text
   color:var(--jv-text-2);background:var(--jv-bg)}
 
 @keyframes fh-lit{0%,100%{opacity:.45}45%{opacity:1}}
+@keyframes fh-rot{to{transform:rotate(360deg)}}
 @keyframes fh-shimmer{50%{opacity:.45}}
 @keyframes fh-in-right{from{opacity:0;transform:translateX(24px)}}
 @keyframes fh-toast{from{opacity:0;transform:translate(-50%,8px)}}
@@ -424,6 +522,7 @@ body.light .fh-field input,body.light .fh-field select,body.light .fh-field text
   .fh-example{height:36px}
   .fh-tab{height:36px}
   .fh-run{padding:14px 12px}
+  .fh-rerun-btn{height:40px}
 }
 
 /* 减弱动态：只切状态，不做位移、扫光、呼吸 */

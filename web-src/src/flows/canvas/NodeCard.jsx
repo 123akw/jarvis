@@ -1,13 +1,14 @@
 import { Handle, Position, useUpdateNodeInternals } from '@xyflow/react'
 import { createContext, memo, useContext, useEffect } from 'react'
 import Icon from '../../Icon.jsx'
+import { approveHref } from '../flowkit.js'
 import { ELSE_HANDLE, fmtMs } from '../graph.js'
 import Glyph, { NodeIcon } from './glyphs.jsx'
 
 /** 画布动作（节点出口的「+」等），由 Canvas 提供 */
 export const CanvasActions = createContext({ openQuick() {} })
 
-const RUN_TEXT = { running: '正在运行', ok: '完成', error: '出错了', skipped: '没走到', stopped: '已停止' }
+const RUN_TEXT = { running: '正在运行', ok: '完成', error: '出错了', skipped: '没走到', stopped: '已停止', waiting: '等你确认', rejected: '你没同意', expired: '确认过期了' }
 
 export function RunBadge({ run }) {
   if (!run?.status) return null
@@ -19,13 +20,22 @@ export function RunBadge({ run }) {
       </span>
     )
   }
+  if (status === 'waiting') {
+    return (
+      <span className="fc-run-badge is-waiting" role="img" aria-label="等你确认">
+        <Glyph name="wait" size={12} /><span>等你确认</span>
+      </span>
+    )
+  }
   return (
     <span className={`fc-run-badge is-${status}`} role="img" aria-label={`${RUN_TEXT[status] || ''}${run.ms && status === 'ok' ? `，用时 ${fmtMs(run.ms)}` : ''}`}>
       {status === 'running' ? <i className="fc-spin" aria-hidden="true" />
         : status === 'ok' ? <><Icon name="check" size={13} /><span>{run.ms ? fmtMs(run.ms) : ''}</span></>
           : status === 'error' ? <Icon name="close" size={13} />
             : status === 'skipped' ? <span>没走到</span>
-              : <span>停了</span>}
+              : status === 'rejected' ? <span>没同意</span>
+                : status === 'expired' ? <span>过期了</span>
+                  : <span>停了</span>}
     </span>
   )
 }
@@ -51,6 +61,7 @@ export function NodeFace({ vm, selected = false, children = null, as: Tag = 'div
       </div>
       {vm.summary ? <p className="fc-node-sum">{vm.summary}</p> : null}
       {runMsg ? <p className={`fc-node-runmsg is-${run.status}`}>{runMsg}</p> : null}
+      {run?.status === 'waiting' && !run.stale ? <WaitLink approval={run.approval} /> : null}
       {first && !runMsg ? (
         <p className={`fc-node-issue is-${first.level}`}>
           <Glyph name="warn" size={13} /><span>{first.message}{issues.length > 1 ? `（还有 ${issues.length - 1} 处）` : ''}</span>
@@ -58,6 +69,20 @@ export function NodeFace({ vm, selected = false, children = null, as: Tag = 'div
       ) : null}
       {children}
     </Tag>
+  )
+}
+
+/** 节点卡上的「已发给你确认 · 去确认」：新标签页打开确认页，画布留着 */
+function WaitLink({ approval }) {
+  const href = approveHref(approval)
+  return (
+    <p className="fc-node-wait">
+      <span>已发给你确认</span>
+      {href ? (
+        <a className="fc-node-wait-go nodrag nopan" href={href} target="_blank" rel="noopener noreferrer"
+          onClick={e => e.stopPropagation()} aria-label="去确认（在新标签页打开）">去确认<Icon name="chevron" size={12} /></a>
+      ) : null}
+    </p>
   )
 }
 

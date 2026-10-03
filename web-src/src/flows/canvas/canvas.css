@@ -9,12 +9,14 @@
   --fc-panel:rgba(28,28,34,.92);--fc-input:rgba(255,255,255,.05);--fc-chip:rgba(10,132,255,.22);--fc-chip-text:#8EC5FF;
   --fc-chip-bad:rgba(255,69,58,.20);--fc-node-shadow:0 1px 0 rgba(255,255,255,.04) inset,0 6px 20px rgba(0,0,0,.35);
   --t-start:#3D9BFF;--t-llm:#A78BFA;--t-tool:#2DD4BF;--t-condition:#FBBF24;--t-template:#818CF8;--t-step:#F472B6;--t-end:#4ADE80;
+  --t-approval:#FF9F5A;
   position:fixed;inset:0;display:flex;flex-direction:column;color:var(--jv-text);background:var(--jv-bg);font-size:14px}
 body.light .fc-editor{
   --fc-card:#FFFFFF;--fc-card-2:#F7F7FA;--fc-dot:rgba(0,0,0,.14);--fc-edge:rgba(60,60,67,.34);
   --fc-panel:rgba(255,255,255,.94);--fc-input:rgba(118,118,128,.08);--fc-chip:rgba(0,122,255,.13);--fc-chip-text:#0060DF;
   --fc-chip-bad:rgba(215,0,21,.12);--fc-node-shadow:0 1px 2px rgba(0,0,0,.05),0 6px 18px rgba(0,0,0,.06);
-  --t-start:#007AFF;--t-llm:#7C3AED;--t-tool:#0D9488;--t-condition:#C2410C;--t-template:#4F46E5;--t-step:#DB2777;--t-end:#15803D}
+  --t-start:#007AFF;--t-llm:#7C3AED;--t-tool:#0D9488;--t-condition:#C2410C;--t-template:#4F46E5;--t-step:#DB2777;--t-end:#15803D;
+  --t-approval:#D9480F}
 .fc-editor [data-type=start]{--t:var(--t-start)}
 .fc-editor [data-type=llm]{--t:var(--t-llm)}
 .fc-editor [data-type=tool]{--t:var(--t-tool)}
@@ -22,6 +24,7 @@ body.light .fc-editor{
 .fc-editor [data-type=template]{--t:var(--t-template)}
 .fc-editor [data-type=step]{--t:var(--t-step)}
 .fc-editor [data-type=end]{--t:var(--t-end)}
+.fc-editor [data-type=approval]{--t:var(--t-approval)}
 .fc-editor [data-type=sys],.fc-editor [data-type=item]{--t:var(--jv-text-2)}
 .fc-editor ::-webkit-scrollbar{width:10px;height:10px}
 .fc-editor ::-webkit-scrollbar-thumb{background:var(--jv-scroll);border-radius:10px;border:3px solid transparent;background-clip:content-box}
@@ -160,7 +163,7 @@ body.light .fc-editor{
 .fc-run-badge.is-running .fc-spin{width:10px;height:10px;border-width:1.5px}
 .fc-run-badge.is-ok{color:var(--jv-success);background:color-mix(in srgb,var(--jv-success) 14%,transparent)}
 .fc-run-badge.is-error{color:var(--jv-danger);background:color-mix(in srgb,var(--jv-danger) 14%,transparent);width:20px;padding:0;justify-content:center}
-.fc-run-badge.is-skipped,.fc-run-badge.is-stopped{color:var(--jv-text-3);background:var(--jv-hover)}
+.fc-run-badge.is-skipped,.fc-run-badge.is-stopped,.fc-run-badge.is-rejected,.fc-run-badge.is-expired{color:var(--jv-text-3);background:var(--jv-hover)}
 .fc-node[data-run=running]{border-color:var(--jv-accent);box-shadow:0 0 0 3px var(--jv-accent-soft),var(--fc-node-shadow)}
 .fc-node[data-run=running]::after{content:'';position:absolute;inset:-6px;border-radius:16px;border:2px solid var(--jv-accent);opacity:0;
   animation:fc-pulse 1.4s var(--jv-ease) infinite;pointer-events:none}
@@ -171,6 +174,19 @@ body.light .fc-editor{
 .fc-node[data-stale]{border-color:color-mix(in srgb,var(--jv-warn) 45%,var(--jv-border))}
 .fc-node[data-stale][data-run]{opacity:1}
 .fc-run-badge.is-stale{color:var(--jv-warn);background:color-mix(in srgb,var(--jv-warn) 14%,transparent)}
+/* 等你确认（发送前确认，第二十轮）：橙色描边 + 缓慢呼吸，节点下面给「去确认」 */
+.fc-run-badge.is-waiting{color:var(--t-approval);background:color-mix(in srgb,var(--t-approval) 16%,transparent)}
+.fc-node[data-run=waiting]{border-color:var(--t-approval);box-shadow:0 0 0 3px color-mix(in srgb,var(--t-approval) 22%,transparent),var(--fc-node-shadow)}
+.fc-node[data-run=waiting]::after{content:'';position:absolute;inset:-6px;border-radius:16px;border:2px solid var(--t-approval);opacity:0;
+  animation:fc-pulse 2.4s var(--jv-ease) infinite;pointer-events:none}
+.fc-node-wait{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;padding:4px 4px 4px 8px;
+  border-radius:8px;font-size:12px;line-height:1.5;color:var(--jv-text);background:color-mix(in srgb,var(--t-approval) 12%,transparent)}
+.fc-node-wait-go{display:inline-flex;align-items:center;gap:2px;height:24px;padding:0 8px;border-radius:6px;font-weight:600;text-decoration:none;
+  color:#1D1206;background:var(--t-approval)}
+/* 浅色：橙底白字要压暗一点才够对比度；小字同理 */
+body.light .fc-node-wait-go{color:#fff;background:color-mix(in srgb,var(--t-approval) 82%,#000)}
+body.light .fc-run-badge.is-waiting{color:color-mix(in srgb,var(--t-approval) 80%,#000)}
+.fc-node-wait-go:hover{filter:brightness(1.08)}
 
 /* 连线口与「+」 */
 .fc-canvas .fc-handle{width:12px;height:12px;border:2px solid var(--fc-edge);background:var(--fc-card);
@@ -227,7 +243,9 @@ body.light .fc-editor{
 .fc-run-dock:hover{color:var(--jv-text);background:var(--jv-elevated)}
 .fc-run-dock.is-ok{color:var(--jv-success)}
 .fc-run-dock.is-error{color:var(--jv-danger)}
-.fc-run-dock.is-running{color:var(--jv-accent)}
+.fc-run-dock.is-running,.fc-run-dock.is-resuming{color:var(--jv-accent)}
+.fc-run-dock.is-waiting{color:var(--jv-text);border-color:color-mix(in srgb,var(--t-approval) 55%,var(--jv-border))}
+.fc-run-dock.is-waiting .jv-icon{color:var(--t-approval)}
 .fc-toast{position:absolute;left:50%;bottom:60px;transform:translateX(-50%);z-index:6;max-width:min(480px,calc(100% - 32px));
   padding:8px 16px;border-radius:12px;background:var(--jv-elevated);border:1px solid var(--jv-border);box-shadow:var(--jv-shadow-float);
   font-size:13px;line-height:1.5;animation:jv-rise .24s var(--jv-ease);-webkit-backdrop-filter:var(--jv-blur);backdrop-filter:var(--jv-blur)}
@@ -283,6 +301,37 @@ body.light .fc-editor{
 .fc-cfg-warn .jv-icon{color:var(--jv-warn);margin-top:2px}
 .fc-cfg-warn a{color:var(--jv-accent);font-weight:500}
 .fc-cfg-foot{display:flex;align-items:center;gap:12px;padding-top:16px;border-top:1px solid var(--jv-border)}
+/* 节点说明条（发送前确认：它会做什么） */
+.fc-cfg-note{display:flex;gap:8px;align-items:flex-start;padding:12px;border-radius:12px;font-size:13px;line-height:1.6;color:var(--jv-text-2);
+  background:color-mix(in srgb,var(--t,var(--jv-accent)) 9%,transparent);border:1px solid color-mix(in srgb,var(--t,var(--jv-accent)) 22%,transparent)}
+.fc-cfg-note .jv-icon{flex:none;margin-top:2px;color:var(--t,var(--jv-accent))}
+.fc-notify{gap:16px;padding:4px 0 0 2px}
+/* 试跑这一步（第二十轮）：设置页签最上面一条；结果放「上次结果」，标「试跑」 */
+.fc-testbar{display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:8px 12px 8px 8px;border-radius:12px;
+  background:var(--fc-input);border:1px dashed var(--jv-border)}
+.fc-last .fc-testbar{margin:4px 0 0}
+.fc-testbar .fc-field-hint{flex:1;min-width:0;line-height:1.5}
+.fc-testbar .fc-field-hint.is-effect{color:var(--jv-warn)}
+.fc-test-btn{flex:none;gap:6px}
+.fc-test-btn .jv-icon{color:var(--jv-accent)}
+.fc-test-tag{display:inline-flex;align-items:center;height:18px;padding:0 6px;border-radius:6px;font-size:11px;font-weight:600;letter-spacing:.02em;
+  color:var(--jv-accent);background:var(--jv-accent-soft)}
+.fc-test{display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:12px;border:1px solid var(--jv-border);background:var(--fc-card-2)}
+.fc-test.is-ok{border-color:color-mix(in srgb,var(--jv-accent) 35%,var(--jv-border))}
+.fc-test.is-error{border-color:color-mix(in srgb,var(--jv-danger) 40%,var(--jv-border))}
+.fc-test.is-error .jv-btn{align-self:flex-start}
+.fc-test.is-running{flex-direction:row;align-items:center;font-size:13px;color:var(--jv-accent)}
+.fc-test-head{display:flex;align-items:center;gap:8px;font-size:13px}
+.fc-test-head b{font-weight:600}
+.fc-test.is-error .fc-test-head b{color:var(--jv-danger)}
+.fc-test-sum{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--jv-text-3)}
+.fc-test-ms{margin-left:auto;font-size:12px;color:var(--jv-text-3);font-variant-numeric:tabular-nums}
+.fc-test-note,.fc-test-stale{display:flex;align-items:flex-start;gap:6px;padding:6px 8px;border-radius:8px;font-size:12px;line-height:1.5;
+  color:var(--jv-warn);background:color-mix(in srgb,var(--jv-warn) 10%,transparent)}
+.fc-test-note .jv-icon,.fc-test-stale .jv-icon{flex:none;margin-top:2px}
+.fc-test-err{font-size:13px;line-height:1.6;color:var(--jv-danger)}
+.fc-test-line{font-size:13px;color:var(--jv-text-2)}
+.fc-last-sub{margin-top:8px}
 /* 设置 / 上次结果 页签 */
 .fc-tabs{display:flex;gap:4px;margin:-4px 0 16px;padding:2px;border-radius:10px;background:var(--fc-input);border:1px solid var(--jv-border)}
 .fc-tabs button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:8px;height:30px;border:none;border-radius:8px;background:transparent;color:var(--jv-text-2);font-size:13px}
@@ -437,6 +486,18 @@ details[open] .fc-rn-chev{transform:rotate(90deg)}
 .fc-final-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .fc-final-ok{display:inline-flex;align-items:center;gap:4px;font-size:13px;font-weight:600;color:var(--jv-success)}
 .fc-final-title{font-weight:600;color:var(--jv-danger)}
+.fc-final.is-stopped .fc-final-title{color:var(--jv-text)}
+.fc-final.is-waiting{border-color:color-mix(in srgb,var(--t-approval) 50%,var(--jv-border));
+  background:color-mix(in srgb,var(--t-approval) 7%,var(--fc-card-2));font-size:13px;line-height:1.6;color:var(--jv-text-2)}
+.fc-final.is-waiting .fc-final-title{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--jv-text)}
+.fc-final.is-waiting .fc-final-title .jv-icon{color:var(--t-approval)}
+.fc-final-acts{display:flex;flex-wrap:wrap;gap:8px}
+.fc-final-acts .jv-btn{text-decoration:none}
+.fc-final.is-resuming p{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--jv-accent)}
+.fc-rn-wait{display:flex;align-items:center;gap:8px;padding:0 12px 8px 44px;font-size:12.5px;color:var(--jv-text-2)}
+.fc-rn-wait .fc-link{font-size:12.5px;text-decoration:none}
+.fc-rn-wait .fc-link .jv-icon{display:none}
+.fc-rn.is-waiting{border-color:color-mix(in srgb,var(--t-approval) 45%,var(--jv-border))}
 .fc-run-sec{margin-bottom:12px}
 .fc-run-steps{padding-top:0}
 button.fc-rn-row{width:100%;border:none;background:transparent;color:inherit;text-align:left;cursor:pointer;border-radius:12px}

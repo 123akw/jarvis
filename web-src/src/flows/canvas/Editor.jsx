@@ -14,16 +14,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../../Icon.jsx'
 import Modal, { ModalHead, useEscape } from '../../Modal.jsx'
 import { TourButton, useTour } from '../../tour/index.jsx'
-import { fileToBase64, getFlow, getNodeCatalog, runGraph, saveFlow } from '../api.js'
+import { fileToBase64, getFlow, getNodeCatalog, getRun, runGraph, saveFlow, testNode } from '../api.js'
 import {
   addNode, autoLayout, canRedo, canUndo, chosenBranch, cleanGraph, COL, commit, connect, createHistory, createNode,
   defaultHandle, dependents, duplicateNode, emptyGraph, fmtMs, hashStale, insertAfter, insertOnEdge, issuesByNode,
   LIMIT_MSG, MAX_NODES, moveNodes, nodeById, nodeSummary, nodeTitle, normalizeGraph, redo, removeEdges, removeNodes,
-  runReducer, settle, staleNodes, START_ID, startRunState, topoOrder, transient, undo, updateNodeData, validateGraph,
+  runFromDetail, runReducer, settle, staleNodes, START_ID, startRunState, topoOrder, transient, undo, updateNodeData, validateGraph,
 } from '../graph.js'
 import Canvas, { fitCanvas } from './Canvas.jsx'
 import { indexCatalog, itemOf } from './catalog.js'
-import ConfigPanel, { ConfigBody, typeLabelOf } from './ConfigPanel.jsx'
+import ConfigPanel, { ConfigBody, dataSig, typeLabelOf } from './ConfigPanel.jsx'
 import Glyph, { NodeIcon } from './glyphs.jsx'
 import MobileList from './MobileList.jsx'
 import Palette, { NodeList } from './Palette.jsx'
@@ -32,6 +32,8 @@ import './canvas.css'
 
 const NARROW = '(max-width: 760px)'
 const AUTOSAVE_MS = 2000
+/** 停在「发送前确认」时多久问一次运行到哪了（毫秒）：等确认时慢一点，同意后接着跑时快一点 */
+export const WAIT_POLL_MS = { waiting: 5000, resuming: 2000 }
 const INPUTS_KEY = id => `jvf-inputs:${id}`
 
 function useMedia(query) {
@@ -57,6 +59,18 @@ function writeInputs(id, inputs) {
   if (!id) return
   const keep = Object.fromEntries(Object.entries(inputs).filter(([, v]) => typeof v === 'string' || typeof v === 'number'))
   try { localStorage.setItem(INPUTS_KEY(id), JSON.stringify(keep)) } catch { /* 隐私模式 */ }
+}
+
+/** 试跑一步时带上的开始输入：运行面板里填过的文字类内容（没填用默认值）；文件不带（服务端用上次运行的） */
+export function testInputs(graph, inputs) {
+  const out = {}
+  for (const f of nodeById(graph, START_ID)?.data?.fields || []) {
+    if (!f?.key || f.type === 'file') continue
+    const v = inputs?.[f.key] ?? f.default
+    if (v === undefined || v === null || v === '') continue
+    out[f.key] = f.type === 'number' && Number.isFinite(Number(v)) ? Number(v) : String(v)
+  }
+  return out
 }
 
 /** 默认选中的节点：草稿选第一个「AI 处理」，否则第一个非开始节点（右侧配置面板一进来就在） */
@@ -134,14 +148,19 @@ function SaveState({ state, onProblem }) {
   return <span className={`fc-savestate is-${state}`} role="status"><i aria-hidden="true" />{text}</span>
 }
 
+const DOCK_TEXT = {
+  stopped: '上次运行：已停止', waiting: '等你确认 · 点开看看', resuming: '你同意了，正在接着跑…',
+  rejected: '上次运行：你没同意', expired: '上次运行：确认过期了',
+}
+
 function RunDock({ run, onOpen }) {
   const st = run?.status
   const text = !st ? '运行面板' : st === 'running' ? '运行中…' : st === 'ok' ? `上次运行：完成${run.ms ? ` · ${fmtMs(run.ms)}` : ''}`
-    : st === 'stopped' ? '上次运行：已停止' : '上次运行：没跑通'
+    : DOCK_TEXT[st] || '上次运行：没跑通'
   return (
     <button type="button" className={`fc-run-dock${st ? ` is-${st}` : ''}`} onClick={onOpen} data-tour="flow-run-panel"
       aria-label={`打开运行面板（${text}）`}>
-      {st === 'running' ? <i className="fc-spin" aria-hidden="true" /> : <Glyph name="play" size={11} />}
+      {st === 'running' || st === 'resuming' ? <i className="fc-spin" aria-hidden="true" /> : st === 'waiting' ? <Glyph name="wait" size={12} /> : <Glyph name="play" size={11} />}
       <span>{text}</span>
     </button>
   )
@@ -178,6 +197,7 @@ export default function Editor({ flowId = 'new', initial = null, onSaved, onBack
   const [check, setCheck] = useState('')             // '' · 'list' · 'run'（点运行时还有问题）
   const [run, setRun] = useState(null)
   const [runGraphSnap, setRunGraphSnap] = useState(null)
+  const [tests, setTests] = useState({})             // 试跑一步的结果：{ [节点 id]: { status, ms, output, note, error, sig } }
   const [inputs, setInputs] = useState({})
   const [notice, setNotice] = useState(null)
   const [announce, setAnnounce] = useState('')
@@ -242,6 +262,7 @@ export default function Editor({ flowId = 'new', initial = null, onSaved, onBack
       setSelectedEdge(null)
       setRun(null)
       setRunGraphSnap(null)
+      setTests({})
       setInputs(readInputs(idRef.current))
       setPhase('ready')
     } catch (err) {
@@ -568,6 +589,7 @@ export default function Editor({ flowId = 'new', initial = null, onSaved, onBack
     abortRef.current = ctrl
     let state = startRunState()
     setRun(state)
+    setTests({})   // 整条重跑了：之前的试跑结果不再是「最新」
     setRunGraphSnap(snap)
     setSelectedEdge(null)
     setAnnounce('开始运行')
@@ -589,9 +611,72 @@ export default function Editor({ flowId = 'new', initial = null, onSaved, onBack
     if (abortRef.current === ctrl) abortRef.current = null
     state = { ...state, ms: state.ms || Date.now() - state.startedAt }
     setRun(state)
-    setAnnounce(state.status === 'ok' ? '运行完成' : state.status === 'stopped' ? '已停止运行' : `没跑通：${state.error}`)
+    setAnnounce(state.status === 'ok' ? '运行完成' : state.status === 'stopped' ? '已停止运行'
+      : state.status === 'waiting' ? '已发给你确认，去确认页处理' : `没跑通：${state.error}`)
     if (later) savedCb.current?.(later)
   }
+
+  /* ---------- 试跑这一步（契约 §3.2）：没存先存；只跑这一个节点，结果放在配置面板「上次结果」里，标「试跑」 ---------- */
+  async function runTest(id) {
+    if (running || tests[id]?.status === 'running') return
+    const node = nodeById(histRef.current.present, id)
+    if (!node || node.type === 'start') return
+    let fid = idRef.current
+    let later = null
+    if (!fid || dirty) {
+      const wasNew = !fid
+      setTests(t => ({ ...t, [id]: { status: 'running' } }))
+      const flow = await save({ quiet: true, notify: !wasNew })
+      if (!flow) { setTests(t => { const { [id]: _drop, ...rest } = t; return rest }); return }
+      fid = flow.id
+      if (wasNew) later = flow
+    }
+    const sig = dataSig(nodeById(histRef.current.present, id))
+    setTests(t => ({ ...t, [id]: { status: 'running', sig } }))
+    setAnnounce(`正在试跑「${nodeTitle(node)}」`)
+    let result
+    try {
+      const res = await testNode(fid, id, testInputs(histRef.current.present, inputs))
+      const ok = res?.status === 'ok'
+      result = { status: ok ? 'ok' : 'error', ms: Number(res?.ms) || 0, output: res?.output || {}, note: String(res?.note || ''),
+        summary: String(res?.summary || ''), error: ok ? '' : String(res?.error || '这一步没跑通，换个输入再试试'), sig }
+    } catch (err) {
+      if (err.message === '401') { expired(); return }
+      result = { status: 'error', ms: 0, output: {}, note: '', error: err.message || '试跑没成功，请再试一次', sig }
+    }
+    setTests(t => ({ ...t, [id]: result }))
+    setAnnounce(result.status === 'ok' ? `「${nodeTitle(node)}」试跑跑通了` : `「${nodeTitle(node)}」试跑没跑通：${result.error}`)
+    if (later) savedCb.current?.(later)
+  }
+
+  /* 停在「发送前确认」：隔一会儿问一下这次运行到哪了（用户在确认页同意 / 拒绝后，这里跟着变） */
+  const runRef = useRef(run)
+  runRef.current = run
+  const pollStatus = run?.status === 'waiting' || run?.status === 'resuming' ? run.status : ''
+  const pollRunId = run?.runId || ''
+  useEffect(() => {
+    const fid = idRef.current
+    if (!pollStatus || !pollRunId || !fid) return undefined
+    let alive = true
+    const t = setTimeout(async () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') { if (alive) setRun(r => (r ? { ...r } : r)); return }
+      try {
+        const detail = await getRun(fid, pollRunId)
+        const r = runRef.current
+        if (!alive || !r || r.runId !== pollRunId) return
+        const next = runFromDetail(r, detail)
+        if (next.status !== r.status) {
+          setAnnounce({ ok: '确认后接着跑完了', error: `没跑通：${next.error}`, rejected: '你没同意，后面的步骤没跑', expired: '确认过期了', resuming: '你同意了，正在接着跑' }[next.status] || '')
+        }
+        setRun(next === r ? { ...r } : next)
+      } catch (err) {
+        if (!alive) return
+        if (err.message === '401') { expired(); return }
+        setRun(r => (r ? { ...r } : r))   // 网络抖一下：过一会儿再问
+      }
+    }, WAIT_POLL_MS[pollStatus])
+    return () => { alive = false; clearTimeout(t) }
+  }, [pollStatus, pollRunId, run, expired])
 
   function stopRun() {
     abortRef.current?.abort()
@@ -652,8 +737,11 @@ export default function Editor({ flowId = 'new', initial = null, onSaved, onBack
     ? [{ key: 'server', nodeId: null, level: 'error', block: 'save', message: saveProblem.text }, ...issues]
     : issues
   const checkCount = checkIssues.length
+  const saveBlock = issues.find(i => i.block === 'save')
+  const testBlocked = running ? '流程正在运行，跑完再试跑' : saveBlock ? '先把「检查」里的问题改好，才能试跑' : ''
   const configProps = sel ? {
     node: sel, graph, index, sys: index.sys, issues: issueMap[sel.id] || [], locked, onPatch,
+    test: tests[sel.id] || null, onTest: runTest, testBlocked,
     onDelete: () => deleteNode(sel.id),
     onConnect,
     onDisconnect: id => edit(g => removeEdges(g, [id])),
@@ -772,6 +860,7 @@ export default function Editor({ flowId = 'new', initial = null, onSaved, onBack
             </div>
             <div className="jv-modal-body fc-sheet-body">
               <ConfigBody {...configProps} node={sheetNode} issues={issueMap[sheetNode.id] || []} runState={nodeRun(sheetNode.id)} typeTrigger={false}
+                test={tests[sheetNode.id] || null}
                 onSelectNode={id => { select(id); setSheet({ kind: 'config', id }) }}
                 onOpenRun={() => setSheet({ kind: 'run' })} />
             </div>

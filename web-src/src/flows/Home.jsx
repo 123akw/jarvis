@@ -4,14 +4,17 @@ import Icon from '../Icon.jsx'
 import Modal, { ModalHead } from '../Modal.jsx'
 import { APP_PATH, flowHref, navigate } from '../routes.js'
 import { TourButton, useTour } from '../tour/index.jsx'
-import { composeFlow, deleteFlow, getFeishuStatus, getFlow, getNodeCatalog, getTemplates, listFlows, saveFlow } from './api.js'
+import {
+  composeFlow, deleteFlow, getFeishuStatus, getFlow, getHooks, getNodeCatalog, getTemplates, listApprovals, listFlows, saveFlow,
+} from './api.js'
 import Compose from './Compose.jsx'
 import FlowCard, { triggerText } from './FlowCard.jsx'
+import PendingDrawer, { PendingBar } from './Pending.jsx'
 import { blankDraft, catalogIndex, copyName, requirements, writeDraft } from './flowkit.js'
 import Preview from './Preview.jsx'
 import RunsDrawer from './RunsDrawer.jsx'
-import ScheduleSheet from './ScheduleSheet.jsx'
 import Templates from './Templates.jsx'
+import TriggerSheet, { hookFlags } from './TriggerSheet.jsx'
 
 /* 「我的流程」首页（/flows，契约 docs/proposals/2026-10-round18-flows.md §5.2；版式参考 Langflow 欢迎页）：
  *   新用户：页头 →「你想自动化什么？」大输入框 +「试试这些」→ 从模板开始（3 张精选 + 全部模板）→ 已保存的流程（空）。
@@ -19,6 +22,11 @@ import Templates from './Templates.jsx'
  *   模板 / 一句话生成 / 新建的草稿写进 sessionStorage['jvf-draft'] 再去 /flows/new，由画布读走。 */
 
 const TEMPLATE_FALLBACK = '模板暂时没加载出来'
+const HOOK_FETCH_LIMIT = 40   // 卡片上的 💬 / 🔗 标记：列表没带触发设置时逐个去读，最多读这么多条
+const HOOK_WORKERS = 4
+
+/** 列表项自带触发设置（hooks）时直接用；没带返回 undefined（要去读） */
+const listedHooks = f => (f && f.hooks !== undefined ? hookFlags(f.hooks) : undefined)
 
 function openDraft(draft) {
   writeDraft(draft)
@@ -89,7 +97,10 @@ export default function Home({ onExpired }) {
   const [composeErr, setComposeErr] = useState('')
   const [preview, setPreview] = useState(null)
   const [runsFor, setRunsFor] = useState(null)
-  const [schedFor, setSchedFor] = useState(null)
+  const [trigFor, setTrigFor] = useState(null)        // { flow, tab }
+  const [hooksMap, setHooksMap] = useState({})        // { [流程 id]: { message, webhook } }
+  const [approvals, setApprovals] = useState({ approvals: [], pending: 0 })   // 等你确认
+  const [pendingOpen, setPendingOpen] = useState(false)
   const [delFor, setDelFor] = useState(null)
   const [bindOpen, setBindOpen] = useState(false)
   const [toast, setToast] = useState(null)
@@ -136,6 +147,22 @@ export default function Home({ onExpired }) {
     }
   }, [expired])
 
+  // 等你确认：进来读一次，切回这个页面时再读（在确认页处理完回来，数字就对了）；读不到就不显示入口
+  const loadApprovals = useCallback(async () => {
+    try {
+      setApprovals(await listApprovals({ status: 'pending', limit: 20 }))
+    } catch (err) {
+      if (err.message === '401') expired()
+    }
+  }, [expired])
+  useEffect(() => {
+    loadApprovals()
+    const onVisible = () => { if (document.visibilityState !== 'hidden') loadApprovals() }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    return () => { document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('focus', onVisible) }
+  }, [loadApprovals])
+
   useEffect(() => {
     loadFlows()
     loadTemplates()
@@ -143,6 +170,35 @@ export default function Home({ onExpired }) {
     getNodeCatalog().then(c => setIdx(catalogIndex(c))).catch(() => {})
     getFeishuStatus().then(setFeishu).catch(() => {})
   }, [loadFlows, loadTemplates])
+
+  // 卡片上的触发标记：列表没带就逐个读（读不到不提示，只是不显示标记）
+  const hooksAsked = useRef(new Set())
+  const mounted = useRef(true)
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
+  useEffect(() => {
+    if (!Array.isArray(flows)) return
+    const queue = []
+    const known = {}
+    for (const f of flows) {
+      const listed = listedHooks(f)
+      if (listed) known[f.id] = listed
+      else if (!hooksAsked.current.has(f.id) && queue.length < HOOK_FETCH_LIMIT) { hooksAsked.current.add(f.id); queue.push(f.id) }
+    }
+    if (Object.keys(known).length) setHooksMap(m => ({ ...m, ...known }))
+    // 列表变了（复制、删除）也不打断已经在读的；只在离开页面时停
+    const worker = async () => {
+      while (mounted.current && queue.length) {
+        const id = queue.shift()
+        try {
+          const h = await getHooks(id)
+          if (mounted.current) setHooksMap(m => ({ ...m, [id]: hookFlags(h) }))
+        } catch (err) {
+          if (err.message === '401') { expired(); return }
+        }
+      }
+    }
+    for (let i = 0; i < Math.min(HOOK_WORKERS, queue.length); i += 1) worker()
+  }, [flows, expired])
 
   useTour('flows-home', { ready: (flows !== null || Boolean(listErr)) && tpl.status !== 'loading' })
 
@@ -206,16 +262,24 @@ export default function Home({ onExpired }) {
   }
   function onAction(id, flow) {
     if (id === 'runs') setRunsFor(flow)
-    else if (id === 'schedule') setSchedFor(flow)
+    else if (id === 'schedule' || id === 'triggers') setTrigFor({ flow, tab: 'schedule' })
     else if (id === 'copy') copy(flow)
     else if (id === 'delete') setDelFor(flow)
   }
   function onScheduled(trigger) {
-    const flow = schedFor
-    setSchedFor(null)
+    const { flow } = trigFor
+    setTrigFor(null)
     setFlows(list => (list || []).map(f => (f.id === flow.id ? { ...f, trigger } : f)))
     const label = triggerText(trigger)
     say(label ? `定时运行已保存：${label}` : '已关掉定时运行')
+  }
+  function onHooksChange(hooks) {
+    const { flow } = trigFor || {}
+    if (flow) setHooksMap(m => ({ ...m, [flow.id]: hookFlags(hooks) }))
+  }
+  function onMessageSaved(hooks) {
+    setTrigFor(null)
+    say(hooks?.message?.enabled ? '已保存：收到符合条件的消息就会自动运行' : '已关掉收到消息时运行')
   }
   function onDeleted(flow) {
     setDelFor(null)
@@ -246,7 +310,7 @@ export default function Home({ onExpired }) {
         </div>
       ) : flows === null ? <ListSkeleton /> : !flows.length ? <EmptyList /> : (
         <ul className="fh-flow-grid">
-          {flows.map(f => <FlowCard key={f.id} flow={f} idx={idx} onAction={onAction} />)}
+          {flows.map(f => <FlowCard key={f.id} flow={f} idx={idx} hooks={hooksMap[f.id] || null} onAction={onAction} />)}
         </ul>
       )}
     </section>
@@ -267,6 +331,9 @@ export default function Home({ onExpired }) {
 
       <main className="fh-scroll">
         <div className={`fh-wrap${returning ? ' is-returning' : ''}`}>
+          {approvals.pending > 0 ? (
+            <PendingBar pending={approvals.pending} approvals={approvals.approvals} onOpen={() => setPendingOpen(true)} />
+          ) : null}
           <div className="fh-hero">
             <div className="fh-hero-text">
               <h1 className="fh-h1">我的流程</h1>
@@ -296,11 +363,12 @@ export default function Home({ onExpired }) {
           primary="用这个模板" onPrimary={() => openDraft({ name: preview.tpl.name, summary: preview.tpl.summary, graph: preview.tpl.graph })}
           secondary="关闭" onSecondary={() => setPreview(null)} onClose={() => setPreview(null)} />
       ) : null}
+      {pendingOpen ? <PendingDrawer approvals={approvals.approvals} pending={approvals.pending} onClose={() => setPendingOpen(false)} /> : null}
       {runsFor ? <RunsDrawer flow={runsFor} onClose={() => setRunsFor(null)} onOpenFlow={f => navigate(flowHref(f.id))} onExpired={expired} /> : null}
-      {schedFor ? (
-        <ScheduleSheet flow={schedFor} feishu={feishu} onBindFeishu={() => setBindOpen(true)}
-          onOpenRuns={f => { setSchedFor(null); setRunsFor(f) }}
-          onClose={() => setSchedFor(null)} onSaved={onScheduled} onExpired={expired} />
+      {trigFor ? (
+        <TriggerSheet flow={trigFor.flow} tab={trigFor.tab} feishu={feishu} onBindFeishu={() => setBindOpen(true)}
+          onOpenRuns={f => { setTrigFor(null); setRunsFor(f) }} onClose={() => setTrigFor(null)}
+          onScheduleSaved={onScheduled} onMessageSaved={onMessageSaved} onHooksChange={onHooksChange} onExpired={expired} />
       ) : null}
       {delFor ? <ConfirmDelete flow={delFor} onCancel={() => setDelFor(null)} onDone={onDeleted} onExpired={expired} /> : null}
       {bindOpen ? (
