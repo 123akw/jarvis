@@ -41,7 +41,7 @@ body.light .fc-editor{
 /* ---------- 顶栏 ---------- */
 .fc-top{height:calc(56px + env(safe-area-inset-top));flex:none;display:flex;align-items:center;gap:12px;
   padding:env(safe-area-inset-top) max(16px,env(safe-area-inset-right)) 0 max(8px,env(safe-area-inset-left));
-  border-bottom:1px solid var(--jv-border);background:color-mix(in srgb,var(--jv-bg) 86%,transparent);position:relative;z-index:5}
+  border-bottom:1px solid var(--jv-border);background:color-mix(in srgb,var(--jv-bg) 86%,transparent);position:relative;z-index:10}
 .fc-back{display:inline-flex;align-items:center;gap:4px;height:36px;padding:0 12px 0 4px;border:none;border-radius:8px;
   background:transparent;color:var(--jv-text-2);font-size:14px;flex:none}
 .fc-back:hover{background:var(--jv-hover);color:var(--jv-text)}
@@ -204,8 +204,8 @@ body.light .fc-editor{
 .fc-canvas .fc-edge.is-flowing{stroke:color-mix(in srgb,var(--jv-accent) 45%,transparent)}
 .fc-edge-flow{stroke:var(--jv-accent);stroke-width:2.4;stroke-dasharray:6 10;stroke-linecap:round;animation:fc-flow .7s linear infinite;pointer-events:none}
 @keyframes fc-flow{to{stroke-dashoffset:-16}}
-.fc-edge-tools{position:absolute;pointer-events:all;opacity:0;transition:opacity .15s;z-index:2}
-.fc-edge-tools.is-shown,.fc-edge-tools:hover,.fc-edge-tools:focus-within{opacity:1}
+.fc-edge-tools{position:absolute;pointer-events:none;opacity:0;transition:opacity .15s;z-index:2}
+.fc-edge-tools.is-shown,.fc-edge-tools:focus-within{opacity:1;pointer-events:all}
 .fc-edge-tools{display:flex;gap:4px}
 .fc-edge-plus,.fc-edge-del{width:22px;height:22px;display:grid;place-items:center;border-radius:50%;border:1px solid var(--jv-border);
   background:var(--fc-card);color:var(--jv-accent);box-shadow:var(--jv-shadow)}

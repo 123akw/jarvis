@@ -21,7 +21,7 @@ import {
   LIMIT_MSG, MAX_NODES, moveNodes, nodeById, nodeSummary, nodeTitle, normalizeGraph, redo, removeEdges, removeNodes,
   runReducer, settle, staleNodes, START_ID, startRunState, topoOrder, transient, undo, updateNodeData, validateGraph,
 } from '../graph.js'
-import Canvas, { fitOptions } from './Canvas.jsx'
+import Canvas, { fitCanvas } from './Canvas.jsx'
 import { indexCatalog, itemOf } from './catalog.js'
 import ConfigPanel, { ConfigBody, typeLabelOf } from './ConfigPanel.jsx'
 import Glyph, { NodeIcon } from './glyphs.jsx'
@@ -442,7 +442,7 @@ export default function Editor({ flowId = 'new', initial = null, onSaved, onBack
   const doUndo = useCallback(() => { if (!locked) { setHist(undo(histRef.current)); setAnnounce('已撤销') } }, [locked, setHist])
   const doRedo = useCallback(() => { if (!locked) { setHist(redo(histRef.current)); setAnnounce('已重做') } }, [locked, setHist])
 
-  const fitView = () => rfRef.current?.fitView?.(fitOptions({ side: !!(selectedId || panel === 'run'), narrow, duration: 280 }))
+  const fitView = () => fitCanvas(rfRef.current, { side: !!(selectedId || panel === 'run'), narrow, duration: 280, graph: histRef.current.present, sizes: sizesRef.current })
 
   function tidy() {
     if (locked) return

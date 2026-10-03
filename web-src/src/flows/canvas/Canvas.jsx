@@ -25,10 +25,29 @@ const ARIA = {
   'handle.ariaLabel': '连线口',
 }
 const SNAP = [16, 16]
-/** 适配视图的留白：右侧有浮动面板（配置 / 运行）时把它让出来，节点不会被盖住 */
-export function fitOptions({ side = false, narrow = false, duration = 0 } = {}) {
-  const pad = narrow ? '24px' : '56px'
-  return { padding: { top: pad, bottom: narrow ? '24px' : '72px', left: pad, right: side ? '440px' : pad }, maxZoom: 1, duration }
+const SIDE_W = 440       // 右侧浮动面板（含边距）占掉的宽度
+const MIN_SIDE_ZOOM = 0.62
+
+/**
+ * 适配视图的留白：右侧有浮动面板（配置 / 运行）时尽量把它让出来，节点不会被盖住；
+ * 但流程太宽、让出来以后字小得看不清（缩放 < 0.62）时就不让了，宁可被面板盖住一截、拖一下就能看到。
+ */
+export function fitOptions({ side = false, narrow = false, duration = 0, graph = null, sizes = {}, width = 0 } = {}) {
+  const pad = narrow ? 24 : 56
+  let reserve = side && !narrow
+  if (reserve && graph && width) {
+    const xs = graph.nodes.map(n => n.position.x)
+    const right = Math.max(...graph.nodes.map(n => n.position.x + (sizes[n.id]?.width || 240)))
+    const span = Math.max(1, right - Math.min(...xs))
+    if ((width - pad - SIDE_W) / span < MIN_SIDE_ZOOM) reserve = false
+  }
+  return { padding: { top: `${pad}px`, bottom: `${narrow ? 24 : 72}px`, left: `${pad}px`, right: `${reserve ? SIDE_W : pad}px` }, maxZoom: 1, duration }
+}
+
+/** 按当前画布宽度适配视图（编辑器的「整理」、⌘1 也用它） */
+export function fitCanvas(rf, opts) {
+  const el = document.querySelector('.fc-canvas')
+  rf?.fitView?.(fitOptions({ ...opts, width: el?.getBoundingClientRect().width || 0 }))
 }
 
 function Inner({
@@ -36,7 +55,15 @@ function Inner({
   onConnectError, onDropItem, onQuick, onInit, sizesRef, onDeleteEdge, side = false, narrow = false, onFitted,
 }) {
   const [sizes, setSizes] = useState({})
-  const [hover, setHover] = useState(null)
+  const [hover, setHoverNow] = useState(null)
+  // 连线中点的「+ / ✕」：离开连线稍等一下再收起，好让鼠标挪到按钮上
+  const hoverTimer = useRef(0)
+  const setHover = useCallback(id => {
+    clearTimeout(hoverTimer.current)
+    if (id) setHoverNow(id)
+    else hoverTimer.current = setTimeout(() => setHoverNow(null), 160)
+  }, [])
+  useEffect(() => () => clearTimeout(hoverTimer.current), [])
   const rf = useRef(null)
   const moved = useRef({})
   const fitted = useRef(false)
@@ -46,9 +73,9 @@ function Inner({
     if (fitted.current || !rf.current) return
     if (!graph.nodes.every(n => sizes[n.id]?.width)) return
     fitted.current = true
-    rf.current.fitView(fitOptions({ side, narrow }))
+    fitCanvas(rf.current, { side, narrow, graph, sizes })
     onFitted?.()
-  }, [sizes, graph.nodes, side, narrow, onFitted, inited])
+  }, [sizes, graph, side, narrow, onFitted, inited])
 
   const nodes = useMemo(() => graph.nodes.map(n => ({
     id: n.id, type: 'flow', position: n.position,
@@ -109,7 +136,7 @@ function Inner({
     openQuick: q => onQuick?.(q),
     hoverEdge: setHover,
     deleteEdge: id => onDeleteEdge?.(id),
-  }), [onQuick, onDeleteEdge])
+  }), [onQuick, onDeleteEdge, setHover])
 
   // 从出口拖线到空白处松手：弹出「接下来做什么？」，新节点放在松手处
   const onConnectEnd = useCallback((event, state) => {
@@ -160,7 +187,7 @@ function Inner({
         proOptions={{ hideAttribution: false }}
       >
         <Background variant={BackgroundVariant.Dots} gap={16} size={1.4} className="fc-bg" />
-        <Controls showInteractive={false} position="bottom-left" fitViewOptions={fitOptions({ side, narrow, duration: 240 })} className="fc-controls" />
+        <Controls showInteractive={false} position="bottom-left" fitViewOptions={fitOptions({ side, narrow, duration: 240, graph, sizes, width: typeof document !== 'undefined' ? document.querySelector('.fc-canvas')?.getBoundingClientRect().width || 0 : 0 })} className="fc-controls" />
       </ReactFlow>
     </CanvasActions.Provider>
   )
