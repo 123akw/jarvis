@@ -175,14 +175,20 @@ class FlowStore:
 
     @staticmethod
     def _trigger_view(row) -> dict | None:
-        if row is None or not row["enabled"] or row["kind"] != "schedule":
+        """定时触发器的卡片视图。用户自己关掉的定时存成 manual，不显示；连续失败被自动暂停的仍是
+        schedule、enabled=0，照样返回（带 paused_reason），卡片据此显示「定时已暂停」。"""
+        if row is None or row["kind"] != "schedule":
             return None
         config = _loads(row["config"], {})
-        return {"kind": row["kind"], "label": trigger_label(config), "next_run_at": row["next_run_at"],
-                "last_run_at": row["last_run_at"], "last_status": row["last_status"] or ""}
+        if not row["enabled"] and not config.get("paused_reason"):   # 关着但不是被自动暂停的：等同手动
+            return None
+        return {"kind": row["kind"], "enabled": bool(row["enabled"]), "label": trigger_label(config),
+                "next_run_at": row["next_run_at"] if row["enabled"] else None,
+                "last_run_at": row["last_run_at"], "last_status": row["last_status"] or "",
+                "paused_reason": "" if row["enabled"] else str(config.get("paused_reason") or "")}
 
     def triggers(self, owner_id: str) -> dict[str, dict]:
-        """{flow_id: {kind, label, next_run_at, last_run_at, last_status}}：只含启用中的定时触发器。"""
+        """{flow_id: {kind, enabled, label, next_run_at, last_run_at, last_status, paused_reason}}：启用中与被自动暂停的定时触发器。"""
         with self._connect() as c:
             rows = c.execute("SELECT * FROM tenant_flow_triggers WHERE owner_id=?", (owner_id,)).fetchall()
         out = {}

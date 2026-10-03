@@ -246,6 +246,10 @@ export function requirements({ needs = [], plugins = [], graph = null } = {}, id
     if (!text) continue
     if (/飞书/.test(text)) {
       feishuNeed = true
+      if (feishu && feishu.configured === false) {   // 服务器没接入飞书：绑不了，不给动作
+        out.push({ key: `need:${text}`, text: `${text}（这台服务器还没接入飞书，先找管理员开通）`, ok: false, tag: '飞书没开通', action: '' })
+        continue
+      }
       const ok = feishu ? Boolean(feishu.bound) : null
       out.push({ key: `need:${text}`, text, ok, tag: ok === false ? '需先绑定飞书' : '需要：飞书', action: ok === false ? 'feishu' : '' })
     } else {
@@ -494,7 +498,7 @@ export function absTime(iso) {
 
 /** 耗时：800 毫秒 / 1.2 秒 / 1 分 5 秒 */
 export function fmtMs(ms) {
-  if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return ''
+  if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 1) return ''   // 0 毫秒这种就不写了
   if (ms < 1000) return `${Math.round(ms)} 毫秒`
   if (ms < 60000) return `${(ms / 1000).toFixed(1)} 秒`
   return `${Math.floor(ms / 60000)} 分 ${Math.round((ms % 60000) / 1000)} 秒`
