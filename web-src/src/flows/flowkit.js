@@ -232,6 +232,38 @@ export function describeNode(node, graph, idx = EMPTY_IDX) {
   }
 }
 
+/**
+ * 「需要准备」：模板 / 草稿开始前要满足的条件，每条带是否满足与动作（契约 needs + 节点目录的 available）。
+ *   needs 是服务端给的人话（如「需要绑定飞书」）；提到飞书的按绑定状态判断，给「去绑定飞书」。
+ *   插件当前账号用不了：没装的说「需先加」（缺插件也允许用，进画布后对应节点会提示）；其余照目录给的原因。
+ * 返回 [{ key, tag（卡片小标签）, text（预览里的一行）, ok: true|false|null（不知道）, action: 'feishu'|'' }]
+ */
+export function requirements({ needs = [], plugins = [], graph = null } = {}, idx = EMPTY_IDX, feishu = null) {
+  const out = []
+  let feishuNeed = false
+  for (const raw of needs || []) {
+    const text = String(raw || '').trim()
+    if (!text) continue
+    if (/飞书/.test(text)) {
+      feishuNeed = true
+      const ok = feishu ? Boolean(feishu.bound) : null
+      out.push({ key: `need:${text}`, text, ok, tag: ok === false ? '需先绑定飞书' : '需要：飞书', action: ok === false ? 'feishu' : '' })
+    } else {
+      out.push({ key: `need:${text}`, text, ok: null, tag: text.replace(/^需要/, '需要：').replace(/^需要：：/, '需要：'), action: '' })
+    }
+  }
+  const ids = plugins?.length ? plugins : graphPlugins(graph)
+  for (const p of pluginNeeds(ids, idx)) {
+    if (p.available) continue
+    const missing = !p.reason || /装/.test(p.reason)
+    if (!missing && feishuNeed && /飞书/.test(p.reason)) continue   // 和「需要绑定飞书」是一回事
+    out.push(missing
+      ? { key: `plugin:${p.id}`, text: p.reason || `这个智能体还没装「${p.name}」，到智能体设置里加上就能用`, ok: false, tag: `需先加「${p.name}」`, action: '' }
+      : { key: `plugin:${p.id}`, text: `「${p.name}」：${p.reason}`, ok: false, tag: `「${p.name}」暂时用不了`, action: /飞书/.test(p.reason) ? 'feishu' : '' })
+  }
+  return out
+}
+
 /** 流程用到的插件（目录里能查到名字的），以及其中当前账号用不了的 */
 export function pluginNeeds(pluginIds, idx = EMPTY_IDX) {
   const list = [...new Set((pluginIds || []).filter(Boolean))]
@@ -405,23 +437,34 @@ export function nextRun(schedule, now = new Date()) {
 const two = n => String(n).padStart(2, '0')
 const hm = d => `${two(d.getHours())}:${two(d.getMinutes())}`
 
-/** 「今天 08:00」「明天 08:00」「周三 08:00」「10月15日（周三）08:00」 */
+/** 接下来几次运行（「下次运行」+ 之后 2 次） */
+export function nextRuns(schedule, now = new Date(), count = 3) {
+  const out = []
+  let from = now
+  for (let i = 0; i < count; i += 1) {
+    const d = nextRun(schedule, from)
+    if (!d) break
+    out.push(d)
+    from = d
+  }
+  return out
+}
+
+/** 「今天（周五）08:00」「明天（周六）08:00」「周三 08:00」「10月15日（周三）08:00」 */
 export function whenLabel(date, now = new Date()) {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) return ''
   const day0 = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   const day1 = new Date(date.getFullYear(), date.getMonth(), date.getDate())
   const diff = Math.round((day1 - day0) / 86400000)
   const week = `周${WEEKDAYS[isoDay(date) - 1]}`
-  if (diff === 0) return `今天 ${hm(date)}`
-  if (diff === 1) return `明天 ${hm(date)}`
-  if (diff === 2) return `后天 ${hm(date)}`
+  if (diff >= 0 && diff <= 2) return `${['今天', '明天', '后天'][diff]}（${week}）${hm(date)}`
   if (diff > 2 && diff < 7) return `${week} ${hm(date)}`
   return `${date.getMonth() + 1}月${date.getDate()}日（${week}）${hm(date)}`
 }
 
 /* ---------- 时间与状态文案 ---------- */
 
-export const RUN_STATUS = { ok: '成功', error: '失败', running: '运行中', busy: '排队中', cancelled: '已停止', skipped: '没走到' }
+export const RUN_STATUS = { ok: '完成', error: '失败', running: '运行中', busy: '排队中', cancelled: '已停止', skipped: '没走到' }
 
 const toMs = iso => {
   if (!iso) return NaN

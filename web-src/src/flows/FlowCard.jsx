@@ -66,13 +66,35 @@ export function triggerText(trigger) {
   return trigger.label || scheduleLabel(trigger.schedule)
 }
 
+/** 卡片上的定时标记：正常「每个工作日 08:00」；上次定时运行失败变红、点开看运行记录；连续失败被自动暂停的提示去处理 */
+function TimerChip({ flow, onAction }) {
+  const t = flow.trigger
+  if (!t || t.kind !== 'schedule') return null
+  if (t.enabled === false) {
+    return (
+      <button type="button" className="fh-flow-timer is-warn is-btn" onClick={() => onAction('schedule', flow)}>
+        <Icon name="today" size={13} />定时已暂停
+      </button>
+    )
+  }
+  if (t.last_status === 'error') {
+    return (
+      <button type="button" className="fh-flow-timer is-error is-btn" onClick={() => onAction('runs', flow)}
+        title={triggerText(t)}>
+        <Icon name="today" size={13} />上次定时运行失败
+      </button>
+    )
+  }
+  const label = triggerText(t)
+  return label ? <span className="fh-flow-timer"><Icon name="today" size={13} />{label}</span> : null
+}
+
 export default function FlowCard({ flow, idx, onAction }) {
   const [open, setOpen] = useState(false)
   const btnRef = useRef(null)
   const menuId = useId()
   const name = flow.name || '未命名流程'
   const last = lastRunText(flow.last_run)
-  const timer = triggerText(flow.trigger)
   const href = flowHref(flow.id)
 
   function close(refocus) {
@@ -104,7 +126,7 @@ export default function FlowCard({ flow, idx, onAction }) {
           <span className="fh-flow-last" title={last.title || undefined}>
             <span className={`status-dot ${last.dot}`} aria-hidden="true" />{last.text}
           </span>
-          {timer ? <span className="fh-flow-timer"><Icon name="today" size={13} />{timer}</span> : null}
+          <TimerChip flow={flow} onAction={onAction} />
         </p>
       </div>
       <button ref={btnRef} type="button" className="fh-more" aria-label={`「${name}」的更多操作`}

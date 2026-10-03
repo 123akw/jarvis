@@ -1,19 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import FeishuConnect from '../FeishuConnect.jsx'
 import Icon from '../Icon.jsx'
 import Modal, { ModalHead } from '../Modal.jsx'
 import { APP_PATH, flowHref, navigate } from '../routes.js'
 import { TourButton, useTour } from '../tour/index.jsx'
-import { composeFlow, deleteFlow, getFlow, getNodeCatalog, getTemplates, listFlows, saveFlow } from './api.js'
+import { composeFlow, deleteFlow, getFeishuStatus, getFlow, getNodeCatalog, getTemplates, listFlows, saveFlow } from './api.js'
 import Compose from './Compose.jsx'
 import FlowCard, { triggerText } from './FlowCard.jsx'
-import { blankDraft, catalogIndex, copyName, graphPlugins, pluginNeeds, writeDraft } from './flowkit.js'
+import { blankDraft, catalogIndex, copyName, requirements, writeDraft } from './flowkit.js'
 import Preview from './Preview.jsx'
 import RunsDrawer from './RunsDrawer.jsx'
 import ScheduleSheet from './ScheduleSheet.jsx'
 import Templates from './Templates.jsx'
 
-/* 「我的流程」首页（/flows，契约 docs/proposals/2026-10-round18-flows.md §5.2）：
- *   页头（我的流程 + 新建流程 + 新手引导）→ 一句话生成 → 已保存的流程 → 模板库。
+/* 「我的流程」首页（/flows，契约 docs/proposals/2026-10-round18-flows.md §5.2；版式参考 Langflow 欢迎页）：
+ *   新用户：页头 →「你想自动化什么？」大输入框 +「试试这些」→ 从模板开始（3 张精选 + 全部模板）→ 已保存的流程（空）。
+ *   已有流程：页头 → 单行输入框 → 已保存的流程 → 从模板开始。
  *   模板 / 一句话生成 / 新建的草稿写进 sessionStorage['jvf-draft'] 再去 /flows/new，由画布读走。 */
 
 const TEMPLATE_FALLBACK = '模板暂时没加载出来'
@@ -31,17 +33,13 @@ function ListSkeleton() {
   )
 }
 
-function EmptyList({ onCompose, onTemplates }) {
+function EmptyList() {
   return (
     <div className="fh-empty">
       <div className="fh-empty-art" aria-hidden="true"><i /><b /><i /><b /><i /></div>
       <div className="fh-empty-text">
         <p className="fh-empty-title">还没有流程</p>
-        <p className="fh-muted">流程就是把几件事按顺序接起来自动跑：资料进来，结果自动送到你手上。用一句话说说想做什么，或者挑个模板改一改。</p>
-        <div className="fh-empty-actions">
-          <button type="button" className="jv-btn jv-btn--sm" onClick={onCompose}><Icon name="sparkles" size={15} />一句话生成</button>
-          <button type="button" className="jv-btn jv-btn--sm" onClick={onTemplates}>看看模板</button>
-        </div>
+        <p className="fh-muted">做好的流程会放在这里：能直接运行、看每次的运行记录，也能设成每天自动跑。</p>
       </div>
     </div>
   )
@@ -85,6 +83,7 @@ export default function Home({ onExpired }) {
   const [listErr, setListErr] = useState('')
   const [tpl, setTpl] = useState({ status: 'loading', categories: [], templates: [], error: '' })
   const [idx, setIdx] = useState(undefined)
+  const [feishu, setFeishu] = useState(null)
   const [text, setText] = useState('')
   const [composeBusy, setComposeBusy] = useState(false)
   const [composeErr, setComposeErr] = useState('')
@@ -92,11 +91,11 @@ export default function Home({ onExpired }) {
   const [runsFor, setRunsFor] = useState(null)
   const [schedFor, setSchedFor] = useState(null)
   const [delFor, setDelFor] = useState(null)
+  const [bindOpen, setBindOpen] = useState(false)
   const [toast, setToast] = useState(null)
   const abortRef = useRef(null)
   const toastTimer = useRef(0)
   const composeInput = useRef(null)
-  const tplRef = useRef(null)
 
   // App 每次渲染都给新的 onExpired：放进 ref，避免把它当依赖反复加载
   const expiredRef = useRef(onExpired)
@@ -140,39 +139,38 @@ export default function Home({ onExpired }) {
   useEffect(() => {
     loadFlows()
     loadTemplates()
-    // 节点目录只用来补图标、插件名与「能不能用」，拿不到不影响页面
+    // 节点目录与飞书绑定只用来补图标、插件名、「需要准备」满没满足；拿不到不影响页面
     getNodeCatalog().then(c => setIdx(catalogIndex(c))).catch(() => {})
+    getFeishuStatus().then(setFeishu).catch(() => {})
   }, [loadFlows, loadTemplates])
 
   useTour('flows-home', { ready: (flows !== null || Boolean(listErr)) && tpl.status !== 'loading' })
 
   /* ---- 一句话生成 ---- */
-  async function generate(desc, again = false) {
+  async function generate(desc) {
     abortRef.current?.abort()
     const ctrl = new AbortController()
     abortRef.current = ctrl
-    if (again) setPreview(p => (p ? { ...p, busy: true, error: '' } : p))
-    else { setComposeErr(''); setComposeBusy(true) }
+    setComposeErr('')
+    setComposeBusy(true)
     try {
       const res = await composeFlow(desc, ctrl.signal)
       if (ctrl.signal.aborted) return
       const draft = res?.draft
       if (!draft || !Array.isArray(draft.graph?.nodes) || !draft.graph.nodes.length) throw new Error('这次没搭出能用的流程')
-      const notes = (Array.isArray(res.notes) ? res.notes : []).filter(Boolean)
-      if (res.source === 'template') notes.unshift('没完全听懂你的意思，先找了最接近的模板，打开后可以再改')
-      setPreview({ kind: 'compose', draft, notes, description: desc, busy: false, error: '' })
+      const notes = (Array.isArray(res.notes) ? res.notes : []).filter(Boolean).slice(0, 3)
+      if (res.source === 'template') notes.unshift('没完全理解你的意思，先按最接近的模板给你，打开后可以再改')
+      setPreview({ kind: 'compose', draft, notes, description: desc })
     } catch (err) {
       if (err?.name === 'AbortError' || ctrl.signal.aborted) return
       if (err.message === '401') { expired(); return }
       const reason = String(err.message || '服务暂时不可用').replace(/[。.！!]+$/, '')
-      const msg = `没生成出来：${reason}。换个说法再试试，或者从下面的模板挑一个。`
-      if (again) setPreview(p => (p ? { ...p, busy: false, error: msg } : p))
-      else setComposeErr(msg)
+      setComposeErr(`这次没想明白：${reason}。换个说法试试，或者从模板开始。`)
     } finally {
       // 只有「这一次」还是当前请求时才收尾：被新一次生成或「取消」顶掉的，不去动别人的状态
       if (abortRef.current === ctrl) {
         abortRef.current = null
-        if (!again) setComposeBusy(false)
+        setComposeBusy(false)
       }
     }
   }
@@ -181,9 +179,16 @@ export default function Home({ onExpired }) {
     abortRef.current = null
     setComposeBusy(false)
   }
-  function closePreview() {
-    if (preview?.busy) abortRef.current?.abort()
+  /** 「换个说法」：关掉预览，回到输入框，原文还在并选中，直接改 */
+  function rephrase() {
     setPreview(null)
+    requestAnimationFrame(() => {
+      const el = composeInput.current
+      if (!el) return
+      el.focus()
+      el.select?.()
+      el.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+    })
   }
 
   /* ---- 列表操作 ---- */
@@ -217,18 +222,39 @@ export default function Home({ onExpired }) {
     setFlows(list => (list || []).filter(f => f.id !== flow.id))
     say(`已删除「${flow.name || '未命名流程'}」`)
   }
-
-  function focusCompose() {
-    composeInput.current?.focus()
-    composeInput.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
-  }
-  function focusTemplates() {
-    const el = tplRef.current
-    el?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
-    el?.querySelector('[role=tab][aria-selected=true], .fh-tpl')?.focus({ preventScroll: true })
+  function onReqAction(action) {
+    if (action === 'feishu') setBindOpen(true)
   }
 
-  const previewBlocked = graph => pluginNeeds(graphPlugins(graph), idx).filter(p => !p.available)
+  const returning = Array.isArray(flows) && flows.length > 0
+  const compose = (
+    <Compose value={text} onChange={v => { setText(v); if (composeErr) setComposeErr('') }}
+      onSubmit={desc => generate(desc)} onCancel={cancelCompose} compact={returning} idx={idx}
+      busy={composeBusy} error={composeErr} inputRef={composeInput} />
+  )
+  const list = (
+    <section className="fh-section" aria-labelledby="fh-list-title" data-tour="flows-list">
+      <div className="fh-section-head">
+        <h2 id="fh-list-title" className="fh-h2">
+          已保存的流程{flows?.length ? <span className="fh-count">{flows.length}</span> : null}
+        </h2>
+      </div>
+      {listErr ? (
+        <div className="fh-inline-err" role="alert">
+          <p>{listErr}</p>
+          <button type="button" className="jv-btn jv-btn--sm" onClick={loadFlows}>重新加载</button>
+        </div>
+      ) : flows === null ? <ListSkeleton /> : !flows.length ? <EmptyList /> : (
+        <ul className="fh-flow-grid">
+          {flows.map(f => <FlowCard key={f.id} flow={f} idx={idx} onAction={onAction} />)}
+        </ul>
+      )}
+    </section>
+  )
+  const templates = (
+    <Templates state={tpl} idx={idx} feishu={feishu} onRetry={loadTemplates}
+      onPick={t => setPreview({ kind: 'template', tpl: t })} />
+  )
 
   return (
     <div className="fh-page">
@@ -240,7 +266,7 @@ export default function Home({ onExpired }) {
       </header>
 
       <main className="fh-scroll">
-        <div className="fh-wrap">
+        <div className={`fh-wrap${returning ? ' is-returning' : ''}`}>
           <div className="fh-hero">
             <div className="fh-hero-text">
               <h1 className="fh-h1">我的流程</h1>
@@ -251,35 +277,8 @@ export default function Home({ onExpired }) {
               <Icon name="plus" size={16} />新建流程
             </button>
           </div>
-
-          <Compose value={text} onChange={v => { setText(v); if (composeErr) setComposeErr('') }}
-            onSubmit={desc => generate(desc)} onCancel={cancelCompose}
-            busy={composeBusy} error={composeErr} inputRef={composeInput} />
-
-          <section className="fh-section" aria-labelledby="fh-list-title" data-tour="flows-list">
-            <div className="fh-section-head">
-              <h2 id="fh-list-title" className="fh-h2">
-                已保存的流程{flows?.length ? <span className="fh-count">{flows.length}</span> : null}
-              </h2>
-            </div>
-            {listErr ? (
-              <div className="fh-inline-err" role="alert">
-                <p>{listErr}</p>
-                <button type="button" className="jv-btn jv-btn--sm" onClick={loadFlows}>重新加载</button>
-              </div>
-            ) : flows === null ? <ListSkeleton /> : !flows.length ? (
-              <EmptyList onCompose={focusCompose} onTemplates={focusTemplates} />
-            ) : (
-              <ul className="fh-flow-grid">
-                {flows.map(f => <FlowCard key={f.id} flow={f} idx={idx} onAction={onAction} />)}
-              </ul>
-            )}
-          </section>
-
-          <div ref={tplRef}>
-            <Templates state={tpl} idx={idx} onRetry={loadTemplates}
-              onPick={t => setPreview({ kind: 'template', tpl: t })} />
-          </div>
+          {compose}
+          {returning ? <>{list}{templates}</> : <>{templates}{list}</>}
         </div>
       </main>
 
@@ -288,19 +287,26 @@ export default function Home({ onExpired }) {
       {preview?.kind === 'compose' ? (
         <Preview label="生成的流程" title={preview.draft.name || '新流程'} subtitle={preview.draft.summary}
           graph={preview.draft.graph} idx={idx} quote={preview.description} notes={preview.notes}
-          blocked={previewBlocked(preview.draft.graph)} busy={preview.busy} busyText="正在重新生成…" error={preview.error}
+          reqs={requirements({ graph: preview.draft.graph }, idx, feishu)} onAction={onReqAction}
           primary="打开编辑" onPrimary={() => openDraft(preview.draft)}
-          secondary="重新生成" onSecondary={() => generate(preview.description, true)} onClose={closePreview} />
+          secondary="换个说法" onSecondary={rephrase} onClose={() => setPreview(null)} />
       ) : preview?.kind === 'template' ? (
         <Preview label="模板预览" title={preview.tpl.name} subtitle={preview.tpl.summary} icon={preview.tpl.icon}
-          graph={preview.tpl.graph} idx={idx} needs={(preview.tpl.needs || []).filter(Boolean)}
-          blocked={pluginNeeds(preview.tpl.plugins?.length ? preview.tpl.plugins : graphPlugins(preview.tpl.graph), idx).filter(p => !p.available)}
+          graph={preview.tpl.graph} idx={idx} reqs={requirements(preview.tpl, idx, feishu)} onAction={onReqAction}
           primary="用这个模板" onPrimary={() => openDraft({ name: preview.tpl.name, summary: preview.tpl.summary, graph: preview.tpl.graph })}
-          onClose={closePreview} />
+          secondary="关闭" onSecondary={() => setPreview(null)} onClose={() => setPreview(null)} />
       ) : null}
       {runsFor ? <RunsDrawer flow={runsFor} onClose={() => setRunsFor(null)} onOpenFlow={f => navigate(flowHref(f.id))} onExpired={expired} /> : null}
-      {schedFor ? <ScheduleSheet flow={schedFor} onClose={() => setSchedFor(null)} onSaved={onScheduled} onExpired={expired} /> : null}
+      {schedFor ? (
+        <ScheduleSheet flow={schedFor} feishu={feishu} onBindFeishu={() => setBindOpen(true)}
+          onOpenRuns={f => { setSchedFor(null); setRunsFor(f) }}
+          onClose={() => setSchedFor(null)} onSaved={onScheduled} onExpired={expired} />
+      ) : null}
       {delFor ? <ConfirmDelete flow={delFor} onCancel={() => setDelFor(null)} onDone={onDeleted} onExpired={expired} /> : null}
+      {bindOpen ? (
+        <FeishuConnect onClose={() => setBindOpen(false)} onExpired={expired}
+          onChange={s => setFeishu({ configured: s?.configured !== false, bound: Boolean(s?.bound) })} />
+      ) : null}
     </div>
   )
 }

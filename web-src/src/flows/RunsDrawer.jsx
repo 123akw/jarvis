@@ -78,6 +78,9 @@ function NodeResult({ node }) {
 function RunDetail({ run, onBack }) {
   const html = useMemo(() => (run.output_text ? renderMarkdown(String(run.output_text)) : ''), [run.output_text])
   const page = safeHref(run.page_url)
+  const links = (Array.isArray(run.links) ? run.links : [])
+    .map(l => ({ label: String(l?.label || '打开链接'), href: safeHref(l?.url) }))
+    .filter(l => l.href && l.href !== page)
   const status = RUN_STATUS[run.status] || '结束'
   const nodes = Array.isArray(run.nodes) ? run.nodes : []
   const head = useRef(null)
@@ -101,14 +104,21 @@ function RunDetail({ run, onBack }) {
           <ol className="fh-nres-list">{nodes.map((n, i) => <NodeResult key={`${n.node_id || i}`} node={n} />)}</ol>
         </section>
       ) : null}
-      {html || page ? (
+      {html || page || links.length ? (
         <section aria-label="最终结果">
           <h4 className="fh-h4">最终结果</h4>
           {html ? <div className="fh-result jbody" dangerouslySetInnerHTML={{ __html: html }} /> : null}
-          {page ? (
-            <a className="jv-btn jv-btn--sm fh-result-link" href={absUrl(page)} target="_blank" rel="noopener noreferrer">
-              <Icon name="share" size={15} />打开结果网页
-            </a>
+          {page || links.length ? (
+            <div className="fh-result-links">
+              {page ? (
+                <a className="jv-btn jv-btn--sm" href={absUrl(page)} target="_blank" rel="noopener noreferrer">
+                  <Icon name="share" size={15} />打开结果网页
+                </a>
+              ) : null}
+              {links.map(l => (
+                <a key={l.href} className="jv-btn jv-btn--sm" href={absUrl(l.href)} target="_blank" rel="noopener noreferrer">{l.label}</a>
+              ))}
+            </div>
           ) : null}
         </section>
       ) : null}

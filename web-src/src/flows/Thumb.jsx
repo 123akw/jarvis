@@ -51,9 +51,9 @@ export default function Thumb({ graph, idx, size = 'card', className = '', label
   )
 }
 
-/** 节点小图标串（模板卡片用）：🚩 › 🌤️ › ✨ › 🏁，太长折叠成「+3」 */
-export function IconChain({ nodes, max = 6, label }) {
-  const shown = nodes.length > max ? nodes.slice(0, max - 1) : nodes
+/** 节点小图标串（模板卡片用）：🚩 › 🌤️ › ✨ › 🏁，最多 5 个，多的写「+2」 */
+export function IconChain({ nodes, max = 5, label }) {
+  const shown = nodes.length > max ? nodes.slice(0, max) : nodes
   const rest = nodes.length - shown.length
   return (
     <span className="fh-chain" role="img" aria-label={label}>

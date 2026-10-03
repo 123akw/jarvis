@@ -1,16 +1,22 @@
 import { useMemo, useRef, useState } from 'react'
-import { chainLabel, nodeInfo, orderNodes, pluginNeeds } from './flowkit.js'
+import Icon from '../Icon.jsx'
+import { chainLabel, nodeInfo, orderNodes, requirements } from './flowkit.js'
 import { IconChain } from './Thumb.jsx'
 
-/* 模板库（参考 Dify 的探索页）：分类页签 + 卡片（图标、名称、一句话、节点链小图标、用之前需要什么）。点卡片出预览。 */
+/* 模板库（参考 Dify 探索页、Langflow 欢迎页的「从模板开始」）：
+ *   默认只放 3 张精选（服务端标 featured 的优先，否则取前 3 个）+「全部模板 ›」；展开后是分类页签 + 全部卡片。
+ *   卡片：图标、名称、一句话、节点链小图标（最多 5 个，多的写「+2」）、「需要准备」小标签（满足 = 中性，没满足 = 橙色）。 */
 
-function TemplateCard({ tpl, idx, onPick }) {
+export const FEATURED = 3
+
+export function featured(templates) {
+  const marked = templates.filter(t => t.featured)
+  return (marked.length ? marked : templates).slice(0, FEATURED)
+}
+
+function TemplateCard({ tpl, idx, feishu, onPick }) {
   const nodes = useMemo(() => orderNodes(tpl.graph).map(n => ({ id: n.id, ...nodeInfo(n, idx) })), [tpl.graph, idx])
-  const blocked = pluginNeeds(tpl.plugins, idx).filter(p => !p.available)
-  // 没装的插件：引导去加；其余用不了的（没绑定、没配置）由模板自带的 needs 说清楚，标成提醒色
-  const missing = blocked.filter(p => !p.reason || /装/.test(p.reason))
-  const unmet = blocked.length > missing.length
-  const needs = Array.isArray(tpl.needs) ? tpl.needs.filter(Boolean) : []
+  const reqs = requirements(tpl, idx, feishu)
   return (
     <li>
       <button type="button" className="fh-tpl" onClick={() => onPick(tpl)} aria-haspopup="dialog">
@@ -20,13 +26,11 @@ function TemplateCard({ tpl, idx, onPick }) {
         </span>
         {tpl.summary ? <span className="fh-tpl-sum">{tpl.summary}</span> : null}
         <IconChain nodes={nodes} label={`步骤：${chainLabel(tpl.graph, idx)}`} />
-        {missing.length ? (
-          <span className="fh-tpl-need is-warn">需要先加「{missing.map(p => p.name).join('」「')}」</span>
-        ) : null}
-        {needs.length ? (
-          <span className={`fh-tpl-need${unmet ? ' is-warn' : ''}`}>{needs.join(' · ')}</span>
-        ) : unmet && !missing.length ? (
-          <span className="fh-tpl-need is-warn">「{blocked.find(p => !missing.includes(p)).name}」现在用不了</span>
+        {reqs.length ? (
+          <span className="fh-tpl-tags">
+            {reqs.slice(0, 2).map(r => <span key={r.key} className={`fh-tag${r.ok === false ? ' is-warn' : ''}`}>{r.tag}</span>)}
+            {reqs.length > 2 ? <span className="fh-tag">+{reqs.length - 2}</span> : null}
+          </span>
         ) : null}
       </button>
     </li>
@@ -36,12 +40,13 @@ function TemplateCard({ tpl, idx, onPick }) {
 function Skeleton() {
   return (
     <ul className="fh-tpl-grid" aria-hidden="true">
-      {[0, 1, 2, 3].map(i => <li key={i}><div className="fh-tpl fh-skel-card"><i /><i /><i /></div></li>)}
+      {[0, 1, 2].map(i => <li key={i}><div className="fh-tpl fh-skel-card"><i /><i /><i /></div></li>)}
     </ul>
   )
 }
 
-export default function Templates({ state, idx, onPick, onRetry }) {
+export default function Templates({ state, idx, feishu, onPick, onRetry }) {
+  const [all, setAll] = useState(false)
   const [tab, setTab] = useState('all')
   const tabRefs = useRef({})
   const { categories, templates } = state
@@ -50,7 +55,10 @@ export default function Templates({ state, idx, onPick, onRetry }) {
     return [{ id: 'all', label: '全部' }, ...categories.filter(c => used.has(c.id))]
   }, [categories, templates])
   const current = tabs.some(t => t.id === tab) ? tab : 'all'
-  const shown = current === 'all' ? templates : templates.filter(t => t.category === current)
+  const picks = useMemo(() => featured(templates), [templates])
+  const shown = !all ? picks : current === 'all' ? templates : templates.filter(t => t.category === current)
+  const hasTabs = all && tabs.length > 2
+  const more = templates.length > picks.length
 
   function onTabKey(e, i) {
     const keys = { ArrowRight: 1, ArrowLeft: -1 }
@@ -67,8 +75,15 @@ export default function Templates({ state, idx, onPick, onRetry }) {
   return (
     <section className="fh-section" aria-labelledby="fh-tpl-title" data-tour="flows-templates">
       <div className="fh-section-head">
-        <h2 id="fh-tpl-title" className="fh-h2">从模板开始</h2>
-        <p className="fh-section-note">挑一个改一改，最快上手</p>
+        <h2 id="fh-tpl-title" className="fh-h2">
+          从模板开始{all && templates.length ? <span className="fh-count">{templates.length}</span> : null}
+        </h2>
+        {state.status === 'ready' && more ? (
+          <button type="button" className="fh-link fh-more-link" aria-expanded={all} aria-controls="fh-tpl-panel"
+            onClick={() => setAll(v => !v)}>
+            {all ? '收起' : <>全部模板（{templates.length}）<Icon name="chevron" size={14} /></>}
+          </button>
+        ) : null}
       </div>
       {state.status === 'loading' ? <Skeleton /> : state.status === 'error' ? (
         <div className="fh-inline-err" role="alert">
@@ -79,7 +94,7 @@ export default function Templates({ state, idx, onPick, onRetry }) {
         <p className="fh-muted">暂时还没有模板，可以用上面的一句话生成，或者新建一个空白流程。</p>
       ) : (
         <>
-          {tabs.length > 2 ? (
+          {hasTabs ? (
             <div className="fh-tabs" role="tablist" aria-label="模板分类">
               {tabs.map((t, i) => (
                 <button key={t.id} ref={el => { tabRefs.current[t.id] = el }} type="button" role="tab"
@@ -91,10 +106,9 @@ export default function Templates({ state, idx, onPick, onRetry }) {
               ))}
             </div>
           ) : null}
-          <div id="fh-tpl-panel" role={tabs.length > 2 ? 'tabpanel' : undefined}
-            aria-labelledby={tabs.length > 2 ? `fh-tab-${current}` : undefined}>
+          <div id="fh-tpl-panel" role={hasTabs ? 'tabpanel' : undefined} aria-labelledby={hasTabs ? `fh-tab-${current}` : undefined}>
             <ul className="fh-tpl-grid">
-              {shown.map(t => <TemplateCard key={t.id} tpl={t} idx={idx} onPick={onPick} />)}
+              {shown.map(t => <TemplateCard key={t.id} tpl={t} idx={idx} feishu={feishu} onPick={onPick} />)}
             </ul>
           </div>
         </>

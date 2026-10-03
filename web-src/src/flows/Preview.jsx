@@ -4,7 +4,8 @@ import Modal, { ModalHead } from '../Modal.jsx'
 import { describeNode, nodeInfo, orderNodes } from './flowkit.js'
 import Thumb from './Thumb.jsx'
 
-/* 流程预览弹层（一句话生成的草稿、模板共用）：缩略图 + 「这条流程会做这些事」+ 提示 → 打开编辑 / 用这个模板。 */
+/* 流程预览弹层（一句话生成的草稿、模板共用）：缩略图 +「它会做什么」+「需要准备」（是否满足 + 动作）+ 提醒。
+ * 按钮只有两个：生成的草稿是「换个说法」/「打开编辑」，模板是「关闭」/「用这个模板」。 */
 
 /** 步骤清单：按连线先后，每步一句人话 */
 export function StepList({ graph, idx }) {
@@ -24,37 +25,64 @@ export function StepList({ graph, idx }) {
   )
 }
 
+const ACTION_LABEL = { feishu: '去绑定飞书' }
+
+/** 「需要准备」：每条带状态（✓ 已满足 / ! 还没好 / · 自己确认）与动作 */
+export function Requirements({ items, onAction }) {
+  if (!items.length) return null
+  return (
+    <ul className="fh-reqs">
+      {items.map(r => (
+        <li key={r.key} className="fh-req" data-ok={r.ok === true ? 'yes' : r.ok === false ? 'no' : 'unknown'}>
+          <span className="fh-req-mark" aria-hidden="true">
+            {r.ok === true ? <Icon name="check" size={12} /> : r.ok === false ? '!' : <i />}
+          </span>
+          <span className="fh-req-text">
+            {r.text}
+            <span className="sr-only">{r.ok === true ? '（已满足）' : r.ok === false ? '（还没准备好）' : ''}</span>
+          </span>
+          {r.action && ACTION_LABEL[r.action] ? (
+            <button type="button" className="fh-link fh-req-go" onClick={() => onAction?.(r.action)}>
+              {ACTION_LABEL[r.action]}<Icon name="chevron" size={13} />
+            </button>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 export default function Preview({
-  label, title, subtitle, icon = '', graph, idx, quote = '', notes = [], needs = [], blocked = [],
-  busy = false, busyText = '', error = '', primary, onPrimary, secondary = '', onSecondary, onClose,
+  label, title, subtitle, icon = '', graph, idx, quote = '', notes = [], reqs = [], onAction,
+  primary, onPrimary, secondary, onSecondary, onClose,
 }) {
   return (
     <Modal label={label} onClose={onClose} size="lg" className="fh-preview">
       <ModalHead title={<>{icon ? <span className="fh-preview-icon" aria-hidden="true">{icon}</span> : null}{title}</>}
         subtitle={subtitle} onClose={onClose} />
-      <div className="jv-modal-body fh-preview-body" aria-busy={busy || undefined}>
+      <div className="jv-modal-body fh-preview-body">
         {quote ? <p className="fh-quote"><span>你说的</span>{quote}</p> : null}
-        <div className={`fh-preview-stage${busy ? ' is-busy' : ''}`}>
+        <div className="fh-preview-stage">
           <Thumb graph={graph} idx={idx} size="lg" />
-          {busy ? <div className="fh-preview-busy" role="status"><span className="fh-spark" aria-hidden="true" />{busyText || '正在生成…'}</div> : null}
         </div>
-        <h3 className="fh-preview-sub">这条流程会做这些事</h3>
+        <h3 className="fh-preview-sub">它会做什么</h3>
         <StepList graph={graph} idx={idx} />
-        {notes.length || needs.length || blocked.length ? (
+        {reqs.length ? (
+          <>
+            <h3 className="fh-preview-sub">需要准备</h3>
+            <Requirements items={reqs} onAction={onAction} />
+          </>
+        ) : null}
+        {notes.length ? (
           <div className="fh-notes" role="note">
-            <p className="fh-notes-title"><Icon name="sparkles" size={14} />开始前看一眼</p>
-            <ul>
-              {needs.map(n => <li key={`need-${n}`}>{n}</li>)}
-              {blocked.map(p => <li key={`p-${p.id}`} className="is-warn">「{p.name}」现在用不了{p.reason ? `：${p.reason}` : ''}</li>)}
-              {notes.map(n => <li key={`note-${n}`}>{n}</li>)}
-            </ul>
+            <p className="fh-notes-title"><Icon name="sparkles" size={14} />贾维斯提醒</p>
+            <ul>{notes.map(n => <li key={n}>{n}</li>)}</ul>
           </div>
         ) : null}
         <div className="fh-sheet-foot">
-          {error ? <p className="fh-form-err" role="alert">{error}</p> : null}
           <div className="fh-preview-actions">
-            {secondary ? <button type="button" className="jv-btn" onClick={onSecondary} disabled={busy}>{secondary}</button> : null}
-            <button type="button" className="jv-btn jv-btn--primary" onClick={onPrimary} disabled={busy} data-autofocus>
+            <button type="button" className="jv-btn" onClick={onSecondary}>{secondary}</button>
+            <button type="button" className="jv-btn jv-btn--primary" onClick={onPrimary} data-autofocus>
               {primary}<Icon name="chevron" size={15} />
             </button>
           </div>

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  blankDraft, catalogIndex, chainLabel, clearDraft, copyName, describeNode, DRAFT_KEY, fmtMs, graphPlugins, humanVars,
+  blankDraft, catalogIndex, chainLabel, clearDraft, copyName, describeNode, DRAFT_KEY, fmtMs, graphPlugins, humanVars, nextRuns, requirements,
   nextRun, nodeInfo, orderNodes, readDraft, relTime, safeHref, scheduleLabel, startFields, thumbLayout, whenLabel, writeDraft,
 } from './flowkit.js'
 
@@ -57,6 +57,26 @@ describe('flowkit：节点与图', () => {
     expect(idx.plugin.kuaidi100).toMatchObject({ name: '快递查询', available: false, reason: '还没装「快递查询」' })
     expect(idx.plugin.feishu_send).toMatchObject({ available: false })
     expect(graphPlugins(MORNING)).toEqual(['schedule', 'weather', 'feishu_send'])
+  })
+
+  it('需要准备：飞书按绑定状态判断并给动作；没装的插件说「需先加」；绑定类原因不和 needs 重复', () => {
+    const idx = catalogIndex(CATALOG)
+    const tpl = { needs: ['需要绑定飞书', '适合配每个工作日 08:00'], plugins: ['kuaidi100', 'feishu_send', 'schedule'] }
+    const unbound = requirements(tpl, idx, { configured: true, bound: false })
+    expect(unbound.map(r => [r.tag, r.ok, r.action])).toEqual([
+      ['需先绑定飞书', false, 'feishu'],
+      ['适合配每个工作日 08:00', null, ''],
+      ['需先加「快递查询」', false, ''],
+    ])
+    expect(unbound[2].text).toBe('还没装「快递查询」')
+    const bound = requirements(tpl, idx, { configured: true, bound: true })
+    expect(bound[0]).toMatchObject({ tag: '需要：飞书', ok: true, action: '' })
+    // 不知道绑没绑（接口没回来）：不下结论
+    expect(requirements({ needs: ['需要绑定飞书'] }, idx, null)[0].ok).toBeNull()
+    // 没有 needs 时，用不了的积木照目录原因说，并给绑定动作
+    expect(requirements({ graph: MORNING }, idx, null)).toEqual([
+      { key: 'plugin:feishu_send', text: '「发到飞书」：先绑定飞书', ok: false, tag: '「发到飞书」暂时用不了', action: 'feishu' },
+    ])
   })
 
   it('变量说人话；每个节点一句话说明', () => {
@@ -117,10 +137,17 @@ describe('flowkit：定时运行', () => {
     expect(nextRun({ repeat: 'daily', time: '25:00' }, MON_9)).toBeNull()
   })
 
+  it('接下来 3 次：下次 + 之后 2 次', () => {
+    expect(nextRuns({ repeat: 'weekdays', time: '08:00' }, new Date(2026, 9, 9, 9, 0)))
+      .toEqual([new Date(2026, 9, 12, 8, 0), new Date(2026, 9, 13, 8, 0), new Date(2026, 9, 14, 8, 0)])
+    expect(nextRuns({ repeat: 'weekly', time: '08:00', weekday: 3 }, MON_9).map(d => d.getDate())).toEqual([7, 14, 21])
+    expect(nextRuns({ repeat: 'daily', time: '' }, MON_9)).toEqual([])
+  })
+
   it('「明天 08:00」这样的人话', () => {
-    expect(whenLabel(new Date(2026, 9, 5, 21, 30), MON_9)).toBe('今天 21:30')
-    expect(whenLabel(new Date(2026, 9, 6, 8, 0), MON_9)).toBe('明天 08:00')
-    expect(whenLabel(new Date(2026, 9, 7, 8, 0), MON_9)).toBe('后天 08:00')
+    expect(whenLabel(new Date(2026, 9, 5, 21, 30), MON_9)).toBe('今天（周一）21:30')
+    expect(whenLabel(new Date(2026, 9, 6, 8, 0), MON_9)).toBe('明天（周二）08:00')
+    expect(whenLabel(new Date(2026, 9, 7, 8, 0), MON_9)).toBe('后天（周三）08:00')
     expect(whenLabel(new Date(2026, 9, 9, 8, 0), MON_9)).toBe('周五 08:00')
     expect(whenLabel(new Date(2026, 9, 12, 8, 0), MON_9)).toBe('10月12日（周一）08:00')
     expect(whenLabel(null, MON_9)).toBe('')

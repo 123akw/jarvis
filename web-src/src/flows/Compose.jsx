@@ -1,55 +1,70 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../Icon.jsx'
 
-/* 一句话生成：大输入框（参考 ChatGPT 的输入框）+ 示例胶囊；生成中显示骨架与进度文案，出错就地说清楚。 */
+/* 一句话生成（参考 Langflow 欢迎页、ChatGPT 输入框、Dify「试试这些」）：
+ *   新用户：标题「你想自动化什么？」+ 大输入框 + 「试试这些」4 个建议（固定列表，按账号能用的插件过滤，可「换一批」）；
+ *   已有流程的老用户：收成单行输入框，建议不展示，让「我的流程」上移。
+ *   等待时不做假进度：节点清单形状的骨架 +「一般要 5–15 秒」，可取消。 */
 
-export const EXAMPLES = [
-  '每天早上把天气和今天的日程发到飞书',
-  '把会议记录整理成待办，加到我的待办里',
-  '上传一份资料，提炼要点做成网页分享给同事',
-  '每周五下午把这周的工作写成周报',
+/** 「试试这些」：固定列表；plugins 是要用到的插件，当前账号用不了就不推荐 */
+export const SUGGESTIONS = [
+  { text: '每天早上把天气和今天的日程发到飞书', plugins: ['weather', 'schedule'] },
+  { text: '把会议记录整理成待办，加到我的待办里', plugins: ['to_todo'] },
+  { text: '顾客差评先分类，再写一段客气的回复', plugins: [] },
+  { text: '把长文章拆成学习卡片，做成网页', plugins: ['split_file', 'web_page'] },
+  { text: '每周五下午把这周的工作写成周报', plugins: ['work_report'] },
+  { text: '上传合同，有高风险的条款就提醒我', plugins: ['contract_check'] },
+  { text: '给个主题，写小红书文案和短视频口播稿', plugins: ['social_post', 'video_script'] },
+  { text: '查快递到哪了，签收了就告诉我', plugins: ['kuaidi100'] },
 ]
+export const MIN_DESC = 6
 export const MAX_DESC = 300
-const PHASES = ['正在理解你的需求…', '正在挑合适的节点…', '正在把节点连起来…', '快好了，正在检查能不能跑通…']
+const PAGE = 4
 
-/** 生成中：节点骨架依次亮起 + 进度文案轮换 */
+/** 当前账号能用的建议：目录里明确说用不了（available: false）的插件不推荐；目录没加载出来就全给 */
+export function usableSuggestions(idx) {
+  return SUGGESTIONS.filter(s => s.plugins.every(id => idx?.plugin?.[id]?.available !== false))
+}
+
 function Generating({ onCancel }) {
-  const [phase, setPhase] = useState(0)
-  useEffect(() => {
-    const t = setInterval(() => setPhase(p => Math.min(p + 1, PHASES.length - 1)), 1800)
-    return () => clearInterval(t)
-  }, [])
   return (
     <div className="fh-gen" role="status" aria-live="polite">
-      <div className="fh-gen-chain" aria-hidden="true">
-        {[0, 1, 2, 3, 4].map(i => (
-          <span key={i} className="fh-gen-item" style={{ '--i': i }}>
-            {i ? <i className="fh-gen-wire" /> : null}<b />
-          </span>
-        ))}
+      <ul className="fh-gen-list" aria-hidden="true">
+        {[0, 1, 2].map(i => <li key={i} style={{ '--i': i }}><i /><b /></li>)}
+      </ul>
+      <div className="fh-gen-row">
+        <span className="fh-spark" aria-hidden="true" />
+        <span className="fh-gen-text">正在规划流程……一般要 5–15 秒</span>
+        <button type="button" className="fh-link" onClick={onCancel}>取消</button>
       </div>
-      <span className="fh-gen-text">{PHASES[phase]}</span>
-      <button type="button" className="fh-link" onClick={onCancel}>取消</button>
     </div>
   )
 }
 
-export default function Compose({ value, onChange, onSubmit, onCancel, busy, error, inputRef }) {
+export default function Compose({ value, onChange, onSubmit, onCancel, busy, error, inputRef, compact = false, idx }) {
   const local = useRef(null)
   const ref = inputRef || local
+  const [page, setPage] = useState(0)
+  const [short, setShort] = useState(false)
   const text = value.trim()
+  const ready = text.length >= MIN_DESC
+  const pool = useMemo(() => usableSuggestions(idx), [idx])
+  const pages = Math.max(1, Math.ceil(pool.length / PAGE))
+  const shown = pool.slice((page % pages) * PAGE, (page % pages) * PAGE + PAGE)
 
-  // 随内容长高：两行起，最多六行
+  // 随内容长高：最多六行
   useEffect(() => {
     const el = ref.current
     if (!el) return
     el.style.height = 'auto'
     el.style.height = `${Math.min(el.scrollHeight, 168)}px`
-  }, [value, ref])
+  }, [value, ref, compact])
+  useEffect(() => { if (ready) setShort(false) }, [ready])
 
   function submit(e) {
     e?.preventDefault()
-    if (!text || busy) return
+    if (busy || !text) return
+    if (!ready) { setShort(true); return }
     onSubmit(text)
   }
   function onKeyDown(e) {
@@ -59,37 +74,48 @@ export default function Compose({ value, onChange, onSubmit, onCancel, busy, err
     }
   }
 
+  const send = (
+    <button type="submit" className={`fh-send${ready ? ' is-ready' : ''}`} disabled={!ready || busy} aria-label="生成流程">
+      <Icon name="up" size={18} />
+    </button>
+  )
   return (
-    <section className="fh-compose-wrap" aria-labelledby="fh-compose-title" data-tour="flows-compose">
-      <h2 id="fh-compose-title" className="sr-only">一句话生成流程</h2>
+    <section className={`fh-compose-wrap${compact ? ' is-compact' : ''}`} aria-labelledby="fh-compose-title" data-tour="flows-compose">
+      <h2 id="fh-compose-title" className={compact ? 'sr-only' : 'fh-compose-title'}>你想自动化什么？</h2>
       <form className={`fh-compose${busy ? ' is-busy' : ''}`} onSubmit={submit}>
-        <textarea ref={ref} className="fh-compose-input" rows={2} value={value} maxLength={MAX_DESC} readOnly={busy}
-          aria-label="说说你想自动化什么" enterKeyHint="send" aria-describedby="fh-compose-hint"
-          placeholder="说说你想自动化什么，比如：每天早上把天气和今天的日程发到飞书"
-          onChange={e => onChange(e.target.value)} onKeyDown={onKeyDown} />
-        {busy ? <Generating onCancel={onCancel} /> : (
+        <div className="fh-compose-main">
+          <textarea ref={ref} className="fh-compose-input" rows={compact ? 1 : 2} value={value} maxLength={MAX_DESC} readOnly={busy}
+            aria-label="说说你想自动化什么" enterKeyHint="send" aria-describedby={short ? 'fh-compose-short' : undefined}
+            placeholder={compact ? '说说还想自动化什么，贾维斯帮你搭' : '说说你想自动化什么，比如：每天早上把天气和今天的日程发到飞书'}
+            onChange={e => onChange(e.target.value)} onKeyDown={onKeyDown} />
+          {compact && !busy ? send : null}
+        </div>
+        {busy ? <Generating onCancel={onCancel} /> : !compact ? (
           <div className="fh-compose-bar">
-            <span id="fh-compose-hint" className="fh-compose-hint">
-              <Icon name="sparkles" size={15} />AI 先搭好草稿，你看过再打开编辑
-            </span>
-            <button type="submit" className={`fh-send${text ? ' is-ready' : ''}`} disabled={!text} aria-label="生成流程">
-              <Icon name="up" size={18} />
-            </button>
+            <span className="fh-compose-hint"><Icon name="sparkles" size={15} />AI 先搭好草稿，你看过再打开编辑</span>
+            {send}
           </div>
-        )}
+        ) : null}
       </form>
+      {short && !ready ? <p id="fh-compose-short" className="fh-compose-note">再多说几个字，比如「每天早上把天气发到飞书」</p> : null}
       {error ? (
         <p className="fh-compose-err" role="alert">
           {error}
           <button type="button" className="fh-link" onClick={() => submit()}>再试一次</button>
         </p>
       ) : null}
-      <div className="fh-examples" role="group" aria-label="试试这些说法">
-        {EXAMPLES.map(ex => (
-          <button key={ex} type="button" className="fh-example" disabled={busy}
-            onClick={() => { onChange(ex); onSubmit(ex) }}>{ex}</button>
-        ))}
-      </div>
+      {!compact && shown.length ? (
+        <div className="fh-examples" role="group" aria-label="试试这些">
+          <span className="fh-examples-label" aria-hidden="true">试试这些</span>
+          {shown.map(s => (
+            <button key={s.text} type="button" className="fh-example" disabled={busy}
+              onClick={() => { onChange(s.text); onSubmit(s.text) }}>{s.text}</button>
+          ))}
+          {pages > 1 ? (
+            <button type="button" className="fh-link fh-examples-more" disabled={busy} onClick={() => setPage(p => p + 1)}>换一批</button>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   )
 }
