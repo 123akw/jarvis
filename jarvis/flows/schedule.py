@@ -20,6 +20,7 @@ import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
+from jarvis import usage
 from jarvis.tenancy import TenantStore
 
 log = logging.getLogger("jarvis")
@@ -581,6 +582,10 @@ class FlowScheduler:
             paused = bool(before and before["enabled"]) and not row["enabled"] and not ok
             config = row["config"] if isinstance(row["config"], dict) else _loads(row["config"])
             streak = int(config.get("fail_streak") or 0) if not ok else 0
+            if paused or streak >= 2:   # 给管理员的告警（第二十轮）：自动暂停 / 连续失败
+                usage.alert("flow_paused" if paused else "flow_failing",
+                            f"定时流程「{flow_name}」" + ("已自动暂停" if paused else f"连续 {streak} 次没跑成"),
+                            error, owner_id=owner_id)
             if not ok and not paused and streak > 1:   # 连续失败只在第一次和暂停时各通知一次，中间几次不打扰
                 return
             notify = settings_of(row)["notify"]

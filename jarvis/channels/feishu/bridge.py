@@ -746,6 +746,10 @@ class FeishuBridge:
         return self._settings.streaming_card and self._clock() >= self._card_disabled_until
 
     def _respond(self, inbound: Inbound, user_id: str, build_prompt: Callable[[], str]) -> None:
+        from jarvis import usage
+        if blocked := usage.check_model(user_id):   # 今天的模型用量到上限：回人话，不调模型
+            self._deliver_text(inbound, blocked)
+            return
         api = self._require_api()
         card = None
         if self._card_available():
