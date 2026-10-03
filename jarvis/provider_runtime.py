@@ -305,7 +305,7 @@ class AgentRuntimeManager:
         model = ChatOpenAI(model=llm.model, base_url=llm.base_url, api_key=llm.api_key,
                            temperature=0, http_client=sync_client, http_async_client=async_client,
                            timeout=LLM_TIMEOUT, max_retries=LLM_MAX_RETRIES,
-                           stream_usage=usage.stream_usage_enabled(), callbacks=[usage.UsageCallback(user_id)])
+                           stream_usage=usage.stream_usage_enabled(llm.base_url), callbacks=[usage.UsageCallback(user_id)])
         searxng = integrations["searxng"]
         tavily = integrations["tavily"]
         service = SearchService([

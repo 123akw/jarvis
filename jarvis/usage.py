@@ -370,9 +370,21 @@ class UsageCallback(BaseCallbackHandler):
         record_model_call(self.user_id, ok=False)
 
 
-def stream_usage_enabled() -> bool:
-    """流式调用也让服务商回 token 用量（stream_options.include_usage）；个别不支持的服务商可设 JARVIS_STREAM_USAGE=0。"""
-    return os.getenv("JARVIS_STREAM_USAGE", "1").strip() != "0"
+# 确认支持 stream_options.include_usage 的服务商（按地址认）；用户自己接的其他服务商默认不带这个参数，
+# 免得不认它的服务商直接报错、整轮对话失败——那种情况下流式回答记不到 token，只记次数。
+_STREAM_USAGE_HOSTS = ("deepseek.com", "openai.com", "dashscope.aliyuncs.com", "siliconflow.cn", "volces.com",
+                       "bigmodel.cn", "moonshot.cn", "openrouter.ai")
+
+
+def stream_usage_enabled(base_url: str | None = None) -> bool:
+    """流式调用也让服务商回 token 用量（stream_options.include_usage）。
+
+    ``JARVIS_STREAM_USAGE=0`` 全关、``=1`` 全开（自己确认服务商支持时用）；不设时只对已知支持的服务商开。"""
+    forced = os.getenv("JARVIS_STREAM_USAGE", "").strip()
+    if forced in ("0", "1"):
+        return forced == "1"
+    host = str(base_url or "").lower()
+    return any(h in host for h in _STREAM_USAGE_HOSTS)
 
 
 # ---------- 配额 ----------

@@ -367,7 +367,7 @@ def test_default_runtime_model_carries_usage_callback(owner_id):
                     for name in ("searxng", "tavily", "pandascore")}
 
     manager = AgentRuntimeManager(Store(), checkpointer=object())
-    llm = ResolvedLLM("openai", "https://api.example.com/v1", "m", "sk-test", 1, "managed")
+    llm = ResolvedLLM("openai", "https://api.deepseek.com/v1", "m", "sk-test", 1, "managed")
     import jarvis.provider_runtime as pr
     original = pr.build_agent
     pr.build_agent = lambda **kwargs: object()
@@ -380,3 +380,16 @@ def test_default_runtime_model_carries_usage_callback(owner_id):
         assert callback.user_id == owner_id and bundle.model.stream_usage is True
     finally:
         bundle.close()
+
+
+def test_stream_usage_only_for_known_providers_unless_forced(monkeypatch):
+    """第二十轮：自己接的不认 stream_options 的服务商不带这个参数，免得整轮对话失败。"""
+    from jarvis import usage
+    monkeypatch.delenv("JARVIS_STREAM_USAGE", raising=False)
+    assert usage.stream_usage_enabled("https://api.deepseek.com/v1") is True
+    assert usage.stream_usage_enabled("https://dashscope.aliyuncs.com/compatible-mode/v1") is True
+    assert usage.stream_usage_enabled("https://llm.example.internal/v1") is False
+    monkeypatch.setenv("JARVIS_STREAM_USAGE", "1")
+    assert usage.stream_usage_enabled("https://llm.example.internal/v1") is True
+    monkeypatch.setenv("JARVIS_STREAM_USAGE", "0")
+    assert usage.stream_usage_enabled("https://api.deepseek.com/v1") is False

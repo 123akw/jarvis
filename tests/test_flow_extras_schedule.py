@@ -387,3 +387,13 @@ def test_start_scheduler_hook_and_missing_runtime():
         scheduler.stop()
     assert not scheduler.running
     assert flows.start_scheduler is not None
+
+
+def test_quota_skips_this_run_without_counting_failure(owner_id):
+    """第二十轮：今天的流程运行次数用完了——这次跳过、照常排下一次，不算连续失败、不发失败通知。"""
+    flow_id = _setup(owner_id, notify={"feishu": True, "desktop": False})
+    runtime = FakeRuntime([{"status": "quota", "run_id": None, "output": None, "error": "今天的流程运行次数用完了"}])
+    assert _scheduler(runtime, Clock("2026-10-12 08:00:10")).tick() == 1
+    row = S.TriggerStore().get(owner_id, flow_id)
+    assert S.from_iso(row["next_run_at"]) == at("2026-10-13 08:00") and row["enabled"] is True
+    assert int(row["config"].get("fail_streak") or 0) == 0 and runtime.deps.sent == []

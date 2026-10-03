@@ -573,6 +573,8 @@ class FlowScheduler:
                 retry = min(self.now_fn() + BUSY_RETRY, following)
                 self.store.reschedule(owner_id, flow_id, to_iso(retry), expect=to_iso(following))
                 return
+            if status == "quota":   # 今天的流程运行次数用完了（第二十轮配额）：这次跳过、照常排下一次，不算失败
+                return              # 下一次正常运行时间在取出这条时已经写好；配额用尽的告警由 usage 发给管理员
             ok = status == "ok"
             error = "" if ok else str(result.get("error") or "流程出错了")
             before = self.store.get(owner_id, flow_id)
