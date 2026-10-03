@@ -11,6 +11,8 @@ import { APP_PATH, LOGIN_PATH, loginHref, navigate, pageTitle, useRoute } from '
 const Market = lazy(() => import('./market/Market.jsx'))
 const PlatformEntry = lazy(() => import('./platform/PlatformEntry.jsx'))
 const Flows = lazy(() => import('./flows/Flows.jsx'))
+const Approve = lazy(() => import('./flows/Approve.jsx'))
+const Admin = lazy(() => import('./admin/Admin.jsx'))
 
 /** 渲染即跳转（地址栏原地替换，不留历史）：未登录访问 /app、/flows → /login?next=…；已登录打开 /login → next 或 /app */
 function Redirect({ to }) {
@@ -79,10 +81,17 @@ export default function App() {
     }
     return <Redirect to={afterLogin()} />
   }
-  // 以下都要登录：/app、/flows
+  // 以下都要登录：/app、/flows、/approve/<id>、/admin
   if (!session) return <Redirect to={loginHref('', window.location.pathname + window.location.search)} />
   if (route.name === 'flows') {
     return <><Suspense fallback={null}><Flows session={session} onExpired={() => unauthenticate()} /></Suspense>{bloom}</>
+  }
+  if (route.name === 'approve') {
+    return <Suspense fallback={null}><Approve id={route.params.id} session={session} onExpired={() => unauthenticate()} /></Suspense>
+  }
+  if (route.name === 'admin') {   // 仅 Owner；其他账号回主应用
+    if (session.role !== 'Owner') return <Redirect to={APP_PATH} />
+    return <Suspense fallback={null}><Admin session={session} onExpired={() => unauthenticate()} /></Suspense>
   }
   return <><Hud session={session} onLogout={unauthenticate} />{bloom}</>
 }

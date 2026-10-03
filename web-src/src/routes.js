@@ -6,6 +6,8 @@ import { useEffect, useState } from 'react'
  *   /app           主应用（对话 / 今日板，需登录）
  *   /flows         我的流程：流程列表、模板、一句话生成（需登录）
  *   /flows/<id>    流程画布（第十八轮，节点图编辑与运行；<id> 为 new 时是新建）
+ *   /approve/<id>  「发送前确认」页（第二十轮，通知里的链接点开就是这里；需登录）
+ *   /admin         管理后台（第二十轮，用量、配额、告警；仅 Owner）
  *   /p/<slug>      某个已生成平台的入口：品牌化登录页 / 装到主屏（PWA）
  * 旧链接兼容（redirectFor，地址栏原地替换、不留历史）：
  *   /market        → /（查询参数保留）
@@ -25,6 +27,9 @@ export function parseRoute(pathname = '/') {
   if (path === LOGIN_PATH) return { name: 'login', params: {} }
   if (path === APP_PATH) return { name: 'app', params: {} }
   if (path === '/flows') return { name: 'flows', params: {} }
+  if (path === '/admin') return { name: 'admin', params: {} }
+  const a = path.match(/^\/approve\/([A-Za-z0-9_-]{6,64})$/)
+  if (a) return { name: 'approve', params: { id: a[1] } }
   const f = path.match(/^\/flows\/([A-Za-z0-9_-]{1,40})$/)
   if (f) return { name: 'flows', params: { id: f[1] } }
   const m = path.match(/^\/p\/([A-Za-z0-9_-]{3,40})$/)
@@ -70,6 +75,8 @@ export function pageTitle(name) {
   if (name === 'market') return '贾维斯 · 智能体市场'
   if (name === 'login') return '登录 · 贾维斯'
   if (name === 'app') return APP_TITLE
+  if (name === 'admin') return '管理后台 · 贾维斯'
+  if (name === 'approve') return '等你确认 · 贾维斯'
   return ''
 }
 

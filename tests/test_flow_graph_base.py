@@ -82,6 +82,31 @@ def test_flow_canvas_path_serves_spa():
     from fastapi.testclient import TestClient
     import jarvis.server as server_mod
     with TestClient(server_mod.app) as client:
-        for path in ("/flows", "/flows/abc123", "/flows/new"):
+        for path in ("/flows", "/flows/abc123", "/flows/new", "/admin", "/approve/abc12345"):
             r = client.get(path)
             assert r.status_code == 200 and "<div id=\"root\">" in r.text, path
+
+
+def test_v7_database_upgrades_to_v8_keeping_runs(owner_id):
+    """第二十轮：运行记录表重建（多出 waiting 等状态与 source 列），旧运行原样保留；新表齐全。"""
+    store = TenantStore()
+    with tenant_scope(owner_id):
+        store.add_todo("先把库建到最新")
+    with store._connect() as c:   # 造一个只到 v7 的旧库：运行表回到 v6 结构并带一条旧记录，去掉 v8 的新表与记录
+        c.execute("DROP TABLE tenant_flow_runs")
+        c.execute(TenantStore._schema_v6_statements()[1])
+        c.execute("INSERT INTO tenant_flow_runs(id, owner_id, flow_id, status, started_at) VALUES ('r1', ?, 'f1', 'ok', 'x')", (owner_id,))
+        for t in ("tenant_flow_hooks", "tenant_flow_approvals", "usage_daily", "tenant_quotas", "admin_alerts"):
+            c.execute(f"DROP TABLE {t}")
+        c.execute("DELETE FROM tenant_schema_migrations WHERE version=8")
+        c.commit()
+    TenantStore.reset_migration_cache()
+    with tenant_scope(owner_id):
+        assert [t["content"] for t in store.list_todos()] == ["先把库建到最新"]
+    with store._connect() as c:
+        assert c.execute("SELECT 1 FROM tenant_schema_migrations WHERE version=8").fetchone()
+        row = c.execute("SELECT status, source FROM tenant_flow_runs WHERE id='r1'").fetchone()
+        assert tuple(row) == ("ok", "manual")
+        c.execute("INSERT INTO tenant_flow_runs(id, owner_id, flow_id, status, started_at, source) VALUES ('r2', ?, 'f1', 'waiting', 'x', 'chat')", (owner_id,))
+        tables = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert {"tenant_flow_hooks", "tenant_flow_approvals", "usage_daily", "tenant_quotas", "admin_alerts"} <= tables

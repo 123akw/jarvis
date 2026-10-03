@@ -185,6 +185,32 @@ class TenantStore:
         )
 
     @staticmethod
+    def _schema_v8_statements() -> tuple[str, ...]:
+        """v8（2026-10 第二十轮）：流程接进对话与消息、发送前确认、用量与配额。
+
+        - ``tenant_flow_runs`` 重建：状态多出 waiting（停在「发送前确认」）/ rejected / expired，加 ``source``
+          （manual / schedule / chat / webhook / message / rerun / test）；旧行原样搬过去；
+        - ``tenant_flow_hooks``：流程的消息触发与链接触发（定时仍在 tenant_flow_triggers）；链接令牌只存 sha256；
+        - ``tenant_flow_approvals``：停在确认节点的运行，``state`` 存恢复运行需要的上下文；
+        - ``usage_daily`` / ``tenant_quotas`` / ``admin_alerts``：管理后台的用量、配额与告警。"""
+        runs_cols = ("id, owner_id, flow_id, status, input, steps, error, started_at, finished_at, "
+                     "page_token, page_title, page_text, page_links, page_expires_at")
+        return (
+            "CREATE TABLE tenant_flow_runs_v8 (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, flow_id TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('running','ok','error','waiting','rejected','expired')), input TEXT NOT NULL DEFAULT '{}', steps TEXT NOT NULL DEFAULT '[]', error TEXT NOT NULL DEFAULT '', started_at TEXT NOT NULL, finished_at TEXT, page_token TEXT UNIQUE, page_title TEXT, page_text TEXT, page_links TEXT, page_expires_at TEXT, source TEXT NOT NULL DEFAULT 'manual')",
+            f"INSERT INTO tenant_flow_runs_v8 ({runs_cols}) SELECT {runs_cols} FROM tenant_flow_runs",
+            "DROP TABLE tenant_flow_runs",
+            "ALTER TABLE tenant_flow_runs_v8 RENAME TO tenant_flow_runs",
+            "CREATE INDEX IF NOT EXISTS tenant_flow_runs_recent ON tenant_flow_runs(owner_id, flow_id, started_at)",
+            "CREATE TABLE IF NOT EXISTS tenant_flow_hooks (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, flow_id TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('webhook','message')), config TEXT NOT NULL DEFAULT '{}', token_hash TEXT UNIQUE, enabled INTEGER NOT NULL DEFAULT 1, last_hit_at TEXT, last_status TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(owner_id, flow_id, kind))",
+            "CREATE TABLE IF NOT EXISTS tenant_flow_approvals (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, flow_id TEXT NOT NULL, run_id TEXT NOT NULL, node_id TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','approved','rejected','expired')), title TEXT NOT NULL DEFAULT '', payload TEXT NOT NULL DEFAULT '{}', state TEXT NOT NULL DEFAULT '{}', note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, expires_at TEXT NOT NULL, decided_at TEXT)",
+            "CREATE INDEX IF NOT EXISTS tenant_flow_approvals_pending ON tenant_flow_approvals(owner_id, status, created_at)",
+            "CREATE TABLE IF NOT EXISTS usage_daily (owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, day TEXT NOT NULL, kind TEXT NOT NULL, calls INTEGER NOT NULL DEFAULT 0, input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0, failures INTEGER NOT NULL DEFAULT 0, cost_micros INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(owner_id, day, kind))",
+            "CREATE TABLE IF NOT EXISTS tenant_quotas (owner_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, daily_model_calls INTEGER, daily_flow_runs INTEGER, updated_at TEXT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS admin_alerts (id TEXT PRIMARY KEY, kind TEXT NOT NULL, owner_id TEXT, title TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, read_at TEXT)",
+            "CREATE INDEX IF NOT EXISTS admin_alerts_recent ON admin_alerts(created_at)",
+        )
+
+    @staticmethod
     def _apply_version(connection: sqlite3.Connection, version: int, statements: tuple[str, ...]) -> None:
         if connection.execute("SELECT 1 FROM tenant_schema_migrations WHERE version=?", (version,)).fetchone():
             return
@@ -215,6 +241,7 @@ class TenantStore:
         TenantStore._apply_version(connection, 5, TenantStore._schema_v5_statements())
         TenantStore._apply_version(connection, 6, TenantStore._schema_v6_statements())
         TenantStore._apply_version(connection, 7, TenantStore._schema_v7_statements())
+        TenantStore._apply_version(connection, 8, TenantStore._schema_v8_statements())
         from jarvis.history_index import ensure_fts   # 延迟导入：history_index 依赖本模块
         ensure_fts(connection)
 

@@ -9,11 +9,12 @@
 - ``feishu_doc``：「汇总到飞书文档」的 docx 块转换与调用；
 - ``routes``：/api/flows*、/api/r/<token>、/r/<token>。
 - ``graph``：节点图（第十八轮）：结构校验、旧线性流程换算；
-- ``extras``：模板库、一句话生成、定时运行（第十八轮）。
+- ``extras``：模板库、一句话生成、定时运行（第十八轮）；
+- ``approvals`` / ``hooks``：发送前确认、消息与链接触发（第二十轮）。
 
 server.py 只需一处 ``register(app, ...)``，外部依赖经 :class:`FlowDeps` 注入。
 """
-from jarvis.flows import extras
+from jarvis.flows import approvals, extras, hooks
 from jarvis.flows.engine import FlowDeps, FlowValidationError, model_compose, normalize_flow
 from jarvis.flows.graph import GraphError, graph_from_steps, validate_graph
 from jarvis.flows.routes import FlowRuntime, register
@@ -32,6 +33,10 @@ def install(app, **kwargs) -> FlowRuntime:
     # extras 先注册：/api/flows/templates、/api/flows/compose 不能被 /api/flows/{flow_id} 抢先匹配
     extras.register(app, request_principal=kwargs["request_principal"], panel_write=kwargs["panel_write"],
                     deny=kwargs["deny"], runtime=runtime)
+    approvals.register(app, request_principal=kwargs["request_principal"], panel_write=kwargs["panel_write"],
+                       deny=kwargs["deny"], runtime=runtime)   # 第二十轮：发送前确认
+    hooks.register(app, request_principal=kwargs["request_principal"], panel_write=kwargs["panel_write"],
+                   deny=kwargs["deny"], runtime=runtime)       # 第二十轮：消息触发 / 链接触发
     _RUNTIME = register(app, **kwargs)
     return _RUNTIME
 

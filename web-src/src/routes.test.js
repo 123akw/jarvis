@@ -131,3 +131,12 @@ describe('流程画布路由（第十八轮）', () => {
     expect(redirectFor('/flows/abc')).toBe('')
   })
 })
+
+describe('第二十轮路由', () => {
+  it('/admin 与 /approve/<id>', () => {
+    expect(parseRoute('/admin')).toEqual({ name: 'admin', params: {} })
+    expect(parseRoute('/approve/abc12345')).toEqual({ name: 'approve', params: { id: 'abc12345' } })
+    expect(parseRoute('/approve/x').name).toBe('notfound')
+    expect(pageTitle('admin')).toBe('管理后台 · 贾维斯')
+  })
+})

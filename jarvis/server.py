@@ -1758,6 +1758,18 @@ def spa_platform(slug: str):
     return FileResponse(_WEB / "index.html")
 
 
+@app.get("/admin")
+def spa_admin():
+    """管理后台（第二十轮，仅 Owner；权限由前端与 /api/admin/* 判断）。"""
+    return FileResponse(_WEB / "index.html")
+
+
+@app.get("/approve/{approval_id}")
+def spa_approve(approval_id: str):
+    """「发送前确认」页（第二十轮）：通知里的链接点开就是这里。"""
+    return FileResponse(_WEB / "index.html")
+
+
 @app.get("/flows/{flow_id}")
 def spa_flow(flow_id: str):
     """流程画布 /flows/<id>（第十八轮）：前端路由，id 的合法性由前端与 /api/flows/{id} 判断。"""
@@ -1872,6 +1884,12 @@ memory_receipts.register(app, request_principal=_request_principal, panel_write=
 briefing.register(app, request_principal=_request_principal, panel_write=_panel_write,
                   tenant_store=lambda: _tenant_store(), bundle_for=lambda uid: _bundle_for(uid),
                   chunk_text=_chunk_text, deny=_deny)
+
+# ---- 用量、配额与管理告警（第二十轮）：逻辑在 jarvis/usage.py ----
+from jarvis import usage  # noqa: E402
+
+usage.register(app, request_principal=_request_principal, panel_write=_panel_write, deny=_deny,
+               tenant_store=lambda: _tenant_store(), accounts=_accounts)
 
 # ---- 新手引导看过没（第十八轮）：按账号记在 tenant_prefs，逻辑在 jarvis/onboarding.py ----
 from jarvis import onboarding  # noqa: E402
