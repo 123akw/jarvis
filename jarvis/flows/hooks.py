@@ -224,10 +224,11 @@ def start_fields(graph: dict | None) -> list[dict]:
 
 
 def default_field(fields: list[dict]) -> str:
-    """消息文字默认填进哪个输入：第一个文字输入，没有就第一个输入。"""
-    for field in fields:
-        if field.get("type") in TEXT_TYPES:
-            return field["key"]
+    """消息文字默认填进哪个输入：第一个长文字输入（消息多是一段话），再是第一个文字输入，都没有就第一个输入。"""
+    for kinds in (("paragraph",), TEXT_TYPES):
+        for field in fields:
+            if field.get("type") in kinds:
+                return field["key"]
     return fields[0]["key"] if fields else ""
 
 

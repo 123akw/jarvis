@@ -109,12 +109,12 @@ def test_put_message_saves_cleans_and_defaults_input_field(owner_id, runs):
     assert saved.status_code == 200
     message = saved.json()["message"]
     assert message == {"enabled": True, "channels": ["feishu", "wechat"], "match": "keywords",
-                       "keywords": ["出门", "带伞"], "input_field": "city", "last_hit_at": None, "last_status": ""}
+                       "keywords": ["出门", "带伞"], "input_field": "note", "last_hit_at": None, "last_status": ""}
     assert owner.get(f"/api/flows/{flow['id']}/hooks").json()["message"] == message
     off = owner.put(f"/api/flows/{flow['id']}/hooks/message", json={"enabled": False}).json()["message"]
     assert off["enabled"] is False and off["keywords"] == ["出门", "带伞"] and off["channels"] == ["feishu", "wechat"]
-    on = owner.put(f"/api/flows/{flow['id']}/hooks/message", json={"enabled": True, "input_field": "note"}).json()
-    assert on["message"]["enabled"] is True and on["message"]["input_field"] == "note"
+    on = owner.put(f"/api/flows/{flow['id']}/hooks/message", json={"enabled": True, "input_field": "city"}).json()
+    assert on["message"]["enabled"] is True and on["message"]["input_field"] == "city"
 
 
 @pytest.mark.parametrize("body, error", [

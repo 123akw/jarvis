@@ -31,7 +31,7 @@ CHAT_WAIT_SECONDS = 120.0
 RESULT_CHARS = 3000
 BUSY = "你有一条流程正在运行，等它跑完再试"
 UNAVAILABLE = "流程功能暂时不可用，请稍后再试"
-_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="jarvis-flow-chat")
+_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="jarvis-flow-chat")
 _QUOTES = re.compile(r"[「」『』“”\"'《》【】]")
 _NORM = re.compile(r"[\s\W_]+", re.UNICODE)
 _TYPE_HINTS = {"file": "文件", "number": "数字", "paragraph": "长文字", "text": "文字"}
