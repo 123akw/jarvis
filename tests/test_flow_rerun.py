@@ -153,6 +153,7 @@ def test_rerun_errors_are_human(fake, owner_id, monkeypatch):
     status, events = _run(owner, plain["id"], {"report": {"name": "笔记.md",
                                                           "data_base64": base64.b64encode("# 标题\n内容".encode()).decode()}})
     assert status == 200 and files.list(owner_id) == []
+    assert owner.get(f"/api/flows/{plain['id']}/runs/{events[0]['run_id']}").json()["run"]["rerunnable"] is False
     r = owner.post(f"/api/flows/{plain['id']}/runs/{events[0]['run_id']}/rerun")
     assert r.status_code == 422
     assert r.json()["error"] == "那次上传的「报表」没有存进文件空间，没法直接再跑：请在流程里重新上传后运行"

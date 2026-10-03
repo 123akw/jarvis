@@ -307,6 +307,9 @@ class FlowStore:
             except ValueError:
                 ms = None
         info = _loads(row["input"], {})
+        values = info.get("values")
+        rerunnable = isinstance(values, dict) and all(   # 文件输入要存下了原文件（有 file_id）才能直接再跑
+            not isinstance(v, dict) or v.get("file_id") for v in values.values())
         view = {"id": row["id"], "flow_id": row["flow_id"], "status": status,
                 "started_at": row["started_at"], "finished_at": row["finished_at"], "ms": ms,
                 "input_summary": input_summary(info), "nodes": nodes,
@@ -314,7 +317,7 @@ class FlowStore:
                 "links": [x for x in output.get("links") or [] if isinstance(x, dict)],
                 "page_url": url, "error": error,
                 "source": (row["source"] if "source" in row.keys() else "") or "manual",
-                "rerunnable": isinstance(info.get("values"), dict)}
+                "rerunnable": rerunnable}
         if status == "waiting":
             view["approval"] = approval
         return view

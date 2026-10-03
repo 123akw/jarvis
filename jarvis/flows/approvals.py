@@ -199,8 +199,12 @@ def expire_due(store, owner_id: str | None = None, *, notify: bool = False, deps
         return []
     expired = []
     for row in rows:
-        if not store.decide_approval(row["owner_id"], row["id"], status="expired"):
-            continue   # 刚好被处理了
+        try:
+            if not store.decide_approval(row["owner_id"], row["id"], status="expired"):
+                continue   # 刚好被处理了
+        except Exception as exc:   # 库忙之类：下次再清，不拖垮读取
+            log.warning("flow approval expire failed: %s", type(exc).__name__)
+            continue
         hours = (row.get("payload") or {}).get("timeout_hours") or 24
         message = f"超过 {hours} 小时没人确认，流程已停止"
         try:
