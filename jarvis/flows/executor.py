@@ -474,7 +474,7 @@ class _Run:
             raise
         except Exception as exc:   # 上游细节可能带请求回显，只留类名
             log.warning("flow llm node failed: %s", type(exc).__name__)
-            raise StepFailure("AI 处理没成功：模型暂时不可用，请检查模型设置后再试") from exc
+            raise StepFailure("模型暂时不可用，请检查模型设置后再试") from exc
         text = clean_model_text(raw)
         if not text:
             raise StepFailure("AI 没有给出结果，换个说法再试试")
@@ -529,7 +529,7 @@ class _Run:
         text = result_text(result).strip()
         first = text.split("\n", 1)[0]
         if first.startswith("插件「") and "这次没办成" in first:   # 包装层的人话失败（超时、插件出错）
-            raise StepFailure(clip(first.split("。", 1)[0], 120))
+            raise StepFailure(guard_failure(first))
         text, _cut = cap_text(text)
         return text
 
@@ -616,6 +616,24 @@ class _Run:
 
 
 # ---------- 工具参数与结果 ----------
+
+_ASCII_NOTE = re.compile(r"[（(][\x00-\x7f]*[）)]")
+
+
+def guard_failure(line: str) -> str:
+    """插件包装层的失败说明 → 给人看的一句：去掉括号里的异常名，补上怎么办。"""
+    head = _ASCII_NOTE.sub("", line.split("。", 1)[0]).strip()
+    if head.endswith(("：", ":")):
+        head = head[:-1] + "：插件出错了"
+    return clip(head, 100) + "，请稍后再试；一直不行就换个插件或删掉这个节点"
+
+
+def with_title(node: dict, message: str) -> str:
+    """报错一律说清是哪一步：没带节点标题的补上「标题」。"""
+    title = node["data"].get("title") or graph_mod.TYPE_NAMES.get(node["type"], "")
+    if not title or f"「{title}」" in message:
+        return message
+    return f"「{title}」：{message}"
 
 def _list_text(text: str) -> list[str]:
     stripped = text.strip()
@@ -730,14 +748,19 @@ def execute_graph(*, flow: dict, user_id: str, inputs: dict, deps: FlowDeps, sto
         except Exception:
             pass
 
+    hashes = graph_mod.config_hashes(graph)
+
     def record(node: dict, state: str, **extra) -> None:
         records.append({"node_id": node["id"], "title": node["data"].get("title") or "", "node_type": node["type"],
                         "status": state, "summary": extra.get("summary", ""), "preview": extra.get("preview", ""),
-                        "ms": extra.get("ms", 0), **({"message": extra["message"]} if "message" in extra else {})})
+                        "ms": extra.get("ms", 0), "config_hash": hashes[node["id"]],
+                        **({"message": extra["message"]} if "message" in extra else {})})
 
     def fail(node: dict, message: str, ms: int) -> None:
         nonlocal error
-        send({"type": "node_error", "node_id": node["id"], "message": message, "ms": ms})
+        message = with_title(node, message)
+        send({"type": "node_error", "node_id": node["id"], "message": message, "ms": ms,
+              "config_hash": hashes[node["id"]]})
         record(node, "error", message=message, ms=ms)
         error = message
 
@@ -761,10 +784,11 @@ def execute_graph(*, flow: dict, user_id: str, inputs: dict, deps: FlowDeps, sto
                 if not active:
                     reason = run.skip_reason(node_id)
                     run.state[node_id] = "skipped"
-                    send({"type": "node_skip", "node_id": node_id, "reason": reason})
+                    send({"type": "node_skip", "node_id": node_id, "reason": reason, "config_hash": hashes[node_id]})
                     record(node, "skipped", summary=reason)
                     continue
-            send({"type": "node_start", "node_id": node_id, "node_type": node["type"], "title": node["data"]["title"]})
+            send({"type": "node_start", "node_id": node_id, "node_type": node["type"], "title": node["data"]["title"],
+                  "config_hash": hashes[node_id]})
             started = clock()
             message = ""
             try:
@@ -801,7 +825,7 @@ def execute_graph(*, flow: dict, user_id: str, inputs: dict, deps: FlowDeps, sto
                 if result.ctx.get("links"):
                     node_output["links"] = result.ctx["links"]
             send({"type": "node_done", "node_id": node_id, "summary": summary, "preview": shown, "ms": ms,
-                  "output": node_output})
+                  "output": node_output, "config_hash": hashes[node_id]})
             record(node, "ok", summary=summary, preview=shown, ms=ms)
         else:
             status = "ok"

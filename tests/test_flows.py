@@ -242,8 +242,10 @@ def test_input_text_and_file_blocks(owner_id):
     """输入积木并进了开始节点：开始节点就是原来的第一步。"""
     deps = Deps()
     events, result = _run(owner_id, _flow("input_text", "web_page"), deps.as_flow_deps(), {"text": ""})
-    assert events[1] == {"type": "node_start", "node_id": "start", "node_type": "start", "title": "开始"}
-    assert events[2] == {"type": "node_error", "node_id": "start", "message": "请先填写「要处理的文字」", "ms": events[2]["ms"]}
+    assert {k: events[1][k] for k in ("type", "node_id", "node_type", "title")} == {
+        "type": "node_start", "node_id": "start", "node_type": "start", "title": "开始"}
+    assert events[2]["type"] == "node_error" and events[2]["node_id"] == "start"
+    assert events[2]["message"] == "「开始」：请先填写「要处理的文字」"   # 报错说清是哪一步
     assert result["status"] == "error"
     events, _ = _run(owner_id, _flow("input_file", "web_page"), deps.as_flow_deps(),
                      {"file": {"name": "笔记.exe", "data": b"MZ"}})
@@ -324,9 +326,10 @@ def test_ai_extract_failures_are_human(owner_id):
 
     events, _ = _run(owner_id, _flow("input_text", "ai_extract", "web_page"), Deps(compose=boom).as_flow_deps(), {"text": "资料"})
     error = next(e for e in events if e["type"] == "node_error")
-    assert error["message"].startswith("AI 提炼没成功") and "sk-secret" not in json.dumps(events)
+    assert error["message"] == "「AI 提炼」：模型暂时不可用，请检查模型设置后再试"
+    assert "sk-secret" not in json.dumps(events)
     events, _ = _run(owner_id, _flow("input_text", "ai_extract", "web_page"), Deps(compose=lambda p: "```\n```").as_flow_deps(), {"text": "资料"})
-    assert next(e for e in events if e["type"] == "node_error")["message"] == "AI 没有给出结果，换个说法再试试"
+    assert next(e for e in events if e["type"] == "node_error")["message"] == "「AI 提炼」：AI 没有给出结果，换个说法再试试"
 
 
 # ---------- 积木：飞书 / 微信 ----------
@@ -336,7 +339,7 @@ def test_feishu_send_requires_binding_and_sends_plain_text(owner_id):
     flow = _flow("input_text", "ai_extract", "feishu_send")
     events, result = _run(owner_id, flow, deps.as_flow_deps(), {"text": "资料"})
     assert _types(events) == ["run_start", "node_error", "run_done"]   # 运行前检查：不白烧模型
-    assert events[1]["message"] == "先在设置里绑定飞书" and deps.prompts == []
+    assert events[1]["message"] == "「发到飞书」：先在设置里绑定飞书" and deps.prompts == []
     assert events[1]["node_id"] == _step_id(flow, "feishu_send")
     deps.feishu_bound = True
     events, result = _run(owner_id, flow, deps.as_flow_deps(), {"text": "资料"})
@@ -345,7 +348,7 @@ def test_feishu_send_requires_binding_and_sends_plain_text(owner_id):
     assert sent.startswith("📋 资料") and "【背景】" in sent and "• 预算 80 万" in sent and "**" not in sent
     deps.push_ok = False
     events, _ = _run(owner_id, _flow("input_text", "feishu_send"), deps.as_flow_deps(), {"text": "资料"})
-    assert events[-2]["type"] == "node_error" and events[-2]["message"] == "飞书没发出去，请稍后再试"
+    assert events[-2]["type"] == "node_error" and events[-2]["message"] == "「发到飞书」：飞书没发出去，请稍后再试"
 
 
 class DocxFake:
@@ -423,18 +426,18 @@ def test_feishu_doc_other_errors_stop_the_flow(owner_id):
     deps = Deps(feishu_bound=True)
     deps.doc_target_value = (fake.api(), ["ou_me"])
     events, result = _run(owner_id, _flow("input_text", "feishu_doc"), deps.as_flow_deps(), {"text": "x"})
-    assert result["status"] == "error" and events[-2]["message"] == "飞书文档没建成，请稍后再试"
-    assert events[-1]["error"] == "飞书文档没建成，请稍后再试"
+    assert result["status"] == "error" and events[-2]["message"] == "「汇总到飞书文档」：飞书文档没建成，请稍后再试"
+    assert events[-1]["error"] == events[-2]["message"]
     assert deps.feishu_sent == []
 
 
 def test_wechat_send_only_for_owner_with_bridge_ready(owner_id):
     deps = Deps()
     events, _ = _run(owner_id, _flow("input_text", "wechat_send"), deps.as_flow_deps(), {"text": "x"})
-    assert events[1]["message"] == "发到微信只对管理员账号开放"
+    assert events[1]["message"] == "「发到微信」：只有管理员账号能发到微信，换管理员账号来跑"
     deps.is_owner = True
     events, _ = _run(owner_id, _flow("input_text", "wechat_send"), deps.as_flow_deps(), {"text": "x"})
-    assert events[-2]["type"] == "node_error" and events[-2]["message"].startswith("微信还没连上")
+    assert events[-2]["type"] == "node_error" and events[-2]["message"].startswith("「发到微信」：微信还没连上")
     deps.wechat_up = True
     events, result = _run(owner_id, _flow("input_text", "wechat_send"), deps.as_flow_deps(), {"text": "上新：桂花拿铁"})
     assert result["status"] == "ok" and deps.wechat_sent == ["📋 上新：桂花拿铁\n\n上新：桂花拿铁"]
@@ -462,7 +465,7 @@ def test_failed_step_stops_the_rest(owner_id):
     events, result = _run(owner_id, _flow("input_text", "web_page", "to_todo"), Deps().as_flow_deps(), {"text": "  "})
     assert _types(events) == ["run_start", "node_start", "node_error", "run_done"]
     assert events[-1] == {"type": "run_done", "status": "error", "ms": events[-1]["ms"],
-                          "output": {"text": "", "links": [], "page_url": None}, "error": "请先填写「要处理的文字」"}
+                          "output": {"text": "", "links": [], "page_url": None}, "error": "「开始」：请先填写「要处理的文字」"}
     with tenant_scope(owner_id):
         assert TenantStore().list_todos() == []
 
@@ -479,7 +482,7 @@ def test_total_deadline_stops_the_flow(owner_id):
     deps = Deps(compose=lambda prompt: time.sleep(1.5) or "x")
     events, _ = _run(owner_id, _flow("input_text", "ai_extract", "web_page"), deps.as_flow_deps(),
                      {"text": "资料"}, total_seconds=0.4)
-    assert next(e for e in events if e["type"] == "node_error")["message"] == "整条流程超过 4 分钟，已停止"
+    assert next(e for e in events if e["type"] == "node_error")["message"] == "「AI 提炼」：整条流程超过 4 分钟，已停止"
 
 
 def test_cancel_stops_waiting_and_records_interruption(owner_id):
@@ -544,7 +547,7 @@ def test_http_crud_auth_and_csrf(http_deps):
     created = owner.post("/api/flows", json={"name": "项目资料归档", "steps": ARCHIVE})   # v6 旧写法照样能存
     assert created.status_code == 201
     flow = created.json()["flow"]
-    assert set(flow) == {"id", "name", "summary", "graph", "updated_at", "trigger", "last_run"}
+    assert set(flow) == {"id", "name", "summary", "graph", "config_hashes", "updated_at", "trigger", "last_run"}
     assert flow["last_run"] is None and flow["trigger"] is None
     assert [n["type"] for n in flow["graph"]["nodes"]] == ["start", "step", "step", "step", "end"]
     assert [n["data"]["step"] for n in flow["graph"]["nodes"][1:4]] == [s["plugin"] for s in ARCHIVE[1:]]

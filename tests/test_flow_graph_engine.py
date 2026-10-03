@@ -143,7 +143,8 @@ def test_merge_node_runs_when_any_branch_is_active(owner_id):
 
 @pytest.mark.parametrize("left, op, right, expected", [
     ("气温 25°C", "gt", "20", True), ("1,234.5 元", "ge", "1234.5", True), ("约 3 度", "lt", "3", False),
-    ("没有数字", "gt", "1", False), ("Hello", "contains", "hello", True), ("  好的 ", "equals", "好的", True),
+    ("没有数字", "gt", "1", False), ("完成率 12.5%", "gt", "12", True), ("1,200", "equals", "1,200", True),
+    ("1,200 件", "ge", "1200", True), ("  OK ", "equals", "ok", True), ("Rain Tomorrow", "contains", " rain ", True), ("Hello", "contains", "hello", True), ("  好的 ", "equals", "好的", True),
     ("", "empty", "", True), ([], "empty", "", True), (["a"], "not_empty", "", True), ("abc", "not_contains", "d", True),
 ])
 def test_condition_rules_are_tolerant(left, op, right, expected):
@@ -182,7 +183,7 @@ def test_start_inputs_are_checked(owner_id, inputs, message):
                               {"key": "tone", "label": "语气", "type": "select", "options": ["正式", "轻松"]}),
                        _node("end", "end")], "edges": [_e("start", "end")]}
     events, result = _run(owner_id, graph, Deps(), inputs)
-    assert result["status"] == "error" and _by(events, "node_error")["start"]["message"] == message
+    assert result["status"] == "error" and _by(events, "node_error")["start"]["message"] == f"「开始」：{message}"
 
 
 # ---------- AI 处理 ----------
@@ -211,10 +212,10 @@ def test_llm_failures_are_human(owner_id):
         raise RuntimeError("https://api.example/v1?key=sk-secret 500")
 
     events, _ = _run(owner_id, graph, Deps(compose=boom), {"text": "x"})
-    assert _by(events, "node_error")["ai"]["message"] == "AI 处理没成功：模型暂时不可用，请检查模型设置后再试"
+    assert _by(events, "node_error")["ai"]["message"] == "「AI 处理」：模型暂时不可用，请检查模型设置后再试"
     assert "sk-secret" not in str(events)
     events, _ = _run(owner_id, graph, Deps(compose=lambda p: "```\n```"), {"text": "x"})
-    assert _by(events, "node_error")["ai"]["message"] == "AI 没有给出结果，换个说法再试试"
+    assert _by(events, "node_error")["ai"]["message"] == "「AI 处理」：AI 没有给出结果，换个说法再试试"
 
 
 def test_foreach_runs_each_item(owner_id):
@@ -271,7 +272,12 @@ def test_tool_arg_problems_are_human(owner_id, args, inputs, message):
 def test_tool_guard_failure_text_becomes_node_error(owner_id):
     reply = "插件「查天气」这次没办成：处理超时（超过 30 秒）。不要用相同参数重试；请用人话告诉用户……"
     events, _ = _run(owner_id, _tool_graph(), Deps(tools={"weather": fake_weather([], reply=reply)}), {"city": "深圳"})
-    assert _by(events, "node_error")["w"]["message"] == "插件「查天气」这次没办成：处理超时（超过 30 秒）"
+    assert _by(events, "node_error")["w"]["message"] == \
+        "插件「查天气」这次没办成：处理超时（超过 30 秒），请稍后再试；一直不行就换个插件或删掉这个节点"
+    reply = "插件「查天气」这次没办成：插件内部出错（ValueError）。不要用相同参数重试……"   # 不透出异常名
+    events, _ = _run(owner_id, _tool_graph(), Deps(tools={"weather": fake_weather([], reply=reply)}), {"city": "深圳"})
+    message = _by(events, "node_error")["w"]["message"]
+    assert "ValueError" not in message and message.startswith("插件「查天气」这次没办成：插件内部出错，请稍后再试")
 
 
 def test_tool_timeout_and_required_arg_preflight(owner_id):
@@ -280,7 +286,8 @@ def test_tool_timeout_and_required_arg_preflight(owner_id):
     assert "超时" in _by(events, "node_error")["w"]["message"]
     events, _ = _run(owner_id, _tool_graph(days="2"), Deps(tools={"weather": fake_weather([])}), {"city": "深圳"})
     assert [e["type"] for e in events] == ["run_start", "node_error", "run_done"]   # 运行前就查出来
-    assert events[1] == {"type": "node_error", "node_id": "w", "message": "「查天气」的「城市」还没填", "ms": 0}
+    assert events[1] == {"type": "node_error", "node_id": "w", "message": "「查天气」的「城市」还没填", "ms": 0,
+                         "config_hash": events[1]["config_hash"]}
 
 
 def test_real_pack_tool_runs_in_tenant_scope(owner_id):
@@ -322,7 +329,7 @@ def test_end_page_generates_one_result_page(owner_id):
     url = result["output"]["page_url"]
     assert url.startswith("/r/") and _by(events, "node_done")["end"] == {
         "type": "node_done", "node_id": "end", "summary": "结果网页已生成", "preview": url,
-        "ms": _by(events, "node_done")["end"]["ms"],
+        "ms": _by(events, "node_done")["end"]["ms"], "config_hash": _by(events, "node_done")["end"]["config_hash"],
         "output": {"text": "## 本周\n- 完成登录", "links": [{"label": "结果网页", "url": url}]}}
     page = FlowStore().get_page(url[3:])
     assert page["title"] == "周报" and page["text"] == "## 本周\n- 完成登录"
@@ -364,7 +371,7 @@ def _member_with_platform(plugins):
 def test_agent_account_can_only_run_installed_plugins(owner_id):
     member = _member_with_platform(["todo", "work_report"])
     events, _ = _run(member, _tool_graph(), Deps(tools={"weather": fake_weather([])}), {"city": "深圳"})
-    assert events[1] == {"type": "node_error", "node_id": "w", "ms": 0,
+    assert events[1] == {"type": "node_error", "node_id": "w", "ms": 0, "config_hash": events[1]["config_hash"],
                          "message": "这个智能体还没装「查天气」，到智能体设置里加上就能用"}
     events, result = _run(owner_id, _tool_graph(), Deps(tools={"weather": fake_weather([])}), {"city": "深圳"})
     assert result["status"] == "ok"   # Owner 不受限
@@ -380,7 +387,7 @@ def test_total_deadline_and_cancel(owner_id):
     graph = {"nodes": [_start(), _node("ai", "llm", prompt="{{start.text}}"), _node("end", "end")],
              "edges": [_e("start", "ai"), _e("ai", "end")]}
     events, _ = _run(owner_id, graph, Deps(compose=lambda p: time.sleep(1.5) or "x"), {"text": "x"}, total_seconds=0.4)
-    assert _by(events, "node_error")["ai"]["message"] == "整条流程超过 4 分钟，已停止"
+    assert _by(events, "node_error")["ai"]["message"] == "「AI 处理」：整条流程超过 4 分钟，已停止"
     cancel, started = threading.Event(), threading.Event()
 
     def slow(prompt):

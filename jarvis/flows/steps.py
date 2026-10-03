@@ -390,7 +390,7 @@ def run_ai_extract(job: StepJob, ctx: dict, options: dict) -> Outcome:
         raise
     except Exception as exc:   # 上游细节可能带请求回显，只留类名
         log.warning("flow ai_extract failed: %s", type(exc).__name__)
-        raise StepFailure("AI 提炼没成功：模型暂时不可用，请检查模型设置后再试") from exc
+        raise StepFailure("模型暂时不可用，请检查模型设置后再试") from exc
     text = clean_model_text(raw)
     if not text:
         raise StepFailure("AI 没有给出结果，换个说法再试试")
@@ -465,7 +465,7 @@ def run_feishu_doc(job: StepJob, ctx: dict, options: dict) -> Outcome:
 
 def run_wechat_send(job: StepJob, ctx: dict, options: dict) -> Outcome:
     if not job.deps.wechat_owner(job.user_id):
-        raise StepFailure("发到微信只对管理员账号开放")
+        raise StepFailure("只有管理员账号能发到微信，换管理员账号来跑")
     if not job.deps.wechat_ready():
         raise StepFailure("微信还没连上：先在设置里连接微信，再在微信里发一句「提醒发给我」")
     text = message_text(ctx, job.flow)

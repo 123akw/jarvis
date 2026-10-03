@@ -119,7 +119,7 @@ def requirement_problem(plugin: str, user_id: str, deps: FlowDeps) -> str | None
         if "feishu_bound" in requires and not deps.feishu_ready(user_id):
             return "先在设置里绑定飞书"
         if "wechat_owner" in requires and not deps.wechat_owner(user_id):
-            return "发到微信只对管理员账号开放"
+            return "只有管理员账号能发到微信，换管理员账号来跑"
     except Exception as exc:
         log.warning("flow requirement check failed: %s", type(exc).__name__)
         return "暂时查不到绑定状态，请稍后再试"
