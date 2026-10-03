@@ -38,7 +38,9 @@ export const FIELD_TYPES = [
 ]
 
 /** 节点产出字段的人话名 */
-export const OUT_LABEL = { text: '文字', items: '条目', title: '标题', links: '链接', parts: '分段', files: '文件' }
+export const OUT_LABEL = { text: '文字', items: '清单', title: '标题', links: '链接', parts: '分段', files: '文件' }
+/** 能「逐条处理」的清单类产出 */
+export const LIST_FIELDS = ['items', 'parts', 'links']
 
 export const OPS = [
   { value: 'contains', label: '包含' },
@@ -47,10 +49,10 @@ export const OPS = [
   { value: 'not_equals', label: '不等于' },
   { value: 'empty', label: '是空的', unary: true },
   { value: 'not_empty', label: '不是空的', unary: true },
-  { value: 'gt', label: '大于' },
-  { value: 'lt', label: '小于' },
-  { value: 'ge', label: '大于等于' },
-  { value: 'le', label: '小于等于' },
+  { value: 'gt', label: '大于（按数字比）' },
+  { value: 'lt', label: '小于（按数字比）' },
+  { value: 'ge', label: '大于等于（按数字比）' },
+  { value: 'le', label: '小于等于（按数字比）' },
 ]
 export const UNARY_OPS = new Set(OPS.filter(o => o.unary).map(o => o.value))
 
@@ -202,8 +204,13 @@ export function createNode(graph, item, position = { x: 0, y: 0 }) {
     if (data.output !== 'list') data.output = 'text'
   } else if (type === 'tool') {
     const args = data.args && typeof data.args === 'object' ? data.args : {}
+    // 开始节点有同名 / 同义的输入项（如「城市」）就直接接上，省得再插变量
+    const fields = nodeById(graph, START_ID)?.data?.fields || []
     for (const a of item.args || []) {
-      if (args[a.name] === undefined && a.default !== undefined && a.default !== null) args[a.name] = String(a.default)
+      if (args[a.name] !== undefined) continue
+      const same = fields.find(f => f.key === a.name || (a.label && String(f.label || '').trim() === a.label))
+      if (same) args[a.name] = `{{${START_ID}.${same.key}}}`
+      else if (a.default !== undefined && a.default !== null) args[a.name] = String(a.default)
     }
     data.args = args
   } else if (type === 'condition') {
@@ -316,15 +323,15 @@ export function canConnect(graph, { source, target, sourceHandle = null } = {}) 
   const s = nodeById(graph, source)
   const t = nodeById(graph, target)
   if (!s || !t) return '连线连到了不存在的节点'
-  if (t.type === 'start') return '「开始」前面不能再接节点'
-  if (s.type === 'end') return '「结束」后面不能再接节点'
+  if (t.type === 'start') return '「开始」前面不能再接东西'
+  if (s.type === 'end') return '「结束」后面不能再接'
   const handle = sourceHandle ?? null
   if (s.type === 'condition' && !conditionHandles(s).includes(handle)) return '请从某个分支的出口拉线'
   if (graph.edges.some(e => e.source === source && e.target === target && (e.sourceHandle ?? null) === handle)) {
     return '这两个节点已经连上了'
   }
   if (graph.edges.length >= MAX_EDGES) return `一个流程最多 ${MAX_EDGES} 条连线`
-  if (reaches(graph, target, source)) return '不能连回前面的节点，流程不能绕圈'
+  if (reaches(graph, target, source)) return '这样会绕成圈，流程会停不下来'
   return ''
 }
 
@@ -344,7 +351,9 @@ export function removeEdges(graph, ids) {
 
 /* ---------- 插入（带自动连线） ---------- */
 
-export const COL = 320       // 分层布局的列距（节点宽 256 + 间隙）
+export const NODE_W = 240    // 节点卡宽（与模板 / 一句话生成的排版参数一致：宽 240、层距 80、行距 40）
+export const COL = 320       // 列距 = 节点宽 + 层距
+export const LIMIT_MSG = `一个流程最多 ${MAX_NODES} 个节点，可以拆成两个流程`
 export const ROW = 136       // 新节点避让时往下挪的步长
 
 function freeSpot(graph, pos, skip) {
@@ -387,8 +396,8 @@ function makeRoom(graph, id) {
 export function insertAfter(graph, after, handle, node) {
   const prev = nodeById(graph, after)
   if (!prev || !node) return { graph, error: '找不到要接在后面的节点' }
-  if (prev.type === 'end') return { graph, error: '「结束」后面不能再接节点' }
-  if (graph.nodes.length >= MAX_NODES) return { graph, error: `一个流程最多 ${MAX_NODES} 个节点` }
+  if (prev.type === 'end') return { graph, error: '「结束」后面不能再接' }
+  if (graph.nodes.length >= MAX_NODES) return { graph, error: LIMIT_MSG }
   const h = prev.type === 'condition' ? (handle ?? defaultHandle(prev)) : null
   const branch = prev.type === 'condition' ? Math.max(0, conditionHandles(prev).indexOf(h)) : 0
   const spot = freeSpot(graph, { x: prev.position.x + COL, y: prev.position.y + branch * ROW }, node.id)
@@ -411,7 +420,7 @@ export function insertOnEdge(graph, edgeId, node) {
   const edge = graph.edges.find(e => e.id === edgeId)
   if (!edge || !node) return { graph, error: '找不到这条连线' }
   if (node.type === 'end') return { graph, error: '「结束」只能放在最后' }
-  if (graph.nodes.length >= MAX_NODES) return { graph, error: `一个流程最多 ${MAX_NODES} 个节点` }
+  if (graph.nodes.length >= MAX_NODES) return { graph, error: LIMIT_MSG }
   const s = nodeById(graph, edge.source)
   const t = nodeById(graph, edge.target)
   const pos = { x: Math.round((s.position.x + t.position.x) / 2), y: Math.round((s.position.y + t.position.y) / 2) }
@@ -534,10 +543,16 @@ export const varToken = (ref, field) => (ref === 'item' ? '{{item}}' : `{{${ref}
  * 节点能给下游用的产出：[{ field, label }]。
  * item 是节点在目录里对应的那项（积木可带 produces 声明，有就按它筛）。
  */
-export function outputsOf(node, item = null) {
+export function outputsOf(node, item = null, outputs = null) {
   if (!node) return []
   const d = node.data || {}
   const pick = fields => fields.map(f => ({ field: f, label: OUT_LABEL[f] || f }))
+  // 节点目录给了各类型的产出（契约 §3.2 的 outputs）就按它；AI 处理只有选「清单」时才列清单
+  const declared = outputs && node.type !== 'start' && Array.isArray(outputs[node.type]) ? outputs[node.type] : null
+  if (declared && node.type !== 'step' && node.type !== 'end') {
+    const list = declared.filter(f => OUT_LABEL[f] && !(node.type === 'llm' && f === 'items' && d.output !== 'list'))
+    return pick(list)
+  }
   switch (node.type) {
     case 'start':
       return (Array.isArray(d.fields) ? d.fields : []).filter(f => f?.key)
@@ -585,14 +600,14 @@ export function humanize(text, graph, opts) {
  * 某节点里能插的变量（只能引用祖先）：按拓扑序分组，最后是系统变量。
  * itemOf(node) 返回该节点在目录里的那项（可省）。
  */
-export function varOptions(graph, nodeId, { sys = DEFAULT_SYS, itemOf = () => null } = {}) {
+export function varOptions(graph, nodeId, { sys = DEFAULT_SYS, itemOf = () => null, outputs = null } = {}) {
   const groups = []
   const self = nodeById(graph, nodeId)
   if (self?.data?.foreach) {
     groups.push({ id: 'item', title: '逐条处理', type: 'item', vars: [{ token: '{{item}}', ref: 'item', field: '', label: '当前这一条', short: '当前这一条' }] })
   }
   for (const node of upstream(graph, nodeId)) {
-    const outs = outputsOf(node, itemOf(node))
+    const outs = outputsOf(node, itemOf(node), outputs)
     if (!outs.length) continue
     const title = nodeTitle(node)
     groups.push({
@@ -678,7 +693,7 @@ export function validateGraph(graph, { itemOf = () => undefined, sys = DEFAULT_S
   const starts = nodes.filter(n => n.type === 'start')
   if (starts.length !== 1 || starts[0].id !== START_ID) out.push(issue('g-start', null, 'error', 'save', '流程要有且只有一个「开始」节点'))
   if (!nodes.some(n => isOutput(n, itemOf))) out.push(issue('g-end', null, 'error', 'save', '还没有「结束」节点：从左边拖一个「结束」进来'))
-  if (nodes.length > MAX_NODES) out.push(issue('g-nodes', null, 'error', 'save', `一个流程最多 ${MAX_NODES} 个节点，现在有 ${nodes.length} 个`))
+  if (nodes.length > MAX_NODES) out.push(issue('g-nodes', null, 'error', 'save', `${LIMIT_MSG}（现在有 ${nodes.length} 个）`))
   if (edges.length > MAX_EDGES) out.push(issue('g-edges', null, 'error', 'save', `一个流程最多 ${MAX_EDGES} 条连线，现在有 ${edges.length} 条`))
   const ids = new Set(nodes.map(n => n.id))
   for (const e of edges) {
@@ -686,10 +701,10 @@ export function validateGraph(graph, { itemOf = () => undefined, sys = DEFAULT_S
     const t = nodeById(graph, e.target)
     if (!s || !t) { out.push(issue(`x-${e.id}`, null, 'error', 'save', '有连线连到了不存在的节点')); continue }
     if (e.source === e.target) out.push(issue(`x-${e.id}`, s.id, 'error', 'save', '节点不能连到自己'))
-    else if (t.type === 'start') out.push(issue(`x-${e.id}`, s.id, 'error', 'save', '「开始」前面不能再接节点'))
-    else if (s.type === 'end') out.push(issue(`x-${e.id}`, s.id, 'error', 'save', '「结束」后面不能再接节点'))
+    else if (t.type === 'start') out.push(issue(`x-${e.id}`, s.id, 'error', 'save', '「开始」前面不能再接东西'))
+    else if (s.type === 'end') out.push(issue(`x-${e.id}`, s.id, 'error', 'save', '「结束」后面不能再接'))
   }
-  if (hasCycle(graph)) out.push(issue('g-cycle', null, 'error', 'save', '流程里有环：连线不能绕回前面的节点'))
+  if (hasCycle(graph)) out.push(issue('g-cycle', null, 'error', 'save', '有连线绕成了圈，流程会停不下来：删掉往回连的那条'))
 
   const fromStart = ids.has(START_ID) ? new Set([START_ID, ...descendants(graph, START_ID)]) : new Set()
   const outputs = new Set(nodes.filter(n => isOutput(n, itemOf)).map(n => n.id))
@@ -722,7 +737,7 @@ export function validateGraph(graph, { itemOf = () => undefined, sys = DEFAULT_S
       else if (item) {
         if (item.available === false) at('avail', 'error', 'run', item.reason || '这个插件现在用不了')
         for (const a of item.args || []) {
-          if (a.required && blank(d.args?.[a.name])) at(`arg-${a.name}`, 'error', 'run', `还没填「${a.label || '必填项'}」`)
+          if (a.required && blank(d.args?.[a.name])) at(`arg-${a.name}`, 'error', 'run', `还缺：${a.label || '必填项'}`)
         }
       }
     } else if (node.type === 'condition') {
@@ -747,8 +762,8 @@ export function validateGraph(graph, { itemOf = () => undefined, sys = DEFAULT_S
 
     // 连线：孤立 / 没连到开始 / 结果没送到结束
     if (node.type !== 'start' && ids.has(START_ID)) {
-      if (!(inc.get(node.id) || []).length) at('in', 'error', 'run', '还没连上：从前面的节点拉一条线过来')
-      else if (!fromStart.has(node.id)) at('in', 'error', 'run', '没有连到「开始」，运行时走不到这里')
+      if (!(inc.get(node.id) || []).length) at('in', 'error', 'run', '还没连上，这一步不会运行')
+      else if (!fromStart.has(node.id)) at('in', 'error', 'run', '没有连到「开始」，这一步不会运行')
     }
     if (!outputs.has(node.id) && node.type !== 'end') {
       const reach = descendants(graph, node.id)
@@ -770,7 +785,7 @@ export function validateGraph(graph, { itemOf = () => undefined, sys = DEFAULT_S
       if (told.has(k)) continue
       told.add(k)
       if (r.ref === 'item') {
-        if (!d.foreach) at(`v-${k}`, 'error', 'run', '「当前这一条」只能在逐条处理时用')
+        if (!d.foreach) at(`v-${k}`, 'error', 'run', '「当前这一条」只能在打开「逐条处理」时用')
         continue
       }
       if (r.ref === 'sys') {
@@ -778,10 +793,10 @@ export function validateGraph(graph, { itemOf = () => undefined, sys = DEFAULT_S
         continue
       }
       const ref = nodeById(graph, r.ref)
-      if (!ref) { at(`v-${k}`, 'error', 'save', '用到了已删除节点的结果，请重新选'); continue }
-      if (!before.has(r.ref)) { at(`v-${k}`, 'error', 'run', `用到了「${nodeTitle(ref)}」的结果，但它不在这一步前面`); continue }
+      if (!ref) { at(`v-${k}`, 'error', 'save', '用到的结果已经不在了（那个节点删掉了），重新选一下'); continue }
+      if (!before.has(r.ref)) { at(`v-${k}`, 'error', 'run', `只能用前面步骤的结果，「${nodeTitle(ref)}」不在这一步前面`); continue }
       if (ref.type === 'start' && !(ref.data?.fields || []).some(f => f.key === r.field)) {
-        at(`v-${k}`, 'error', 'run', '用到的输入项已经删了，请重新选')
+        at(`v-${k}`, 'error', 'run', '用到的输入项已经删了，重新选一下')
       }
     }
   }
@@ -851,8 +866,8 @@ export function nodeSummary(node, graph, { item = null, sys = DEFAULT_SYS, skill
 
 /* ---------- 自动整理布局（左 → 右分层） ---------- */
 
-const EST_W = 256
-const GAP_X = 72
+const EST_W = NODE_W
+const GAP_X = COL - NODE_W
 const GAP_Y = 40
 
 function estHeight(node) {
@@ -980,9 +995,60 @@ export function edgeRunState(edge, run) {
   const tgt = run.nodes[edge.target]
   if (tgt?.status === 'skipped' || src?.status === 'skipped') return 'skipped'
   if (src?.status !== 'ok') return ''
+  // 条件节点：没选中的出口整串变暗
+  const branch = src.output?.branch
+  if (branch !== undefined && branch !== null && (edge.sourceHandle ?? null) !== branch) return 'skipped'
   if (tgt?.status === 'running') return 'flowing'
   if (tgt?.status === 'ok' || tgt?.status === 'error') return 'done'
   return run.status === 'running' ? 'flowing' : ''
+}
+
+/** 条件节点这次走了哪个出口（node_done.output.branch）；没跑或不是条件节点返回 undefined */
+export function chosenBranch(run, nodeId) {
+  const b = run?.nodes?.[nodeId]?.output?.branch
+  return b === undefined || b === null ? undefined : b
+}
+
+/**
+ * 「结果已过期」：上次运行之后又改过配置的节点，以及它们的下游（结果都可能不同了）。
+ * snapshot 是开始运行时的节点图；返回节点 id 集合（只含上次跑过的节点）。
+ */
+export function staleNodes(graph, snapshot, run) {
+  const out = new Set()
+  if (!snapshot || !run) return out
+  const before = new Map(snapshot.nodes.map(n => [n.id, n]))
+  const changed = []
+  for (const n of graph.nodes) {
+    const old = before.get(n.id)
+    if (!old) continue
+    if (old.data !== n.data && JSON.stringify(old.data) !== JSON.stringify(n.data)) changed.push(n.id)
+  }
+  // 连线变了，下游的输入也变了
+  const key = e => `${e.source}|${e.target}|${e.sourceHandle ?? ''}`
+  const oldEdges = new Set(snapshot.edges.map(key))
+  const newEdges = new Set(graph.edges.map(key))
+  for (const e of graph.edges) if (!oldEdges.has(key(e))) changed.push(e.target)
+  for (const e of snapshot.edges) if (!newEdges.has(key(e)) && nodeById(graph, e.target)) changed.push(e.target)
+  for (const id of changed) {
+    out.add(id)
+    for (const d of descendants(graph, id)) out.add(d)
+  }
+  for (const id of [...out]) if (!run.nodes?.[id] || run.nodes[id].status === 'running') out.delete(id)
+  return out
+}
+
+/** 用到某节点结果的其它节点（删它之前提醒） */
+export function dependents(graph, id) {
+  return graph.nodes.filter(n => n.id !== id && referencesOf(n).some(r => r.ref === id))
+}
+
+/** 复制节点（不带连线），放在旁边一点 */
+export function duplicateNode(graph, id) {
+  const src = nodeById(graph, id)
+  if (!src || src.type === 'start') return { graph, error: '「开始」节点只能有一个' }
+  if (graph.nodes.length >= MAX_NODES) return { graph, error: LIMIT_MSG }
+  const node = { id: nextNodeId(graph), type: src.type, position: freeSpot(graph, { x: src.position.x + 32, y: src.position.y + ROW }, null), data: clone(src.data) }
+  return { graph: addNode(graph, node), error: '', id: node.id }
 }
 
 /** 毫秒 → 「0.8 秒」「12 秒」「1 分 5 秒」 */
@@ -997,8 +1063,8 @@ export function fmtMs(ms) {
 
 /* ---------- 撤销 / 重做 ---------- */
 
-export const HISTORY_LIMIT = 60
-const MERGE_MS = 1200
+export const HISTORY_LIMIT = 50
+const MERGE_MS = 600
 
 export function createHistory(present) {
   return { past: [], present, future: [], group: '', at: 0, base: null }

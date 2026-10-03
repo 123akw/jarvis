@@ -5,7 +5,7 @@ import {
   insertAfter, insertOnEdge, issuesByNode, MAX_EDGES, MAX_NODES, moveNodes, nextEdgeId, nextNodeId, nodeSummary,
   normalizeGraph, outputsOf, parseVars, redo, referencesOf, removeEdges, removeNodes, renameRefs, runReducer,
   settle, splitVars, startRunState, topoOrder, transient, undo, updateNodeData, upstream, validateGraph, varLabel,
-  varOptions,
+  varOptions, chosenBranch, dependents, duplicateNode, staleNodes,
 } from './graph.js'
 
 /* ---- 小工厂 ---- */
@@ -150,11 +150,11 @@ describe('连线', () => {
   it('canConnect 各种拒绝原因', () => {
     const g = branchy()
     expect(canConnect(g, { source: 'n1', target: 'n1' })).toMatch('自己')
-    expect(canConnect(g, { source: 'n1', target: 'start' })).toMatch('「开始」前面')
-    expect(canConnect(g, { source: 'end', target: 'n1' })).toMatch('「结束」后面')
+    expect(canConnect(g, { source: 'n1', target: 'start' })).toBe('「开始」前面不能再接东西')
+    expect(canConnect(g, { source: 'end', target: 'n1' })).toBe('「结束」后面不能再接')
     expect(canConnect(g, { source: 'n2', target: 'end', sourceHandle: null })).toMatch('分支')
     expect(canConnect(g, { source: 'n1', target: 'n2' })).toMatch('已经连上')
-    expect(canConnect(g, { source: 'n3', target: 'n1' })).toMatch('绕圈')
+    expect(canConnect(g, { source: 'n3', target: 'n1' })).toMatch('绕成圈')
     expect(canConnect(g, { source: 'n1', target: 'ghost' })).toMatch('不存在')
     expect(canConnect(g, { source: 'n2', target: 'end', sourceHandle: 'c1' })).toBe('')
     expect(canConnect(g, { source: 'start', target: 'end' })).toBe('')
@@ -338,7 +338,7 @@ describe('校验', () => {
     expect(validateGraph(big).some(i => i.key === 'g-nodes')).toBe(true)
     const bad = { ...g, edges: [...g.edges, E('x1', 'end', 'n1'), E('x2', 'n1', 'start'), E('x3', 'n1', 'ghost')] }
     const keys = validateGraph(bad).filter(i => i.key.startsWith('x-')).map(i => i.message)
-    expect(keys).toEqual(['「结束」后面不能再接节点', '「开始」前面不能再接节点', '有连线连到了不存在的节点'])
+    expect(keys).toEqual(['「结束」后面不能再接', '「开始」前面不能再接东西', '有连线连到了不存在的节点'])
   })
 
   it('缺必填拦运行：AI 没写要求、工具缺参数 / 不可用 / 下架、拼接为空、条件没设、积木下架', () => {
@@ -362,7 +362,7 @@ describe('校验', () => {
     const itemOf = itemOfFor({ 'tool:weather:weather__now': TOOL_ITEM, 'tool:off:t': { type: 'tool', available: false, reason: '这个智能体还没装「快递」，到智能体设置里加上就能用', args: [] } })
     const issues = validateGraph(g, { itemOf })
     expect(msgs(issues, 'n1')).toContain('还没写要 AI 做什么')
-    expect(msgs(issues, 'n2')).toContain('还没填「城市」')
+    expect(msgs(issues, 'n2')).toContain('还缺：城市')
     expect(msgs(issues, 'n3')).toContain('这个插件工具不在了，删掉换一个')
     expect(msgs(issues, 'n4')).toContain('还没写要拼成什么样')
     expect(msgs(issues, 'n5')).toEqual(expect.arrayContaining(['「分支 1」还没设条件', '「晴」有一条条件没选要比较的内容', '「晴」有一条条件没填比较的值']))
@@ -385,8 +385,8 @@ describe('校验', () => {
     }
     const issues = validateGraph(g)
     expect(msgs(issues, 'n1')).toContain('后面还没接节点，这一步的结果没送到「结束」')
-    expect(msgs(issues, 'n2')).toContain('还没连上：从前面的节点拉一条线过来')
-    expect(msgs(issues, 'n3')).toContain('没有连到「开始」，运行时走不到这里')
+    expect(msgs(issues, 'n2')).toContain('还没连上，这一步不会运行')
+    expect(msgs(issues, 'n3')).toContain('没有连到「开始」，这一步不会运行')
     expect(msgs(issues, 'n4')[0]).toMatch('「否则」后面还没接节点')
     expect(issues.find(i => i.nodeId === 'n1' && i.key.endsWith('-out')).level).toBe('warn')
     const deadBranch = { ...g, edges: [...g.edges, E('e5', 'n1', 'n2')] }
@@ -399,10 +399,10 @@ describe('校验', () => {
       edges: [E('e1', 'start', 'n1'), E('e2', 'n1', 'n2'), E('e3', 'n2', 'end')],
     }
     const issues = validateGraph(g).filter(i => i.nodeId === 'n1')
-    expect(issues.find(i => i.message.includes('已删除节点')).block).toBe('save')
+    expect(issues.find(i => i.message.includes('那个节点删掉了')).block).toBe('save')
     expect(issues.map(i => i.message)).toEqual(expect.arrayContaining([
-      '用到了「AI 处理」的结果，但它不在这一步前面', '用到的输入项已经删了，请重新选',
-      '「当前这一条」只能在逐条处理时用', '用到了不认识的系统变量，请重新选',
+      '只能用前面步骤的结果，「AI 处理」不在这一步前面', '用到的输入项已经删了，重新选一下',
+      '「当前这一条」只能在打开「逐条处理」时用', '用到了不认识的系统变量，请重新选',
     ]))
     expect(issues.some(i => i.message.includes('今天日期'))).toBe(false)
   })
@@ -574,6 +574,61 @@ describe('撤销 / 重做', () => {
   it('历史有上限', () => {
     let h = createHistory(0)
     for (let i = 1; i <= 100; i += 1) h = commit(h, i, { now: i * 10_000 })
-    expect(h.past.length).toBe(60)
+    expect(h.past.length).toBe(50)
+  })
+})
+
+describe('第十八轮联调补充', () => {
+  it('插件工具：开始节点有同名 / 同义输入项就自动接上', () => {
+    const g = { nodes: [N('start', 'start', { fields: [{ key: 'city', label: '城市', type: 'text' }, { key: 'note', label: '关键词', type: 'text' }] })], edges: [] }
+    const item = { ...TOOL_ITEM, args: [{ name: 'city', label: '城市' }, { name: 'query', label: '关键词' }, { name: 'unit', default: 'c' }] }
+    expect(createNode(g, item).data.args).toEqual({ city: '{{start.city}}', query: '{{start.note}}', unit: 'c' })
+  })
+
+  it('目录给的 outputs 决定能插哪些产出；AI 处理只在「清单」时列清单', () => {
+    const outputs = { llm: ['text', 'items'], tool: ['text', 'items', 'links', 'files'], template: ['text', 'items'] }
+    expect(outputsOf(N('a', 'tool'), null, outputs).map(o => o.field)).toEqual(['text', 'items', 'links', 'files'])
+    expect(outputsOf(N('a', 'llm', { output: 'text' }), null, outputs).map(o => o.field)).toEqual(['text'])
+    expect(outputsOf(N('a', 'llm', { output: 'list' }), null, outputs).map(o => o.field)).toEqual(['text', 'items'])
+    expect(varOptions(branchy(), 'end', { outputs }).find(g => g.id === 'n4').vars.map(v => v.short)).toEqual(['文字', '清单', '链接', '文件'])
+  })
+
+  it('条件节点走了哪个出口：没选中的出口连线变暗', () => {
+    const run = { status: 'ok', nodes: { n2: { status: 'ok', output: { text: '', branch: 'c1' } }, n3: { status: 'ok' } } }
+    expect(chosenBranch(run, 'n2')).toBe('c1')
+    expect(chosenBranch(run, 'n1')).toBeUndefined()
+    expect(edgeRunState(E('a', 'n2', 'n3', 'c1'), run)).toBe('done')
+    expect(edgeRunState(E('b', 'n2', 'n4', 'else'), run)).toBe('skipped')
+  })
+
+  it('结果已过期：改过配置的节点和它的下游；连线改了下游也算；没跑过的不算', () => {
+    const snap = branchy()
+    const run = { nodes: Object.fromEntries(snap.nodes.map(n => [n.id, { status: 'ok' }])) }
+    expect(staleNodes(snap, snap, run).size).toBe(0)
+    const g = updateNodeData(snap, 'n3', { template: '改了' })
+    expect([...staleNodes(g, snap, run)].sort()).toEqual(['end', 'n3'])
+    // 改回去：不算过期
+    expect(staleNodes(updateNodeData(g, 'n3', { template: '待办：{{n1.text}}' }), snap, run).size).toBe(0)
+    // 挪位置不算
+    expect(staleNodes(moveNodes(snap, { n1: { x: 9, y: 9 } }), snap, run).size).toBe(0)
+    // 连线变了
+    const g2 = removeEdges(snap, ['e6'])
+    expect([...staleNodes(g2, snap, run)]).toEqual(['end'])
+    expect(staleNodes(g, snap, { nodes: { n1: { status: 'ok' } } }).size).toBe(0)
+    expect(staleNodes(g, null, run).size).toBe(0)
+  })
+
+  it('dependents：用到某节点结果的节点', () => {
+    expect(dependents(branchy(), 'n1').map(n => n.id)).toEqual(['n2', 'n3'])
+    expect(dependents(branchy(), 'n4')).toEqual([])
+  })
+
+  it('duplicateNode：复制配置、换编号、不带连线；开始不能复制', () => {
+    const r = duplicateNode(branchy(), 'n3')
+    expect(r.error).toBe('')
+    const copy = r.graph.nodes.find(n => n.id === r.id)
+    expect(copy).toMatchObject({ id: 'n5', type: 'template', data: { template: '待办：{{n1.text}}' } })
+    expect(r.graph.edges).toHaveLength(6)
+    expect(duplicateNode(branchy(), 'start').error).toBeTruthy()
   })
 })
