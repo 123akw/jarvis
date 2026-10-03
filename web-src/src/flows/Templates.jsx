@@ -7,6 +7,9 @@ import { IconChain } from './Thumb.jsx'
 function TemplateCard({ tpl, idx, onPick }) {
   const nodes = useMemo(() => orderNodes(tpl.graph).map(n => ({ id: n.id, ...nodeInfo(n, idx) })), [tpl.graph, idx])
   const blocked = pluginNeeds(tpl.plugins, idx).filter(p => !p.available)
+  // 没装的插件：引导去加；其余用不了的（没绑定、没配置）由模板自带的 needs 说清楚，标成提醒色
+  const missing = blocked.filter(p => !p.reason || /装/.test(p.reason))
+  const unmet = blocked.length > missing.length
   const needs = Array.isArray(tpl.needs) ? tpl.needs.filter(Boolean) : []
   return (
     <li>
@@ -17,10 +20,13 @@ function TemplateCard({ tpl, idx, onPick }) {
         </span>
         {tpl.summary ? <span className="fh-tpl-sum">{tpl.summary}</span> : null}
         <IconChain nodes={nodes} label={`步骤：${chainLabel(tpl.graph, idx)}`} />
-        {blocked.length ? (
-          <span className="fh-tpl-need is-warn">需要先加「{blocked.map(p => p.name).join('」「')}」</span>
-        ) : needs.length ? (
-          <span className="fh-tpl-need">{needs.join(' · ')}</span>
+        {missing.length ? (
+          <span className="fh-tpl-need is-warn">需要先加「{missing.map(p => p.name).join('」「')}」</span>
+        ) : null}
+        {needs.length ? (
+          <span className={`fh-tpl-need${unmet ? ' is-warn' : ''}`}>{needs.join(' · ')}</span>
+        ) : unmet && !missing.length ? (
+          <span className="fh-tpl-need is-warn">「{blocked.find(p => !missing.includes(p)).name}」现在用不了</span>
         ) : null}
       </button>
     </li>

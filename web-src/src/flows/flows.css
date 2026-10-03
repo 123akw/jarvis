@@ -40,9 +40,10 @@ body.light .fh-page{
 .fh-back{display:inline-flex;align-items:center;gap:4px;height:36px;padding:0 12px 0 4px;border:none;border-radius:8px;
   background:transparent;color:var(--jv-text-2);font-size:14px}
 .fh-back:hover{background:var(--jv-hover);color:var(--jv-text)}
-.fh-tour{display:inline-flex;align-items:center;gap:4px;height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--jv-border);
-  background:transparent;color:var(--jv-text-2);font-size:13px;white-space:nowrap}
-.fh-tour:hover{background:var(--jv-hover);color:var(--jv-text)}
+/* 「新手引导」按钮的样式归新手引导代理（.jv-tour-btn）；这里只在没有它的样式时兜底，长得一样 */
+.fh-tour:not(.jv-tour-btn){display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:8px;
+  border:1px solid var(--jv-border);background:transparent;color:var(--jv-text-2);font-size:13px;font-weight:500;white-space:nowrap}
+.fh-tour:not(.jv-tour-btn):hover{background:var(--jv-hover);color:var(--jv-text)}
 
 /* ---------- 主体 ---------- */
 .fh-scroll{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain}
@@ -229,8 +230,7 @@ body.light .fh-tab.is-on{box-shadow:0 1px 2px rgba(0,0,0,.08),0 0 0 1px rgba(0,0
 /* ---------- 运行记录抽屉 ---------- */
 .fh-drawer-backdrop{position:fixed;inset:0;z-index:80;background:var(--jv-scrim);animation:jv-fade .24s var(--jv-ease)}
 .fh-drawer{position:absolute;top:8px;right:8px;bottom:8px;width:min(480px,calc(100vw - 16px));display:flex;flex-direction:column;
-  border-radius:16px;border:1px solid var(--jv-border);background:var(--jv-elevated);
-  -webkit-backdrop-filter:var(--jv-blur);backdrop-filter:var(--jv-blur);box-shadow:var(--jv-shadow-float);overflow:hidden;
+  border-radius:16px;border:1px solid var(--jv-border);background:var(--fh-sheet);box-shadow:var(--jv-shadow-float);overflow:hidden;
   animation:fh-in-right .32s var(--jv-ease)}
 .fh-drawer-head{flex:none;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:20px 16px 16px 24px;
   border-bottom:1px solid var(--jv-border)}

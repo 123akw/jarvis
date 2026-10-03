@@ -70,7 +70,7 @@ export default function Compose({ value, onChange, onSubmit, onCancel, busy, err
         {busy ? <Generating onCancel={onCancel} /> : (
           <div className="fh-compose-bar">
             <span id="fh-compose-hint" className="fh-compose-hint">
-              <Icon name="sparkles" size={15} />AI 帮你搭好节点，先预览，满意再打开编辑
+              <Icon name="sparkles" size={15} />AI 先搭好草稿，你看过再打开编辑
             </span>
             <button type="submit" className={`fh-send${text ? ' is-ready' : ''}`} disabled={!text} aria-label="生成流程">
               <Icon name="up" size={18} />
