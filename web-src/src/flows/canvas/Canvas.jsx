@@ -1,8 +1,8 @@
 import {
-  Background, BackgroundVariant, Controls, MarkerType, ReactFlow, ReactFlowProvider,
+  Background, BackgroundVariant, Controls, ReactFlow, ReactFlowProvider,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { canConnect, edgeRunState, nodeById, nodeTitle } from '../graph.js'
 import { EDGE_TYPES } from './FlowEdge.jsx'
 import { CanvasActions, NODE_TYPES } from './NodeCard.jsx'
@@ -25,17 +25,30 @@ const ARIA = {
   'handle.ariaLabel': '连线口',
 }
 const SNAP = [16, 16]
-const FIT = { padding: 0.24, maxZoom: 1.1 }
-const MARKER = { type: MarkerType.ArrowClosed, width: 14, height: 14 }
+/** 适配视图的留白：右侧有浮动面板（配置 / 运行）时把它让出来，节点不会被盖住 */
+export function fitOptions({ side = false, narrow = false, duration = 0 } = {}) {
+  const pad = narrow ? '24px' : '56px'
+  return { padding: { top: pad, bottom: narrow ? '24px' : '72px', left: pad, right: side ? '440px' : pad }, maxZoom: 1, duration }
+}
 
 function Inner({
   graph, vmOf, selectedId, selectedEdge, locked, readOnly, run, onSelect, onSelectEdge, onMove, onConnect,
-  onConnectError, onDropItem, onQuick, onInit, sizesRef, onDeleteEdge,
+  onConnectError, onDropItem, onQuick, onInit, sizesRef, onDeleteEdge, side = false, narrow = false, onFitted,
 }) {
   const [sizes, setSizes] = useState({})
   const [hover, setHover] = useState(null)
   const rf = useRef(null)
   const moved = useRef({})
+  const fitted = useRef(false)
+  const [inited, setInited] = useState(false)
+  // 第一次全部量好尺寸后再适配视图（React Flow 自带的 fitView 在节点分批量出尺寸时只会对准先量好的那几个）
+  useEffect(() => {
+    if (fitted.current || !rf.current) return
+    if (!graph.nodes.every(n => sizes[n.id]?.width)) return
+    fitted.current = true
+    rf.current.fitView(fitOptions({ side, narrow }))
+    onFitted?.()
+  }, [sizes, graph.nodes, side, narrow, onFitted, inited])
 
   const nodes = useMemo(() => graph.nodes.map(n => ({
     id: n.id, type: 'flow', position: n.position,
@@ -52,7 +65,7 @@ function Inner({
     const t = nodeById(graph, e.target)
     return {
       id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle ?? null, type: 'flow',
-      selected: e.id === selectedEdge, deletable: false, markerEnd: MARKER,
+      selected: e.id === selectedEdge, deletable: false,
       data: { run: edgeRunState(e, run), locked: locked || readOnly, hover: hover === e.id, label: `${nodeTitle(s)} → ${nodeTitle(t)}` },
       ariaLabel: `从「${nodeTitle(s)}」连到「${nodeTitle(t)}」`,
     }
@@ -125,7 +138,7 @@ function Inner({
         onEdgeClick={(_, e) => onSelectEdge(e.id)}
         onPaneClick={() => { onSelect(null); onSelectEdge(null) }}
         onEdgeMouseEnter={(_, e) => setHover(e.id)} onEdgeMouseLeave={() => setHover(null)}
-        onInit={inst => { rf.current = inst; onInit?.(inst) }}
+        onInit={inst => { rf.current = inst; setInited(true); onInit?.(inst) }}
         onDragOver={e => {
           if (readOnly || locked || !e.dataTransfer?.types?.includes(DND_TYPE)) return
           e.preventDefault()
@@ -141,24 +154,26 @@ function Inner({
         nodesDraggable={!readOnly && !locked} nodesConnectable={!readOnly && !locked}
         elementsSelectable edgesFocusable={!readOnly} nodesFocusable
         deleteKeyCode={null} selectionKeyCode={null} multiSelectionKeyCode={null}
-        snapToGrid snapGrid={SNAP} fitView fitViewOptions={FIT} minZoom={0.25} maxZoom={1.8}
+        snapToGrid snapGrid={SNAP} minZoom={0.25} maxZoom={1.8}
         panOnScroll={false} zoomOnDoubleClick={false} connectionRadius={28}
         defaultEdgeOptions={{ type: 'flow' }} ariaLabelConfig={ARIA}
         proOptions={{ hideAttribution: false }}
       >
         <Background variant={BackgroundVariant.Dots} gap={16} size={1.4} className="fc-bg" />
-        <Controls showInteractive={false} position="bottom-left" fitViewOptions={{ ...FIT, duration: 240 }} className="fc-controls" />
+        <Controls showInteractive={false} position="bottom-left" fitViewOptions={fitOptions({ side, narrow, duration: 240 })} className="fc-controls" />
       </ReactFlow>
     </CanvasActions.Provider>
   )
 }
 
 export default function Canvas(props) {
+  const [ready, setReady] = useState(false)
+  const onFitted = useCallback(() => setReady(true), [])
   return (
-    <div className={`fc-canvas${props.readOnly ? ' is-readonly' : ''}`} data-tour={props.tour === false ? undefined : 'flow-canvas'}
+    <div className={`fc-canvas${props.readOnly ? ' is-readonly' : ''}${ready ? '' : ' is-fitting'}`} data-tour={props.tour === false ? undefined : 'flow-canvas'}
       role="region" aria-label="流程画布：节点和连线">
       <ReactFlowProvider>
-        <Inner {...props} />
+        <Inner {...props} onFitted={onFitted} />
       </ReactFlowProvider>
       {props.children}
     </div>

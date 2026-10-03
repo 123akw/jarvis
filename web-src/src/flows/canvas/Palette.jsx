@@ -24,7 +24,7 @@ function Item({ item, onPick, draggable, blocked, prefix = 'fc-pal' }) {
   return (
     <li className={`fc-pal-li${off ? ' is-off' : ''}`}>
       <button type="button" className="fc-pal-item" aria-disabled={off || undefined}
-        aria-describedby={off ? descId : undefined}
+        aria-describedby={off ? (blocked ? `${prefix}-blocked` : descId) : undefined}
         draggable={draggable && !off ? true : undefined}
         onDragStart={draggable && !off ? e => {
           e.dataTransfer.setData(DND_TYPE, item.key)
@@ -41,7 +41,7 @@ function Item({ item, onPick, draggable, blocked, prefix = 'fc-pal' }) {
           ) : null}
         </span>
       </button>
-      {off ? (
+      {off && !blocked ? (
         <p className="fc-pal-why" id={descId}>
           {why}
           {!blocked && needsPlugin(item) ? (
@@ -67,6 +67,7 @@ export function NodeList({ index, onPick, draggable = false, blocked = '', autoF
   const recentItems = recent && !query.trim() ? readRecent().map(k => index.byKey.get(k)).filter(it => it && it.available !== false && keep(it)) : []
   if (recentItems.length) groups = [{ id: 'recent', label: '最近用过', hint: '', items: recentItems }, ...groups]
   const pick = it => { rememberRecent(it.key); onPick(it) }
+  const lock = blocked ? <p className="fc-pal-lock" id={`${idPrefix}-blocked`} role="status">{blocked}</p> : null
   return (
     <div className="fc-pal-list">
       <label className="fc-pal-search">
@@ -74,6 +75,7 @@ export function NodeList({ index, onPick, draggable = false, blocked = '', autoF
         <input type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜节点、插件、技能"
           aria-label="搜节点" autoFocus={autoFocus} />
       </label>
+      {lock}
       {groups.length ? groups.map(g => (
         <section key={g.id} className="fc-pal-group" aria-labelledby={`${idPrefix}-${g.id}`}>
           <h3 className="fc-pal-title" id={`${idPrefix}-${g.id}`}>{g.label}{g.hint ? <small>{g.hint}</small> : null}</h3>

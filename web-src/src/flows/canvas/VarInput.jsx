@@ -48,7 +48,7 @@ export function VarPicker({ groups, query, onQuery, active, onActive, onPick, on
           {shown.map(g => (
             <div key={g.id} role="group" aria-label={g.title} className="fc-vp-group">
               <div className="fc-vp-head" aria-hidden="true">
-                <NodeIcon type={g.type === 'sys' || g.type === 'item' ? 'start' : g.type} size={12} />
+                <NodeIcon type={g.type} size={12} />
                 <span>{g.title}</span>
               </div>
               {g.vars.map(v => {

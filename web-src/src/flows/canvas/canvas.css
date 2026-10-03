@@ -22,6 +22,7 @@ body.light .fc-editor{
 .fc-editor [data-type=template]{--t:var(--t-template)}
 .fc-editor [data-type=step]{--t:var(--t-step)}
 .fc-editor [data-type=end]{--t:var(--t-end)}
+.fc-editor [data-type=sys],.fc-editor [data-type=item]{--t:var(--jv-text-2)}
 .fc-editor ::-webkit-scrollbar{width:10px;height:10px}
 .fc-editor ::-webkit-scrollbar-thumb{background:var(--jv-scroll);border-radius:10px;border:3px solid transparent;background-clip:content-box}
 .fc-flip{transform:scaleX(-1)}
@@ -103,6 +104,7 @@ body.light .fc-editor{
 .fc-pal-why{margin:-4px 8px 4px 48px;font-size:12px;color:var(--jv-text-3);line-height:1.5}
 .fc-pal-add{display:inline-flex;align-items:center;gap:2px;margin-left:4px;color:var(--jv-accent);text-decoration:none;font-weight:500;white-space:nowrap}
 .fc-pal-add:hover{text-decoration:underline}
+.fc-pal-lock{margin:0 4px 12px;padding:8px 12px;border-radius:8px;font-size:12px;color:var(--jv-text-2);background:var(--jv-hover)}
 .fc-pal-empty{padding:16px 8px;font-size:13px;color:var(--jv-text-3);text-align:center}
 
 /* 节点图标块：类型主题色 */
@@ -112,7 +114,8 @@ body.light .fc-editor{
 .fc-icon-emoji{font-size:15px;line-height:1}
 
 /* ---------- 画布 ---------- */
-.fc-canvas{position:absolute;inset:0}
+.fc-canvas{position:absolute;inset:0;transition:opacity .2s var(--jv-ease)}
+.fc-canvas.is-fitting{opacity:0}
 .fc-canvas .react-flow{
   --xy-background-color:var(--jv-bg);--xy-background-pattern-color:var(--fc-dot);
   --xy-edge-stroke:var(--fc-edge);--xy-edge-stroke-selected:var(--jv-accent);--xy-edge-stroke-width:1.6;

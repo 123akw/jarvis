@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { copyText } from '../../clipboard.js'
 import Icon from '../../Icon.jsx'
 import { handleCodeCopyClick, renderMarkdown } from '../../markdown.js'
@@ -20,7 +20,8 @@ function Markdown({ text }) {
   return <div className="fc-md jbody" onClick={handleCodeCopyClick} dangerouslySetInnerHTML={{ __html: html }} />
 }
 
-function Links({ links, page }) {
+function Links({ links: all, page }) {
+  const links = page ? all.filter(l => l.url !== page) : all   // 结果网页单独一个按钮，链接里就不再列一遍
   if (!links.length && !page) return null
   return (
     <ul className="fc-links">
@@ -130,13 +131,21 @@ function NodeRow({ id, state, graph, index, onFocusNode, onLocate }) {
 
 function FinalResult({ run, onLocate, graph }) {
   const [copied, setCopied] = useState('')
-  if (!run || run.status === 'running') return null
-  if (run.status === 'stopped') return <div className="fc-final is-stopped" role="status"><p>已停止运行。</p></div>
+  const ref = useRef(null)
+  const done = !!run && run.status !== 'running'
+  // 跑完把结果卡滚到眼前（顺序仍是 输入 → 过程 → 结果）
+  useEffect(() => {
+    if (!done || !ref.current?.scrollIntoView) return
+    const reduce = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ref.current.scrollIntoView({ block: 'nearest', behavior: reduce ? 'auto' : 'smooth' })
+  }, [done, run?.runId])
+  if (!done) return null
+  if (run.status === 'stopped') return <div className="fc-final is-stopped" role="status" ref={ref}><p>已停止运行。</p></div>
   if (run.status === 'error') {
     const at = run.errorNode ? nodeById(graph, run.errorNode) : null
     const step = at ? run.order.indexOf(at.id) + 1 : 0
     return (
-      <div className="fc-final is-error" role="alert">
+      <div className="fc-final is-error" role="alert" ref={ref}>
         <p className="fc-final-title">{at ? `第 ${step} 步出错了` : '没跑通'}</p>
         <p>{run.error || '流程没跑完'}</p>
         {at ? <button type="button" className="jv-btn jv-btn--sm" onClick={() => onLocate(at.id)}>去改这一步</button> : null}
@@ -147,7 +156,7 @@ function FinalResult({ run, onLocate, graph }) {
   const links = Array.isArray(out.links) ? out.links.filter(l => l && l.url) : []
   const steps = run.order.filter(id => run.nodes[id]?.status === 'ok').length
   return (
-    <div className="fc-final is-ok" role="status">
+    <div className="fc-final is-ok" role="status" ref={ref}>
       <div className="fc-final-head">
         <span className="fc-final-ok"><Icon name="check" size={14} />完成{run.ms ? ` · 用时 ${fmtMs(run.ms)}` : ''}{steps ? ` · ${steps} 步` : ''}</span>
         {out.text ? (

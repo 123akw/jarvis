@@ -17,6 +17,8 @@ const PATHS = {
   globe: <><circle cx="12" cy="12" r="8.5" /><path d="M3.5 12h17M12 3.5c2.5 2.4 3.5 5.4 3.5 8.5s-1 6.1-3.5 8.5c-2.5-2.4-3.5-5.4-3.5-8.5s1-6.1 3.5-8.5Z" /></>,
   grip: <><circle cx="9" cy="7" r=".9" /><circle cx="15" cy="7" r=".9" /><circle cx="9" cy="12" r=".9" /><circle cx="15" cy="12" r=".9" /><circle cx="9" cy="17" r=".9" /><circle cx="15" cy="17" r=".9" /></>,
   up: <><path d="m6.5 14.5 5.5-5.5 5.5 5.5" /></>,
+  sys: <><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></>,
+  item: <><path d="M5 7h14M5 12h14M5 17h9" /></>,
   down: <><path d="m6.5 9.5 5.5 5.5 5.5-5.5" /></>,
 }
 

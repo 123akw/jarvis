@@ -45,7 +45,7 @@ export function NodeFace({ vm, selected = false, children = null, as: Tag = 'div
         <NodeIcon type={node.type} emoji={vm.emoji} />
         <div className="fc-node-titles">
           <b className="fc-node-title">{vm.title}</b>
-          <small className="fc-node-type">{vm.typeLabel}</small>
+          {vm.typeLabel && vm.typeLabel !== vm.title ? <small className="fc-node-type">{vm.typeLabel}</small> : null}
         </div>
         <RunBadge run={run} />
       </div>

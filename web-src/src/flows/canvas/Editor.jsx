@@ -21,7 +21,7 @@ import {
   LIMIT_MSG, MAX_NODES, moveNodes, nodeById, nodeSummary, nodeTitle, normalizeGraph, redo, removeEdges, removeNodes,
   runReducer, settle, staleNodes, START_ID, startRunState, topoOrder, transient, undo, updateNodeData, validateGraph,
 } from '../graph.js'
-import Canvas from './Canvas.jsx'
+import Canvas, { fitOptions } from './Canvas.jsx'
 import { indexCatalog, itemOf } from './catalog.js'
 import ConfigPanel, { ConfigBody, typeLabelOf } from './ConfigPanel.jsx'
 import Glyph, { NodeIcon } from './glyphs.jsx'
@@ -442,7 +442,7 @@ export default function Editor({ flowId = 'new', initial = null, onSaved, onBack
   const doUndo = useCallback(() => { if (!locked) { setHist(undo(histRef.current)); setAnnounce('已撤销') } }, [locked, setHist])
   const doRedo = useCallback(() => { if (!locked) { setHist(redo(histRef.current)); setAnnounce('已重做') } }, [locked, setHist])
 
-  const fitView = () => rfRef.current?.fitView?.({ padding: 0.2, maxZoom: 1.1, duration: 280 })
+  const fitView = () => rfRef.current?.fitView?.(fitOptions({ side: !!(selectedId || panel === 'run'), narrow, duration: 280 }))
 
   function tidy() {
     if (locked) return
@@ -754,7 +754,7 @@ export default function Editor({ flowId = 'new', initial = null, onSaved, onBack
           ) : (
             <Canvas graph={graph} vmOf={vmOf} selectedId={selectedId} selectedEdge={null} locked={locked} readOnly run={run}
               onSelect={id => { if (id) { select(id); setSheet({ kind: 'config', id }) } }} onSelectEdge={() => {}} onMove={() => {}}
-              onConnect={() => {}} onDropItem={() => {}} onInit={inst => { rfRef.current = inst }} sizesRef={sizesRef} />
+              onConnect={() => {}} onDropItem={() => {}} onInit={inst => { rfRef.current = inst }} sizesRef={sizesRef} narrow />
           )}
         </main>
         {toast}
@@ -811,13 +811,13 @@ export default function Editor({ flowId = 'new', initial = null, onSaved, onBack
     <div className={`fc-editor${tried ? ' is-tried' : ''}${running ? ' is-running' : ''}`} aria-busy={running || undefined}>
       {top}
       <div className="fc-body">
-        <Palette index={index} onPick={item => addItem(item)} blocked={nodeLimit || (locked ? '运行中，先等它跑完' : '')}
+        <Palette index={index} onPick={item => addItem(item)} blocked={nodeLimit || (locked ? '运行中，跑完再加节点' : '')}
           catalogError={catalogErr} onRetry={loadCatalog} />
         <div className="fc-stage">
           <Canvas graph={graph} vmOf={vmOf} selectedId={selectedId} selectedEdge={selectedEdge} locked={locked} run={run}
             onSelect={id => { select(id); if (id) setPanel(p => (p === 'run' && !running ? '' : p)) }} onSelectEdge={selectEdge}
             onMove={onMove} onConnect={onConnect} onConnectError={msg => flash(msg, 'error')} onDeleteEdge={onDeleteEdge}
-            onDropItem={onDropItem} onQuick={q => { if (!locked) setQuick(q) }}
+            onDropItem={onDropItem} onQuick={q => { if (!locked) setQuick(q) }} side={!!sel || panel === 'run'}
             onInit={inst => { rfRef.current = inst }} sizesRef={sizesRef} />
           {onlyStartEnd && panel !== 'run' ? (
             <div className="fc-hint" role="note">
