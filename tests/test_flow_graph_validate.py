@@ -94,8 +94,8 @@ def test_condition_cases_and_handles_are_normalized():
 
 @pytest.mark.parametrize("graph, message", [
     # 开始节点的输入
-    (_g([{**START, "data": {"fields": [{"key": "Text"}]}}, END], [_e("start", "end")]), "小写字母开头"),
-    (_g([{**START, "data": {"fields": [{"key": "a"}, {"key": "a"}]}}, END], [_e("start", "end")]), "代号都是 a"),
+    (_g([{**START, "data": {"fields": [{"key": "Text"}]}}, END], [_e("start", "end")]), "第 1 个输入设置有误，删掉重新加一下"),
+    (_g([{**START, "data": {"fields": [{"key": "a"}, {"key": "a"}]}}, END], [_e("start", "end")]), "第 2 个输入和前面的输入重复了"),
     (_g([{**START, "data": {"fields": [{"key": f"f{i}"} for i in range(MAX_FIELDS + 1)]}}, END], []), "最多 8 个输入"),
     (_g([{**START, "data": {"fields": [{"key": "a", "label": "颜色", "type": "select"}]}}, END], []), "「颜色」至少要有一个选项"),
     (_g([{**START, "data": {"fields": [{"key": "a", "label": "颜色", "type": "select", "options": ["红"],
@@ -109,9 +109,9 @@ def test_condition_cases_and_handles_are_normalized():
     (_chain(_llm(skill="../evil")), "技能不存在"),
     (_chain({"id": "t", "type": "tool", "data": {"title": "查天气", "tool": "weather"}}), "「查天气」还没选插件"),
     (_chain({"id": "t", "type": "tool", "data": {"plugin": "weather", "tool": "weather", "args": {"a b": "x"}}}),
-     "参数名不对"),
+     "「插件工具」的参数设置有误，删掉这个节点重新加一下"),
     (_chain({"id": "t", "type": "tool", "data": {"plugin": "weather", "tool": "weather", "args": {"city": "x" * 2001}}}),
-     "最多 2000 个字"),
+     "有个参数超过 2000 个字了，删短一些"),
     (_chain({"id": "t", "type": "template", "data": {"title": "拼", "template": ["x"]}}), "「拼」的内容格式不对"),
     # 积木
     (_chain({"id": "s", "type": "step", "data": {"step": "input_text"}}), "已经并进「开始」节点"),
@@ -122,14 +122,14 @@ def test_condition_cases_and_handles_are_normalized():
     # 条件分支
     (_chain({"id": "c", "type": "condition", "data": {"title": "看天气", "cases": [
         {"id": "x", "rules": [{"var": "start.text", "op": "like"}]}]}}), "「看天气」的「分支 1」里有不认识的比较方式"),
-    (_chain({"id": "c", "type": "condition", "data": {"cases": [{"id": "else"}]}}), "分支编号不对"),
+    (_chain({"id": "c", "type": "condition", "data": {"cases": [{"id": "else"}]}}), "第 1 个分支设置有误"),
     (_chain({"id": "c", "type": "condition", "data": {"cases": [{"id": "a"}, {"id": "a"}]}}), "重复"),
     (_g([START, {"id": "c", "type": "condition", "data": {"title": "看天气", "cases": [{"id": "a"}]}}, END],
-        [_e("start", "c"), _e("c", "end", "b")]), "「看天气」的连线要从某个分支的出口连出"),
+        [_e("start", "c"), _e("c", "end", "b")]), "「看天气」有条连线没接在分支出口上，删掉重新从分支出口连"),
     (_g([START, {"id": "c", "type": "condition", "data": {"cases": [{"id": "a"}]}}, END],
-        [_e("start", "c"), _e("c", "end")]), "分支的出口"),
+        [_e("start", "c"), _e("c", "end")]), "分支出口"),
     # 结构
-    (_g([START, {**END, "id": "sys"}], []), "不能用 sys"),
+    (_g([START, {**END, "id": "sys"}], []), "流程格式不对，刷新页面后再试一次"),
     (_g([START, {"id": "n1", "type": "template", "data": {}}], [_e("start", "n1")]), "结束"),
     (_g([START, _llm(), END], [_e("start", "n1"), _e("n1", "end"), _e("end", "n1")]), "「结束」节点后面"),
 ])
@@ -152,10 +152,10 @@ def test_variables_must_reference_ancestors():
 
 
 @pytest.mark.parametrize("prompt, message", [
-    ("{{start.city}}", "开始输入「city」不存在了"),
-    ("{{sys.year}}", "系统变量「year」不存在"),
+    ("{{start.city}}", "「AI 处理」用到了「开始」里已经删掉的输入，删掉它重新插入"),
+    ("{{sys.year}}", "用到了不存在的系统变量"),
     ("{{start.text}} {{item}}", "要先打开「逐条处理」"),
-    ("{{ghost.text}}", "不存在的节点 ghost"),
+    ("{{ghost.text}}", "用到的变量来自一个已经删掉的节点"),
 ])
 def test_variable_errors(prompt, message):
     assert message in _error(_chain(_llm(prompt=prompt)))
@@ -164,7 +164,7 @@ def test_variable_errors(prompt, message):
 def test_variable_field_must_be_an_output_and_condition_vars_are_checked():
     graph = _g([START, _llm("a"), _llm("b", prompt="{{a.secret}}"), END],
                [_e("start", "a"), _e("a", "b"), _e("b", "end")])
-    assert "没有「secret」这项结果" in _error(graph)
+    assert _error(graph) == "「AI 处理」用到了「AI 处理」没有的结果，删掉它重新插入"
     cond = {"id": "c", "type": "condition", "data": {"cases": [{"id": "x", "rules": [{"var": "a.text", "op": "empty"}]}]}}
     graph = _g([START, _llm("a"), cond, END], [_e("start", "c"), _e("start", "a"), _e("c", "end", "x"), _e("a", "end")])
     assert "不在" in _error(graph)

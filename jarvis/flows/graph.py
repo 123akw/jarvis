@@ -24,6 +24,8 @@
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from collections import deque
 
@@ -109,10 +111,10 @@ def _text(data: dict, key: str, limit: int, where: str, what: str) -> str:
     if isinstance(raw, (int, float)) and not isinstance(raw, bool):
         raw = str(raw)
     if not isinstance(raw, str):
-        raise GraphError(f"{where}的{what}格式不对")
+        raise GraphError(f"{where}的{what}格式不对，重新填一下")
     text = raw.replace("\r\n", "\n").strip()
     if len(text) > limit:
-        raise GraphError(f"{where}的{what}最多 {limit} 个字")
+        raise GraphError(f"{where}的{what}最多 {limit} 个字，删短一些")
     return text
 
 
@@ -139,17 +141,17 @@ def _ensure_steps():
 
 def _norm_field(raw, index: int, where: str, seen: set[str]) -> dict:
     if not isinstance(raw, dict):
-        raise GraphError(f"{where}的第 {index} 个输入格式不对")
+        raise GraphError(f"{where}的第 {index} 个输入设置有误，删掉重新加一下")
     key = str(raw.get("key") or "").strip()
     if not FIELD_KEY.match(key):
-        raise GraphError(f"{where}的第 {index} 个输入的代号要用小写字母开头，只能有小写字母、数字和下划线")
+        raise GraphError(f"{where}的第 {index} 个输入设置有误，删掉重新加一下")
     if key in seen:
-        raise GraphError(f"{where}里有两个输入的代号都是 {key}")
+        raise GraphError(f"{where}的第 {index} 个输入和前面的输入重复了，删掉重新加一下")
     seen.add(key)
     label = _one_line(raw.get("label"), MAX_FIELD_LABEL) or key
     kind = raw.get("type") or "text"
     if kind not in FIELD_TYPES:
-        raise GraphError(f"{where}的「{label}」类型不对")
+        raise GraphError(f"{where}的「{label}」类型不对，重新选一下")
     field = {"key": key, "label": label, "type": kind, "required": bool(raw.get("required", False)),
              "placeholder": _one_line(raw.get("placeholder"), MAX_PLACEHOLDER), "default": None}
     default = raw.get("default")
@@ -161,31 +163,31 @@ def _norm_field(raw, index: int, where: str, seen: set[str]) -> dict:
         for option in options_in:
             text = _one_line(option, MAX_OPTION_CHARS + 1)
             if len(text) > MAX_OPTION_CHARS:
-                raise GraphError(f"{where}的「{label}」每个选项最多 {MAX_OPTION_CHARS} 个字")
+                raise GraphError(f"{where}的「{label}」每个选项最多 {MAX_OPTION_CHARS} 个字，删短一些")
             if text and text not in options:
                 options.append(text)
         if not options:
-            raise GraphError(f"{where}的「{label}」至少要有一个选项")
+            raise GraphError(f"{where}的「{label}」至少要有一个选项，先加一个")
         if len(options) > MAX_SELECT_OPTIONS:
-            raise GraphError(f"{where}的「{label}」最多 {MAX_SELECT_OPTIONS} 个选项")
+            raise GraphError(f"{where}的「{label}」最多 {MAX_SELECT_OPTIONS} 个选项，删掉几个")
         field["options"] = options
         if default not in (None, ""):
             default = _one_line(default, MAX_OPTION_CHARS)
             if default not in options:
-                raise GraphError(f"{where}的「{label}」默认值要从选项里选")
+                raise GraphError(f"{where}的「{label}」默认值要从选项里选，重新选一下")
             field["default"] = default
     elif kind == "number":
         if default not in (None, ""):
             try:
                 value = float(str(default).replace(",", "").strip())
             except ValueError:
-                raise GraphError(f"{where}的「{label}」默认值要是数字") from None
+                raise GraphError(f"{where}的「{label}」默认值要是数字，改成数字或清空") from None
             field["default"] = int(value) if value.is_integer() and abs(value) < 1e15 else value
     elif kind in ("text", "paragraph"):
         if default not in (None, ""):
             text = str(default).replace("\r\n", "\n").strip()
             if len(text) > MAX_DEFAULT:
-                raise GraphError(f"{where}的「{label}」默认值最多 {MAX_DEFAULT} 个字")
+                raise GraphError(f"{where}的「{label}」默认值最多 {MAX_DEFAULT} 个字，删短一些")
             field["default"] = text if kind == "paragraph" else " ".join(text.split())
     return field
 
@@ -195,9 +197,9 @@ def _norm_start(data: dict, where: str) -> dict:
     if fields_in is None:
         fields_in = []
     if not isinstance(fields_in, list):
-        raise GraphError(f"{where}的输入格式不对")
+        raise GraphError(f"{where}的输入设置有误，刷新页面后再试一次")
     if len(fields_in) > MAX_FIELDS:
-        raise GraphError(f"{where}最多 {MAX_FIELDS} 个输入")
+        raise GraphError(f"{where}最多 {MAX_FIELDS} 个输入，删掉几个")
     seen: set[str] = set()
     fields = [_norm_field(raw, i, where, seen) for i, raw in enumerate(fields_in, 1)]
     return {"title": _one_line(data.get("title"), MAX_TITLE) or "开始", "fields": fields}
@@ -209,20 +211,20 @@ def _norm_foreach(data: dict, where: str) -> str:
         return ""
     path = _var_path(raw) if isinstance(raw, str) else None
     if not path:
-        raise GraphError(f"{where}的「逐条处理」要选一个上游节点的清单")
+        raise GraphError(f"{where}的「逐条处理」要选一个前面节点的清单，重新选一下")
     ref, field = path.split(".")
     if ref in ("sys", START_ID) or field not in LIST_FIELDS:
-        raise GraphError(f"{where}的「逐条处理」只能选上游节点的清单（条目、分段或链接）")
+        raise GraphError(f"{where}的「逐条处理」只能选前面节点的清单（条目、分段或链接），重新选一下")
     return f"{{{{{path}}}}}"
 
 
 def _norm_llm(data: dict, where: str) -> dict:
     skill = str(data.get("skill") or "").strip()
     if skill and not PLUGIN_ID.match(skill):
-        raise GraphError(f"{where}选的技能不存在")
+        raise GraphError(f"{where}选的技能不存在，换一个或删掉它")
     output = data.get("output") or "text"
     if output not in LLM_OUTPUTS:
-        raise GraphError(f"{where}的输出方式只能是「一段文字」或「清单」")
+        raise GraphError(f"{where}的输出方式只能选「一段文字」或「清单」")
     return {"title": _one_line(data.get("title"), MAX_TITLE) or "AI 处理",
             "prompt": _text(data, "prompt", MAX_PROMPT, where, "要求"),
             "skill": skill, "output": output, "foreach": _norm_foreach(data, where)}
@@ -232,20 +234,20 @@ def _norm_tool(data: dict, where: str) -> dict:
     plugin = str(data.get("plugin") or "").strip()
     tool = str(data.get("tool") or "").strip()
     if not plugin or not PLUGIN_ID.match(plugin):
-        raise GraphError(f"{where}还没选插件")
+        raise GraphError(f"{where}还没选插件，从左边的插件工具里拖一个进来")
     if not tool or not TOOL_NAME.match(tool):
-        raise GraphError(f"{where}还没选要用的工具")
+        raise GraphError(f"{where}还没选要用的工具，从左边的插件工具里拖一个进来")
     args_in = data.get("args")
     if args_in is None:
         args_in = {}
     if not isinstance(args_in, dict):
-        raise GraphError(f"{where}的参数格式不对")
+        raise GraphError(f"{where}的参数设置有误，删掉这个节点重新加一下")
     if len(args_in) > MAX_ARGS:
-        raise GraphError(f"{where}最多 {MAX_ARGS} 个参数")
+        raise GraphError(f"{where}的参数太多了，删掉这个节点重新加一下")
     args: dict[str, str] = {}
     for name, value in args_in.items():
         if not isinstance(name, str) or not ARG_NAME.match(name):
-            raise GraphError(f"{where}有个参数名不对")
+            raise GraphError(f"{where}的参数设置有误，删掉这个节点重新加一下")
         if value is None:
             continue
         if isinstance(value, bool):
@@ -253,10 +255,10 @@ def _norm_tool(data: dict, where: str) -> dict:
         elif isinstance(value, (int, float)):
             value = str(value)
         if not isinstance(value, str):
-            raise GraphError(f"{where}的参数「{name}」要填文字")
+            raise GraphError(f"{where}有个参数格式不对，重新填一下")
         value = value.replace("\r\n", "\n").strip()
         if len(value) > MAX_ARG:
-            raise GraphError(f"{where}的参数「{name}」最多 {MAX_ARG} 个字")
+            raise GraphError(f"{where}有个参数超过 {MAX_ARG} 个字了，删短一些")
         if value:
             args[name] = value
     return {"title": _one_line(data.get("title"), MAX_TITLE) or "插件工具", "plugin": plugin, "tool": tool,
@@ -265,19 +267,19 @@ def _norm_tool(data: dict, where: str) -> dict:
 
 def _norm_rule(raw, where: str, case_label: str) -> dict:
     if not isinstance(raw, dict):
-        raise GraphError(f"{where}的「{case_label}」条件格式不对")
+        raise GraphError(f"{where}的「{case_label}」条件设置有误，删掉重新加一下")
     op = raw.get("op") or "contains"
     if op not in OPS:
-        raise GraphError(f"{where}的「{case_label}」里有不认识的比较方式")
+        raise GraphError(f"{where}的「{case_label}」里有不认识的比较方式，重新选一下")
     var = _var_path(raw.get("var"))
     if var is None:
-        raise GraphError(f"{where}的「{case_label}」要比较的变量不对")
+        raise GraphError(f"{where}的「{case_label}」要比较的内容不对，重新选一下")
     value = raw.get("value")
     if isinstance(value, bool):
         value = "true" if value else "false"
     value = "" if value is None or op in UNARY_OPS else str(value).replace("\r\n", "\n").strip()
     if len(value) > MAX_RULE_VALUE:
-        raise GraphError(f"{where}的「{case_label}」比较的值最多 {MAX_RULE_VALUE} 个字")
+        raise GraphError(f"{where}的「{case_label}」比较的值最多 {MAX_RULE_VALUE} 个字，删短一些")
     return {"var": var, "op": op, "value": value}
 
 
@@ -286,18 +288,18 @@ def _norm_condition(data: dict, where: str) -> dict:
     if cases_in is None:
         cases_in = []
     if not isinstance(cases_in, list):
-        raise GraphError(f"{where}的分支格式不对")
+        raise GraphError(f"{where}的分支设置有误，刷新页面后再试一次")
     if len(cases_in) > MAX_CASES:
-        raise GraphError(f"{where}最多 {MAX_CASES} 个分支")
+        raise GraphError(f"{where}最多 {MAX_CASES} 个分支，删掉几个")
     cases, seen = [], set()
     for i, raw in enumerate(cases_in, 1):
         if not isinstance(raw, dict):
-            raise GraphError(f"{where}的分支格式不对")
+            raise GraphError(f"{where}的分支设置有误，刷新页面后再试一次")
         case_id = str(raw.get("id") or "").strip() or f"c{i}"
         if not NODE_ID.match(case_id) or case_id == ELSE_HANDLE:
-            raise GraphError(f"{where}的第 {i} 个分支编号不对")
+            raise GraphError(f"{where}的第 {i} 个分支设置有误，删掉重新加一下")
         if case_id in seen:
-            raise GraphError(f"{where}有两个分支编号重复了")
+            raise GraphError(f"{where}的第 {i} 个分支和前面的重复了，删掉重新加一下")
         seen.add(case_id)
         label = _one_line(raw.get("label"), MAX_CASE_LABEL) or f"分支 {i}"
         logic = raw.get("logic") or "and"
@@ -307,9 +309,9 @@ def _norm_condition(data: dict, where: str) -> dict:
         if rules_in is None:
             rules_in = []
         if not isinstance(rules_in, list):
-            raise GraphError(f"{where}的「{label}」条件格式不对")
+            raise GraphError(f"{where}的「{label}」条件设置有误，删掉重新加一下")
         if len(rules_in) > MAX_RULES:
-            raise GraphError(f"{where}的「{label}」最多 {MAX_RULES} 条条件")
+            raise GraphError(f"{where}的「{label}」最多 {MAX_RULES} 条条件，删掉几条")
         cases.append({"id": case_id, "label": label, "logic": logic,
                       "rules": [_norm_rule(rule, where, label) for rule in rules_in]})
     return {"title": _one_line(data.get("title"), MAX_TITLE) or "条件分支", "cases": cases}
@@ -332,7 +334,7 @@ def _norm_step(data: dict, where: str) -> dict:
     if raw_options is None:
         raw_options = {}
     if not isinstance(raw_options, dict):
-        raise GraphError(f"{where}的设置格式不对")
+        raise GraphError(f"{where}的设置有误，删掉这个节点重新加一下")
     options = {o["key"]: flow_steps.normalize_option(o, raw_options.get(o["key"]), spec.name, GraphError)
                for o in spec.options}
     return {"title": _one_line(data.get("title"), MAX_TITLE) or spec.name, "step": spec.id, "options": options,
@@ -465,18 +467,18 @@ def _check_refs(graph: dict, by_id: dict[str, dict]) -> None:
             for ref, field in VAR.findall(text or ""):
                 if ref == "sys":
                     if field not in SYS_FIELDS:
-                        raise GraphError(f"{where}用到的系统变量「{field}」不存在")
+                        raise GraphError(f"{where}用到了不存在的系统变量，删掉它重新插入")
                     continue
                 target = by_id.get(ref)
                 if target is None:
-                    raise GraphError(f"{where}引用了不存在的节点 {ref}")
+                    raise GraphError(f"{where}用到的变量来自一个已经删掉的节点，删掉它重新插入")
                 if ref not in ancestors[node["id"]]:
                     raise GraphError(f"{where}用到了{_label(target)}的结果，但它不在{where}前面：先用连线把它们连起来")
                 if ref == START_ID:
                     if field not in start_keys:
-                        raise GraphError(f"{where}用到的开始输入「{field}」不存在了")
+                        raise GraphError(f"{where}用到了「开始」里已经删掉的输入，删掉它重新插入")
                 elif field not in NODE_FIELDS:
-                    raise GraphError(f"{where}用到的{_label(target)}没有「{field}」这项结果")
+                    raise GraphError(f"{where}用到了{_label(target)}没有的结果，删掉它重新插入")
 
 
 def validate_graph(raw) -> dict:
@@ -488,30 +490,30 @@ def validate_graph(raw) -> dict:
     - 变量 ``{{节点.字段}}`` 只能引用祖先节点，开始节点只能引用声明过的输入；``{{item}}`` 只在逐条处理里用。
     没配完（提示词空、必填参数没填、节点没连上）不拦，运行前再查，免得画布里存不下半成品。"""
     if not isinstance(raw, dict):
-        raise GraphError("流程格式不对")
+        raise GraphError("流程格式不对，刷新页面后再试一次")
     nodes_in, edges_in = raw.get("nodes"), raw.get("edges", [])
     if edges_in is None:
         edges_in = []
     if not isinstance(nodes_in, list) or not isinstance(edges_in, list):
-        raise GraphError("流程格式不对")
+        raise GraphError("流程格式不对，刷新页面后再试一次")
     if len(nodes_in) > MAX_NODES:
-        raise GraphError(f"一个流程最多 {MAX_NODES} 个节点")
+        raise GraphError(f"一个流程最多 {MAX_NODES} 个节点，删掉几个再保存")
     if len(edges_in) > MAX_EDGES:
-        raise GraphError(f"一个流程最多 {MAX_EDGES} 条连线")
+        raise GraphError(f"一个流程最多 {MAX_EDGES} 条连线，删掉几条再保存")
     nodes: list[dict] = []
     seen: set[str] = set()
     for item in nodes_in:
         if not isinstance(item, dict):
-            raise GraphError("流程格式不对")
+            raise GraphError("流程格式不对，刷新页面后再试一次")
         node_id, kind = str(item.get("id") or ""), item.get("type")
         if not NODE_ID.match(node_id):
-            raise GraphError("节点编号只能用字母、数字、下划线和短横线")
+            raise GraphError("流程格式不对，刷新页面后再试一次")
         if node_id in seen:
-            raise GraphError("节点编号重复了")
+            raise GraphError("流程格式不对，刷新页面后再试一次")
         if kind not in NODE_TYPES:
-            raise GraphError(f"不认识的节点类型：{kind}")
+            raise GraphError("流程里有不认识的节点，删掉它或刷新页面后再试")
         if node_id in RESERVED_IDS or (node_id == START_ID and kind != "start"):
-            raise GraphError(f"节点编号不能用 {node_id}")
+            raise GraphError("流程格式不对，刷新页面后再试一次")
         seen.add(node_id)
         pos = item.get("position") if isinstance(item.get("position"), dict) else {}
         try:
@@ -525,37 +527,37 @@ def validate_graph(raw) -> dict:
         nodes.append({"id": node_id, "type": kind, "position": position, "data": dict(data)})
     starts = [n for n in nodes if n["type"] == "start"]
     if len(starts) != 1 or starts[0]["id"] != START_ID:
-        raise GraphError("流程要有且只有一个「开始」节点")
+        raise GraphError("流程要有且只有一个「开始」节点，多的删掉、没有就加一个")
     for node in nodes:
         node["data"] = _NORMALIZERS[node["type"]](node["data"], _label(node))
     flow_steps = _ensure_steps()
     if not any(n["type"] == "end" or (n["type"] == "step" and flow_steps.STEPS[n["data"]["step"]].role
                                       == flow_steps.ROLE_OUTPUT) for n in nodes):
-        raise GraphError("流程至少要有一个「结束」或输出节点")
+        raise GraphError("流程至少要有一个「结束」或输出节点，在最后加一个「结束」")
     if sum(1 for n in nodes if n["type"] == "step" and n["data"]["step"] == "web_page") > 1:
-        raise GraphError("一条流程只能生成一个网页（「生成网页」积木只能放一个）")
+        raise GraphError("一条流程只能生成一个网页：「生成网页」积木只留一个")
     by_id = {n["id"]: n for n in nodes}
     edges: list[dict] = []
     pairs: set[tuple] = set()
     edge_ids: set[str] = set()
     for i, item in enumerate(edges_in):
         if not isinstance(item, dict):
-            raise GraphError("流程格式不对")
+            raise GraphError("流程格式不对，刷新页面后再试一次")
         source, target = str(item.get("source") or ""), str(item.get("target") or "")
         if source not in by_id or target not in by_id:
-            raise GraphError("有连线连到了不存在的节点")
+            raise GraphError("有条连线两头没接好，删掉重新连")
         if source == target:
-            raise GraphError("节点不能连到自己")
+            raise GraphError("节点不能连到自己，删掉这条连线")
         if target == START_ID:
-            raise GraphError("「开始」节点前面不能再接节点")
+            raise GraphError("「开始」节点前面不能再接节点，删掉连进「开始」的线")
         if by_id[source]["type"] == "end":
-            raise GraphError("「结束」节点后面不能再接节点")
+            raise GraphError("「结束」节点后面不能再接节点，删掉从「结束」连出去的线")
         handle = item.get("sourceHandle") or None
         handle = str(handle) if handle is not None else None
         if by_id[source]["type"] == "condition":
             handles = {c["id"] for c in by_id[source]["data"]["cases"]} | {ELSE_HANDLE}
             if handle not in handles:
-                raise GraphError(f"{_label(by_id[source])}的连线要从某个分支的出口连出")
+                raise GraphError(f"{_label(by_id[source])}有条连线没接在分支出口上，删掉重新从分支出口连")
         else:
             handle = None
         key = (source, target, handle)
@@ -570,10 +572,22 @@ def validate_graph(raw) -> dict:
         edge_ids.add(edge_id)
         edges.append({"id": edge_id, "source": source, "target": target, "sourceHandle": handle})
     if _find_cycle([n["id"] for n in nodes], edges):
-        raise GraphError("流程里有环：连线不能绕回前面的节点")
+        raise GraphError("流程里有环：连线不能绕回前面的节点，删掉绕回去的那条线")
     graph = {"nodes": nodes, "edges": edges}
     _check_refs(graph, by_id)
     return graph
+
+
+def config_hash(node: dict) -> str:
+    """节点配置指纹（类型 + 规整后的 data 的 sha256 前 12 位）：运行事件 / 运行记录里带上它，
+    前端拿它和流程里节点当前的指纹（``config_hashes``）比，改过配置的节点结果就显示「已过期」。"""
+    raw = json.dumps({"type": node.get("type"), "data": node.get("data") or {}}, sort_keys=True,
+                     ensure_ascii=False, separators=(",", ":"), default=str)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
+
+
+def config_hashes(graph: dict) -> dict[str, str]:
+    return {n["id"]: config_hash(n) for n in graph.get("nodes") or [] if isinstance(n, dict) and "id" in n}
 
 
 def default_summary(graph: dict, limit: int = 60) -> str:
