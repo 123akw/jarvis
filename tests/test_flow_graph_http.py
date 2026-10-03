@@ -137,8 +137,9 @@ def test_graph_crud_list_fields_and_trigger(fake, owner_id):
     assert listed["node_count"] == 5 and listed["plugins"] == ["todo"] and listed["trigger"] is None
     assert listed["last_run"] is None and listed["graph"] == flow["graph"]
     bad = owner.put(f"/api/flows/{flow['id']}", json={"name": "x", "graph": {**GRAPH, "edges": GRAPH["edges"] + [_e("end", "ai")]}})
-    assert bad.status_code == 400 and bad.json() == {"error": "「结束」节点后面不能再接节点"}
+    assert bad.status_code == 400 and bad.json() == {"error": "「结束」节点后面不能再接节点，删掉从「结束」连出去的线"}
     assert owner.post("/api/flows", json={"name": "空"}).json() == {"error": "流程里还没有节点"}
+    assert set(flow["config_hashes"]) == {"start", "ai", "cond", "todo", "end"}
     with FlowStore()._connect() as c:   # 定时运行由 extras 写；这里只验证读取与删除
         c.execute("INSERT INTO tenant_flow_triggers(owner_id, flow_id, kind, config, enabled, next_run_at, updated_at)"
                   " VALUES (?, ?, 'schedule', ?, 1, '2026-10-04T08:00:00+08:00', 'x')",
@@ -165,7 +166,9 @@ def test_run_streams_node_events_with_branch_skip(fake, owner_id):
         ("run_start", None), ("node_start", "start"), ("node_done", "start"), ("node_start", "ai"), ("node_done", "ai"),
         ("node_start", "cond"), ("node_done", "cond"), ("node_start", "todo"), ("node_done", "todo"),
         ("node_start", "end"), ("node_done", "end"), ("run_done", None)]
-    assert events[1] == {"type": "node_start", "node_id": "start", "node_type": "start", "title": "开始"}
+    assert events[1] == {"type": "node_start", "node_id": "start", "node_type": "start", "title": "开始",
+                         "config_hash": flow["config_hashes"]["start"]}
+    assert all(e["config_hash"] == flow["config_hashes"][e["node_id"]] for e in events if "node_id" in e)
     assert events[4]["output"] == {"text": "AI：要带伞"} and events[4]["summary"] == "写好了（6 字）"
     assert "明天有雨" in fake[0] and "深圳" in fake[0]   # 文件字段的正文进了模型
     done = events[-1]
@@ -176,7 +179,8 @@ def test_run_streams_node_events_with_branch_skip(fake, owner_id):
                             "page_url", "error"}
     assert runs[0]["input_summary"] == "城市：深圳 · 资料：预报.md" and runs[0]["output_text"] == "AI：要带伞"
     assert runs[0]["nodes"][2] == {"node_id": "cond", "title": "条件分支", "node_type": "condition", "status": "ok",
-                                   "summary": "走「下雨」", "preview": "", "ms": runs[0]["nodes"][2]["ms"]}
+                                   "summary": "走「下雨」", "preview": "", "ms": runs[0]["nodes"][2]["ms"],
+                                   "config_hash": flow["config_hashes"]["cond"]}
     listed = owner.get("/api/flows").json()["flows"][0]["last_run"]
     assert listed["status"] == "ok" and listed["id"] == events[0]["run_id"] and listed["started_at"]
     with owner.stream("POST", f"/api/flows/{flow['id']}/run", json={"inputs": {"city": "北京"}}) as r:
@@ -195,8 +199,9 @@ def test_run_input_errors(fake, owner_id):
     assert owner.post(url, json={"inputs": {"city": ["列表"]}}).json() == {"error": "输入格式不对"}
     with owner.stream("POST", url, json={"inputs": {}}) as r:   # 必填没填：开始节点报错
         events = _sse(r)
-    assert events[2] == {"type": "node_error", "node_id": "start", "message": "请先填写「城市」", "ms": events[2]["ms"]}
-    assert events[-1]["status"] == "error" and events[-1]["error"] == "请先填写「城市」"
+    assert events[2] == {"type": "node_error", "node_id": "start", "message": "「开始」：请先填写「城市」",
+                         "ms": events[2]["ms"], "config_hash": flow["config_hashes"]["start"]}
+    assert events[-1]["status"] == "error" and events[-1]["error"] == "「开始」：请先填写「城市」"
 
 
 # ---------- 旧数据兼容 ----------

@@ -21,7 +21,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from jarvis.flows import engine, executor, nodes as nodes_mod, page as page_mod
-from jarvis.flows.graph import MAX_FIELDS, GraphError, default_summary, graph_from_steps, validate_graph
+from jarvis.flows.graph import (MAX_FIELDS, GraphError, config_hashes, default_summary, graph_from_steps,
+                                validate_graph)
 from jarvis.flows.steps import clip
 from jarvis.flows.store import FlowLimitError, FlowStore, MAX_FLOWS
 from jarvis.tenancy import TenantMigrationError, tenant_scope
@@ -277,7 +278,8 @@ def register(app, *, request_principal, panel_write, deny, deps: engine.FlowDeps
     def flow_view(flow: dict, *, last_run: dict | None, trigger: dict | None, full: bool) -> dict:
         graph = view_graph(flow)
         view = {"id": flow["id"], "name": flow["name"], "summary": flow["summary"], "graph": graph,
-                "updated_at": flow["updated_at"], "trigger": trigger, "last_run": last_run}
+                "config_hashes": config_hashes(graph), "updated_at": flow["updated_at"], "trigger": trigger,
+                "last_run": last_run}
         if not full:
             view["node_count"] = len(graph.get("nodes") or [])
             view["plugins"] = nodes_mod.graph_plugins(graph)
