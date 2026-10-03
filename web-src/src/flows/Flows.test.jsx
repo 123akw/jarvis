@@ -101,8 +101,8 @@ function sseResponse(events) {
 let api
 const CHANNELS = { feishu: { ready: true, reason: '' }, wechat: { ready: false, reason: '微信只有管理员账号能用' } }
 
-function mockApi({ flows = FLOWS, listStatus = 200, composeFail = 0, trigger = null, feishuBound = false, runs = RUNS, hooks = {} } = {}) {
-  const state = { flows: flows.map(f => ({ ...f })), calls: [], composeFail, trigger, feishuBound, rerun: null, hooks: { ...hooks }, tokens: 0, hookFail: '' }
+function mockApi({ flows = FLOWS, listStatus = 200, composeFail = 0, trigger = null, feishuBound = false, runs = RUNS, hooks = {}, approvals = null } = {}) {
+  const state = { flows: flows.map(f => ({ ...f })), calls: [], composeFail, trigger, feishuBound, rerun: null, hooks: { ...hooks }, tokens: 0, hookFail: '', approvals }
   const res = (body, status = 200) => ({ ok: status < 400, status, json: async () => body })
   global.fetch = vi.fn(async (url, init = {}) => {
     const method = init.method || 'GET'
@@ -113,6 +113,7 @@ function mockApi({ flows = FLOWS, listStatus = 200, composeFail = 0, trigger = n
       return r.status ? res(r.body || {}, r.status) : sseResponse(r.events)
     }
     if (/^\/api\/flows\/[^/]+\/runs/.test(url) && runs !== RUNS) return res(runs)
+    if (url.startsWith('/api/approvals?')) return state.approvals ? res(state.approvals) : res({ error: 'not mocked' }, 404)
     // 第二十轮：触发方式（收到消息 / 通过链接）
     let h = url.match(/^\/api\/flows\/([^/]+)\/hooks$/)
     if (h) return res(state.hooks[h[1]] || { message: null, webhook: null, channels: CHANNELS })
@@ -493,6 +494,32 @@ describe('「我的流程」首页', () => {
     fireEvent.click(within(drawer).getByRole('button', { name: '用这次的输入再跑' }))
     expect(await within(drawer).findByRole('alert')).toHaveTextContent('今天的用量到上限了')
     expect(within(drawer).getByRole('heading', { name: '没能再跑' })).toBeInTheDocument()
+  })
+
+  it('顶部「等你确认 · N」：没有待确认不出现；有就出现，点开是列表（流程名、哪一步、预览、还剩多久），点一条进确认页', async () => {
+    const { container } = await renderHome()
+    await waitFor(() => expect(calls('/api/approvals?status=pending&limit=20')).toHaveLength(1))
+    expect(screen.queryByRole('button', { name: /等你确认/ })).toBeNull()
+    cleanup()
+    const now = Date.now()
+    await renderHome({ approvals: { pending: 2, approvals: [
+      { id: 'apv111', flow: { id: 'f1', name: '工作日早报' }, title: '发群前给我看看', preview: '今天北京晴，18–26 度。上午 10 点周会。', status: 'pending',
+        created_at: new Date(now - 600e3).toISOString(), expires_at: new Date(now + 23.5 * 3600e3).toISOString() },
+      { id: 'apv222', flow: { id: 'f2', name: '会议纪要转待办' }, title: '加待办前确认', preview: '1. 订会议室', status: 'pending',
+        created_at: new Date(now - 7200e3).toISOString(), expires_at: new Date(now + 40 * 60e3).toISOString() },
+    ] } })
+    const bar = await screen.findByRole('button', { name: /等你确认 · 2/ })
+    expect(bar).toHaveTextContent('「工作日早报」等 2 个流程停在发送前，等你看一眼')
+    expect(bar.compareDocumentPosition(screen.getByRole('heading', { level: 1, name: '我的流程' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.click(bar)
+    const drawer = screen.getByRole('dialog', { name: '等你确认' })
+    const items = within(within(drawer).getByRole('list', { name: '等你确认的流程' })).getAllByRole('link')
+    expect(items.map(a => a.getAttribute('href'))).toEqual(['/approve/apv111', '/approve/apv222'])
+    expect(items[0]).toHaveTextContent('工作日早报还剩 23 小时停在「发群前给我看看」 · 10 分钟前今天北京晴')
+    expect(within(items[1]).getByText('还剩 40 分钟')).toHaveClass('is-soon')
+    fireEvent.click(items[1])
+    expect(where()).toBe('/approve/apv222')
+    expect(container).toBeTruthy()
   })
 
   it('卡片上的触发标记：⏰ 定时 / 💬 收到消息 / 🔗 链接，只显示开着的', async () => {

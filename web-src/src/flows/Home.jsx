@@ -4,9 +4,12 @@ import Icon from '../Icon.jsx'
 import Modal, { ModalHead } from '../Modal.jsx'
 import { APP_PATH, flowHref, navigate } from '../routes.js'
 import { TourButton, useTour } from '../tour/index.jsx'
-import { composeFlow, deleteFlow, getFeishuStatus, getFlow, getHooks, getNodeCatalog, getTemplates, listFlows, saveFlow } from './api.js'
+import {
+  composeFlow, deleteFlow, getFeishuStatus, getFlow, getHooks, getNodeCatalog, getTemplates, listApprovals, listFlows, saveFlow,
+} from './api.js'
 import Compose from './Compose.jsx'
 import FlowCard, { triggerText } from './FlowCard.jsx'
+import PendingDrawer, { PendingBar } from './Pending.jsx'
 import { blankDraft, catalogIndex, copyName, requirements, writeDraft } from './flowkit.js'
 import Preview from './Preview.jsx'
 import RunsDrawer from './RunsDrawer.jsx'
@@ -96,6 +99,8 @@ export default function Home({ onExpired }) {
   const [runsFor, setRunsFor] = useState(null)
   const [trigFor, setTrigFor] = useState(null)        // { flow, tab }
   const [hooksMap, setHooksMap] = useState({})        // { [流程 id]: { message, webhook } }
+  const [approvals, setApprovals] = useState({ approvals: [], pending: 0 })   // 等你确认
+  const [pendingOpen, setPendingOpen] = useState(false)
   const [delFor, setDelFor] = useState(null)
   const [bindOpen, setBindOpen] = useState(false)
   const [toast, setToast] = useState(null)
@@ -141,6 +146,22 @@ export default function Home({ onExpired }) {
       setTpl({ status: 'error', categories: [], templates: [], error: err.message || TEMPLATE_FALLBACK })
     }
   }, [expired])
+
+  // 等你确认：进来读一次，切回这个页面时再读（在确认页处理完回来，数字就对了）；读不到就不显示入口
+  const loadApprovals = useCallback(async () => {
+    try {
+      setApprovals(await listApprovals({ status: 'pending', limit: 20 }))
+    } catch (err) {
+      if (err.message === '401') expired()
+    }
+  }, [expired])
+  useEffect(() => {
+    loadApprovals()
+    const onVisible = () => { if (document.visibilityState !== 'hidden') loadApprovals() }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    return () => { document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('focus', onVisible) }
+  }, [loadApprovals])
 
   useEffect(() => {
     loadFlows()
@@ -310,6 +331,9 @@ export default function Home({ onExpired }) {
 
       <main className="fh-scroll">
         <div className={`fh-wrap${returning ? ' is-returning' : ''}`}>
+          {approvals.pending > 0 ? (
+            <PendingBar pending={approvals.pending} approvals={approvals.approvals} onOpen={() => setPendingOpen(true)} />
+          ) : null}
           <div className="fh-hero">
             <div className="fh-hero-text">
               <h1 className="fh-h1">我的流程</h1>
@@ -339,6 +363,7 @@ export default function Home({ onExpired }) {
           primary="用这个模板" onPrimary={() => openDraft({ name: preview.tpl.name, summary: preview.tpl.summary, graph: preview.tpl.graph })}
           secondary="关闭" onSecondary={() => setPreview(null)} onClose={() => setPreview(null)} />
       ) : null}
+      {pendingOpen ? <PendingDrawer approvals={approvals.approvals} pending={approvals.pending} onClose={() => setPendingOpen(false)} /> : null}
       {runsFor ? <RunsDrawer flow={runsFor} onClose={() => setRunsFor(null)} onOpenFlow={f => navigate(flowHref(f.id))} onExpired={expired} /> : null}
       {trigFor ? (
         <TriggerSheet flow={trigFor.flow} tab={trigFor.tab} feishu={feishu} onBindFeishu={() => setBindOpen(true)}
