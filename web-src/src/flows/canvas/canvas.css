@@ -390,6 +390,8 @@ body.light .fc-seg button.is-on{box-shadow:0 1px 3px rgba(0,0,0,.1)}
 .fc-vp-short{font-weight:500;flex:none}
 .fc-vp-full{font-size:11px;color:var(--jv-text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fc-vp-empty{padding:16px;font-size:13px;color:var(--jv-text-3);line-height:1.5}
+.fc-vp-note{flex:none;margin:6px 8px 0;padding:6px 10px;border-radius:8px;font-size:12px;line-height:1.5;color:var(--jv-text-2);background:var(--jv-accent-soft)}
+.fc-vp-item.is-file .fc-vp-short{color:var(--jv-accent)}
 
 /* ---------- 运行面板 ---------- */
 .fc-blockers{padding:12px;border-radius:12px;margin-bottom:16px;background:color-mix(in srgb,var(--jv-danger) 9%,transparent);font-size:13px;line-height:1.6}
@@ -420,6 +422,8 @@ details>.fc-rn-row{cursor:pointer}
 details[open] .fc-rn-chev{transform:rotate(90deg)}
 .fc-rn-body{padding:0 12px 12px;max-height:320px;overflow:auto}
 .fc-rn-items{margin-left:20px;font-size:13px;line-height:1.6}
+.fc-rn > .fc-files{padding:0 12px 10px 38px}
+.fc-files a{font-size:12.5px}
 .fc-md{font-size:13px;line-height:1.7;overflow-wrap:anywhere}
 .fc-md>*:first-child{margin-top:0}
 .fc-md p{margin:4px 0}

@@ -2,8 +2,8 @@ import { useCallback, useId, useMemo, useState } from 'react'
 import Icon from '../../Icon.jsx'
 import { MARKET_PATH } from '../../routes.js'
 import {
-  canConnect, choiceList, conditionHandles, FIELD_TYPES, handleLabel, LIST_FIELDS, MAX_FIELDS, MAX_TEXT, nodeById, nodeTitle,
-  OPS, START_ID, topoOrder, UNARY_OPS, varLabel, varOptions,
+  canConnect, choiceList, conditionHandles, FIELD_TYPES, FILE_VAR_LABEL, fileFirstGroups, handleLabel, isFileArg, LIST_FIELDS,
+  MAX_FIELDS, MAX_TEXT, nodeById, nodeTitle, OPS, START_ID, topoOrder, UNARY_OPS, varLabel, varOptions,
 } from '../graph.js'
 import { itemOf, needsPlugin, unavailableReason } from './catalog.js'
 import Glyph, { NodeIcon } from './glyphs.jsx'
@@ -77,7 +77,8 @@ function StartForm({ node, patch, locked }) {
                 placeholder={'每行一个选项，比如：\n日报\n周报'} value={(f.options || []).join('\n')}
                 onChange={e => set(i, { options: e.target.value.split('\n').map(s => s.slice(0, 30)).slice(0, 20) })} />
             ) : f.type === 'file' ? (
-              <p className="fc-field-hint">运行时上传一个文件（10MB 以内）；后面的节点拿到的是文件里的文字。</p>
+              <p className="fc-field-hint">运行时上传一个文件（10MB 以内）。后面的节点可以用「{String(f.label || '').trim() || '它'}」（读出的文字），
+                也可以用「{String(f.label || '').trim() || '它'}（{FILE_VAR_LABEL}）」把文件本身交给 Excel / PDF / Word 工具。</p>
             ) : (
               <input className="fc-input" value={f.placeholder || ''} maxLength={40} disabled={locked} placeholder="输入框里的提示（可不填）"
                 aria-label={`「${f.label || `第 ${i + 1} 个输入项`}」的提示语`} onChange={e => set(i, { placeholder: e.target.value })} />
@@ -334,6 +335,18 @@ function Foreach({ node, graph, groups, patch, locked }) {
   )
 }
 
+/* ---------- 插件工具：要文件的参数 ---------- */
+
+/** 要文件（file_id）的参数下面的提示：该插哪个变量 */
+export function fileArgHint(graph) {
+  const start = nodeById(graph, START_ID)
+  const files = (start?.data?.fields || []).filter(f => f?.type === 'file')
+  const name = f => String(f.label || '').trim() || '没起名的输入项'
+  if (files.length === 1) return `要的是文件：点「变量」插入「${nodeTitle(start)} · ${name(files[0])}（${FILE_VAR_LABEL}）」，不是读出的文字。`
+  if (files.length) return `要的是文件：点「变量」插入开始节点某个文件输入的「${FILE_VAR_LABEL}」，不是读出的文字。`
+  return `要的是文件：先在「开始」里加一个「文件」输入，再点「变量」插入它的「${FILE_VAR_LABEL}」。`
+}
+
 /* ---------- 主体 ---------- */
 
 export function ConfigBody({
@@ -344,6 +357,7 @@ export function ConfigBody({
   const item = itemOf(index, node)
   const labelOf = useCallback((ref, field) => varLabel(graph, ref, field, { sys }), [graph, sys])
   const groups = useMemo(() => varOptions(graph, node.id, { sys, itemOf: n => itemOf(index, n), outputs: index.outputs }), [graph, node.id, sys, index])
+  const fileGroups = useMemo(() => fileFirstGroups(groups), [groups])
   const vi = { groups, labelOf, disabled: locked, typeTrigger }
   const tabId = useId()
   const d = node.data || {}
@@ -388,6 +402,7 @@ export function ConfigBody({
     )
   } else if (node.type === 'tool') {
     const args = item?.args || []
+    const fileTip = fileArgHint(graph)
     form = (
       <div className="fc-cfg-sec">
         {item === null ? <div className="fc-cfg-warn" role="note"><Glyph name="warn" size={15} /><p>这个插件工具已经不在了，删掉换一个。</p></div> : null}
@@ -397,8 +412,9 @@ export function ConfigBody({
           const val = d.args?.[a.name] ?? ''
           const set = v => patch(x => ({ ...x, args: { ...(x.args || {}), [a.name]: v } }), g(`arg.${a.name}`))
           const fid = `${ids.prompt}-a${i}`
+          const wantsFile = isFileArg(a)
           return (
-            <Field key={a.name} label={a.label || '参数'} required={a.required} hint={a.description} htmlFor={fid}>
+            <Field key={a.name} label={a.label || '参数'} required={a.required} hint={wantsFile ? fileTip : a.description} htmlFor={fid}>
               {Array.isArray(a.enum) && a.enum.length ? (
                 <select id={fid} className="fc-select" value={val} disabled={locked} onChange={e => set(e.target.value)}>
                   <option value="">{a.required ? '请选择…' : '不选'}</option>
@@ -406,7 +422,8 @@ export function ConfigBody({
                 </select>
               ) : (
                 <VarInput {...vi} id={fid} tour={i === 0} multiline={a.type === 'text'} rows={2} value={String(val)} label={a.label || '参数'}
-                  placeholder={a.type === 'number' || a.type === 'integer' ? '填数字，或插入前面步骤的结果' : '直接填，或插入前面步骤的结果'} onChange={set} />
+                  groups={wantsFile ? fileGroups : groups} note={wantsFile ? `这一项要的是文件：选带「${FILE_VAR_LABEL}」的那项，不要选读出的文字` : ''}
+                  placeholder={wantsFile ? `点「变量」插入开始节点上传文件的「${FILE_VAR_LABEL}」` : a.type === 'number' || a.type === 'integer' ? '填数字，或插入前面步骤的结果' : '直接填，或插入前面步骤的结果'} onChange={set} />
               )}
             </Field>
           )

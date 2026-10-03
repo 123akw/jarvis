@@ -21,7 +21,7 @@ function filterGroups(groups, query) {
 }
 
 /** 变量选择列表（输入框下方弹出；也给条件规则的「比较什么」复用） */
-export function VarPicker({ groups, query, onQuery, active, onActive, onPick, onClose, searchable, listId, labelledBy }) {
+export function VarPicker({ groups, query, onQuery, active, onActive, onPick, onClose, searchable, listId, labelledBy, note }) {
   const shown = filterGroups(groups, query)
   const all = flat(shown)
   const listRef = useRef(null)
@@ -43,6 +43,7 @@ export function VarPicker({ groups, query, onQuery, active, onActive, onPick, on
           aria-controls={listId} aria-activedescendant={all[active] ? `${listId}-${active}` : undefined}
           onChange={e => { onQuery(e.target.value); onActive(0) }} onKeyDown={onKey} />
       ) : null}
+      {note ? <p className="fc-vp-note">{note}</p> : null}
       {all.length ? (
         <div className="fc-vp-list" role="listbox" id={listId} ref={listRef} aria-labelledby={labelledBy}>
           {shown.map(g => (
@@ -56,7 +57,7 @@ export function VarPicker({ groups, query, onQuery, active, onActive, onPick, on
                 const idx = i
                 return (
                   <div key={v.token} id={`${listId}-${idx}`} role="option" aria-selected={idx === active}
-                    className={`fc-vp-item${idx === active ? ' is-active' : ''}`}
+                    className={`fc-vp-item${idx === active ? ' is-active' : ''}${v.file ? ' is-file' : ''}`}
                     onMouseEnter={() => onActive(idx)} onClick={() => onPick(v)}>
                     <span className="fc-vp-short">{v.short}</span>
                     <span className="fc-vp-full">{v.label}</span>
@@ -77,11 +78,12 @@ export function VarPicker({ groups, query, onQuery, active, onActive, onPick, on
 
 /**
  * props：value（存的文字，含 {{…}}）、onChange(新文字)、groups（varOptions 的结果）、labelOf(ref, field) → { label, broken }、
- * multiline、rows、placeholder、label（读屏名）、id、disabled、maxLength、tour（给「插入变量」按钮加 data-tour="flow-var"）。
+ * multiline、rows、placeholder、label（读屏名）、id、disabled、maxLength、tour（给「插入变量」按钮加 data-tour="flow-var"）、
+ * note（选择框顶上的一句提示，比如「这一项要的是文件」）。
  */
 export default function VarInput({
   value = '', onChange, groups = [], labelOf, multiline = true, rows = 3, placeholder = '', label, id, disabled = false,
-  maxLength, tour = false, describedBy, typeTrigger = true,
+  maxLength, tour = false, describedBy, typeTrigger = true, note = '',
 }) {
   const info = useMemo(() => toDisplay(value, labelOf), [value, labelOf])
   const taRef = useRef(null)
@@ -228,7 +230,7 @@ export default function VarInput({
       {broken ? <p className="fc-vi-warn">有 {broken} 个变量对应的内容已经不在了（标红的），删掉重新选一个</p> : null}
       {pick ? (
         <VarPicker groups={groups} query={pick.query} onQuery={q => setPick(p => ({ ...p, query: q }))}
-          active={active} onActive={setActive} onPick={choose} searchable={pick.mode === 'button'}
+          active={active} onActive={setActive} onPick={choose} searchable={pick.mode === 'button'} note={note}
           onClose={() => { setPick(null); taRef.current?.focus() }} listId={listId} />
       ) : null}
     </div>

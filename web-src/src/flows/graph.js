@@ -15,6 +15,9 @@ export const MAX_EDGES = 60
 export const MAX_FIELDS = 8
 export const MAX_TEXT = 4000
 export const FIELD_KEY = /^[a-z][a-z0-9_]{0,23}$/
+/** 文件字段的「原文件」变量：{{start.<key>_file}}（第十九轮）——原文件进了文件空间，交给要文件的工具（Excel / PDF / Word） */
+export const FILE_SUFFIX = '_file'
+export const FILE_VAR_LABEL = '原文件'
 export const NODE_ID = /^[A-Za-z0-9_-]{1,32}$/
 
 /** 节点类型 → 人话名与一句说明（节点卡的小字、面板分组用） */
@@ -509,7 +512,7 @@ export function upstream(graph, id) {
 
 /* ---------- 变量 ---------- */
 
-const VAR_RE = /\{\{\s*(?:([A-Za-z0-9_-]{1,32})\.([A-Za-z0-9_]{1,24})|(item))\s*\}\}/g
+const VAR_RE = /\{\{\s*(?:([A-Za-z0-9_-]{1,32})\.([A-Za-z0-9_]{1,29})|(item))\s*\}\}/g
 
 /** 文本里的变量：[{ raw, ref, field, start, end }]；{{item}} 记作 ref='item' */
 export function parseVars(text) {
@@ -539,6 +542,42 @@ export function splitVars(text) {
 
 export const varToken = (ref, field) => (ref === 'item' ? '{{item}}' : `{{${ref}.${field}}}`)
 
+const fieldName = f => String(f?.label || '').trim() || '没起名的输入项'
+
+/**
+ * 开始节点的变量名 → 对应的输入项：{ field, file }。file=true 表示「原文件」（{{start.<key>_file}}，只有文件输入有）；
+ * 找不到返回 null；名字像原文件、但那个输入已经不是文件了，返回 { field, file: true, notFile: true }。
+ */
+export function startVar(node, name) {
+  const fields = Array.isArray(node?.data?.fields) ? node.data.fields : []
+  const own = fields.find(f => f?.key === name)
+  if (own) return { field: own, file: false }
+  if (String(name).endsWith(FILE_SUFFIX)) {
+    const base = fields.find(f => f?.key === String(name).slice(0, -FILE_SUFFIX.length))
+    if (base) return base.type === 'file' ? { field: base, file: true } : { field: base, file: true, notFile: true }
+  }
+  return null
+}
+
+/** 插件工具的参数要不要文件（目录 args 里的 file 标记；老目录没有就看名字 / 说明） */
+export function isFileArg(arg) {
+  if (!arg) return false
+  if (typeof arg.file === 'boolean') return arg.file
+  return arg.name === 'file_id' || arg.name === 'file_ids' || /file_id/i.test(String(arg.description || ''))
+}
+
+/** 要文件的参数：变量选择里把「原文件」单独排成第一组，其余组里不再重复列 */
+export function fileFirstGroups(groups) {
+  const files = []
+  const rest = []
+  for (const g of groups || []) {
+    const keep = g.vars.filter(v => !v.file)
+    files.push(...g.vars.filter(v => v.file))
+    if (keep.length) rest.push(keep.length === g.vars.length ? g : { ...g, vars: keep })
+  }
+  return files.length ? [{ id: 'files', title: `${FILE_VAR_LABEL}（这一项要文件，选这里）`, type: 'start', vars: files }, ...rest] : rest
+}
+
 /**
  * 节点能给下游用的产出：[{ field, label }]。
  * item 是节点在目录里对应的那项（积木可带 produces 声明，有就按它筛）。
@@ -554,9 +593,11 @@ export function outputsOf(node, item = null, outputs = null) {
     return pick(list)
   }
   switch (node.type) {
-    case 'start':
-      return (Array.isArray(d.fields) ? d.fields : []).filter(f => f?.key)
-        .map(f => ({ field: f.key, label: String(f.label || '').trim() || '没起名的输入项' }))
+    case 'start':   // 文件输入另有一项「原文件」
+      return (Array.isArray(d.fields) ? d.fields : []).filter(f => f?.key).flatMap(f => [
+        { field: f.key, label: fieldName(f) },
+        ...(f.type === 'file' ? [{ field: `${f.key}${FILE_SUFFIX}`, label: `${fieldName(f)}（${FILE_VAR_LABEL}）`, file: true }] : []),
+      ])
     case 'llm':
       return pick(d.output === 'list' ? ['text', 'items'] : ['text'])
     case 'tool':
@@ -585,8 +626,10 @@ export function varLabel(graph, ref, field, { sys = DEFAULT_SYS } = {}) {
   const node = nodeById(graph, ref)
   if (!node) return { label: `已删除的节点 · ${OUT_LABEL[field] || field}`, broken: true }
   if (node.type === 'start') {
-    const f = (node.data?.fields || []).find(x => x.key === field)
-    return { label: `${nodeTitle(node)} · ${f ? (String(f.label || '').trim() || '没起名的输入项') : '已删除的输入项'}`, broken: !f }
+    const hit = startVar(node, field)
+    if (!hit) return { label: `${nodeTitle(node)} · 已删除的输入项`, broken: true }
+    if (hit.file) return { label: `${nodeTitle(node)} · ${fieldName(hit.field)}（${FILE_VAR_LABEL}）`, broken: !!hit.notFile }
+    return { label: `${nodeTitle(node)} · ${fieldName(hit.field)}`, broken: false }
   }
   return { label: `${nodeTitle(node)} · ${OUT_LABEL[field] || field}`, broken: !OUT_LABEL[field] }
 }
@@ -612,7 +655,7 @@ export function varOptions(graph, nodeId, { sys = DEFAULT_SYS, itemOf = () => nu
     const title = nodeTitle(node)
     groups.push({
       id: node.id, title, type: node.type,
-      vars: outs.map(o => ({ token: varToken(node.id, o.field), ref: node.id, field: o.field, label: `${title} · ${o.label}`, short: o.label })),
+      vars: outs.map(o => ({ token: varToken(node.id, o.field), ref: node.id, field: o.field, label: `${title} · ${o.label}`, short: o.label, ...(o.file ? { file: true } : {}) })),
     })
   }
   if (sys.length) {
@@ -633,7 +676,7 @@ function strings(value, path = []) {
 }
 
 /** 条件规则里的 var 字段（"n1.text"，不带花括号） */
-const RULE_VAR = /^\s*([A-Za-z0-9_-]{1,32})\.([A-Za-z0-9_]{1,24})\s*$/
+const RULE_VAR = /^\s*([A-Za-z0-9_-]{1,32})\.([A-Za-z0-9_]{1,29})\s*$/
 
 /** 节点里引用到的变量（含条件规则的 var） */
 export function referencesOf(node) {
@@ -721,7 +764,7 @@ export function validateGraph(graph, { itemOf = () => undefined, sys = DEFAULT_S
       if (fields.length > MAX_FIELDS) at('fields', 'error', 'save', `输入项最多 ${MAX_FIELDS} 个`)
       const keys = new Set()
       fields.forEach((f, i) => {
-        if (!FIELD_KEY.test(String(f?.key || '')) || keys.has(f.key)) at(`fk${i}`, 'error', 'save', `第 ${i + 1} 个输入项的内部名字不对，删掉重加一个`)
+        if (!FIELD_KEY.test(String(f?.key || '')) || keys.has(f.key) || String(f?.key).endsWith(FILE_SUFFIX)) at(`fk${i}`, 'error', 'save', `第 ${i + 1} 个输入项的内部名字不对，删掉重加一个`)
         keys.add(f?.key)
         if (blank(f?.label)) at(`fl${i}`, 'error', 'run', `第 ${i + 1} 个输入项还没起名字`)
         if (f?.type === 'select' && !(Array.isArray(f.options) && f.options.some(o => !blank(o)))) {
@@ -736,8 +779,17 @@ export function validateGraph(graph, { itemOf = () => undefined, sys = DEFAULT_S
       if (item === null) at('tool', 'error', 'run', '这个插件工具不在了，删掉换一个')
       else if (item) {
         if (item.available === false) at('avail', 'error', 'run', item.reason || '这个插件现在用不了')
+        const start = nodeById(graph, START_ID)
         for (const a of item.args || []) {
           if (a.required && blank(d.args?.[a.name])) at(`arg-${a.name}`, 'error', 'run', `还缺：${a.label || '必填项'}`)
+          else if (isFileArg(a)) {
+            // 要文件的参数接了文件输入「读出的文字」：工具找不到文件（与服务端运行前检查同一句）
+            const wrong = parseVars(d.args?.[a.name]).find(v => v.ref === START_ID && startVar(start, v.field)?.field?.type === 'file' && !startVar(start, v.field).file)
+            if (wrong) {
+              const f = startVar(start, wrong.field).field
+              at(`file-${a.name}`, 'error', 'run', `「${nodeTitle(node)}」要的是文件，请用『${nodeTitle(start)} · ${fieldName(f)}（${FILE_VAR_LABEL}）』这个变量`)
+            }
+          }
         }
       }
     } else if (node.type === 'condition') {
@@ -795,8 +847,10 @@ export function validateGraph(graph, { itemOf = () => undefined, sys = DEFAULT_S
       const ref = nodeById(graph, r.ref)
       if (!ref) { at(`v-${k}`, 'error', 'save', '用到的结果已经不在了（那个节点删掉了），重新选一下'); continue }
       if (!before.has(r.ref)) { at(`v-${k}`, 'error', 'run', `只能用前面步骤的结果，「${nodeTitle(ref)}」不在这一步前面`); continue }
-      if (ref.type === 'start' && !(ref.data?.fields || []).some(f => f.key === r.field)) {
-        at(`v-${k}`, 'error', 'run', '用到的输入项已经删了，重新选一下')
+      if (ref.type === 'start') {
+        const hit = startVar(ref, r.field)
+        if (!hit) at(`v-${k}`, 'error', 'run', '用到的输入项已经删了，重新选一下')
+        else if (hit.notFile) at(`v-${k}`, 'error', 'run', `「${fieldName(hit.field)}」已经不是文件输入了，没有原文件：改回「文件」类型，或重新选一个`)
       }
     }
   }

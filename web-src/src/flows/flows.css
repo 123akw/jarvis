@@ -301,6 +301,9 @@ body.light .fh-tab.is-on{box-shadow:0 1px 2px rgba(0,0,0,.08),0 0 0 1px rgba(0,0
 .fh-nres-ms{margin-left:auto;flex:none;font-size:12px;color:var(--jv-text-3);font-variant-numeric:tabular-nums}
 .fh-nres-sum{margin-top:2px;font-size:13px;line-height:1.55;color:var(--jv-text-2);overflow-wrap:anywhere}
 .fh-nres[data-state=error] .fh-nres-sum{color:var(--jv-danger)}
+.fh-nres-files{margin-top:4px;display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12.5px}
+.fh-nres-files a{display:inline-flex;align-items:center;gap:4px;color:var(--jv-accent);text-decoration:none;overflow-wrap:anywhere}
+.fh-nres-files a:hover{text-decoration:underline}
 .fh-nres-pre{margin-top:8px;max-height:224px;overflow:auto;padding:12px;border-radius:8px;white-space:pre-wrap;word-break:break-word;
   font-family:var(--jv-font);font-size:12.5px;line-height:1.6;color:var(--jv-text-2);background:var(--jv-surface-2)}
 .fh-result{padding:16px;border-radius:12px;border:1px solid var(--jv-border);background:var(--fh-card);font-size:14.5px;line-height:1.7}
