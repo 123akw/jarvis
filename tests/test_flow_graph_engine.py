@@ -119,6 +119,7 @@ def test_condition_activates_one_branch_and_skips_propagate(owner_id):
     assert skips["no"]["reason"] == "「看天气」走了「下雨」，没走这条"
     assert skips["more"]["reason"] == skips["end2"]["reason"] == "前面的节点没有运行，这里也跳过"
     assert _by(events, "node_done")["cond"]["summary"] == "走「下雨」"
+    assert _by(events, "node_done")["cond"]["output"] == {"text": "", "branch": "rain"}   # 前端据此点亮走过的出口
     assert result["output"]["text"] == "记得带伞：明天有雨"
     events, result = _run(owner_id, _branch_graph(), Deps(), {"text": "大晴天"})
     assert set(_by(events, "node_skip")) == {"yes", "end1"}

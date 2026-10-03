@@ -29,7 +29,7 @@ from typing import Any, Callable
 from jarvis.flows import graph as graph_mod
 from jarvis.flows import nodes as nodes_mod
 from jarvis.flows.engine import STEP_POOL, TOTAL_SECONDS, FlowDeps, requirement_problem, wait_future
-from jarvis.flows.steps import (AI_TIMEOUT, MAX_ITEMS, MAX_MATERIAL_CHARS, MAX_TEXT_CHARS, STEPS, StepFailure,
+from jarvis.flows.steps import (AI_TIMEOUT, MAX_ITEMS, MAX_MATERIAL_CHARS, STEPS, StepFailure,
                                 StepJob, cap_text, clean_model_text, clip, first_line, parse_items, preview,
                                 read_upload)
 from jarvis.tenancy import tenant_scope
@@ -66,9 +66,7 @@ RULE_TEXT = "输出简洁的 Markdown（只用 ## 标题、- 列表和段落）�
 RULE_LIST = f"只输出清单：每行一条「- 条目」，最多 {MAX_ITEMS} 条，不要别的文字；一条都没有就只输出「无」。"
 
 
-def total_message(total_seconds: float = TOTAL_SECONDS) -> str:
-    minutes = int(TOTAL_SECONDS // 60)
-    return f"整条流程超过 {minutes} 分钟，已停止"
+TOTAL_MESSAGE = f"整条流程超过 {int(TOTAL_SECONDS // 60)} 分钟，已停止"   # 测试可调小总时限，提示仍按正式上限说
 
 
 # ---------- 渲染 ----------
@@ -780,7 +778,7 @@ def execute_graph(*, flow: dict, user_id: str, inputs: dict, deps: FlowDeps, sto
                 record(node, "error", message=error, ms=int((clock() - started) * 1000))
                 break
             except FutureTimeout:
-                message = (total_message(total_seconds) if run.deadline - clock() <= 0.05
+                message = (TOTAL_MESSAGE if run.deadline - clock() <= 0.05
                            else f"这一步超时了（超过 {int(run.limit)} 秒），请稍后再试")
             except Exception as exc:
                 log.exception("flow node %s crashed: %s", node["type"], type(exc).__name__)
@@ -794,11 +792,14 @@ def execute_graph(*, flow: dict, user_id: str, inputs: dict, deps: FlowDeps, sto
             if result.handle is not None:
                 run.handles[node_id] = result.handle
             summary, shown = clip(result.summary, 60), result.preview
-            node_output = {"text": clip(result.ctx.get("text") or "", OUTPUT_TEXT_CHARS)}
-            if result.ctx.get("items"):
-                node_output["items"] = [clip(x, 200) for x in result.ctx["items"][:50]]
-            if result.ctx.get("links"):
-                node_output["links"] = result.ctx["links"]
+            if node["type"] == "condition":   # 条件分支没有自己的产出，只告诉前端走了哪个出口
+                node_output = {"text": "", "branch": result.handle}
+            else:
+                node_output = {"text": clip(result.ctx.get("text") or "", OUTPUT_TEXT_CHARS)}
+                if result.ctx.get("items"):
+                    node_output["items"] = [clip(x, 200) for x in result.ctx["items"][:50]]
+                if result.ctx.get("links"):
+                    node_output["links"] = result.ctx["links"]
             send({"type": "node_done", "node_id": node_id, "summary": summary, "preview": shown, "ms": ms,
                   "output": node_output})
             record(node, "ok", summary=summary, preview=shown, ms=ms)
