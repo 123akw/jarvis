@@ -93,7 +93,11 @@ def test_node_catalog_route_and_shape(fake):
     weather = _items(catalog, "tools")["tool:weather:weather"]
     assert weather["title"] == "查城市天气" and weather["plugin_name"] == "查天气" and weather["category"] == "life"
     assert weather["args"] == [{"name": "city", "label": "城市", "type": "string", "required": True,
-                                "description": weather["args"][0]["description"], "enum": None, "default": None}]
+                                "description": weather["args"][0]["description"], "enum": None, "default": None,
+                                "file": False}]
+    summary = _items(catalog, "tools")["tool:excel:excel_summary"]   # 要文件的参数标出来，画布把「原文件」排前面
+    assert [a["name"] for a in summary["args"] if a["file"]] == ["file_id"]
+    assert catalog["vars"]["start_file"] == {"suffix": "_file", "label": "原文件"}
     assert weather["data"] == {"title": "查城市天气", "plugin": "weather", "tool": "weather", "args": {}}
     assert weather["available"] is True and weather["reason"] == ""
     salary = _items(catalog, "tools")["tool:tax_calc:tax_calc_salary"]

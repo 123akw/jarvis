@@ -2,7 +2,8 @@
 
 - :func:`find_tool`：按工具名找注册表里的 LangChain 工具（插件包工具已包好限时与人话错误，先查它们；
   再查核心工具）；
-- :func:`tool_args`：工具参数 schema → 画布表单用的参数清单（人话标签、类型、必填、可选值）；
+- :func:`tool_args`：工具参数 schema → 画布表单用的参数清单（人话标签、类型、必填、可选值；要文件的参数标 ``file``）；
+- :func:`file_args`：工具里要「文件空间里的文件」（file_id / file_ids）的参数——流程里填开始节点的「原文件」变量；
 - :class:`Account`：当前账号能用哪些插件（智能体账号只认装了的；绑定 / 桌面端 / 文件等前置条件）；
 - :func:`node_catalog`：``GET /api/flows/nodes`` 的节点目录（基础 / 插件工具 / 技能 / 积木）。
 """
@@ -113,6 +114,29 @@ def arg_label(name: str, prop: dict) -> str:
     return ARG_LABELS.get(name) or first_clause(prop.get("description") or "", 12) or name
 
 
+FILE_ARG_NAMES = ("file_id", "file_ids")
+
+
+def is_file_arg(name: str, prop: dict | None) -> bool:
+    """参数要的是文件空间里的文件：名字是 file_id / file_ids，或说明里写了 file_id。"""
+    if name in FILE_ARG_NAMES:
+        return True
+    return "file_id" in str((prop or {}).get("description") or "").lower()
+
+
+def uses_file_space(tool) -> bool:
+    """内置插件包（Excel / PDF / Word…）按 file_id 读账号文件空间；第三方子进程插件与 MCP 工具的同名参数不算。"""
+    return tool is not None and not getattr(tool, "plugin_sandboxed", False) and not getattr(tool, "plugin_mcp", False)
+
+
+def file_args(tool) -> list[str]:
+    """工具里要文件（file_id）的参数名；流程里这些参数填开始节点的「原文件」变量 ``{{start.<key>_file}}``。"""
+    if not uses_file_space(tool):
+        return []
+    props = tool_schema(tool).get("properties") or {}
+    return [name for name, prop in props.items() if is_file_arg(name, prop if isinstance(prop, dict) else {})]
+
+
 def tool_args(tool) -> list[dict]:
     """画布表单用的参数清单：[{name, label, type, required, description, enum, default}]。"""
     if tool is None:
@@ -120,6 +144,7 @@ def tool_args(tool) -> list[dict]:
     schema = tool_schema(tool)
     props = schema.get("properties") or {}
     required = set(schema.get("required") or [])
+    wants_file = set(file_args(tool))
     out = []
     for name, prop in props.items():
         if not isinstance(prop, dict):
@@ -129,7 +154,8 @@ def tool_args(tool) -> list[dict]:
         out.append({"name": name, "label": arg_label(name, prop), "type": prop_type(prop),
                     "required": name in required, "description": clip(prop.get("description") or "", 160),
                     "enum": list(enum) if isinstance(enum, list) else None,
-                    "default": default if isinstance(default, (str, int, float, bool)) else None})
+                    "default": default if isinstance(default, (str, int, float, bool)) else None,
+                    "file": name in wants_file})
     return out
 
 
@@ -345,7 +371,9 @@ def node_catalog(user_id: str, deps) -> dict:
         ],
         "categories": categories,
         "vars": {"sys": [{"key": k, "label": graph_mod.SYS_LABELS[k]} for k in graph_mod.SYS_FIELDS],
-                 "fields": [{"key": k, "label": graph_mod.FIELD_LABELS[k]} for k in graph_mod.NODE_FIELDS]},
+                 "fields": [{"key": k, "label": graph_mod.FIELD_LABELS[k]} for k in graph_mod.NODE_FIELDS],
+                 # 开始节点的文件字段另有一项「原文件」：{{start.<key>_file}}（给要 file_id 的工具用）
+                 "start_file": {"suffix": graph_mod.FILE_SUFFIX, "label": graph_mod.FILE_VAR_LABEL}},
         "outputs": copy.deepcopy(NODE_OUTPUTS),
         "field_types": list(graph_mod.FIELD_TYPES),
         "limits": {"nodes": graph_mod.MAX_NODES, "edges": graph_mod.MAX_EDGES, "fields": graph_mod.MAX_FIELDS,

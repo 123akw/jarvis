@@ -15,7 +15,9 @@
 - ``end``        结束：``data.output`` 是最终结果（可含变量），``data.page`` 为真时生成结果网页。
 
 变量写法 ``{{node_id.field}}``：字段有 text / items / title / links / parts / files；开始节点是
-``{{start.<字段 key>}}``；系统变量 ``{{sys.date}}`` ``{{sys.time}}`` ``{{sys.weekday}}``；
+``{{start.<字段 key>}}``；文件字段另有 ``{{start.<字段 key>_file}}``（第十九轮）：上传的原文件存进账号的
+文件空间后渲染成附件标记「［附件：文件名 · file_id=XXX］」，Excel / PDF / Word 工具的 file_id 参数直接用它；
+``{{start.<字段 key>}}`` 仍是读出的文字。系统变量 ``{{sys.date}}`` ``{{sys.time}}`` ``{{sys.weekday}}``；
 开了「逐条处理」（``foreach``）的节点里另有 ``{{item}}``（当前条目）。
 
 本文件只做「保存时」的校验与规整（结构、上限、逐类型规整 data、变量只能引用上游）；
@@ -53,9 +55,11 @@ MAX_RULE_VALUE = 200
 MAX_FOREACH = 20
 NODE_ID = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
 FIELD_KEY = re.compile(r"^[a-z][a-z0-9_]{0,23}$")
-VAR = re.compile(r"\{\{\s*([A-Za-z0-9_-]{1,32})\.([A-Za-z0-9_]{1,24})\s*\}\}")
+FILE_SUFFIX = "_file"          # {{start.<key>_file}}：文件字段的原文件（字段 key 最长 24，加后缀最长 29）
+FILE_VAR_LABEL = "原文件"
+VAR = re.compile(r"\{\{\s*([A-Za-z0-9_-]{1,32})\.([A-Za-z0-9_]{1,29})\s*\}\}")
 ITEM_VAR = re.compile(r"\{\{\s*item\s*\}\}")
-VAR_PATH = re.compile(r"^\s*(?:\{\{\s*)?([A-Za-z0-9_-]{1,32})\.([A-Za-z0-9_]{1,24})(?:\s*\}\})?\s*$")
+VAR_PATH = re.compile(r"^\s*(?:\{\{\s*)?([A-Za-z0-9_-]{1,32})\.([A-Za-z0-9_]{1,29})(?:\s*\}\})?\s*$")
 PLUGIN_ID = re.compile(r"^[a-z][a-z0-9_]{1,30}$")
 TOOL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
 ARG_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]{0,63}$")
@@ -149,6 +153,8 @@ def _norm_field(raw, index: int, where: str, seen: set[str]) -> dict:
         raise GraphError(f"{where}的第 {index} 个输入和前面的输入重复了，删掉重新加一下")
     seen.add(key)
     label = _one_line(raw.get("label"), MAX_FIELD_LABEL) or key
+    if key.endswith(FILE_SUFFIX):   # 会和文件字段的「原文件」变量 {{start.<key>_file}} 撞名
+        raise GraphError(f"{where}的「{label}」内部名字不能以 _file 结尾（和「原文件」变量撞名），删掉重新加一下")
     kind = raw.get("type") or "text"
     if kind not in FIELD_TYPES:
         raise GraphError(f"{where}的「{label}」类型不对，重新选一下")
@@ -454,9 +460,59 @@ def node_texts(node: dict) -> list[str]:
     return []
 
 
+def file_var(key: str) -> str:
+    """文件字段 key → 它的「原文件」变量名：report → report_file。"""
+    return f"{key}{FILE_SUFFIX}"
+
+
+def start_var_names(fields: list[dict]) -> set[str]:
+    """开始节点能被引用的变量名：每个字段的 key，文件字段另加 ``<key>_file``（原文件）。"""
+    names = set()
+    for field in fields or []:
+        if isinstance(field, dict) and field.get("key"):
+            names.add(field["key"])
+            if field.get("type") == "file":
+                names.add(file_var(field["key"]))
+    return names
+
+
+def start_ref_problem(fields: list[dict], name: str, where: str) -> str:
+    """开始节点变量 ``name`` 引用得对不对：对返回空串，否则返回人话（「原文件」只有文件字段有）。"""
+    if name in start_var_names(fields):
+        return ""
+    if name.endswith(FILE_SUFFIX):
+        base = next((f for f in fields or [] if isinstance(f, dict) and f.get("key") == name[: -len(FILE_SUFFIX)]),
+                    None)
+        if base is not None:
+            label = base.get("label") or base["key"]
+            return f"{where}用到了「{label}」的原文件，但它已经不是文件输入了：改回「文件」类型，或删掉这个变量重新插入"
+    return f"{where}用到了「开始」里已经删掉的输入，删掉它重新插入"
+
+
+def file_fields(graph: dict) -> list[dict]:
+    """开始节点里的文件字段。"""
+    start = next((n for n in graph.get("nodes") or [] if n.get("id") == START_ID), None)
+    fields = ((start or {}).get("data") or {}).get("fields") or []
+    return [f for f in fields if isinstance(f, dict) and f.get("type") == "file" and f.get("key")]
+
+
+def file_refs(graph: dict) -> set[str]:
+    """图里引用了「原文件」（``{{start.<key>_file}}``）的文件字段 key。"""
+    keys = {f["key"] for f in file_fields(graph)}
+    found: set[str] = set()
+    for node in graph.get("nodes") or []:
+        if node.get("type") == "start" or not isinstance(node.get("data"), dict):
+            continue
+        for text in node_texts(node):
+            for ref, field in VAR.findall(text or ""):
+                if ref == START_ID and field.endswith(FILE_SUFFIX) and field[: -len(FILE_SUFFIX)] in keys:
+                    found.add(field[: -len(FILE_SUFFIX)])
+    return found
+
+
 def _check_refs(graph: dict, by_id: dict[str, dict]) -> None:
     ancestors = ancestors_of(graph)
-    start_keys = {f["key"] for f in by_id[START_ID]["data"]["fields"]}
+    start_fields = by_id[START_ID]["data"]["fields"]
     for node in graph["nodes"]:
         where = _label(node)
         texts = node_texts(node)
@@ -475,8 +531,9 @@ def _check_refs(graph: dict, by_id: dict[str, dict]) -> None:
                 if ref not in ancestors[node["id"]]:
                     raise GraphError(f"{where}用到了{_label(target)}的结果，但它不在{where}前面：先用连线把它们连起来")
                 if ref == START_ID:
-                    if field not in start_keys:
-                        raise GraphError(f"{where}用到了「开始」里已经删掉的输入，删掉它重新插入")
+                    problem = start_ref_problem(start_fields, field, where)
+                    if problem:
+                        raise GraphError(problem)
                 elif field not in NODE_FIELDS:
                     raise GraphError(f"{where}用到了{_label(target)}没有的结果，删掉它重新插入")
 
