@@ -1957,6 +1957,7 @@ def _flow_user_tool(user_id: str, name: str, base):
 
 
 flows.install(app, request_principal=_request_principal, panel_write=_panel_write, deny=_deny,
+              notifier=_notifier,   # 第二十轮：发送前确认的通知（定时关掉时也要能推）
               deps=flows.FlowDeps(
                   tenant_store=lambda: _tenant_store(),
                   compose=lambda uid, prompt: flows.model_compose(lambda u: _bundle_for(u), _chunk_text, uid, prompt),

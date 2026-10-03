@@ -236,6 +236,7 @@ PROMPT = """你是「流程设计助手」：把用户的一句话需求设计�
 - tool（插件工具）：{{"id", "type": "tool", "title", "plugin", "tool", "args": {{"参数名": "文字，可含变量"}}}}
 - condition（条件分支）：{{"id", "type": "condition", "title", "cases": [{{"id": "c1", "label": "分支名", "logic": "and|or", "rules": [{{"var": "n1.text", "op": "contains", "value": "雨"}}]}}]}}；op 只能是 contains / not_contains / equals / not_equals / empty / not_empty / gt / lt / ge / le；都不满足走 else 出口
 - template（文本拼接）：{{"id", "type": "template", "title", "template": "含变量的文字"}}
+- approval（发送前确认）：{{"id", "type": "approval", "title", "message": "要给用户确认的内容（含变量，默认上一步结果）"}}；只在用户说了「发之前让我看看 / 确认一下 / 审核后再发」时，放在发飞书、发微信、加待办这类会真的发出去的节点前面
 - step（积木）：{{"id", "type": "step", "title", "step": "积木 id", "options": {{}}, "input": "喂给积木的文字，可省略（默认用上一个节点的结果）"}}
 - end（结束）：{{"id", "type": "end", "title", "output": "最终结果（含变量）", "page": true 表示生成结果网页}}
 - edges：[["start", "n1"], ["n1", "n2"]]；从条件节点连出的线写第三项：分支 id 或 "else"
@@ -367,7 +368,7 @@ def _rename_start_refs(value, renamed: dict[str, str]):
 def _node_data(raw: dict, kind: str, catalog: Catalog, notes: list[str]) -> dict:
     src = raw.get("data") if isinstance(raw.get("data"), dict) else raw
     default_title = {"llm": "AI 处理", "tool": "插件工具", "condition": "条件分支", "template": "文本拼接",
-                     "step": "积木", "end": "结束"}[kind]
+                     "step": "积木", "end": "结束", "approval": "发送前确认"}.get(kind, "节点")
     title = _clip(src.get("title") or default_title, 30)
     if kind == "llm":
         data = {"title": title, "prompt": _text(src.get("prompt")), "skill": "",
@@ -424,6 +425,13 @@ def _node_data(raw: dict, kind: str, catalog: Catalog, notes: list[str]) -> dict
         return {"title": title, "cases": cases}
     if kind == "template":
         return {"title": title, "template": _text(src.get("template") or src.get("text"))}
+    if kind == "approval":   # 第二十轮：发送前确认（用户说「发之前让我看看 / 确认一下」时）
+        try:
+            hours = min(72, max(1, int(src.get("timeout_hours") or 24)))
+        except (TypeError, ValueError):
+            hours = 24
+        return {"title": title, "message": _text(src.get("message") or src.get("content")),
+                "editable": src.get("editable") is not False, "timeout_hours": hours}
     if kind == "step":
         step = str(src.get("step") or src.get("plugin") or "").strip()
         item = catalog.steps.get(step)
