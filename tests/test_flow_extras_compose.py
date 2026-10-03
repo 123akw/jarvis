@@ -232,6 +232,34 @@ def test_agent_catalog_marks_uninstalled_plugins(owner_id):
     assert "这个智能体还没装「日程提醒」，到智能体设置里加上就能用" in result["notes"]
 
 
+def test_catalog_skips_file_id_tools_and_hints_ranges(owner_id):
+    catalog = C.build_catalog(owner_id)
+    assert "excel_summary" not in catalog.tools and "pdf_extract_text" not in catalog.tools   # 要文件编号的接不上
+    assert "excel_create" in catalog.tools and "word_create" in catalog.tools
+    assert "max_results（最多几条，1–5）" in C.catalog_text(catalog)
+    assert "type=file 的输入" in C.build_prompt("x", catalog)
+
+
+def test_number_args_are_clamped_and_branches_described(owner_id):
+    reply = {"name": "退款分流", "fields": [{"key": "msg", "label": "顾客消息", "type": "paragraph", "required": True}],
+             "nodes": [
+                 {"id": "s", "type": "tool", "title": "查政策", "plugin": "search", "tool": "web_search",
+                  "args": {"query": "退款政策", "max_results": "10"}},
+                 {"id": "c1", "type": "condition", "title": "要退款吗", "cases": [
+                     {"id": "refund", "label": "要退款", "rules": [{"var": "start.msg", "op": "contains", "value": "退款"}]}]},
+                 {"id": "a", "type": "llm", "title": "售后回复", "prompt": "{{start.msg}} {{s.text}}"},
+                 {"id": "t", "type": "step", "title": "记待办", "step": "to_todo", "input": "处理退款"},
+                 {"id": "b", "type": "llm", "title": "日常回复", "prompt": "{{start.msg}}"},
+                 {"id": "end", "type": "end", "output": "{{a.text}}"}, {"id": "end2", "type": "end", "output": "{{b.text}}"}],
+             "edges": [["start", "s"], ["s", "c1"], ["c1", "a", "refund"], ["a", "t"], ["t", "end"], ["c1", "b", "else"],
+                       ["b", "end2"]]}
+    result = C.compose_draft(owner_id, "顾客要退款就走售后", deps=_deps(FakeModel(reply)))
+    assert result["source"] == "model", result["notes"]
+    by_id = {n["id"]: n for n in result["draft"]["graph"]["nodes"]}
+    assert by_id["s"]["data"]["args"] == {"query": "退款政策", "max_results": "5"}
+    assert result["notes"][0] == "我用了 查政策 → 按「要退款吗」分 2 路：要退款：售后回复 → 记待办；其他情况：日常回复"
+
+
 def test_rate_limiter_window():
     now = [0.0]
     limiter = C.RateLimiter(2, 60, clock=lambda: now[0])

@@ -38,6 +38,8 @@ MAX_TOOL_LINE = 90
 
 # 流程里不该自动跑的工具：删除 / 勾掉 / 需要桌面端现场开会的
 HIDDEN_TOOLS = frozenset({"memo_del", "schedule_del", "todo_done", "profile_forget", "meeting_start", "meeting_stop"})
+# 要「文件编号」的工具：开始节点上传的文件只给出读出的文字，接不上它们，不放进清单（表格、PDF 交给 AI 处理读出的文字）
+FILE_ARGS = frozenset({"file_id", "file_ids"})
 OPS = ("contains", "not_contains", "equals", "not_equals", "empty", "not_empty", "gt", "lt", "ge", "le")
 _FENCE = re.compile(r"^\s*```[A-Za-z]*\s*$", re.M)
 
@@ -119,8 +121,15 @@ def build_catalog(user_id: str, deps=None, access: templates_mod.Access | None =
             tool = nodes.find_tool(name, access.deps)
             if tool is None or name in HIDDEN_TOOLS:
                 continue
-            args = [{"name": a["name"], "required": a["required"], "label": a["label"] if a["label"] != a["name"] else "",
-                     "enum": a.get("enum")} for a in nodes.tool_args(tool)]
+            props = nodes.tool_schema(tool).get("properties") or {}
+            args = []
+            for a in nodes.tool_args(tool):
+                prop = props.get(a["name"]) if isinstance(props.get(a["name"]), dict) else {}
+                args.append({"name": a["name"], "required": a["required"],
+                             "label": a["label"] if a["label"] != a["name"] else "", "enum": a.get("enum"),
+                             "type": a.get("type"), "min": prop.get("minimum"), "max": prop.get("maximum")})
+            if any(a["name"] in FILE_ARGS and a["required"] for a in args):
+                continue
             catalog.tools[name] = {"plugin": entry["id"], "plugin_name": entry["name"],
                                    "label": nodes.tool_label(entry, name, tool), "args": args, "installed": installed}
     flow_steps = templates_mod._steps()
@@ -136,16 +145,25 @@ def build_catalog(user_id: str, deps=None, access: templates_mod.Access | None =
     return catalog
 
 
+def _arg_hint(arg: dict) -> str:
+    """参数后面的小注：人话名、可选值、数字范围，如「（最多几条，1–5）」。"""
+    bits = [arg["label"]] if arg["label"] else []
+    if arg.get("enum"):
+        bits.append("|".join(map(str, arg["enum"])))
+    if arg.get("min") is not None and arg.get("max") is not None:
+        bits.append(f"{arg['min']}–{arg['max']}")
+    elif arg.get("max") is not None:
+        bits.append(f"最多 {arg['max']}")
+    return f"（{'，'.join(bits)}）" if bits else ""
+
+
 def catalog_text(catalog: Catalog) -> str:
     def mark(item) -> str:
         return "" if item["installed"] else "（未装）"
 
     lines = ["### 插件工具（type=tool，写 plugin 和 tool，参数带 * 的必填）"]
     for name, item in catalog.tools.items():
-        args = "、".join(f"{a['name']}{'*' if a['required'] else ''}"
-                        + (f"（{a['label']}" + (f"：{'|'.join(map(str, a['enum']))}" if a.get("enum") else "") + "）"
-                           if a["label"] or a.get("enum") else "")
-                        for a in item["args"]) or "无"
+        args = "、".join(f"{a['name']}{'*' if a['required'] else ''}" + _arg_hint(a) for a in item["args"]) or "无"
         line = f"- {item['plugin']}/{name}{mark(item)}：{item['label']}｜参数 {args}"
         lines.append(line if len(line) <= MAX_TOOL_LINE * 2 else line[: MAX_TOOL_LINE * 2 - 1] + "…")
     lines.append("### 技能（type=llm 并写 skill，prompt 写具体要求）")
@@ -217,8 +235,9 @@ PROMPT = """你是「流程设计助手」：把用户的一句话需求设计�
 3. 节点少而精：一般 3–8 个，最多 12 个；每个 prompt 不超过 120 字；title 不超过 8 个字。
 4. 至少一个 end；每条分支最后都要接到 end。
 5. 「每天 / 每周 / 定时」不用做成节点（定时在流程外面设置）；要用今天的日期就写 {{{{sys.date}}}}。
-6. 技能的 prompt 里写上「不要反问」（流程里没人回答它）。
-7. name、summary、title、label 都用中文。
+6. 要用户上传文件（表格、PDF、Word、图片）就加一个 type=file 的输入，{{{{start.key}}}} 是读出来的文字，交给 llm 处理（表格汇总、统计也让 llm 按读出的表格算）；要产出 Word / Excel 文件用 word_out / excel_out 积木。
+7. 技能的 prompt 里写上「不要反问」（流程里没人回答它）。
+8. name、summary、title、label 都用中文。
 
 ## 可用清单
 {catalog}
@@ -355,6 +374,16 @@ def _node_data(raw: dict, kind: str, catalog: Catalog, notes: list[str]) -> dict
         args_in = src.get("args") if isinstance(src.get("args"), dict) else {}
         known = {a["name"] for a in item["args"]}
         args = {k: _text(v, 2000) for k, v in args_in.items() if k in known and _text(v, 2000)}
+        for arg in item["args"]:   # 写死的数字超出范围（比如搜 10 条，工具最多 5 条）就夹到范围内
+            value = args.get(arg["name"])
+            if value is None or arg.get("type") not in ("integer", "number") or not re.fullmatch(r"-?\d+(\.\d+)?", value):
+                continue
+            number = float(value)
+            if arg.get("max") is not None and number > arg["max"]:
+                number = arg["max"]
+            if arg.get("min") is not None and number < arg["min"]:
+                number = arg["min"]
+            args[arg["name"]] = str(int(number)) if float(number).is_integer() else str(number)
         return {"title": title, "plugin": item["plugin"], "tool": name, "args": args}
     if kind == "condition":
         cases = []
@@ -594,14 +623,38 @@ def check_runnable(graph: dict, user_id: str, deps=None) -> str:
 
 # ---------- 人话说明 ----------
 
-def _chain(graph: dict) -> str:
-    by_id = {n["id"]: n for n in graph["nodes"]}
-    titles = [by_id[i]["data"].get("title") or "" for i in templates_mod.topo_order(graph)
-              if by_id[i]["type"] not in ("start", "end")]
+def _titles(ids, by_id, limit: int = 6) -> str:
+    titles = [by_id[i]["data"].get("title") or "" for i in ids if by_id[i]["type"] not in ("start", "end")]
     titles = [t for t in titles if t]
-    if len(titles) > 6:
-        titles = titles[:6] + ["…"]
-    return " → ".join(titles)
+    return " → ".join(titles[:limit] + (["…"] if len(titles) > limit else []))
+
+
+def _chain(graph: dict) -> str:
+    """「查天气 → 写早报 → 发到飞书」；有条件分支时按分支说：「按「要退款吗」分 2 路：要退款：售后回复 → 记待办；其他情况：日常回复」。"""
+    by_id = {n["id"]: n for n in graph["nodes"]}
+    order = templates_mod.topo_order(graph)
+    cond = next((by_id[i] for i in order if by_id[i]["type"] == "condition"), None)
+    if cond is None:
+        return _titles(order, by_id)
+    up = templates_mod.ancestors(graph)[cond["id"]]
+    prefix = _titles([i for i in order if i in up], by_id)
+    children: dict[str, list[str]] = {}
+    for e in graph["edges"]:
+        children.setdefault(e["source"], []).append(e["target"])
+    labels = [(c["id"], c["label"]) for c in cond["data"]["cases"]] + [(graph_mod.ELSE_HANDLE, "其他情况")]
+    parts = []
+    for handle, label in labels:
+        seen: set[str] = set()
+        queue = deque(e["target"] for e in graph["edges"] if e["source"] == cond["id"] and e["sourceHandle"] == handle)
+        while queue:
+            current = queue.popleft()
+            if current not in seen:
+                seen.add(current)
+                queue.extend(children.get(current, []))
+        if seen:
+            parts.append(f"{label}：{_titles([i for i in order if i in seen], by_id, 4) or '直接结束'}")
+    branch = f"按「{cond['data'].get('title') or '条件'}」分 {len(parts)} 路：" + "；".join(parts)
+    return f"{prefix} → {branch}" if prefix else branch
 
 
 def _problems(graph: dict, access: templates_mod.Access) -> list[str]:
