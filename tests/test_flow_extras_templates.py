@@ -180,6 +180,7 @@ def test_http_templates_requires_login_and_is_not_a_flow_id():
     assert len(body["templates"]) >= 12 and body["categories"][0] == {"id": "office", "label": "办公"}
     first = body["templates"][0]
     assert set(first) >= {"id", "name", "summary", "category", "icon", "plugins", "graph", "needs"}
+    assert {t["id"] for t in body["templates"] if t["featured"]} == {"morning_brief", "meeting_todo", "xhs_post"}
 
 
 @pytest.mark.parametrize("template_id", TEMPLATE_IDS)

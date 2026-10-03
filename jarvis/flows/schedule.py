@@ -376,7 +376,7 @@ def view(row: dict | None, now: dt.datetime | None = None) -> dict:
 
 def apply(store: TriggerStore, owner_id: str, flow_id: str, settings: dict, *, origin: str = "",
           now: dt.datetime | None = None) -> dict:
-    """保存设置（PUT）：重新开启会清掉连续失败次数与暂停原因；返回新行。"""
+    """保存设置（PUT）：清掉连续失败次数与暂停原因（用户已经处理过）；返回新行。"""
     now = now or utc_now()
     previous = store.get(owner_id, flow_id)
     config = dict((previous or {}).get("config") or {})
@@ -384,8 +384,7 @@ def apply(store: TriggerStore, owner_id: str, flow_id: str, settings: dict, *, o
     config.pop("label", None)
     if origin.startswith(("http://", "https://")):
         config["origin"] = origin.rstrip("/")
-    if settings["enabled"]:
-        config.update(fail_streak=0, paused_reason="")
+    config.update(fail_streak=0, paused_reason="")   # 用户动过设置（重新开启或改成手动）：暂停原因与失败计数都清掉
     next_at = to_iso(next_run(settings["schedule"], now)) if settings["enabled"] else None
     return store.save(owner_id, flow_id, kind=settings["kind"], enabled=settings["enabled"], config=config,
                       next_run_at=next_at)

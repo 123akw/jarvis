@@ -316,6 +316,7 @@ def test_five_failures_pause_and_notify_once(owner_id):
     texts = [t for _u, t in failing.deps.sent]
     assert len(texts) == 5 and all(t.startswith("⚠️ 定时流程「早报」这次没跑成") for t in texts[:4])
     assert texts[4].startswith("⏸️ 定时流程「早报」连续 5 次没跑成，已暂停定时") and "重新开启" in texts[4]
+    assert view["kind"] == "schedule" and view["enabled"] is False   # 自动暂停：仍是定时，只是关着
     assert _scheduler(failing, Clock("2026-10-18 08:00")).tick() == 0   # 暂停后不再跑
     # 重新开启：清零、清掉暂停原因
     settings = S.normalize({"enabled": True}, S.settings_of(row))

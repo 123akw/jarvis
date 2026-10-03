@@ -37,6 +37,9 @@ REQUIREMENT_NEEDS = {
     "desktop": "需要打开电脑上的贾维斯桌面端",
 }
 
+# 首页精选位优先展示的模板（列表页按 featured 排在前面）
+FEATURED = ("morning_brief", "meeting_todo", "xhs_post")
+
 # 模型提示里常用的一句：技能里有「先问清楚」，流程里没人回答，让它直接写
 NO_ASK = "资料已经给全，不要反问；缺的信息按最常见的情况写，并用【待补充】标出。"
 
@@ -704,6 +707,6 @@ def templates_for(user_id: str, deps=None) -> dict:
             "id": item["id"], "name": item["name"], "summary": item["summary"], "category": item["category"],
             "icon": item["icon"], "plugins": item["plugins"], "graph": item["graph"], "needs": item["needs"],
             "plugin_details": details, "available": all(d["available"] for d in details),
-            "suggest_trigger": item["suggest_trigger"],
+            "suggest_trigger": item["suggest_trigger"], "featured": item["id"] in FEATURED,
         })
     return {"categories": [dict(c) for c in CATEGORIES], "templates": templates}
