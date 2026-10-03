@@ -238,6 +238,18 @@ export function pluginNeeds(pluginIds, idx = EMPTY_IDX) {
   return list.map(id => idx.plugin[id] || null).filter(Boolean)
 }
 
+/** 节点图里用到的插件（插件工具、技能、积木） */
+export function graphPlugins(graph) {
+  const ids = []
+  for (const n of cleanGraph(graph).nodes) {
+    const d = dataOf(n)
+    if (n.type === 'tool' && d.plugin) ids.push(d.plugin)
+    else if (n.type === 'llm' && d.skill) ids.push(d.skill)
+    else if (n.type === 'step' && d.step) ids.push(d.step)
+  }
+  return [...new Set(ids)]
+}
+
 /* ---------- 缩略图排版 ---------- */
 
 const NODE_W = 220
