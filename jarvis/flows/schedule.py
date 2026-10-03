@@ -572,6 +572,7 @@ class FlowScheduler:
                 retry = min(self.now_fn() + BUSY_RETRY, following)
                 self.store.reschedule(owner_id, flow_id, to_iso(retry), expect=to_iso(following))
                 return
+            if status == "waiting": return   # 第二十轮：停在「发送前确认」，确认通知引擎已发出，不算失败、不另通知
             ok = status == "ok"
             error = "" if ok else str(result.get("error") or "流程出错了")
             before = self.store.get(owner_id, flow_id)

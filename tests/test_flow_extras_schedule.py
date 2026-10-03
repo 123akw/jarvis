@@ -290,6 +290,18 @@ def test_busy_postpones_one_minute(owner_id):
     assert row["last_status"] == "ok" and S.from_iso(row["next_run_at"]) == at("2026-10-13 08:00")
 
 
+def test_waiting_for_approval_is_not_a_failure(owner_id):
+    """第二十轮：定时运行停在「发送前确认」——确认通知引擎已发，定时这边不记失败、不另发「没跑成」。"""
+    flow_id = _setup(owner_id)
+    waiting = {"status": "waiting", "run_id": "r1", "output": None, "error": "",
+               "approval": {"id": "a" * 32, "url": "/approve/" + "a" * 32, "expires_at": "2026-10-13T00:00:00+00:00"}}
+    runtime = FakeRuntime([waiting])
+    _scheduler(runtime, Clock("2026-10-12 08:00:10")).tick()
+    row = S.TriggerStore().get(owner_id, flow_id)
+    assert len(runtime.calls) == 1 and row["config"].get("fail_streak", 0) == 0 and row["last_status"] == ""
+    assert runtime.deps.sent == [] and S.from_iso(row["next_run_at"]) == at("2026-10-13 08:00")
+
+
 def test_stale_trigger_is_not_backfilled(owner_id):
     flow_id = _setup(owner_id, now="2026-10-11 20:00")   # 该在 10-12 08:00 跑
     runtime = FakeRuntime()
