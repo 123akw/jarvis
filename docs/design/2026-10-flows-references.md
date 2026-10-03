@@ -73,7 +73,34 @@ n8n 别学：节点数据面板默认 JSON / 表格 / Schema 三视图、表达�
 别学 / 注意：OpenAI 已宣布 Agent Builder 将于 **2026-11-30 停服**，节点间是「有类型的连线」、要求理解数据契约——对我们的用户太重；参考它的交互，不参考它的概念。【同上】
 
 ### 4. 新手引导：产品与库
-（撰写中）
+
+**产品做法**
+
+| 产品 | 值得抄 | 别学 / 注意 |
+|---|---|---|
+| Dify「认识 Dify」分步引导 | ① 状态存**服务端**（`completed_task_ids`、`skipped`），换设备不重复出现，前端先乐观更新再对账。② 用**具名锚点注册表**（`STEP_BY_STEP_TOUR_TARGETS`）而不是写死 CSS 选择器，和我们的 `data-tour` 同一思路。③ 每步分「看一眼」（walkthrough）和「要你动手」（action）两类，动手步只让目标可点（`interactionPolicy: 'target-only'`）。④ 跳过后给一条**恢复提示**：「引导已隐藏。可随时在 帮助 → 分步引导 中重新开启。」⑤ 标题旁写预期时长「快速浏览 — 大约 5 分钟」，步骤写「第 2 步 / 共 5 步」，按钮用「知道了」。【`web/app/components/step-by-step-tour/state.ts`、`target-registry.ts`；`onboarding.json`】 | 引导覆盖首页、Studio、知识库、集成四大块，近 50 个锚点，太长；我们每页 ≤7 步。 |
+| Linear | **不做气泡导览**，给一份「熟悉 Linear」的任务清单（建一个事项、用 ⌘K、设优先级），任务本身就是真实数据，做完就会了；约 7 步、60 秒。【[Supademo：Linear 引导拆解](https://supademo.com/content/plg-onboarding-gallery/linear)；[Impeccable：onboard](https://www.impeccable.style/docs/onboard)】 | 只适合高意愿、懂行的用户；我们的用户需要被「指着看」，所以用导览 + 示例流程两手。 |
+| Notion | 首次进入先问「你打算用来做什么」，据此给 5 个模板；「Getting Started」本身是一页带勾选框的文档（「输入 / 试试命令」），**边做边学**；悬停时才出高对比小提示。【[Appcues GoodUX：Notion 轻量引导](https://goodux.appcues.com/blog/notions-lightweight-onboarding)；[Supademo：Notion](https://supademo.com/user-flow-examples/notion)】 | — |
+| Figma | 首次登录在工作区放好可动手的示例文件（Figma Basics），提示气泡就出现在要操作的位置，每条一句话 + 一段小动画。【[Appcues GoodUX：Figma 动画引导](https://goodux.appcues.com/blog/figmas-animated-onboarding-flow)；[Chameleon：Figma 导览](https://chameleon.io/inspiration/figmas-onboarding-tour)】 | 动画多、成本高，我们用静态气泡即可。 |
+| 字节 Semi Design `UserGuide`（国内常见做法；飞书官方引导规范未公开，按同类做法参考） | 两种模式：**气泡**（围绕目标，12 个方位）与**弹窗**（居中，可带封面图，适合第一步「欢迎」）；可关遮罩做不打扰的提示；按钮「上一步 / 下一步 / 跳过 / 完成」。【[Semi UserGuide](https://semi.design/zh-CN/show/userGuide)；[人人都是产品经理：新手引导设计](https://www.woshipm.com/pd/3621684.html)】 | — |
+| NN/g 研究 | 用户想马上动手（「主动用户悖论」），**脱离情境的引导记不住**；引导要易关、且关了以后能从菜单再找回；优先在用户真正用到时出现的情境提示。【[NN/g：Onboarding Tutorials vs. Contextual Help](https://www.nngroup.com/articles/onboarding-tutorials/)】 | 导览越长越被跳过：所以「只自动一次 + 可重看 + 每步一句话」。 |
+
+**库的交互约定（我们自写 `tour/**`，不引库，但参数照抄这些默认值）**
+
+| 约定 | Driver.js | Shepherd.js | Intro.js | 我们取 |
+|---|---|---|---|---|
+| 遮罩 | `overlayOpacity: 0.5` | `useModalOverlay` | 默认有 | 暗色 0.6 / 亮色 0.45 |
+| 挖空内边距 / 圆角 | `stagePadding: 10` / `stageRadius: 5` | `modalOverlayOpeningPadding / Radius` | `helperElementPadding: 10` | 8 / 12（与令牌对齐） |
+| 点遮罩 | `overlayClickBehavior: "close"` | — | `exitOnOverlayClick: true` | **不关闭**（误触太多），只有「跳过」与 Esc 退出 |
+| 键盘 | `allowKeyboardControl`（← → Esc） | `keyboardNavigation`、`exitOnEsc` | `keyboardNavigation`、`exitOnEsc` | ← → 翻页、Esc = 跳过 |
+| 目标不存在 | 默认居中显示；`skipMissingElement`；`waitForElement` 毫秒 | `waitForElement`（MutationObserver）、`showOn()` | — | 等 1.5 s（MutationObserver + 轮询兜底），仍无则跳过此步 |
+| 滚动 | `smoothScroll: false` | `scrollTo`（scrollIntoView） | `scrollToElement: true` | 不在视口就 `scrollIntoView({block:'center'})`，减弱动效时用 `behavior:'auto'` |
+| 进度 | `showProgress`、`"{{current}} of {{total}}"` | — | `showBullets: true` | 步骤点 +「2 / 5」 |
+| 目标可否点 | `disableActiveInteraction: false` | `canClickTarget` | `disableInteraction: false` | 「看一眼」步禁点；「动手」步只放行目标 |
+| 「不再显示」 | — | — | `dontShowAgain`（cookie 365 天） | 不放勾选框：**看完或跳过即记为看过**（服务端 + localStorage） |
+| 读屏 | `closeBtnLabel` | 标题成 `h3` 并 `aria-labelledby` | — | `role="dialog"`、`aria-labelledby` 标题、`aria-describedby` 正文、焦点进卡片并在卡内循环、结束把焦点还给触发按钮【[WAI-ARIA APG 对话框](https://www.w3.org/WAI/ARIA/apg/patterns/dialog-modal/)】 |
+
+【[Driver.js 配置](https://driverjs.com/docs/configuration)；[Shepherd 用法](https://docs.shepherdjs.dev/guides/usage/)；[Intro.js 选项](https://introjs.com/docs/tour/options)】
 
 ---
 
