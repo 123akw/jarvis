@@ -38,11 +38,24 @@ const reducedMotion = () => {
   try { return window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true } catch { return false }
 }
 
+/** 目标所在的可滚动容器；目标在固定定位的层里（底部工具箱、顶栏）或根本没有能滚的容器时返回 null——
+ *  这时不调 scrollIntoView（它连 overflow:hidden 的外壳也会滚，会把整页布局挪歪） */
+function scrollerOf(el) {
+  for (let p = el; p && p !== document.body && p !== document.documentElement; p = p.parentElement) {
+    const s = window.getComputedStyle(p)
+    if (p !== el && /(auto|scroll)/.test(s.overflowY) && p.scrollHeight > p.clientHeight + 1) return p   // 滚动容器本身可以是固定定位的（市场整页）
+    if (s.position === 'fixed') return null
+  }
+  const root = document.scrollingElement
+  const bodyLocked = window.getComputedStyle(document.body).overflowY === 'hidden'
+  return root && !bodyLocked && root.scrollHeight > root.clientHeight + 1 ? root : null
+}
+
 function bring(el) {
   try {
     const r = el.getBoundingClientRect()
-    if (!needsScroll(r, window.innerHeight)) return
-    el.scrollIntoView?.({ block: r.height >= window.innerHeight - 32 ? 'start' : 'center', inline: 'nearest', behavior: reducedMotion() ? 'auto' : 'smooth' })
+    if (!needsScroll(r, window.innerHeight) || !scrollerOf(el)) return
+    el.scrollIntoView?.({ block: r.height >= window.innerHeight - 200 ? 'start' : 'center', inline: 'nearest', behavior: reducedMotion() ? 'auto' : 'smooth' })
   } catch { /* 滚不动就原地高亮 */ }
 }
 

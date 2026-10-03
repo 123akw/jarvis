@@ -73,8 +73,9 @@ export function placeCard(hole, card, view, prefer = '') {
   return { mode: 'float', side: 'over', top: Math.max(MARGIN, vh - h - MARGIN), left: Math.max(MARGIN, (vw - w) / 2) }
 }
 
-/** 目标是否需要先滚进视野：大半在视口外才滚（占满视口的大目标只要中线在视口内就不滚） */
+/** 目标是否需要先滚到舒服的位置：贴着顶栏（上 64）或压在底部浮条 / 手机底部卡片区（下 120）都滚到中间；
+ *  占满视口的大目标只要中线在视口内就不滚 */
 export function needsScroll(rect, vh) {
-  if (rect.height >= vh - 32) return rect.top > vh / 2 || rect.bottom < vh / 2
-  return rect.top < 8 || rect.bottom > vh - 8
+  if (rect.height >= vh - 200) return rect.top > vh / 2 || rect.bottom < vh / 2
+  return rect.top < 64 || rect.bottom > vh - 120
 }

@@ -426,8 +426,10 @@ describe('几何：高亮框与气泡位置', () => {
     expect(placeCard({ top: 760, left: 20, width: 300, height: 60 }, card, phone)).toMatchObject({ mode: 'sheet', side: 'top' })
   })
 
-  it('大半在视口外才滚动', () => {
+  it('在视口外、贴着顶栏或压在底部浮条区才滚到中间；占满视口的大目标不滚', () => {
     expect(needsScroll({ top: 100, bottom: 140, height: 40 }, 900)).toBe(false)
+    expect(needsScroll({ top: 20, bottom: 60, height: 40 }, 900)).toBe(true)
+    expect(needsScroll({ top: 700, bottom: 800, height: 100 }, 900)).toBe(true)
     expect(needsScroll({ top: 1200, bottom: 1240, height: 40 }, 900)).toBe(true)
     expect(needsScroll({ top: 0, bottom: 2000, height: 2000 }, 900)).toBe(false)
   })
