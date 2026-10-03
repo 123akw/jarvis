@@ -10,6 +10,8 @@ from jarvis.tools.calc import calc
 from jarvis.tools.clock import now
 from jarvis.tools.entertainment import make_entertainment_tools, render_search_failure
 from jarvis.tools.flows_tool import flow_list, flow_run
+from jarvis.tools.goal_tools import TOOLS as GOAL_TOOLS
+from jarvis.tools.task_tools import TOOLS as TASK_TOOLS
 from jarvis.tools.location import coding_status, my_location
 from jarvis.tools.meeting import meeting_start, meeting_stop
 from jarvis.tools.memo import memo_add, memo_del, memo_list
@@ -35,6 +37,7 @@ _LOCAL_TOOLS = [
     sys_query,
     recall_history,
     flow_list, flow_run,
+    *TASK_TOOLS, *GOAL_TOOLS,   # 第二十一轮：后台任务 / 自动化 / 目标（各自代理填）
 ]
 
 

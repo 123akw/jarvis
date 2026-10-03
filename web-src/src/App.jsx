@@ -11,7 +11,7 @@ import { APP_PATH, LOGIN_PATH, loginHref, navigate, pageTitle, useRoute } from '
 const Market = lazy(() => import('./market/Market.jsx'))
 const PlatformEntry = lazy(() => import('./platform/PlatformEntry.jsx'))
 const Flows = lazy(() => import('./flows/Flows.jsx'))
-const Approve = lazy(() => import('./flows/Approve.jsx'))
+const Approve = lazy(() => import('./consent/ConsentPage.jsx'))   // 第二十一轮：通用的「关键动作同意」页
 const Admin = lazy(() => import('./admin/Admin.jsx'))
 
 /** 渲染即跳转（地址栏原地替换，不留历史）：未登录访问 /app、/flows → /login?next=…；已登录打开 /login → next 或 /app */

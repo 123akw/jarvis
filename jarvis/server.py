@@ -62,6 +62,16 @@ async def lifespan(_app: FastAPI):
     distiller = None
     janitor = SessionJanitor(_accounts)  # 定期删掉过期/早已吊销的会话行
     janitor.start()
+    assistant_workers = []   # 第二十一轮：后台任务执行与自动化调度、想法与目标回访
+    for name, starter in (("tasks", lambda: tasks.start_scheduler(bundle_for=lambda uid: _bundle_for(uid), notifier=_notifier)),
+                          ("goals", lambda: goals.start_worker(bundle_for=lambda uid: _bundle_for(uid), notifier=_notifier))):
+        if os.getenv("JARVIS_ASSISTANT_WORKERS_ENABLED", "1") != "0":
+            try:
+                worker = starter()
+                if worker is not None:
+                    assistant_workers.append(worker)
+            except Exception:
+                log.exception("%s 后台线程启动失败", name)
     flow_scheduler = None   # 流程定时运行（第十八轮，jarvis/flows/extras.py）
     if os.getenv("JARVIS_FLOW_SCHEDULER_ENABLED", "1") != "0":
         try:
@@ -107,6 +117,8 @@ async def lifespan(_app: FastAPI):
     finally:
         history_stop.set()
         janitor.stop()
+        for worker in assistant_workers:
+            worker.stop()
         if flow_scheduler is not None:
             flow_scheduler.stop()
         if hb is not None:
@@ -1920,6 +1932,17 @@ def _background_bundle_for(user_id: str):
 briefing.register(app, request_principal=_request_principal, panel_write=_panel_write,
                   tenant_store=lambda: _tenant_store(), bundle_for=_background_bundle_for,
                   chunk_text=_chunk_text, deny=_deny)
+
+# ---- 个人助理（第二十一轮）：后台任务与自动化、关键动作同意、活动记录、目标与想法 ----
+from jarvis import activity, consent, goals, tasks  # noqa: E402
+
+tasks.register(app, request_principal=_request_principal, panel_write=_panel_write, deny=_deny,
+               bundle_for=lambda uid: _bundle_for(uid), notifier=_notifier)
+consent.register(app, request_principal=_request_principal, panel_write=_panel_write, deny=_deny,
+                 bundle_for=lambda uid: _bundle_for(uid), notifier=_notifier)
+activity.register(app, request_principal=_request_principal, panel_write=_panel_write, deny=_deny)
+goals.register(app, request_principal=_request_principal, panel_write=_panel_write, deny=_deny,
+               bundle_for=lambda uid: _bundle_for(uid), notifier=_notifier)
 
 # ---- 用量、配额与管理告警（第二十轮）：逻辑在 jarvis/usage.py ----
 from jarvis import usage  # noqa: E402

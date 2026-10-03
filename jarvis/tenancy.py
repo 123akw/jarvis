@@ -211,6 +211,25 @@ class TenantStore:
         )
 
     @staticmethod
+    def _schema_v9_statements() -> tuple[str, ...]:
+        """v9（2026-10 第二十一轮·个人助理）：流程下线，换成「交给贾维斯」的后台任务 + 关键动作同意 + 活动记录
+        + 自动化 + 目标 + 想法（参考 Meta Muse / Manus Cue）。旧的 tenant_flow* 表原样保留，不删数据。"""
+        return (
+            "CREATE TABLE IF NOT EXISTS tenant_tasks (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, title TEXT NOT NULL DEFAULT '', goal TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('queued','running','waiting','done','failed','cancelled')), source TEXT NOT NULL DEFAULT 'chat', thread_id TEXT NOT NULL, plan TEXT NOT NULL DEFAULT '[]', result TEXT NOT NULL DEFAULT '', links TEXT NOT NULL DEFAULT '[]', error TEXT NOT NULL DEFAULT '', automation_id TEXT, goal_id TEXT, created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT, updated_at TEXT NOT NULL)",
+            "CREATE INDEX IF NOT EXISTS tenant_tasks_recent ON tenant_tasks(owner_id, created_at)",
+            "CREATE TABLE IF NOT EXISTS tenant_activity (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, at TEXT NOT NULL, kind TEXT NOT NULL, risk TEXT NOT NULL DEFAULT 'read', status TEXT NOT NULL DEFAULT 'ok', task_id TEXT, thread_id TEXT NOT NULL DEFAULT '', tool TEXT NOT NULL DEFAULT '', title TEXT NOT NULL DEFAULT '', summary TEXT NOT NULL DEFAULT '', detail TEXT NOT NULL DEFAULT '{}')",
+            "CREATE INDEX IF NOT EXISTS tenant_activity_recent ON tenant_activity(owner_id, at)",
+            "CREATE INDEX IF NOT EXISTS tenant_activity_task ON tenant_activity(owner_id, task_id, at)",
+            "CREATE TABLE IF NOT EXISTS tenant_consents (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, thread_id TEXT NOT NULL, task_id TEXT, channel TEXT NOT NULL DEFAULT 'web', tool TEXT NOT NULL, risk TEXT NOT NULL, title TEXT NOT NULL DEFAULT '', preview TEXT NOT NULL DEFAULT '', args TEXT NOT NULL DEFAULT '{}', editable TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL CHECK(status IN ('pending','approved','rejected','expired')), note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, expires_at TEXT NOT NULL, decided_at TEXT)",
+            "CREATE INDEX IF NOT EXISTS tenant_consents_pending ON tenant_consents(owner_id, status, created_at)",
+            "CREATE TABLE IF NOT EXISTS tenant_automations (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, title TEXT NOT NULL, instruction TEXT NOT NULL, trigger TEXT NOT NULL DEFAULT '{}', enabled INTEGER NOT NULL DEFAULT 1, next_run_at TEXT, last_run_at TEXT, last_status TEXT NOT NULL DEFAULT '', last_task_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
+            "CREATE INDEX IF NOT EXISTS tenant_automations_due ON tenant_automations(enabled, next_run_at)",
+            "CREATE TABLE IF NOT EXISTS tenant_goals (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, title TEXT NOT NULL, why TEXT NOT NULL DEFAULT '', strategy TEXT NOT NULL DEFAULT '', stage TEXT NOT NULL DEFAULT '', progress INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','paused','done','dropped')), deadline TEXT, check_in TEXT NOT NULL DEFAULT '{}', notes TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS tenant_ideas (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT '', action TEXT NOT NULL DEFAULT '', score INTEGER NOT NULL DEFAULT 0, pushed INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, dismissed_at TEXT, acted_at TEXT)",
+            "CREATE INDEX IF NOT EXISTS tenant_ideas_recent ON tenant_ideas(owner_id, created_at)",
+        )
+
+    @staticmethod
     def _apply_version(connection: sqlite3.Connection, version: int, statements: tuple[str, ...]) -> None:
         if connection.execute("SELECT 1 FROM tenant_schema_migrations WHERE version=?", (version,)).fetchone():
             return
@@ -242,6 +261,7 @@ class TenantStore:
         TenantStore._apply_version(connection, 6, TenantStore._schema_v6_statements())
         TenantStore._apply_version(connection, 7, TenantStore._schema_v7_statements())
         TenantStore._apply_version(connection, 8, TenantStore._schema_v8_statements())
+        TenantStore._apply_version(connection, 9, TenantStore._schema_v9_statements())
         from jarvis.history_index import ensure_fts   # 延迟导入：history_index 依赖本模块
         ensure_fts(connection)
 

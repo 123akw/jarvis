@@ -110,3 +110,23 @@ def test_v7_database_upgrades_to_v8_keeping_runs(owner_id):
         c.execute("INSERT INTO tenant_flow_runs(id, owner_id, flow_id, status, started_at, source) VALUES ('r2', ?, 'f1', 'waiting', 'x', 'chat')", (owner_id,))
         tables = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"tenant_flow_hooks", "tenant_flow_approvals", "usage_daily", "tenant_quotas", "admin_alerts"} <= tables
+
+
+def test_v8_database_upgrades_to_v9_with_assistant_tables(owner_id):
+    """第二十一轮：个人助理的表（后台任务、活动记录、同意、自动化、目标、想法）；旧的流程表不动。"""
+    store = TenantStore()
+    names = ("tenant_tasks", "tenant_activity", "tenant_consents", "tenant_automations", "tenant_goals", "tenant_ideas")
+    with tenant_scope(owner_id):
+        store.add_todo("先把库建到最新")
+    with store._connect() as c:
+        for t in names:
+            c.execute(f"DROP TABLE {t}")
+        c.execute("DELETE FROM tenant_schema_migrations WHERE version=9")
+        c.commit()
+    TenantStore.reset_migration_cache()
+    with tenant_scope(owner_id):
+        assert [t["content"] for t in store.list_todos()] == ["先把库建到最新"]
+    with store._connect() as c:
+        assert c.execute("SELECT 1 FROM tenant_schema_migrations WHERE version=9").fetchone()
+        tables = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert set(names) <= tables and {"tenant_flows", "tenant_flow_runs"} <= tables
