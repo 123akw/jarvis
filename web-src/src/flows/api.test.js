@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  composeFlow, getFeishuStatus, getTrigger, listFlows, listRuns, runGraph, saveFlow, setTrigger, sseLineParser,
+  composeFlow, createWebhook, decideApproval, deleteWebhook, getApproval, getFeishuStatus, getHooks, getRun, getTrigger,
+  listApprovals, listFlows, listRuns, rerunGraph, runGraph, saveFlow, setMessageHook, setTrigger, sseLineParser, testNode,
 } from './api.js'
 
 const enc = new TextEncoder()
@@ -100,5 +101,82 @@ describe('flows/api', () => {
     expect(await getFeishuStatus()).toEqual({ configured: true, bound: false })
     vi.stubGlobal('fetch', vi.fn(async () => json({}, 401)))
     await expect(getFeishuStatus()).rejects.toThrow('401')
+  })
+
+  it('第二十轮：试跑一步发 {inputs}（没有就空对象）；重跑走 SSE；运行详情兼容 {run} 与直接返回', async () => {
+    const fetch = vi.fn(async url => (url.endsWith('/test')
+      ? json({ status: 'ok', ms: 120, output: { text: '好' }, note: '试跑不会真的发送' })
+      : json({ run: { id: 'r1', status: 'ok' } })))
+    vi.stubGlobal('fetch', fetch)
+    expect(await testNode('f1', 'n 1', { text: '你好' })).toMatchObject({ status: 'ok', note: '试跑不会真的发送' })
+    expect(fetch.mock.calls[0][0]).toBe('/api/flows/f1/nodes/n%201/test')
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ inputs: { text: '你好' } })
+    await testNode('f1', 'n1')
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({})
+    expect(await getRun('f1', 'r1')).toEqual({ id: 'r1', status: 'ok' })
+    expect(fetch.mock.calls[2][0]).toBe('/api/flows/f1/runs/r1')
+    vi.stubGlobal('fetch', vi.fn(async () => json({ id: 'r2', status: 'waiting' })))
+    expect(await getRun('f1', 'r2')).toEqual({ id: 'r2', status: 'waiting' })
+    const sse = vi.fn(async () => streamResponse(['data: {"type":"run_start","run_id":"r3"}\n\ndata: {"type":"run_done","status":"ok"}\n\n']))
+    vi.stubGlobal('fetch', sse)
+    const got = []
+    for await (const ev of rerunGraph('f1', 'r1')) got.push(ev.type)
+    expect(got).toEqual(['run_start', 'run_done'])
+    expect(sse.mock.calls[0][0]).toBe('/api/flows/f1/runs/r1/rerun')
+    expect(sse.mock.calls[0][1].method).toBe('POST')
+  })
+
+  it('配额用完（429）用服务端的人话；没给原因时说稍后再试', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ error: '今天的用量到上限了，明天再来，或请管理员调高' }, 429)))
+    await expect(testNode('f1', 'n1')).rejects.toThrow('今天的用量到上限了')
+    await expect(rerunGraph('f1', 'r1').next()).rejects.toThrow('今天的用量到上限了')
+    vi.stubGlobal('fetch', vi.fn(async () => json({}, 429)))
+    await expect(listFlows()).rejects.toThrow('操作太频繁了')
+  })
+
+  it('发送前确认：列表 / 详情 / 同意带内容、拒绝带原因；已处理 409、不存在 404 说人话', async () => {
+    const fetch = vi.fn(async (url, init = {}) => {
+      if (url.startsWith('/api/approvals?')) return json({ approvals: [{ id: 'a1', status: 'pending' }, null], pending: 1 })
+      if (init.method === 'POST') return json({ approval: { id: 'a1', status: 'approved' }, run: { id: 'r1', status: 'running' } })
+      return json({ approval: { id: 'a1', content: '要发的', editable: true } })
+    })
+    vi.stubGlobal('fetch', fetch)
+    expect(await listApprovals()).toEqual({ approvals: [{ id: 'a1', status: 'pending' }], pending: 1 })
+    expect(fetch.mock.calls[0][0]).toBe('/api/approvals?status=pending&limit=20')
+    expect((await getApproval('a1')).content).toBe('要发的')
+    await decideApproval('a1', { decision: 'approve', content: '改过的' })
+    expect(JSON.parse(fetch.mock.calls[2][1].body)).toEqual({ decision: 'approve', content: '改过的' })
+    await decideApproval('a1', { decision: 'reject', note: '  不发了 ', content: 'x' })
+    expect(JSON.parse(fetch.mock.calls[3][1].body)).toEqual({ decision: 'reject', note: '不发了' })
+    await decideApproval('a1', { decision: 'reject', note: '  ' })
+    expect(JSON.parse(fetch.mock.calls[4][1].body)).toEqual({ decision: 'reject' })
+    vi.stubGlobal('fetch', vi.fn(async () => json({}, 409)))
+    await expect(decideApproval('a1', { decision: 'approve' })).rejects.toMatchObject({ status: 409, message: '这条已经处理过了，或者已经过期' })
+    vi.stubGlobal('fetch', vi.fn(async () => json({}, 404)))
+    await expect(getApproval('zz')).rejects.toThrow('找不到这条确认')
+    vi.stubGlobal('fetch', vi.fn(async () => json({ approvals: [{ id: 'a1', status: 'pending' }, { id: 'a2', status: 'approved' }] })))
+    expect((await listApprovals({ status: 'all', limit: 5 })).pending).toBe(1)
+  })
+
+  it('触发方式：读设置 / 存消息触发 / 生成与关掉链接', async () => {
+    const fetch = vi.fn(async (url, init = {}) => {
+      if (init.method === 'PUT') return json({ message: { ...JSON.parse(init.body), last_hit_at: null } })
+      if (init.method === 'POST') return json({ webhook: { enabled: true, url_hint: '…a1b2' }, url: 'https://j.example.com/api/hooks/abc' })
+      if (init.method === 'DELETE') return json({ webhook: null })
+      return json({ message: null, webhook: { enabled: true }, channels: { feishu: { ready: true, reason: '' } } })
+    })
+    vi.stubGlobal('fetch', fetch)
+    expect(await getHooks('f1')).toEqual({ message: null, webhook: { enabled: true }, channels: { feishu: { ready: true, reason: '' } } })
+    expect(fetch.mock.calls[0][0]).toBe('/api/flows/f1/hooks')
+    const body = { enabled: true, channels: ['feishu'], match: 'keywords', keywords: ['早报'], input_field: 'text' }
+    expect(await setMessageHook('f1', body)).toEqual({ ...body, last_hit_at: null })
+    expect(fetch.mock.calls[1][0]).toBe('/api/flows/f1/hooks/message')
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual(body)
+    expect((await createWebhook('f1')).url).toBe('https://j.example.com/api/hooks/abc')
+    expect(fetch.mock.calls[2][0]).toBe('/api/flows/f1/hooks/webhook')
+    await deleteWebhook('f1')
+    expect(fetch.mock.calls[3][1].method).toBe('DELETE')
+    vi.stubGlobal('fetch', vi.fn(async () => json({})))
+    expect(await getHooks('f1')).toEqual({ message: null, webhook: null, channels: {} })
   })
 })
