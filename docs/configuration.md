@@ -74,6 +74,15 @@
 | `JARVIS_MARKET_SIGNUP_PER_IP` | `3` | 同一 IP 每小时最多自助开几个号（比赛现场同一 Wi-Fi 下人多时可调大） |
 | `JARVIS_PUBLIC_URL` | 无 | 平台对外地址前缀，如 `https://jws.example.cn`；不设时按反代的 `X-Forwarded-Proto` / `X-Forwarded-Host` 与 `Host` 拼 |
 
+## 用量与配额（第二十轮）
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `JARVIS_DEFAULT_DAILY_MODEL_CALLS` | `300` | 普通账号每天的模型调用上限（按模型请求次数算，带工具的一轮会占 2 次以上）；管理后台可逐个账号改，管理员不限 |
+| `JARVIS_DEFAULT_DAILY_FLOW_RUNS` | `100` | 普通账号每天的流程运行上限 |
+| `JARVIS_PRICE_INPUT_PER_M` / `JARVIS_PRICE_CACHED_INPUT_PER_M` / `JARVIS_PRICE_OUTPUT_PER_M` | `2` / `0.2` / `3` | 估算花费用的单价（元 / 百万 token），默认参考 DeepSeek 公开价，请按实际模型设准 |
+| `JARVIS_STREAM_USAGE` | 自动 | 流式调用也让服务商回 token 用量：不设时只对已知支持的服务商（DeepSeek、OpenAI、通义 DashScope、硅基流动、火山方舟、智谱、Kimi、OpenRouter）开；`1` 强制开、`0` 关 |
+
 ## 流程定时运行
 
 | 变量 | 默认值 | 说明 |
