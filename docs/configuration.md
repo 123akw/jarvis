@@ -74,6 +74,14 @@
 | `JARVIS_MARKET_SIGNUP_PER_IP` | `3` | 同一 IP 每小时最多自助开几个号（比赛现场同一 Wi-Fi 下人多时可调大） |
 | `JARVIS_PUBLIC_URL` | 无 | 平台对外地址前缀，如 `https://jws.example.cn`；不设时按反代的 `X-Forwarded-Proto` / `X-Forwarded-Host` 与 `Host` 拼 |
 
+## 流程定时运行
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `JARVIS_FLOW_SCHEDULER_ENABLED` | `1` | 流程定时运行的后台线程（每 30 秒查一次到点的流程）；设 `0` 关掉，定时设置仍可保存但不会自动跑 |
+
+定时结果推送里的结果网页链接用 `JARVIS_PUBLIC_URL` 拼绝对地址；没设时用保存定时设置那次请求的地址。
+
 插件推荐在有描述时会用服务器默认模型（`JARVIS_PROVIDER` / `JARVIS_MODEL` 那一套）挑插件，约 8 秒超时、输出不合规就退回关键词规则；没配 key 时只走规则。推荐接口每个 IP 每分钟 10 次。
 
 ## 搜索与正文提取链

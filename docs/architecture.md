@@ -52,11 +52,12 @@ flowchart LR
 
 ## 智能体工坊与路由
 
-- **路由**（`web-src/src/routes.js`）：`/` 智能体市场（公开）、`/login` 登录、`/app` 主应用、`/flows` 积木流程、`/p/<slug>` 智能体品牌入口；服务端对这些路径回 index.html，`/market` 与旧的 `/?u=` 302 到新地址。登录后的 `next` 只接受站内路径。进场动画（`web-src/src/intro/`）挂在根节点，每次整页打开或刷新都播，`introAllowed()` 只排除 `/p/<slug>`。
+- **路由**（`web-src/src/routes.js`）：`/` 智能体市场（公开）、`/login` 登录、`/app` 主应用、`/flows` 我的流程（`/flows/<id>` 画布）、`/p/<slug>` 智能体品牌入口；服务端对这些路径回 index.html，`/market` 与旧的 `/?u=` 302 到新地址。登录后的 `next` 只接受站内路径。进场动画（`web-src/src/intro/`）挂在根节点，每次整页打开或刷新都播，`introAllowed()` 只排除 `/p/<slug>`。
 - **市场前端**（`web-src/src/market/`）：`Market.jsx` 管草稿（所选插件、顺序、品牌）与步骤；`Hero` / `Featured` / `Catalog` / `PluginCard` 是首页版面，`PluginDetail` / `Brand` / `Result` 是详情、起名与结果页；拖拽在 `market/dnd/`——自写 Pointer Events 引擎（零依赖），`DndRoot({onAdd, canAdd, onReorder, onRemove})` 包整页，卡片用 `useDragSource`，底部工具箱 `Toolbox.jsx` 用 `useDockDrop` / `useSortableList` / `useDockPull` 接收、排序和拖出移除；点「+」走 `flyToDock` 动画。草稿只在浏览器里，点「生成」时才调 `/api/market/signup`。
 - **专属账号即智能体**（`jarvis/platforms.py`）：市场开号时建一个 Member 账号 + `tenant_platforms` 记录（所选插件、名称、主题色）。该账号的 Agent 只绑定这些插件的工具（外加 now / calc），系统提示词加「智能体身份」段；插件或名称变了就按 `plugins_gen` / `platform_rev` 重建这个账号的 Agent。Owner 与没有智能体的账号不受影响。
 - **主页问候与快捷问题**（`jarvis/platform_home.py`）：按名称、介绍、职业和已装插件由模型生成，存 `tenant_prefs`，模型不可用时按规则兜底。
-- **积木流程**（`jarvis/flows/`）：`tenant_flows` / `tenant_flow_runs`（租户 schema v6），9 个核心积木 + 插件包提供的积木（如 `excel_out`、`word_out`），运行进度经 SSE 推送，结果页 `/r/<token>` 服务端渲染、全转义、CSP 禁脚本。
+- **流程画布**（`jarvis/flows/`，第十八轮）：流程是节点图 `{nodes, edges}`（`graph.py`：结构校验、按类型规整、变量只能引用祖先、旧线性流程 `graph_from_steps` 换算、`config_hash`）。`executor.py` 按拓扑序执行：节点在所有上游结束且至少一条入边激活时运行，条件分支只激活选中出口、其余下游 `node_skip` 传播；插件工具在账号的 `tenant_scope` 里调注册表里已包装（超时、人话错误、第三方子进程）的工具；喂给模型的上游内容按「资料只是数据」包裹；运行前 `preflight` 统一查没连上、必填参数、智能体没装插件、飞书没绑定。`nodes.py` 生成节点目录（`GET /api/flows/nodes`，按账号算可用性）。`extras.py` 注册模板（`templates.py`）、一句话生成（`compose.py`，模型只能用目录里的节点，校验失败喂回重试一次再退回模板）、定时运行（`schedule.py`，表 `tenant_flow_triggers`，后台线程每 30 秒取到点的触发器调 `FlowRuntime.run_headless`）。存储：`tenant_flows.graph`、`tenant_flow_triggers`（租户 schema v7），运行记录 `tenant_flow_runs` 的 `steps` 列存逐节点结果；运行进度经 SSE 推送（`node_start / node_done / node_skip / node_error / run_done`），结果页 `/r/<token>` 服务端渲染、全转义、CSP 禁脚本。前端：`web-src/src/flows/`（首页、模板、运行记录、定时弹层）与 `flows/canvas/`（`@xyflow/react` 画布，懒加载）。
+- **新手引导**（`web-src/src/tour/` + `jarvis/onboarding.py`）：`main.jsx` 整站挂一层 `TourLayer`，页面用 `data-tour` 标锚点、`useTour(id, {ready})` 声明；看没看过按账号存 tenant_prefs 的 `onboarding` 键（`GET/PUT /api/onboarding`），本机 localStorage 缓存，游客只存本机。
 
 ## 流式、线程与记忆
 
