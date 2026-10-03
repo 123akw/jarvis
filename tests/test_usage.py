@@ -235,7 +235,10 @@ def test_member_default_custom_and_unlimited_quota(member_id, monkeypatch):
     usage.set_quota(member_id, {"daily_model_calls": -1, "daily_flow_runs": 0})
     assert usage.check_model(member_id) is None
     assert usage.check_flow_run(member_id) == usage.FLOW_QUOTA_MESSAGE   # 0 = 一次都不让跑
-    assert usage.usage_status(member_id)["quota"]["daily_model_calls"] is None
+    view = usage.usage_status(member_id)["quota"]
+    assert view["daily_model_calls"] is None and view["source"] == "custom"           # 自定义比不限更具体
+    usage.set_quota(member_id, {"daily_flow_runs": None})
+    assert usage.usage_status(member_id)["quota"]["source"] == "unlimited"             # 不限 + 默认 → 不限
     usage.set_quota(member_id, {"daily_model_calls": None, "daily_flow_runs": None})   # 都回默认：删掉这行
     with TenantStore()._connect() as c:
         assert c.execute("SELECT COUNT(*) FROM tenant_quotas").fetchone()[0] == 0
@@ -264,40 +267,49 @@ def test_quota_exhausted_alerts_owner_once_per_day(member_id, owner_id, monkeypa
     for _ in range(3):
         assert usage.check_model(member_id)
     [row] = _alerts()
-    assert row["kind"] == "quota_model" and row["owner_id"] == member_id
+    assert row["kind"] == "quota_exhausted" and row["owner_id"] == member_id
     assert row["title"] == "「bob」今天的模型调用次数用完了" and "上限 0 次" in row["detail"]
     assert pushed == [(owner_id, "管理提醒：「bob」今天的模型调用次数用完了（今天已用 0 次，上限 0 次。明天自动恢复，也可以在管理后台调高。）")]
     usage._quota_alerted.clear()                                      # 模拟重启：库里今天已有，不再发
     assert usage.check_model(member_id)
     assert len(_alerts()) == 1 and len(pushed) == 1
+    monkeypatch.setenv("JARVIS_DEFAULT_DAILY_FLOW_RUNS", "0")
+    assert usage.check_flow_run(member_id)                             # 流程配额用尽：另一条（标题不同不合并）
+    assert sorted(r["title"] for r in _alerts()) == ["「bob」今天的模型调用次数用完了", "「bob」今天的流程运行次数用完了"]
 
 
 # ---------- 告警 ----------
 
-def test_alert_merges_same_kind_and_owner_within_an_hour(owner_id, member_id, monkeypatch):
+def test_alert_merges_same_title_within_an_hour_and_caps_distinct(owner_id, member_id, monkeypatch):
     pushed = []
     monkeypatch.setattr(usage, "_notify", lambda uid, text: pushed.append(text))
     now = {"t": dt.datetime(2026, 10, 3, 9, 0)}
     monkeypatch.setattr(usage, "_clock", lambda: now["t"])
-    usage.alert("flow_failing", "定时流程「早报」连续 2 次没跑成", "模型超时", owner_id=member_id)
+    usage.alert("flow_paused", "定时流程「早报」已自动暂停", "模型超时", owner_id=member_id)
     usage.mark_alerts_read(all_=True)
     now["t"] += dt.timedelta(minutes=30)
-    usage.alert("flow_failing", "定时流程「早报」连续 3 次没跑成", "模型又超时", owner_id=member_id)
-    usage.alert("flow_failing", "别的账号", owner_id=owner_id)        # 不同账号：单独一条
-    usage.alert("channel_feishu", "飞书长连接断开超过 5 分钟")         # 系统级（没有账号）
-    usage.alert("channel_feishu", "飞书长连接断开超过 5 分钟", "又断了")
+    usage.alert("flow_paused", "定时流程「早报」已自动暂停", "模型又超时", owner_id=member_id)   # 同标题：合并
+    usage.alert("flow_paused", "定时流程「早报」已自动暂停", owner_id=owner_id)              # 不同账号：单独一条
+    usage.alert("channel_down", "飞书长连接断开超过 5 分钟")           # 系统级（没有账号）
+    usage.alert("channel_down", "飞书长连接断开超过 5 分钟", "又断了")
+    usage.alert("channel_down", "微信长连接断开超过 5 分钟")           # 同类不同标题：飞书、微信各一条
     rows = _alerts()
-    assert len(rows) == 3
+    assert len(rows) == 4
     merged = next(r for r in rows if r["owner_id"] == member_id)
-    assert merged["title"].endswith("连续 3 次没跑成") and merged["detail"] == "模型又超时" and merged["read_at"] is None
-    assert len(pushed) == 3                                            # 合并的那几次不再推送
+    assert merged["detail"] == "模型又超时" and merged["read_at"] is None    # 又发生了：重新标未读
+    assert len(pushed) == 4                                            # 合并的那几次不再推送
+    for name in ("晚报", "周报", "月报", "年报"):                     # 同类同账号 1 小时最多 3 条不同标题
+        usage.alert("flow_failed", f"定时流程「{name}」连续 2 次没跑成", owner_id=member_id)
+    failed = [r for r in _alerts() if r["kind"] == "flow_failed"]
+    assert len(failed) == 3 and any(r["title"] == "定时流程「年报」连续 2 次没跑成" for r in failed)
+    assert len(pushed) == 7
     now["t"] += dt.timedelta(minutes=61)
-    usage.alert("flow_failing", "定时流程「早报」连续 4 次没跑成", owner_id=member_id)
-    assert len(_alerts()) == 4 and len(pushed) == 4
+    usage.alert("flow_paused", "定时流程「早报」已自动暂停", owner_id=member_id)   # 过了 1 小时：新的一条
+    assert len(_alerts()) == 8 and len(pushed) == 8
     view = usage.list_alerts(10)
-    assert view["unread"] == 4 and view["alerts"][0]["owner"] == {"id": member_id, "username": "bob"}
-    assert next(a for a in view["alerts"] if a["kind"] == "channel_feishu")["owner"] is None
-    assert usage.mark_alerts_read([view["alerts"][0]["id"]]) == 3
+    assert view["unread"] == 8 and view["alerts"][0]["owner"] == {"id": member_id, "username": "bob"}
+    assert next(a for a in view["alerts"] if a["kind"] == "channel_down")["owner"] is None
+    assert usage.mark_alerts_read([view["alerts"][0]["id"]]) == 7
 
 
 def test_alert_never_raises_and_cleans_input(owner_id, monkeypatch):
@@ -336,7 +348,7 @@ def test_channel_watch_alerts_after_five_minutes_once(owner_id, monkeypatch):
     clock["t"] += 299
     assert watch.tick() == []
     clock["t"] += 2
-    assert watch.tick() == ["feishu"] and fired == [("channel_feishu", "飞书长连接断开超过 5 分钟")]
+    assert watch.tick() == ["feishu"] and fired == [("channel_down", "飞书长连接断开超过 5 分钟")]
     clock["t"] += 600
     assert watch.tick() == []                     # 一直断着：不重复
     state["down"] = False

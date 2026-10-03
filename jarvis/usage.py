@@ -8,8 +8,10 @@
 - 配额：``tenant_quotas`` 每账号每天的模型调用与流程运行上限（null 用环境变量默认值，-1 = 不限，
   Owner 永远不限）；超了在对话 / 流程入口给人话提示，并给管理员发一条告警（每账号每天一次）。
 - 告警：定时流程被自动暂停 / 连续失败、渠道（飞书 / 微信）断开超过 5 分钟、配额用尽，写 ``admin_alerts``
-  （同类同账号 1 小时内合并成一条）并推给 Owner（Notifier：桌面通知 + 飞书 / 微信按 Owner 的送达设置）。
-  告警 kind：quota_model / quota_flow / flow_paused / flow_failing / channel_feishu / channel_wechat。
+  （同类同账号同标题 1 小时内合并成一条；同类同账号 1 小时最多 3 条，再多并进最新那条）并推给 Owner
+  （Notifier：桌面通知 + 飞书 / 微信按 Owner 的送达设置）。
+  告警 kind 固定四个：flow_paused（定时流程被自动暂停）、flow_failed（定时流程连续失败 / 运行失败）、
+  channel_down（飞书 / 微信断开）、quota_exhausted（配额用尽）；标题请保持稳定，变化的信息放 detail。
 - 接口：``GET /api/admin/usage``、``PUT /api/admin/quotas/{user_id}``、``GET /api/admin/alerts``、
   ``POST /api/admin/alerts/read``（以上仅 Owner）、``GET /api/usage/me``（任意登录账号）。
 
@@ -379,7 +381,7 @@ def stream_usage_enabled() -> bool:
 
 QUOTA_FIELDS = ("daily_model_calls", "daily_flow_runs")
 UNLIMITED = -1
-MAX_QUOTA = 1_000_000
+MAX_QUOTA = 100_000
 
 
 def default_quotas() -> dict:
@@ -406,8 +408,8 @@ def quota_view(role: str | None, stored: tuple | None, *, defaults: dict | None 
             view[field], sources[field] = None, "unlimited"
         else:
             view[field], sources[field] = int(value), "custom"
-    kinds = set(sources.values())
-    view["source"] = "default" if kinds == {"default"} else "unlimited" if kinds == {"unlimited"} else "custom"
+    kinds = set(sources.values())   # 总的来源取「更具体」的那个：自定义 > 不限 > 默认
+    view["source"] = next(kind for kind in ("custom", "unlimited", "default") if kind in kinds)
     view["sources"] = sources
     view["defaults"] = defaults
     return view
@@ -477,6 +479,7 @@ def check_flow_run(user_id: str) -> str | None:
     return _check(user_id, "daily_flow_runs")
 
 
+QUOTA_ALERT = "quota_exhausted"
 _quota_alerted: set[tuple[str, str, str, str]] = set()
 _quota_lock = threading.Lock()
 
@@ -490,25 +493,25 @@ def _quota_alert(user_id: str, field: str, used: int, limit: int) -> None:
         if key in _quota_alerted:
             return
         _quota_alerted.add(key)
-    kind = "quota_model" if field == "daily_model_calls" else "quota_flow"
+    what = "模型调用" if field == "daily_model_calls" else "流程运行"
     try:
         with store._connect() as c:
             row = c.execute("SELECT username FROM users WHERE id=?", (user_id,)).fetchone()
-            name = row["username"] if row else user_id[:8]
-            if c.execute("SELECT 1 FROM admin_alerts WHERE kind=? AND owner_id=? AND created_at>=?",
-                         (kind, user_id, _local_midnight_utc(day))).fetchone():
+            title = f"「{row['username'] if row else user_id[:8]}」今天的{what}次数用完了"
+            if c.execute("SELECT 1 FROM admin_alerts WHERE kind=? AND owner_id=? AND title=? AND created_at>=?",
+                         (QUOTA_ALERT, user_id, title, _local_midnight_utc(day))).fetchone():
                 return
     except Exception as exc:
         log.warning("quota alert lookup failed: %s", type(exc).__name__)
         return
-    what = "模型调用" if field == "daily_model_calls" else "流程运行"
-    alert(kind, f"「{name}」今天的{what}次数用完了",
-          f"今天已用 {used} 次，上限 {limit} 次。明天自动恢复，也可以在管理后台调高。", owner_id=user_id)
+    alert(QUOTA_ALERT, title, f"今天已用 {used} 次，上限 {limit} 次。明天自动恢复，也可以在管理后台调高。",
+          owner_id=user_id)
 
 
 # ---------- 告警 ----------
 
 ALERT_MERGE_SECONDS = 3600
+ALERT_DISTINCT_PER_HOUR = 3   # 同类同账号 1 小时内最多几条不同标题的告警；再多就并进最新那条（防刷屏）
 _ALERT_KIND_RE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 _alert_lock = threading.Lock()
 _notify: Callable[[str, str], Any] | None = None
@@ -541,7 +544,9 @@ def _push(owners: list[str], title: str, detail: str) -> None:
 def alert(kind: str, title: str, detail: str = "", *, owner_id: str | None = None) -> None:
     """记一条管理告警并推给 Owner（同类告警会合并、限频）。
 
-    同 kind、同账号（owner_id，可为空 = 系统级）1 小时内已有一条：更新那条的标题 / 详情并标成未读，不再推送。"""
+    同 kind、同账号（owner_id，可为空 = 系统级）、同标题 1 小时内已有一条：更新那条的详情并标成未读，不再推送；
+    同 kind 同账号 1 小时内已有 ALERT_DISTINCT_PER_HOUR 条不同标题的：并进最新那条（也不推送）。
+    所以标题要稳定（「定时流程「早报」已自动暂停」），每次不同的原因放 detail。"""
     try:
         kind = str(kind or "").strip().lower()
         if not _ALERT_KIND_RE.match(kind):
@@ -554,9 +559,12 @@ def alert(kind: str, title: str, detail: str = "", *, owner_id: str | None = Non
         with _alert_lock, TenantStore()._connect() as c:
             c.execute("BEGIN IMMEDIATE")
             try:
-                existing = c.execute(
-                    "SELECT id FROM admin_alerts WHERE kind=? AND owner_id IS ? AND created_at>=? "
-                    "ORDER BY created_at DESC LIMIT 1", (kind, owner, cutoff)).fetchone()
+                recent = c.execute(
+                    "SELECT id, title FROM admin_alerts WHERE kind=? AND owner_id IS ? AND created_at>=? "
+                    "ORDER BY created_at DESC, rowid DESC", (kind, owner, cutoff)).fetchall()
+                existing = next((row for row in recent if row["title"] == title), None)
+                if existing is None and len(recent) >= ALERT_DISTINCT_PER_HOUR:
+                    existing = recent[0]
                 if existing:
                     c.execute("UPDATE admin_alerts SET title=?, detail=?, read_at=NULL WHERE id=?",
                               (title, detail, existing["id"]))
@@ -630,7 +638,7 @@ class ChannelWatch:
             if now - since >= CHANNEL_DOWN_SECONDS and name not in self._alerted:
                 self._alerted.add(name)
                 label = CHANNEL_LABELS.get(name, name)
-                alert(f"channel_{name}", f"{label}长连接断开超过 5 分钟",
+                alert("channel_down", f"{label}长连接断开超过 5 分钟",
                       f"{_clip(reason, 200)}。这段时间{label}里发给贾维斯的消息收不到，请检查网络或到网页端看连接状态。")
                 fired.append(name)
         return fired
@@ -710,11 +718,23 @@ def _public(bucket: dict, *, flows: bool = True) -> dict:
     return out
 
 
+RANGE_DAYS = (1, 7, 30)
+
+
+def snap_days(value) -> int:
+    """统计范围只有今天 / 近 7 天 / 近 30 天：其他数按最近的那个算（等距取短的），不是数按 7 天。"""
+    try:
+        days = int(value)
+    except (TypeError, ValueError):
+        return 7
+    return min(RANGE_DAYS, key=lambda option: (abs(option - days), option))
+
+
 def usage_report(days: int, users: list[dict], *, store: TenantStore | None = None) -> dict:
     """GET /api/admin/usage 的内容：最近 days 天（含今天）的合计、每天、按类别、按账号。"""
     flush()
     store = store or TenantStore()
-    days = max(1, min(int(days), 90))
+    days = snap_days(days)
     today = _today()
     start = today - dt.timedelta(days=days - 1)
     span = [start + dt.timedelta(days=i) for i in range(days)]
@@ -772,6 +792,7 @@ def usage_report(days: int, users: list[dict], *, store: TenantStore | None = No
                     for kind, bucket in kinds.items()
                     if kind in MAIN_KINDS or bucket["calls"]],
         "accounts": account_rows,
+        "quota_defaults": defaults,
         "pricing": pricing(),
     }
 
@@ -844,8 +865,8 @@ def _quota_value_error(field: str, value) -> str | None:
     label = "每天的模型调用次数" if field == "daily_model_calls" else "每天的流程运行次数"
     if value is None:
         return None
-    if isinstance(value, bool) or not isinstance(value, int) or not (UNLIMITED <= value <= MAX_QUOTA):
-        return f"{label}要填 0 到 {MAX_QUOTA} 之间的整数（不限填 -1，用默认填空）"
+    if isinstance(value, bool) or not isinstance(value, int) or not (value == UNLIMITED or 1 <= value <= MAX_QUOTA):
+        return f"{label}要填 1 到 {MAX_QUOTA} 之间的整数（不限填 -1，用默认填空）"
     return None
 
 
@@ -881,11 +902,7 @@ def register(app, *, request_principal, panel_write, deny, tenant_store, account
         if error is not None:
             return error
         try:
-            span = int(days)
-        except (TypeError, ValueError):
-            span = 7
-        try:
-            return no_store(usage_report(span, users()))
+            return no_store(usage_report(snap_days(days), users()))
         except Exception as exc:
             log.warning("admin usage report failed: %s", type(exc).__name__)
             return failed()
