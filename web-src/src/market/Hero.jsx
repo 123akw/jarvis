@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import Icon from '../Icon.jsx'
+import { TourButton } from '../tour/index.jsx'
 import { ProfessionTags } from './Recommend.jsx'
 import { SearchBox } from './TopBar.jsx'
 
@@ -97,8 +98,8 @@ export default function Hero({ catalog, query, onQuery, inputRef, formRef, onSub
   return (
     <section className="jvm-hero" aria-labelledby="jvm-hero-title">
       <h1 id="jvm-hero-title" className="jvm-hero-title" tabIndex={-1}>挑几个插件，<br className="jvm-br" />拼出你的 AI 智能体</h1>
-      <p className="jvm-hero-sub">放进工具箱、起个名字，拿到专属账号就能用。</p>
-      <div className="jvm-hero-search" ref={formRef}
+      <p className="jvm-hero-sub">放进工具箱、起个名字，拿到专属账号就能用。<TourButton tour="market" label="怎么用" className="jvm-hero-tour" /></p>
+      <div className="jvm-hero-search" ref={formRef} data-tour="market-search"
         onFocus={() => setFocused(true)}
         onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) { setFocused(false); setDismissed(false); setActive(-1) } }}>
         <SearchBox size="hero" id="jvm-hero-search" value={query} inputRef={inputRef} onSubmit={submit} onKeyDown={onKeyDown}

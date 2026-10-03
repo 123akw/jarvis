@@ -508,7 +508,7 @@ function Chat({ threadId, location, onBusy, onTurnDone, onExpired, injected = nu
         ) : null}
         {uploading ? <div className="upload-note" role="status"><span className="today-spinner" aria-hidden="true" />正在读取《{uploading}》…</div> : null}
         {uploadErr && <div className="upload-err" role="alert">⚠ {uploadErr}</div>}
-        <div className="inputbar2">
+        <div className="inputbar2" data-tour="app-input">
           <input ref={fileRef} type="file" accept={UPLOAD_ACCEPT} style={{ display: 'none' }}
             aria-label="选择文档" onChange={onPickFile} />
           <button className={`jv-icon-btn round${uploading ? ' loading' : ''}`} onClick={() => fileRef.current?.click()}
