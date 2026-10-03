@@ -799,6 +799,12 @@ describe('发送前确认节点（第二十轮）', () => {
     // run_done 没带 approval 时沿用 node_wait 的
     const t = runReducer(runReducer(startRunState(0), { type: 'node_wait', node_id: 'ap', approval_id: 'a2', url: '/approve/a2' }), { type: 'run_done', status: 'waiting' })
     expect(t.approval.id).toBe('a2')
+    // 联调：node_wait 还带 summary / preview / ms / config_hash
+    const w = runReducer(startRunState(0), { type: 'node_wait', node_id: 'ap', approval_id: 'a3', summary: '等你确认（86 字）', preview: '今天…', ms: 12, config_hash: 'h9' })
+    expect(w.nodes.ap).toMatchObject({ status: 'waiting', summary: '等你确认（86 字）', preview: '今天…', ms: 12, config_hash: 'h9' })
+    // 运行详情里被拒绝 / 过期的节点
+    const r = runFromDetail(w, { status: 'rejected', nodes: [{ node_id: 'ap', status: 'rejected', summary: '你拒绝了' }] })
+    expect(r.nodes.ap.status).toBe('rejected')
   })
 
   it('运行详情 → 画布状态：确认后接着跑（resuming）→ 完成；拒绝 / 过期 / 出错', () => {

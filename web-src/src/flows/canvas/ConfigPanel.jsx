@@ -451,6 +451,7 @@ function TestResult({ node, item, test, onOpenRun }) {
       <p className="fc-test-head">
         <span className="fc-test-tag">试跑</span>
         <b>{ok ? '跑通了' : '没跑通'}</b>
+        {ok && test.summary ? <span className="fc-test-sum">{test.summary}</span> : null}
         {test.ms ? <span className="fc-test-ms">{fmtMs(test.ms)}</span> : null}
       </p>
       {stale ? <p className="fc-test-stale"><Glyph name="warn" size={13} />改过了，再试跑结果可能不同</p> : null}

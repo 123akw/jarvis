@@ -29,6 +29,7 @@ vi.mock('../tour/index.jsx', () => ({
 
 import { DRAFT_KEY, nextRuns, whenLabel } from './flowkit.js'
 import Flows from './Flows.jsx'
+import { defaultMessageField, hookFlags, lastStatusText } from './TriggerSheet.jsx'
 
 /* ---- 契约假数据（docs/proposals/2026-10-round18-flows.md §3） ---- */
 const n = (id, type, data = {}, x = 0, y = 0) => ({ id, type, position: { x, y }, data })
@@ -522,6 +523,39 @@ describe('「我的流程」首页', () => {
     expect(container).toBeTruthy()
   })
 
+  it('触发方式的小工具：两种 hooks 写法都认；消息默认填进第一个长文字（没有再第一个文字）；上次触发的结果说人话', () => {
+    expect(hookFlags({ message: true, webhook: false })).toEqual({ message: true, webhook: false })
+    expect(hookFlags({ message: { enabled: true }, webhook: null })).toEqual({ message: true, webhook: false })
+    expect(hookFlags(null)).toEqual({ message: false, webhook: false })
+    expect(defaultMessageField([{ key: 'city', type: 'text' }, { key: 'note', type: 'paragraph' }])).toBe('note')
+    expect(defaultMessageField([{ key: 'n', type: 'number' }, { key: 'city', type: 'text' }])).toBe('city')
+    expect(defaultMessageField([{ key: 'f', type: 'file' }])).toBe('')
+    expect(lastStatusText('error')).toMatch('上次没跑通')
+    expect(lastStatusText('waiting')).toMatch('发送前确认')
+    expect(lastStatusText('ok')).toBe('')
+  })
+
+  it('联调：列表项自带 hooks 两个布尔时直接用、不再逐个去读；当时文件没存下来的运行「再跑」置灰并说原因', async () => {
+    const flows = [{ ...FLOWS[0], hooks: { message: true, webhook: false } }, { ...FLOWS[1], hooks: { message: false, webhook: true } }]
+    const runs = { runs: [{ id: 'r8', status: 'ok', source: 'manual', started_at: new Date(Date.now() - 3600e3).toISOString(), input_summary: '合同：a.pdf',
+      rerunnable: false, nodes: [] }] }
+    await renderHome({ flows, runs })
+    const card1 = screen.getByRole('link', { name: '工作日早报' }).closest('li')
+    const card2 = screen.getByRole('link', { name: '会议纪要转待办' }).closest('li')
+    expect(within(card1).getByText('收到消息')).toBeInTheDocument()
+    expect(within(card1).queryByText('链接')).toBeNull()
+    expect(within(card2).getByText('链接')).toBeInTheDocument()
+    expect(api.calls.filter(c => /\/hooks$/.test(c.url))).toHaveLength(0)
+    fireEvent.click(within(card1).getByRole('button', { name: '「工作日早报」的更多操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '运行记录' }))
+    const drawer = screen.getByRole('dialog', { name: '运行记录：工作日早报' })
+    const again = await within(drawer).findByRole('button', { name: /用这次的输入再跑.*要重新上传文件才能再跑/ })
+    expect(again).toBeDisabled()
+    fireEvent.click(within(drawer).getByRole('button', { name: /完成/ }))
+    expect(within(drawer).getByRole('button', { name: '用这次的输入再跑' })).toBeDisabled()
+    expect(within(drawer).getByText(/要重新上传文件才能再跑：这次用的文件当时没存下来/)).toBeInTheDocument()
+  })
+
   it('卡片上的触发标记：⏰ 定时 / 💬 收到消息 / 🔗 链接，只显示开着的', async () => {
     await renderHome({ hooks: { f1: { message: { enabled: true }, webhook: { enabled: true }, channels: CHANNELS }, f2: { message: { enabled: false }, webhook: null, channels: CHANNELS } } })
     const card1 = screen.getByRole('link', { name: '工作日早报' }).closest('li')
@@ -620,10 +654,14 @@ describe('「我的流程」首页', () => {
     expect(await within(panel).findByRole('button', { name: /已复制/ })).toBeInTheDocument()
     const example = within(panel).getByLabelText('调用示例')
     expect(example.textContent).toContain("curl -X POST 'https://jarvis.example.com/api/hooks/tok1abcdefk1Zx'")
-    expect(example.textContent).toContain('"inputs":{"text":"会议记录","style":"纪要风格"}')
-    expect(within(panel).getByText('「会议记录」').closest('li')).toHaveTextContent('text')
+    // 示例按开始节点里的名字填（服务端按名字或内部名字都认），有默认值的用默认值
+    expect(example.textContent).toContain('"inputs":{"会议记录":"这里填会议记录","纪要风格":"简洁"}')
+    expect(panel).toHaveTextContent('每一项写开始节点里的名字（「会议记录」、「纪要风格」）')
     expect(panel).toHaveTextContent('状态码 202')
-    expect(panel).toHaveTextContent('每分钟最多触发 30 次')
+    expect(panel).toHaveTextContent('waiting 是停在发送前确认')
+    expect(panel).toHaveTextContent('这个流程正在跑时回 409')
+    expect(panel).toHaveTextContent('每分钟最多 30 次、今天的用量用完了，都回 429')
+    expect(panel).toHaveTextContent('链接关掉了、或流程删掉了回 410')
     expect(panel).not.toHaveTextContent(/token|令牌/i)
     expect(within(panel).getByText('链接触发已开启')).toBeInTheDocument()
     expect(calls('/api/flows/f2/hooks/webhook', 'POST')).toHaveLength(1)
@@ -644,7 +682,7 @@ describe('「我的流程」首页', () => {
   })
 
   it('通过链接：已开着时只给地址末尾，不再显示完整地址', async () => {
-    await renderHome({ hooks: { f2: { message: null, webhook: { enabled: true, created_at: '2026-10-01T08:00:00Z', last_hit_at: new Date(Date.now() - 7200e3).toISOString(), url_hint: '…Q7xz' }, channels: CHANNELS } } })
+    await renderHome({ hooks: { f2: { message: null, webhook: { enabled: true, created_at: '2026-10-01T08:00:00Z', last_hit_at: new Date(Date.now() - 7200e3).toISOString(), url_hint: '/api/hooks/Q7xz…', last_status: 'error' }, channels: CHANNELS } } })
     fireEvent.click(screen.getByRole('button', { name: '「会议纪要转待办」的更多操作' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '触发方式' }))
     const dialog = screen.getByRole('dialog', { name: '触发方式' })
@@ -652,7 +690,8 @@ describe('「我的流程」首页', () => {
     const panel = within(dialog).getByRole('tabpanel')
     expect(await within(panel).findByText('链接触发已开启')).toBeInTheDocument()
     expect(panel).toHaveTextContent('上次触发 2 小时前')
-    expect(panel).toHaveTextContent('地址末尾是「…Q7xz」')
+    expect(panel).toHaveTextContent('地址形如「/api/hooks/Q7xz…」')
+    expect(panel).toHaveTextContent('上次没跑通，到运行记录里看看原因')
     expect(within(panel).queryByRole('textbox', { name: '链接触发的地址' })).toBeNull()
     expect(within(panel).getByLabelText('调用示例').textContent).toContain('这里换成你的地址')
     expect(within(dialog).getByRole('tab', { name: /通过链接/ })).toHaveAccessibleName('通过链接（已开启）')

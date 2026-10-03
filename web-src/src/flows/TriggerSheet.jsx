@@ -24,9 +24,18 @@ const CHANNELS = [
   { id: 'wechat', label: '微信', hint: '在微信里发给贾维斯的消息' },
 ]
 
-/** 卡片上的触发标记：{ message, webhook } 是否开着（接口给的 hooks 设置 → 两个布尔） */
+/** 卡片上的触发标记：{ message, webhook } 是否开着。流程列表项给的是两个布尔，触发设置接口给的是两份设置（看 enabled） */
 export function hookFlags(hooks) {
-  return { message: Boolean(hooks?.message?.enabled), webhook: Boolean(hooks?.webhook?.enabled) }
+  const on = v => (typeof v === 'boolean' ? v : Boolean(v?.enabled))
+  return { message: on(hooks?.message), webhook: on(hooks?.webhook) }
+}
+
+/** 上次触发的结果（hooks 的 last_status）→ 一句人话；跑通了 / 还没触发过返回 '' */
+export function lastStatusText(status) {
+  return {
+    error: '上次没跑通，到运行记录里看看原因', waiting: '上次停在发送前确认，等你处理', busy: '上次碰上流程正在跑，那次没跑',
+    quota: '上次因为今天的用量到上限了，没跑', running: '正在跑',
+  }[status] || ''
 }
 
 /** 消息能填进去的输入项：文字 / 长文（文件字段由消息里的附件填） */
@@ -86,14 +95,18 @@ export function KeywordInput({ value, onChange, disabled, labelledBy, describedB
   )
 }
 
+/** 消息默认填进哪一项：第一个长文字输入（消息多是一段话），再是第一个文字输入（与服务端一致） */
+export function defaultMessageField(fields) {
+  return (fields.find(f => f.type === 'paragraph') || textFields(fields)[0])?.key || ''
+}
+
 function initialMessage(message, fields) {
-  const texts = textFields(fields)
   return {
     enabled: Boolean(message?.enabled) || !message,
     channels: Array.isArray(message?.channels) ? message.channels : null,
     match: message?.match === 'all' ? 'all' : 'keywords',
     keywords: Array.isArray(message?.keywords) ? message.keywords.map(String).slice(0, MAX_KEYWORDS) : [],
-    input_field: message ? (message.input_field || '') : (texts[0]?.key || ''),
+    input_field: message ? (message.input_field || '') : defaultMessageField(fields),
   }
 }
 
@@ -117,6 +130,7 @@ function MessageForm({ flow, hooks, fields, onBindFeishu, onClose, onSaved, onEx
   const unfillable = fields.filter(f => f.required && f.type !== 'file' && f.key !== form.input_field
     && (f.default === undefined || f.default === null || f.default === ''))
   const lastHit = hooks.message?.last_hit_at
+  const lastBad = lastStatusText(hooks.message?.last_status)
 
   async function save(e) {
     e.preventDefault()
@@ -223,6 +237,7 @@ function MessageForm({ flow, hooks, fields, onBindFeishu, onClose, onSaved, onEx
         <div className="fh-sheet-foot-row">
           <div className="fh-next">
             <p>{lastHit ? <>上次触发：<b title={absTime(lastHit)}>{relTime(lastHit)}</b></> : form.enabled ? '保存后，下一条符合条件的消息就会触发' : '关掉后收到消息照常聊天'}</p>
+            {lastHit && lastBad ? <p className="fh-next-more">{lastBad}</p> : null}
           </div>
           <div className="fh-sheet-actions">
             <button type="button" className="jv-btn" onClick={onClose}>取消</button>
@@ -234,12 +249,20 @@ function MessageForm({ flow, hooks, fields, onBindFeishu, onClose, onSaved, onEx
   )
 }
 
-/** 调用示例：每个文字输入项用它的名字；没有输入项发空内容 */
+/** 示例里的值：有默认值用默认值，选项用第一个，数字给 1，其余给一句「这里填……」 */
+function sampleValue(f) {
+  if (f.default !== undefined && f.default !== null && f.default !== '') return f.default
+  if (f.type === 'number') return 1
+  if (f.type === 'select' && Array.isArray(f.options) && f.options.length) return String(f.options[0])
+  return `这里填${String(f.label || '内容').trim()}`
+}
+
+/** 调用示例：每一项用开始节点里的名字（服务端按名字或内部名字都认）；没有输入项发空内容 */
 export function curlExample(url, fields) {
   const inputs = {}
   for (const f of fields) {
     if (f.type === 'file') continue
-    inputs[f.key] = f.type === 'number' ? 1 : String(f.label || '内容')
+    inputs[String(f.label || '').trim() || f.key] = sampleValue(f)
   }
   const body = Object.keys(inputs).length ? JSON.stringify({ inputs }) : '{}'
   return `curl -X POST '${url}' \\\n  -H 'Content-Type: application/json' \\\n  -d '${body.replace(/'/g, "'\\''")}'`
@@ -313,6 +336,7 @@ function WebhookPanel({ flow, hooks, fields, onChange, onExpired }) {
   }
 
   const keyed = fields.filter(f => f.type !== 'file')
+  const lastBad = lastStatusText(hook?.last_status)
   return (
     <div className="fh-hook">
       {!on && !fresh ? (
@@ -343,7 +367,8 @@ function WebhookPanel({ flow, hooks, fields, onChange, onExpired }) {
           <p className="fh-field-note">
             {[hook?.created_at ? `生成于 ${absTime(hook.created_at)}` : '', hook?.last_hit_at ? `上次触发 ${relTime(hook.last_hit_at)}` : '还没被触发过'].filter(Boolean).join(' · ')}
           </p>
-          {!fresh && hook?.url_hint ? <p className="fh-field-note">地址末尾是「{hook.url_hint}」，完整地址只在生成时显示过一次。</p> : null}
+          {hook?.last_hit_at && lastBad ? <p className="fh-field-note is-warn">{lastBad}</p> : null}
+          {!fresh && hook?.url_hint ? <p className="fh-field-note">地址形如「{hook.url_hint}」，完整地址只在生成时显示过一次。</p> : null}
           {confirm ? (
             <div className="fh-hook-confirm" role="alertdialog" aria-labelledby={`${uid}-cf`}>
               <p id={`${uid}-cf`}>{confirm === 'reset' ? '重置后旧地址马上失效，用到它的地方都要换成新地址。' : '关掉后这个地址马上失效，再打开会是一个新地址。'}</p>
@@ -369,19 +394,19 @@ function WebhookPanel({ flow, hooks, fields, onChange, onExpired }) {
       {on || fresh ? (
         <section className="fh-hook-how" aria-labelledby={`${uid}-how`}>
           <h3 className="fh-legend" id={`${uid}-how`}>怎么用</h3>
-          <p className="fh-field-note">用 POST 方式发到这个地址。要填的内容按下面的样子写，每一项用它的名字：</p>
-          {keyed.length ? (
-            <ul className="fh-hook-keys">
-              {keyed.map(f => <li key={f.key}><span>「{f.label || '没起名的输入项'}」</span><code>{f.key}</code></li>)}
-            </ul>
-          ) : <p className="fh-field-note">这个流程运行时不用填东西，发空内容就行。</p>}
+          <p className="fh-field-note">
+            {keyed.length ? `用 POST 方式发到这个地址，要填的内容放进 inputs，每一项写开始节点里的名字（${keyed.map(f => `「${f.label || '没起名的输入项'}」`).join('、')}）。也可以直接发一整段内容，会填进第一个文字输入。`
+              : '用 POST 方式发到这个地址；这个流程运行时不用填东西，发空内容就行。'}
+          </p>
           <div className="fh-hook-code">
             <pre aria-label="调用示例">{curlExample(fresh || '这里换成你的地址', fields)}</pre>
             {fresh ? <CopyButton text={curlExample(fresh, fields)} label="复制示例" /> : null}
           </div>
           <ul className="fh-hook-rules">
-            <li>最多等 30 秒：跑完了直接回结果；没跑完会先回「还在跑」（状态码 202），结果到运行记录里看。</li>
-            <li>每个地址每分钟最多触发 30 次，超过会被拒绝（状态码 429），稍等再发。</li>
+            <li>最多等 30 秒：跑完了直接回结果（状态码 200，看 status：ok 是跑通了，waiting 是停在发送前确认、等你处理，error 是没跑通）。</li>
+            <li>30 秒还没跑完，先回「还在跑」（状态码 202），结果到运行记录里看。</li>
+            <li>这个流程正在跑时回 409；每个地址每分钟最多 30 次、今天的用量用完了，都回 429，稍后再发。</li>
+            <li>地址不对回 404；链接关掉了、或流程删掉了回 410。</li>
             <li>谁拿到地址都能触发这个流程，别贴到公开的地方；万一泄露了，点「重置链接」换一个。</li>
           </ul>
         </section>

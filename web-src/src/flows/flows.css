@@ -308,7 +308,11 @@ body.light .fh-tab.is-on{box-shadow:0 1px 2px rgba(0,0,0,.08),0 0 0 1px rgba(0,0
 .fh-nres-mark{width:22px;height:22px;flex:none;display:grid;place-items:center;margin-top:1px;border-radius:50%;color:#fff;background:var(--jv-success)}
 .fh-nres-mark .jv-icon{stroke-width:2.6}
 .fh-nres[data-state=error] .fh-nres-mark{background:var(--jv-danger)}
-.fh-nres[data-state=skipped] .fh-nres-mark,.fh-nres[data-state=stopped] .fh-nres-mark{background:var(--jv-surface-2)}
+.fh-nres[data-state=skipped] .fh-nres-mark,.fh-nres[data-state=stopped] .fh-nres-mark,
+.fh-nres[data-state=rejected] .fh-nres-mark,.fh-nres[data-state=expired] .fh-nres-mark{background:var(--jv-surface-2)}
+.fh-rerun-off{margin-top:12px;font-size:13px;line-height:1.55;color:var(--jv-text-3)}
+.fh-rerun-btn:disabled{opacity:.45;cursor:not-allowed}
+.fh-rerun-btn:disabled:hover{background:transparent;color:var(--jv-text-2)}
 .fh-nres[data-state=running] .fh-nres-mark{background:var(--jv-accent-soft)}
 .fh-nres[data-state=waiting] .fh-nres-mark{background:var(--fh-wait)}
 .fh-nres-spin{width:10px;height:10px;border-radius:50%;border:1.5px solid var(--jv-accent);border-right-color:transparent;animation:fh-rot .8s linear infinite}
@@ -368,6 +372,7 @@ body.light .fh-field input,body.light .fh-field select,body.light .fh-field text
 .fh-time input{width:148px;font-variant-numeric:tabular-nums}
 .fh-field.is-off .fh-field-label{color:var(--jv-text-3)}
 .fh-field-note{font-size:12.5px;line-height:1.55;color:var(--jv-text-3)}
+.fh-field-note.is-warn{color:var(--jv-warn)}
 .fh-check{display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:12px;border:1px solid var(--jv-border)}
 .fh-check-label{flex:1;min-width:0;display:flex;align-items:flex-start;gap:12px;cursor:pointer}
 .fh-check input{width:18px;height:18px;flex:none;margin-top:2px;accent-color:var(--jv-accent)}

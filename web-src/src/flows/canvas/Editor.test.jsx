@@ -875,7 +875,7 @@ describe('画布编辑器：试跑这一步（第二十轮）', () => {
 
   it('已存的流程：只跑这一步，带上运行面板填过的输入；结果在「上次结果」里标「试跑」；改了配置提示结果可能不同', async () => {
     mockApi({ flow: { id: 'f1', name: '早报', graph: CHAIN } })
-    api.testResult = { body: { status: 'ok', ms: 1500, output: { text: '- 要点一\n- 要点二' }, note: '' } }
+    api.testResult = { body: { status: 'ok', ms: 1500, output: { text: '- 要点一\n- 要点二' }, note: '', summary: '写了 2 条要点' } }
     render(<Editor flowId="f1" {...props()} />)
     await screen.findByDisplayValue('早报')
     // 先在运行面板里填过输入
@@ -892,7 +892,7 @@ describe('画布编辑器：试跑这一步（第二十轮）', () => {
     expect(api.tests[0]).toEqual({ id: 'f1', node: 'n1', body: { inputs: { text: '周会记录' } } })
     expect(api.puts).toHaveLength(0)   // 没改动不用先存
     const result = await within(cfg).findByRole('region', { name: '试跑结果' })
-    expect(result).toHaveTextContent('试跑跑通了1.5 秒')
+    expect(result).toHaveTextContent('试跑跑通了写了 2 条要点1.5 秒')
     expect(result.querySelector('li')).toHaveTextContent('要点一')
     expect(within(cfg).getByRole('tab', { name: /上次结果（有试跑结果）/ })).toBeInTheDocument()
     expect(api.runs).toHaveLength(0)   // 不是整条运行

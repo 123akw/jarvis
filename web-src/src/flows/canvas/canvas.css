@@ -163,7 +163,7 @@ body.light .fc-editor{
 .fc-run-badge.is-running .fc-spin{width:10px;height:10px;border-width:1.5px}
 .fc-run-badge.is-ok{color:var(--jv-success);background:color-mix(in srgb,var(--jv-success) 14%,transparent)}
 .fc-run-badge.is-error{color:var(--jv-danger);background:color-mix(in srgb,var(--jv-danger) 14%,transparent);width:20px;padding:0;justify-content:center}
-.fc-run-badge.is-skipped,.fc-run-badge.is-stopped{color:var(--jv-text-3);background:var(--jv-hover)}
+.fc-run-badge.is-skipped,.fc-run-badge.is-stopped,.fc-run-badge.is-rejected,.fc-run-badge.is-expired{color:var(--jv-text-3);background:var(--jv-hover)}
 .fc-node[data-run=running]{border-color:var(--jv-accent);box-shadow:0 0 0 3px var(--jv-accent-soft),var(--fc-node-shadow)}
 .fc-node[data-run=running]::after{content:'';position:absolute;inset:-6px;border-radius:16px;border:2px solid var(--jv-accent);opacity:0;
   animation:fc-pulse 1.4s var(--jv-ease) infinite;pointer-events:none}
@@ -324,6 +324,7 @@ body.light .fc-run-badge.is-waiting{color:color-mix(in srgb,var(--t-approval) 80
 .fc-test-head{display:flex;align-items:center;gap:8px;font-size:13px}
 .fc-test-head b{font-weight:600}
 .fc-test.is-error .fc-test-head b{color:var(--jv-danger)}
+.fc-test-sum{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--jv-text-3)}
 .fc-test-ms{margin-left:auto;font-size:12px;color:var(--jv-text-3);font-variant-numeric:tabular-nums}
 .fc-test-note,.fc-test-stale{display:flex;align-items:flex-start;gap:6px;padding:6px 8px;border-radius:8px;font-size:12px;line-height:1.5;
   color:var(--jv-warn);background:color-mix(in srgb,var(--jv-warn) 10%,transparent)}

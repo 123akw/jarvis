@@ -133,10 +133,19 @@ export function itemOf(index, node) {
 const BASIC_TYPES = ['llm', 'condition', 'template', 'approval', 'end']
 
 /* 试跑一步时的提醒（契约 §3.2）：会往外发东西的积木 / 会写数据的工具，试跑只看内容、不真的发送 / 写入。
- * 目录项带 side_effect（'send' | 'write'）时以它为准；老目录没有就按积木 / 工具名推。 */
+ * 目录项带 side_effect（'send' | 'write'）时以它为准；没有就按服务端试跑时的同一套规则推
+ * （jarvis/flows/nodes.py tool_writes：工具名按非字母数字切开后含 add / del / delete / remove / done / remember / forget，
+ *  或是开始 / 结束记会议；输出积木一律只预演）。插件清单里声明了 write 能力的工具前端看不到，以试跑结果里的说明为准。 */
 const SEND_STEPS = new Set(['feishu_send', 'wechat_send'])
-const WRITE_STEPS = new Set(['feishu_doc', 'to_todo'])
-const WRITE_TOOL = /(^|_)(add|del|delete|remove|done|remember|forget|create|update|write|set|send|post|save|start|stop|book|cancel)(_|$)/i
+const WRITE_STEPS = new Set(['feishu_doc', 'to_todo', 'web_page'])
+const WRITE_TOKENS = new Set(['add', 'del', 'delete', 'remove', 'done', 'remember', 'forget'])
+const WRITE_TOOLS = new Set(['meeting_start', 'meeting_stop'])
+const READ_ONLY_TOOLS = new Set(['workday_calc_add'])
+const toolWrites = name => {
+  const n = String(name || '').toLowerCase()
+  if (READ_ONLY_TOOLS.has(n)) return false
+  return WRITE_TOOLS.has(n) || n.split(/[^a-z0-9]+/).some(t => WRITE_TOKENS.has(t))
+}
 
 /** 节点试跑时的副作用：'send'（会发出去）· 'write'（会写进去）· 'confirm'（发送前确认）· ''（没有） */
 export function sideEffectOf(node, item) {
@@ -149,10 +158,10 @@ export function sideEffectOf(node, item) {
   if (node.type === 'step') {
     const step = node.data?.step || ''
     if (SEND_STEPS.has(step)) return 'send'
-    if (WRITE_STEPS.has(step)) return 'write'
+    if (WRITE_STEPS.has(step) || item?.role === 'output') return 'write'
     return ''
   }
-  if (node.type === 'tool') return WRITE_TOOL.test(String(node.data?.tool || '').split('__').pop()) ? 'write' : ''
+  if (node.type === 'tool') return toolWrites(node.data?.tool) ? 'write' : ''
   return ''
 }
 

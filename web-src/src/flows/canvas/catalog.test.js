@@ -44,7 +44,11 @@ describe('节点目录索引', () => {
     expect(sideEffectOf(step('ai_extract'))).toBe('')
     expect(sideEffectOf(tool('todo_add'))).toBe('write')
     expect(sideEffectOf(tool('memo_del'))).toBe('write')
-    expect(sideEffectOf(tool('excel__write_cells'))).toBe('write')
+    expect(sideEffectOf(tool('excel__write_cells'))).toBe('')   // 与服务端同一套规则：write 不在其中（插件声明的以试跑说明为准）
+    expect(sideEffectOf(tool('meeting_start'))).toBe('write')
+    expect(sideEffectOf(tool('workday_calc_add'))).toBe('')
+    expect(sideEffectOf(step('web_page'))).toBe('write')
+    expect(sideEffectOf(step('custom_out'), { role: 'output' })).toBe('write')
     expect(sideEffectOf(tool('weather__now'))).toBe('')
     expect(sideEffectOf(tool('web_search'))).toBe('')
     expect(sideEffectOf({ type: 'approval', data: {} })).toBe('confirm')

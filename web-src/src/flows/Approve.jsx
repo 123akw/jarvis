@@ -225,8 +225,9 @@ export default function Approve({ id, onExpired }) {
       setRejecting(false)
     } catch (e) {
       if (e.message === '401') { expired(); return }
-      if (e.status === 409) {   // 别处已经处理过 / 刚好过期：读一下现在是什么情况
-        await load()
+      if (e.status === 409) {   // 别处已经处理过 / 刚好过期：服务端顺带给了现在的样子，没给就重新读
+        if (e.data?.approval) setState({ status: 'ready', approval: e.data.approval })
+        else await load()
         setErr(e.message)
       } else setErr(e.message || '没提交成功，请再试一次')
     } finally {
@@ -261,7 +262,7 @@ export default function Approve({ id, onExpired }) {
       <Settled approval={a} title={status === 'approved' ? '这一步你已经同意了' : status === 'rejected' ? '这一步你已经拒绝了' : '这条确认已经过期了'}>
         {err ? <p className="fa-err" role="alert">{err}</p> : null}
         <p className="fa-muted">
-          {status === 'approved' ? '流程已经接着往下跑了，结果到运行记录里看。'
+          {status === 'approved' ? `${a.edited ? '你改过内容再同意的，' : ''}流程已经接着往下跑了，结果到运行记录里看。`
             : status === 'rejected' ? `后面的步骤没跑。${a.note ? `你写的原因：${a.note}` : ''}`
               : '过了时间没处理，后面的步骤没跑。想发的话，回到流程再跑一次。'}
         </p>

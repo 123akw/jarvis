@@ -17,8 +17,10 @@ const NODE_MARK = { ok: 'check', error: 'close' }
 /** 详情标题：「这次运行完成」……；等确认 / 拒绝 / 过期单独说 */
 const HEADING = { waiting: '这次运行在等你确认', rejected: '这次你没同意，停下了', expired: '确认过期了，这次停下了', running: '这次运行还在跑' }
 const heading = run => HEADING[run.status] || `这次运行${RUN_STATUS[run.status] || '结束'}`
-/** 能不能「用这次的输入再跑」：还在跑 / 在等确认的不行 */
+/** 能不能「用这次的输入再跑」：还在跑 / 在等确认的不显示按钮；当时上传的文件没存下来的（rerunnable=false）按钮置灰 */
 const canRerun = run => Boolean(run?.id) && !['running', 'busy', 'waiting'].includes(run.status)
+const RERUN_OFF = '要重新上传文件才能再跑'
+const rerunOff = run => run?.rerunnable === false
 
 /** 抽屉外壳：遮罩 + 面板，Esc / 点遮罩关闭，焦点圈在里面 */
 export function Drawer({ label, onClose, className = '', children }) {
@@ -60,8 +62,9 @@ function RunRow({ run, onOpen, onRerun }) {
         <Icon name="chevron" size={16} className="fh-run-go" />
       </button>
       {canRerun(run) && onRerun ? (
-        <button type="button" className="fh-rerun-btn" onClick={() => onRerun(run)}
-          aria-label={`用这次的输入再跑（${absTime(run.started_at) || '这一次'}）`} title="用这次的输入再跑">
+        <button type="button" className="fh-rerun-btn" onClick={() => onRerun(run)} disabled={rerunOff(run)}
+          aria-label={`用这次的输入再跑（${absTime(run.started_at) || '这一次'}）${rerunOff(run) ? `：${RERUN_OFF}` : ''}`}
+          title={rerunOff(run) ? `${RERUN_OFF}：当时上传的文件没存下来` : '用这次的输入再跑'}>
           <Icon name="undo" size={14} className="fh-flip" /><span>再跑</span>
         </button>
       ) : null}
@@ -169,9 +172,15 @@ function RunDetail({ run, onBack, onRerun }) {
         <p>{[absTime(run.started_at), source, fmtMs(run.ms) ? `用时 ${fmtMs(run.ms)}` : ''].filter(Boolean).join(' · ')}</p>
         {run.input_summary ? <p className="fh-rdetail-input">输入：{run.input_summary}</p> : null}
         {canRerun(run) && onRerun ? (
-          <button type="button" className="jv-btn jv-btn--sm fh-rerun-full" onClick={() => onRerun(run)}>
-            <Icon name="undo" size={14} className="fh-flip" />用这次的输入再跑
-          </button>
+          <>
+            <button type="button" className="jv-btn jv-btn--sm fh-rerun-full" onClick={() => onRerun(run)} disabled={rerunOff(run)}
+              aria-describedby={rerunOff(run) ? 'fh-rerun-off' : undefined}>
+              <Icon name="undo" size={14} className="fh-flip" />用这次的输入再跑
+            </button>
+            {rerunOff(run) ? (
+              <p className="fh-rerun-off" id="fh-rerun-off">{RERUN_OFF}：这次用的文件当时没存下来。打开流程点「运行」，重新选一下文件就行。</p>
+            ) : null}
+          </>
         ) : null}
       </div>
       {run.status === 'waiting' ? <GoApprove approval={run.approval} /> : null}

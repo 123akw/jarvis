@@ -135,6 +135,23 @@ describe('确认页', () => {
     expect(await screen.findByRole('heading', { name: '你同意了，接着在跑' })).toBeInTheDocument()
   })
 
+  it('联调：409 带回了现在的样子就直接用（不再读一遍）；改过内容同意的说一声', async () => {
+    const s = mockApi()
+    global.fetch = vi.fn(async (url, init = {}) => {
+      s.calls.push({ url, method: init.method || 'GET' })
+      if ((init.method || 'GET') === 'POST') {
+        return { ok: false, status: 409, json: async () => ({ error: '这一步已经同意过了', approval: { ...APPROVAL(), status: 'approved', edited: true } }) }
+      }
+      return { ok: true, status: 200, json: async () => ({ approval: s.approval }) }
+    })
+    render(<Approve id="apv123" />)
+    fireEvent.click(await screen.findByRole('button', { name: '同意，接着跑' }))
+    expect(await screen.findByRole('heading', { name: '这一步你已经同意了' })).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('这一步已经同意过了')
+    expect(screen.getByText(/你改过内容再同意的/)).toBeInTheDocument()
+    expect(calls('/api/approvals/apv123')).toHaveLength(1)
+  })
+
   it('已过期（服务端标了，或时间已过还没清）、找不到、登录过期', async () => {
     mockApi({ approval: { ...APPROVAL(), status: 'expired' } })
     render(<Approve id="apv123" />)

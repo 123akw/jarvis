@@ -1067,7 +1067,8 @@ export function runReducer(state, ev) {
     case 'node_wait': {   // 跑到「发送前确认」：停下等用户去确认页
       if (!id) return s
       const approval = { id: String(ev.approval_id || ''), url: String(ev.url || ''), expires_at: ev.expires_at || '' }
-      return { ...put({ status: 'waiting', approval, ...hash(ev) }), approval }
+      const extra = { ...(ev.summary ? { summary: ev.summary } : {}), ...(ev.preview ? { preview: ev.preview } : {}), ...(ev.ms !== undefined ? { ms: num(ev.ms) } : {}) }
+      return { ...put({ status: 'waiting', approval, ...extra, ...hash(ev) }), approval }
     }
     case 'run_done': {
       if (ev.status === 'waiting') {
@@ -1093,7 +1094,7 @@ export function runReducer(state, ev) {
 
 /** 运行记录里的状态 → 画布运行状态（确认后接着跑的那段记成 resuming，不锁画布） */
 const DETAIL_STATUS = { ok: 'ok', error: 'error', running: 'resuming', busy: 'resuming', waiting: 'waiting', rejected: 'rejected', expired: 'expired', cancelled: 'stopped' }
-const DETAIL_NODE = { ok: 'ok', error: 'error', skipped: 'skipped', running: 'running', waiting: 'waiting', cancelled: 'stopped' }
+const DETAIL_NODE = { ok: 'ok', error: 'error', skipped: 'skipped', running: 'running', waiting: 'waiting', cancelled: 'stopped', rejected: 'rejected', expired: 'expired' }
 
 /**
  * 运行详情（GET /api/flows/{id}/runs/{run_id}，与运行记录列表项同结构）→ 画布运行状态。

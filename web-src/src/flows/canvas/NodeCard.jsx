@@ -8,7 +8,7 @@ import Glyph, { NodeIcon } from './glyphs.jsx'
 /** 画布动作（节点出口的「+」等），由 Canvas 提供 */
 export const CanvasActions = createContext({ openQuick() {} })
 
-const RUN_TEXT = { running: '正在运行', ok: '完成', error: '出错了', skipped: '没走到', stopped: '已停止', waiting: '等你确认' }
+const RUN_TEXT = { running: '正在运行', ok: '完成', error: '出错了', skipped: '没走到', stopped: '已停止', waiting: '等你确认', rejected: '你没同意', expired: '确认过期了' }
 
 export function RunBadge({ run }) {
   if (!run?.status) return null
@@ -33,7 +33,9 @@ export function RunBadge({ run }) {
         : status === 'ok' ? <><Icon name="check" size={13} /><span>{run.ms ? fmtMs(run.ms) : ''}</span></>
           : status === 'error' ? <Icon name="close" size={13} />
             : status === 'skipped' ? <span>没走到</span>
-              : <span>停了</span>}
+              : status === 'rejected' ? <span>没同意</span>
+                : status === 'expired' ? <span>过期了</span>
+                  : <span>停了</span>}
     </span>
   )
 }

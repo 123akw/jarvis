@@ -639,7 +639,7 @@ export default function Editor({ flowId = 'new', initial = null, onSaved, onBack
       const res = await testNode(fid, id, testInputs(histRef.current.present, inputs))
       const ok = res?.status === 'ok'
       result = { status: ok ? 'ok' : 'error', ms: Number(res?.ms) || 0, output: res?.output || {}, note: String(res?.note || ''),
-        error: ok ? '' : String(res?.error || '这一步没跑通，换个输入再试试'), sig }
+        summary: String(res?.summary || ''), error: ok ? '' : String(res?.error || '这一步没跑通，换个输入再试试'), sig }
     } catch (err) {
       if (err.message === '401') { expired(); return }
       result = { status: 'error', ms: 0, output: {}, note: '', error: err.message || '试跑没成功，请再试一次', sig }
