@@ -306,6 +306,31 @@ body.light .fc-run-badge.is-waiting{color:color-mix(in srgb,var(--t-approval) 80
   background:color-mix(in srgb,var(--t,var(--jv-accent)) 9%,transparent);border:1px solid color-mix(in srgb,var(--t,var(--jv-accent)) 22%,transparent)}
 .fc-cfg-note .jv-icon{flex:none;margin-top:2px;color:var(--t,var(--jv-accent))}
 .fc-notify{gap:16px;padding:4px 0 0 2px}
+/* 试跑这一步（第二十轮）：设置页签最上面一条；结果放「上次结果」，标「试跑」 */
+.fc-testbar{display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:8px 12px 8px 8px;border-radius:12px;
+  background:var(--fc-input);border:1px dashed var(--jv-border)}
+.fc-last .fc-testbar{margin:4px 0 0}
+.fc-testbar .fc-field-hint{flex:1;min-width:0;line-height:1.5}
+.fc-testbar .fc-field-hint.is-effect{color:var(--jv-warn)}
+.fc-test-btn{flex:none;gap:6px}
+.fc-test-btn .jv-icon{color:var(--jv-accent)}
+.fc-test-tag{display:inline-flex;align-items:center;height:18px;padding:0 6px;border-radius:6px;font-size:11px;font-weight:600;letter-spacing:.02em;
+  color:var(--jv-accent);background:var(--jv-accent-soft)}
+.fc-test{display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:12px;border:1px solid var(--jv-border);background:var(--fc-card-2)}
+.fc-test.is-ok{border-color:color-mix(in srgb,var(--jv-accent) 35%,var(--jv-border))}
+.fc-test.is-error{border-color:color-mix(in srgb,var(--jv-danger) 40%,var(--jv-border))}
+.fc-test.is-error .jv-btn{align-self:flex-start}
+.fc-test.is-running{flex-direction:row;align-items:center;font-size:13px;color:var(--jv-accent)}
+.fc-test-head{display:flex;align-items:center;gap:8px;font-size:13px}
+.fc-test-head b{font-weight:600}
+.fc-test.is-error .fc-test-head b{color:var(--jv-danger)}
+.fc-test-ms{margin-left:auto;font-size:12px;color:var(--jv-text-3);font-variant-numeric:tabular-nums}
+.fc-test-note,.fc-test-stale{display:flex;align-items:flex-start;gap:6px;padding:6px 8px;border-radius:8px;font-size:12px;line-height:1.5;
+  color:var(--jv-warn);background:color-mix(in srgb,var(--jv-warn) 10%,transparent)}
+.fc-test-note .jv-icon,.fc-test-stale .jv-icon{flex:none;margin-top:2px}
+.fc-test-err{font-size:13px;line-height:1.6;color:var(--jv-danger)}
+.fc-test-line{font-size:13px;color:var(--jv-text-2)}
+.fc-last-sub{margin-top:8px}
 /* 设置 / 上次结果 页签 */
 .fc-tabs{display:flex;gap:4px;margin:-4px 0 16px;padding:2px;border-radius:10px;background:var(--fc-input);border:1px solid var(--jv-border)}
 .fc-tabs button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:8px;height:30px;border:none;border-radius:8px;background:transparent;color:var(--jv-text-2);font-size:13px}

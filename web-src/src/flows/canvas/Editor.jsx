@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../../Icon.jsx'
 import Modal, { ModalHead, useEscape } from '../../Modal.jsx'
 import { TourButton, useTour } from '../../tour/index.jsx'
-import { fileToBase64, getFlow, getNodeCatalog, getRun, runGraph, saveFlow } from '../api.js'
+import { fileToBase64, getFlow, getNodeCatalog, getRun, runGraph, saveFlow, testNode } from '../api.js'
 import {
   addNode, autoLayout, canRedo, canUndo, chosenBranch, cleanGraph, COL, commit, connect, createHistory, createNode,
   defaultHandle, dependents, duplicateNode, emptyGraph, fmtMs, hashStale, insertAfter, insertOnEdge, issuesByNode,
@@ -23,7 +23,7 @@ import {
 } from '../graph.js'
 import Canvas, { fitCanvas } from './Canvas.jsx'
 import { indexCatalog, itemOf } from './catalog.js'
-import ConfigPanel, { ConfigBody, typeLabelOf } from './ConfigPanel.jsx'
+import ConfigPanel, { ConfigBody, dataSig, typeLabelOf } from './ConfigPanel.jsx'
 import Glyph, { NodeIcon } from './glyphs.jsx'
 import MobileList from './MobileList.jsx'
 import Palette, { NodeList } from './Palette.jsx'
@@ -59,6 +59,18 @@ function writeInputs(id, inputs) {
   if (!id) return
   const keep = Object.fromEntries(Object.entries(inputs).filter(([, v]) => typeof v === 'string' || typeof v === 'number'))
   try { localStorage.setItem(INPUTS_KEY(id), JSON.stringify(keep)) } catch { /* 隐私模式 */ }
+}
+
+/** 试跑一步时带上的开始输入：运行面板里填过的文字类内容（没填用默认值）；文件不带（服务端用上次运行的） */
+export function testInputs(graph, inputs) {
+  const out = {}
+  for (const f of nodeById(graph, START_ID)?.data?.fields || []) {
+    if (!f?.key || f.type === 'file') continue
+    const v = inputs?.[f.key] ?? f.default
+    if (v === undefined || v === null || v === '') continue
+    out[f.key] = f.type === 'number' && Number.isFinite(Number(v)) ? Number(v) : String(v)
+  }
+  return out
 }
 
 /** 默认选中的节点：草稿选第一个「AI 处理」，否则第一个非开始节点（右侧配置面板一进来就在） */
@@ -185,6 +197,7 @@ export default function Editor({ flowId = 'new', initial = null, onSaved, onBack
   const [check, setCheck] = useState('')             // '' · 'list' · 'run'（点运行时还有问题）
   const [run, setRun] = useState(null)
   const [runGraphSnap, setRunGraphSnap] = useState(null)
+  const [tests, setTests] = useState({})             // 试跑一步的结果：{ [节点 id]: { status, ms, output, note, error, sig } }
   const [inputs, setInputs] = useState({})
   const [notice, setNotice] = useState(null)
   const [announce, setAnnounce] = useState('')
@@ -249,6 +262,7 @@ export default function Editor({ flowId = 'new', initial = null, onSaved, onBack
       setSelectedEdge(null)
       setRun(null)
       setRunGraphSnap(null)
+      setTests({})
       setInputs(readInputs(idRef.current))
       setPhase('ready')
     } catch (err) {
@@ -575,6 +589,7 @@ export default function Editor({ flowId = 'new', initial = null, onSaved, onBack
     abortRef.current = ctrl
     let state = startRunState()
     setRun(state)
+    setTests({})   // 整条重跑了：之前的试跑结果不再是「最新」
     setRunGraphSnap(snap)
     setSelectedEdge(null)
     setAnnounce('开始运行')
@@ -598,6 +613,39 @@ export default function Editor({ flowId = 'new', initial = null, onSaved, onBack
     setRun(state)
     setAnnounce(state.status === 'ok' ? '运行完成' : state.status === 'stopped' ? '已停止运行'
       : state.status === 'waiting' ? '已发给你确认，去确认页处理' : `没跑通：${state.error}`)
+    if (later) savedCb.current?.(later)
+  }
+
+  /* ---------- 试跑这一步（契约 §3.2）：没存先存；只跑这一个节点，结果放在配置面板「上次结果」里，标「试跑」 ---------- */
+  async function runTest(id) {
+    if (running || tests[id]?.status === 'running') return
+    const node = nodeById(histRef.current.present, id)
+    if (!node || node.type === 'start') return
+    let fid = idRef.current
+    let later = null
+    if (!fid || dirty) {
+      const wasNew = !fid
+      setTests(t => ({ ...t, [id]: { status: 'running' } }))
+      const flow = await save({ quiet: true, notify: !wasNew })
+      if (!flow) { setTests(t => { const { [id]: _drop, ...rest } = t; return rest }); return }
+      fid = flow.id
+      if (wasNew) later = flow
+    }
+    const sig = dataSig(nodeById(histRef.current.present, id))
+    setTests(t => ({ ...t, [id]: { status: 'running', sig } }))
+    setAnnounce(`正在试跑「${nodeTitle(node)}」`)
+    let result
+    try {
+      const res = await testNode(fid, id, testInputs(histRef.current.present, inputs))
+      const ok = res?.status === 'ok'
+      result = { status: ok ? 'ok' : 'error', ms: Number(res?.ms) || 0, output: res?.output || {}, note: String(res?.note || ''),
+        error: ok ? '' : String(res?.error || '这一步没跑通，换个输入再试试'), sig }
+    } catch (err) {
+      if (err.message === '401') { expired(); return }
+      result = { status: 'error', ms: 0, output: {}, note: '', error: err.message || '试跑没成功，请再试一次', sig }
+    }
+    setTests(t => ({ ...t, [id]: result }))
+    setAnnounce(result.status === 'ok' ? `「${nodeTitle(node)}」试跑跑通了` : `「${nodeTitle(node)}」试跑没跑通：${result.error}`)
     if (later) savedCb.current?.(later)
   }
 
@@ -689,8 +737,11 @@ export default function Editor({ flowId = 'new', initial = null, onSaved, onBack
     ? [{ key: 'server', nodeId: null, level: 'error', block: 'save', message: saveProblem.text }, ...issues]
     : issues
   const checkCount = checkIssues.length
+  const saveBlock = issues.find(i => i.block === 'save')
+  const testBlocked = running ? '流程正在运行，跑完再试跑' : saveBlock ? '先把「检查」里的问题改好，才能试跑' : ''
   const configProps = sel ? {
     node: sel, graph, index, sys: index.sys, issues: issueMap[sel.id] || [], locked, onPatch,
+    test: tests[sel.id] || null, onTest: runTest, testBlocked,
     onDelete: () => deleteNode(sel.id),
     onConnect,
     onDisconnect: id => edit(g => removeEdges(g, [id])),
@@ -809,6 +860,7 @@ export default function Editor({ flowId = 'new', initial = null, onSaved, onBack
             </div>
             <div className="jv-modal-body fc-sheet-body">
               <ConfigBody {...configProps} node={sheetNode} issues={issueMap[sheetNode.id] || []} runState={nodeRun(sheetNode.id)} typeTrigger={false}
+                test={tests[sheetNode.id] || null}
                 onSelectNode={id => { select(id); setSheet({ kind: 'config', id }) }}
                 onOpenRun={() => setSheet({ kind: 'run' })} />
             </div>

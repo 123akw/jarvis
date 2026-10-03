@@ -862,3 +862,88 @@ describe('画布编辑器：发送前确认（第二十轮）', () => {
     expect(screen.getByRole('button', { name: /打开运行面板（上次运行：你没同意）/ })).toBeInTheDocument()
   })
 })
+
+describe('画布编辑器：试跑这一步（第二十轮）', () => {
+  const TODO_FLOW = {
+    nodes: [START,
+      { id: 'n1', type: 'llm', position: { x: 320, y: 0 }, data: { title: '提炼要点', prompt: '总结 {{start.text}}', output: 'list' } },
+      { id: 'n2', type: 'step', position: { x: 640, y: 0 }, data: { title: '加到待办', step: 'to_todo', options: {}, input: '' } },
+      END],
+    edges: [{ id: 'e1', source: 'start', target: 'n1', sourceHandle: null }, { id: 'e2', source: 'n1', target: 'n2', sourceHandle: null },
+      { id: 'e3', source: 'n2', target: 'end', sourceHandle: null }],
+  }
+
+  it('已存的流程：只跑这一步，带上运行面板填过的输入；结果在「上次结果」里标「试跑」；改了配置提示结果可能不同', async () => {
+    mockApi({ flow: { id: 'f1', name: '早报', graph: CHAIN } })
+    api.testResult = { body: { status: 'ok', ms: 1500, output: { text: '- 要点一\n- 要点二' }, note: '' } }
+    render(<Editor flowId="f1" {...props()} />)
+    await screen.findByDisplayValue('早报')
+    // 先在运行面板里填过输入
+    fireEvent.click(screen.getByRole('button', { name: /打开运行面板/ }))
+    const runPanel = await screen.findByRole('region', { name: '运行流程' })
+    fireEvent.change(within(runPanel).getByLabelText(/要处理的文字/), { target: { value: '周会记录' } })
+    fireEvent.click(within(runPanel).getByRole('button', { name: '收起运行面板' }))
+    fireEvent.click(canvasNode('提炼要点'))
+    const cfg = await screen.findByRole('region', { name: /节点设置：提炼要点/ })
+    expect(within(cfg).getByText('只跑这一步：用上次运行的结果当输入，不往下跑')).toBeInTheDocument()
+    fireEvent.click(within(cfg).getByRole('button', { name: '试跑这一步' }))
+    expect(within(cfg).getByRole('tab', { name: /上次结果/ })).toHaveAttribute('aria-selected', 'true')
+    await waitFor(() => expect(api.tests).toHaveLength(1))
+    expect(api.tests[0]).toEqual({ id: 'f1', node: 'n1', body: { inputs: { text: '周会记录' } } })
+    expect(api.puts).toHaveLength(0)   // 没改动不用先存
+    const result = await within(cfg).findByRole('region', { name: '试跑结果' })
+    expect(result).toHaveTextContent('试跑跑通了1.5 秒')
+    expect(result.querySelector('li')).toHaveTextContent('要点一')
+    expect(within(cfg).getByRole('tab', { name: /上次结果（有试跑结果）/ })).toBeInTheDocument()
+    expect(api.runs).toHaveLength(0)   // 不是整条运行
+    fireEvent.click(within(cfg).getByRole('tab', { name: '设置' }))
+    fireEvent.change(within(cfg).getByLabelText('要 AI 做什么'), { target: { value: '换个说法', selectionStart: 4, selectionEnd: 4 } })
+    fireEvent.click(within(cfg).getByRole('tab', { name: /上次结果/ }))
+    expect(within(cfg).getByText('改过了，再试跑结果可能不同')).toBeInTheDocument()
+    // 有改动时再试跑：先保存再试
+    fireEvent.click(within(cfg).getByRole('button', { name: '再试跑一次' }))
+    await waitFor(() => expect(api.tests).toHaveLength(2))
+    expect(api.puts).toHaveLength(1)
+    expect(api.puts[0].body.graph.nodes.find(n => n.id === 'n1').data.prompt).toBe('换个说法')
+    await waitFor(() => expect(within(cfg).queryByText('改过了，再试跑结果可能不同')).toBeNull())
+  })
+
+  it('新流程先保存拿到地址再试跑；开始节点没有试跑按钮', async () => {
+    const { p } = await open()
+    const cfg = await screen.findByRole('region', { name: /节点设置：提炼要点/ })
+    fireEvent.click(within(cfg).getByRole('button', { name: '试跑这一步' }))
+    await waitFor(() => expect(api.tests).toHaveLength(1))
+    expect(api.posts).toHaveLength(1)
+    expect(api.tests[0]).toMatchObject({ id: 'new1', node: 'n1' })
+    await within(cfg).findByRole('region', { name: '试跑结果' })
+    expect(p.onSaved).toHaveBeenCalledWith(expect.objectContaining({ id: 'new1' }))
+    fireEvent.click(canvasNode('开始'))
+    const start = await screen.findByRole('region', { name: /节点设置：开始/ })
+    expect(within(start).queryByRole('button', { name: /试跑/ })).toBeNull()
+  })
+
+  it('会写数据的积木：先说「不会真的写入」，结果里放服务端的提醒；缺输入时人话 +「去填开始的输入」；接口出错说人话', async () => {
+    mockApi({ flow: { id: 'f1', name: '待办', graph: TODO_FLOW } })
+    api.testResult = { body: { status: 'ok', ms: 30, output: { text: '会加 2 条待办：\n- 订会议室\n- 发周报' }, note: '试跑不会真的加到待办，只看看会加什么' } }
+    render(<Editor flowId="f1" {...props()} />)
+    await screen.findByDisplayValue('待办')
+    fireEvent.click(canvasNode('加到待办'))
+    const cfg = await screen.findByRole('region', { name: /节点设置：加到待办/ })
+    expect(within(cfg).getByText('试跑不会真的写入，只看看会写什么')).toHaveClass('is-effect')
+    fireEvent.click(within(cfg).getByRole('button', { name: '试跑这一步' }))
+    const result = await within(cfg).findByRole('region', { name: '试跑结果' })
+    expect(within(result).getByText('试跑不会真的加到待办，只看看会加什么')).toBeInTheDocument()
+    // 上游没有产出、也没填开始的输入
+    api.testResult = { body: { status: 'error', error: '「提炼要点」还没有结果：先完整跑一次，或填上开始的输入' } }
+    fireEvent.click(within(cfg).getByRole('button', { name: '再试跑一次' }))
+    expect(await within(cfg).findByRole('alert')).toHaveTextContent('先完整跑一次，或填上开始的输入')
+    fireEvent.click(within(cfg).getByRole('button', { name: '去填开始的输入' }))
+    expect(await screen.findByRole('region', { name: '运行流程' })).toBeInTheDocument()
+    // 今天的用量到上限了（429）
+    fireEvent.click(canvasNode('加到待办'))
+    const cfg2 = await screen.findByRole('region', { name: /节点设置：加到待办/ })
+    api.testResult = { status: 429, body: { error: '今天的用量到上限了，明天再来，或请管理员调高' } }
+    fireEvent.click(within(cfg2).getByRole('button', { name: '再试跑一次' }))
+    expect(await within(cfg2).findByRole('alert')).toHaveTextContent('今天的用量到上限了')
+  })
+})

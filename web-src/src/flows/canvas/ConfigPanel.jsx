@@ -2,11 +2,11 @@ import { useCallback, useId, useMemo, useState } from 'react'
 import Icon from '../../Icon.jsx'
 import { MARKET_PATH } from '../../routes.js'
 import {
-  APPROVAL_HOURS, approvalHours, canConnect, choiceList, conditionHandles, FIELD_TYPES, FILE_VAR_LABEL, fileFirstGroups,
+  APPROVAL_HOURS, approvalHours, canConnect, fmtMs, choiceList, conditionHandles, FIELD_TYPES, FILE_VAR_LABEL, fileFirstGroups,
   followsAccountNotify, handleLabel, isFileArg, LIST_FIELDS, MAX_FIELDS, MAX_TEXT, nodeById, nodeTitle, OPS, START_ID, topoOrder,
   UNARY_OPS, varLabel, varOptions,
 } from '../graph.js'
-import { itemOf, needsPlugin, unavailableReason } from './catalog.js'
+import { itemOf, needsPlugin, SIDE_EFFECT_HINT, sideEffectOf, unavailableReason } from './catalog.js'
 import Glyph, { NodeIcon } from './glyphs.jsx'
 import { NodeOutput, stepLine } from './RunPanel.jsx'
 import { RunBadge } from './NodeCard.jsx'
@@ -411,11 +411,66 @@ export function fileArgHint(graph) {
   return `要的是文件：先在「开始」里加一个「文件」输入，再点「变量」插入它的「${FILE_VAR_LABEL}」。`
 }
 
+/* ---------- 试跑这一步（第二十轮，契约 §3.2） ---------- */
+
+/** 节点数据的指纹：试跑之后又改过配置，结果就可能不同了 */
+export const dataSig = node => JSON.stringify(node?.data || {})
+
+/** 「试跑这一步」按钮 + 一句说明（会发出去 / 会写入的节点先说清楚：试跑不会真的发送 / 写入） */
+function TestBar({ node, item, test, blocked, onTest }) {
+  const hintId = useId()
+  const kind = sideEffectOf(node, item)
+  const busy = test?.status === 'running'
+  return (
+    <div className="fc-testbar">
+      <button type="button" className="jv-btn jv-btn--sm fc-test-btn" onClick={onTest} disabled={busy || !!blocked}
+        aria-describedby={hintId}>
+        {busy ? <i className="fc-spin" aria-hidden="true" /> : <Glyph name="flask" size={14} />}
+        {busy ? '正在试跑…' : test ? '再试跑一次' : '试跑这一步'}
+      </button>
+      <p className={`fc-field-hint${kind && !blocked ? ' is-effect' : ''}`} id={hintId}>
+        {blocked || (kind ? SIDE_EFFECT_HINT[kind] : '只跑这一步：用上次运行的结果当输入，不往下跑')}
+      </p>
+    </div>
+  )
+}
+
+/** 试跑的结果：标「试跑」；服务端的提醒（比如「试跑不会真的发送」）放最前面；缺输入时给「去填开始的输入」 */
+function TestResult({ node, item, test, onOpenRun }) {
+  if (test.status === 'running') {
+    return <div className="fc-test is-running" role="status"><i className="fc-spin" aria-hidden="true" />正在试跑这一步…</div>
+  }
+  const ok = test.status === 'ok'
+  const stale = test.sig !== undefined && test.sig !== dataSig(node)
+  const needInputs = !ok && /开始的输入|完整跑一次/.test(test.error || '')
+  const kind = sideEffectOf(node, item)
+  const note = test.note || (ok && kind ? SIDE_EFFECT_HINT[kind] : '')
+  const branch = test.output?.branch
+  return (
+    <section className={`fc-test is-${ok ? 'ok' : 'error'}`} aria-label="试跑结果">
+      <p className="fc-test-head">
+        <span className="fc-test-tag">试跑</span>
+        <b>{ok ? '跑通了' : '没跑通'}</b>
+        {test.ms ? <span className="fc-test-ms">{fmtMs(test.ms)}</span> : null}
+      </p>
+      {stale ? <p className="fc-test-stale"><Glyph name="warn" size={13} />改过了，再试跑结果可能不同</p> : null}
+      {note ? <p className="fc-test-note"><Glyph name="warn" size={13} /><span>{note}</span></p> : null}
+      {ok ? (
+        <>
+          {node.type === 'condition' && branch !== undefined && branch !== null ? <p className="fc-test-line">会走「{handleLabel(node, branch) || '否则'}」</p> : null}
+          <NodeOutput state={{ output: test.output || {} }} />
+        </>
+      ) : <p className="fc-test-err" role="alert">{test.error || '这一步没跑通，换个输入再试试'}</p>}
+      {needInputs && onOpenRun ? <button type="button" className="jv-btn jv-btn--sm" onClick={onOpenRun}>去填开始的输入</button> : null}
+    </section>
+  )
+}
+
 /* ---------- 主体 ---------- */
 
 export function ConfigBody({
   node, graph, index, sys, issues = [], locked, onPatch, onDelete, onConnect, onDisconnect, onSelectNode, onAddNext,
-  runState = null, onOpenRun, typeTrigger = true,
+  runState = null, onOpenRun, typeTrigger = true, test = null, onTest = null, testBlocked = '',
 }) {
   const [tab, setTab] = useState('settings')
   const item = itemOf(index, node)
@@ -540,36 +595,44 @@ export function ConfigBody({
     )
   }
 
+  const testable = !!onTest && node.id !== START_ID
+  const runTest = () => { setTab('last'); onTest(node.id) }
   const tabs = (
     <div className="fc-tabs" role="tablist" aria-label="设置与上次结果">
       {[['settings', '设置'], ['last', '上次结果']].map(([v, l]) => (
         <button key={v} type="button" role="tab" id={`${tabId}-${v}`} aria-selected={tab === v} aria-controls={`${tabId}-${v}-panel`}
           className={tab === v ? 'is-on' : ''} onClick={() => setTab(v)}>
-          {l}{v === 'last' && runState?.status ? <RunBadge run={runState} /> : null}
+          {l}{v === 'last' && test ? <span className="fc-test-tag" aria-label="（有试跑结果）">试跑</span>
+            : v === 'last' && runState?.status ? <RunBadge run={runState} /> : null}
         </button>
       ))}
     </div>
   )
+  const testBar = testable ? <TestBar node={node} item={item} test={test} blocked={testBlocked} onTest={runTest} /> : null
 
   if (tab === 'last') {
+    const lastRun = runState?.status ? (
+      <>
+        <p className={`fc-last-line is-${runState.status}`}>
+          <RunBadge run={runState} />
+          <span>{runState.stale ? '改过了，再运行结果可能不同' : stepLine(runState, node) || '完成'}</span>
+        </p>
+        {runState.status === 'ok' || runState.status === 'error' ? <NodeOutput state={runState} /> : null}
+      </>
+    ) : null
     return (
       <>
         {tabs}
         <div role="tabpanel" id={`${tabId}-last-panel`} aria-labelledby={`${tabId}-last`} className="fc-last">
-          {runState?.status ? (
-            <>
-              <p className={`fc-last-line is-${runState.status}`}>
-                <RunBadge run={runState} />
-                <span>{runState.stale ? '改过了，再运行结果可能不同' : stepLine(runState, node) || '完成'}</span>
-              </p>
-              {runState.status === 'ok' || runState.status === 'error' ? <NodeOutput state={runState} /> : null}
-            </>
-          ) : (
+          {test ? <TestResult node={node} item={item} test={test} onOpenRun={onOpenRun} /> : null}
+          {test && lastRun ? <h4 className="fc-cfg-h fc-last-sub">上次运行</h4> : null}
+          {lastRun || (!test ? (
             <div className="fc-last-empty">
-              <p>还没运行过，点右上角「运行」试一次。</p>
+              <p>{testable ? '还没运行过。可以点右上角「运行」把整条跑一遍，或者只试跑这一步。' : '还没运行过，点右上角「运行」试一次。'}</p>
               {onOpenRun ? <button type="button" className="jv-btn jv-btn--sm jv-btn--primary" onClick={onOpenRun}>运行</button> : null}
             </div>
-          )}
+          ) : null)}
+          {testBar}
         </div>
       </>
     )
@@ -579,6 +642,7 @@ export function ConfigBody({
     <>
       {tabs}
       <div role="tabpanel" id={`${tabId}-settings-panel`} aria-labelledby={`${tabId}-settings`}>
+        {testBar}
         {issues.length ? (
           <ul className="fc-cfg-issues" aria-label="这个节点还差这些">
             {issues.map(i => <li key={i.key} className={`is-${i.level}`}><Glyph name="warn" size={13} />{i.message}</li>)}
