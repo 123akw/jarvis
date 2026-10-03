@@ -237,7 +237,7 @@ export default function Admin({ onExpired, now: nowProp }) {
               <section className="ad-card" aria-labelledby="ad-h-accounts">
                 <div className="ad-card-head">
                   <h2 className="ad-h3" id="ad-h-accounts">账号{data ? <span className="ad-count">{data.accounts.length}</span> : null}</h2>
-                  <span className="ad-dim">今天的用量对照每日配额；其余是{r.label}</span>
+                  <span className="ad-dim">{r.days > 1 ? `今天的用量对照每日配额；其余是${r.label}` : '今天的用量对照每日配额'}</span>
                 </div>
                 {data ? (
                   <Accounts accounts={data.accounts} defaults={data.defaults} rangeLabel={r.days > 1 ? r.label : '今天'}

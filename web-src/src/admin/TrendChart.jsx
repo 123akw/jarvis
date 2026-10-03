@@ -119,6 +119,23 @@ export default function TrendChart({ daily = [], now = new Date(), label = '每�
     else if (e.key === 'Escape') setActive(-1)
   }
 
+  // 放不下（手机上的 30 天）：图横向滚，纵轴刻度与格标题钉在左边不跟着滚
+  const scrollable = W > width
+  const axisLabels = (
+    <>
+      <text className="ad-ax-title" x={PAD_L} y={CALLS_TOP - 14}>模型调用（次）</text>
+      <text className="ad-ax-title" x={PAD_L} y={costTop - 14}>估算花费（元）</text>
+      {[0, 0.5, 1].map(f => (
+        <text key={`c${f}`} className="ad-ax" x={PAD_L - 8} y={yCalls(maxCalls * f) + 4} textAnchor="end">{fmtCompact(maxCalls * f)}</text>
+      ))}
+      {[0, 1].map(f => (
+        <text key={`y${f}`} className="ad-ax" x={PAD_L - 8} y={yCost(maxCost * f) + 4} textAnchor="end">
+          {maxCost * f >= 100 ? fmtCompact(maxCost * f) : trimMoney(maxCost * f)}
+        </text>
+      ))}
+    </>
+  )
+
   // 提示框：在竖线右边，靠右边缘时翻到左边
   const tipLeft = cur ? cx(active) : 0
   const flip = cur && tipLeft + TIP_W + 12 > W
@@ -134,78 +151,77 @@ export default function TrendChart({ daily = [], now = new Date(), label = '每�
         </button>
       </div>
       {table ? <DataTable daily={daily} now={now} /> : (
-        <div className="ad-trend-scroll" ref={scrollRef}>
-          <div className="ad-trend-canvas" style={{ width: W }} tabIndex={0} role="group"
-            aria-label={`${label}。用左右方向键逐天查看`}
-            onKeyDown={onKey} onFocus={() => setActive(i => (i < 0 ? n - 1 : i))} onBlur={() => setActive(-1)}
-            onPointerLeave={() => setActive(-1)}>
-            <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="ad-trend-svg" aria-hidden="true" focusable="false">
-              {/* 格标题与纵轴刻度 */}
-              <text className="ad-ax-title" x={PAD_L} y={CALLS_TOP - 14}>模型调用（次）</text>
-              <text className="ad-ax-title" x={PAD_L} y={costTop - 14}>估算花费（元）</text>
-              {[0, 0.5, 1].map(f => (
-                <g key={`c${f}`}>
-                  <line className="ad-grid" x1={PAD_L} x2={W - PAD_R} y1={yCalls(maxCalls * f)} y2={yCalls(maxCalls * f)} />
-                  <text className="ad-ax" x={PAD_L - 8} y={yCalls(maxCalls * f) + 4} textAnchor="end">{fmtCompact(maxCalls * f)}</text>
+        <div className="ad-trend-frame">
+          <div className="ad-trend-scroll" ref={scrollRef}>
+            <div className="ad-trend-canvas" style={{ width: W }} tabIndex={0} role="group"
+              aria-label={`${label}。用左右方向键逐天查看`}
+              onKeyDown={onKey} onFocus={() => setActive(i => (i < 0 ? n - 1 : i))} onBlur={() => setActive(-1)}
+              onPointerLeave={() => setActive(-1)}>
+              <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="ad-trend-svg" aria-hidden="true" focusable="false">
+                {/* 网格线；格标题与纵轴刻度（横向滚时改由左边钉住的那一层画） */}
+                {[0, 0.5, 1].map(f => (
+                  <line key={`c${f}`} className="ad-grid" x1={PAD_L} x2={W - PAD_R} y1={yCalls(maxCalls * f)} y2={yCalls(maxCalls * f)} />
+                ))}
+                {[0, 1].map(f => (
+                  <line key={`y${f}`} className="ad-grid" x1={PAD_L} x2={W - PAD_R} y1={yCost(maxCost * f)} y2={yCost(maxCost * f)} />
+                ))}
+                {scrollable ? null : axisLabels}
+
+                {/* 竖线：对准当前那一天，贯穿两格 */}
+                {cur ? <line className="ad-cross" x1={cx(active)} x2={cx(active)} y1={CALLS_TOP - 6} y2={costBase} /> : null}
+
+                {/* 调用柱 */}
+                <g className={`ad-bars${cur ? ' has-active' : ''}`}>
+                  {daily.map((d, i) => {
+                    const h = callsBase - yCalls(d.calls)
+                    return h > 0
+                      ? <path key={d.day} className={`ad-bar${i === active ? ' on' : ''}`} d={barPath(cx(i) - barW / 2, yCalls(d.calls), barW, h)} />
+                      : null
+                  })}
                 </g>
-              ))}
-              {[0, 1].map(f => (
-                <g key={`y${f}`}>
-                  <line className="ad-grid" x1={PAD_L} x2={W - PAD_R} y1={yCost(maxCost * f)} y2={yCost(maxCost * f)} />
-                  <text className="ad-ax" x={PAD_L - 8} y={yCost(maxCost * f) + 4} textAnchor="end">
-                    {maxCost * f >= 100 ? fmtCompact(maxCost * f) : trimMoney(maxCost * f)}
+                {peak >= 0 && n > 1 && daily[peak].calls > 0 && !cur && !scrollable ? (
+                  <text className="ad-peak" x={cx(peak)} y={yCalls(daily[peak].calls) - 6} textAnchor="middle">{fmtCompact(daily[peak].calls)}</text>
+                ) : null}
+
+                {/* 花费折线 */}
+                {n > 1 ? <path className="ad-cost-area" d={area} /> : null}
+                {n > 1 ? <path className="ad-cost-line" d={line} /> : null}
+                {n ? (
+                  <circle className="ad-cost-dot" cx={pts[cur ? active : n - 1][0]} cy={pts[cur ? active : n - 1][1]} r={4} />
+                ) : null}
+
+                {/* 日期轴 */}
+                {daily.map((d, i) => ((n - 1 - i) % step === 0 ? (
+                  <text key={d.day} className={`ad-ax${i === active ? ' on' : ''}`} x={cx(i)} y={costBase + AXIS_GAP} textAnchor="middle">
+                    {dayShort(d.day, now)}
                   </text>
-                </g>
-              ))}
+                ) : null))}
 
-              {/* 竖线：对准当前那一天，贯穿两格 */}
-              {cur ? <line className="ad-cross" x1={cx(active)} x2={cx(active)} y1={CALLS_TOP - 6} y2={costBase} /> : null}
-
-              {/* 调用柱 */}
-              <g className={`ad-bars${cur ? ' has-active' : ''}`}>
-                {daily.map((d, i) => {
-                  const h = callsBase - yCalls(d.calls)
-                  return h > 0
-                    ? <path key={d.day} className={`ad-bar${i === active ? ' on' : ''}`} d={barPath(cx(i) - barW / 2, yCalls(d.calls), barW, h)} />
-                    : null
-                })}
-              </g>
-              {peak >= 0 && n > 1 && daily[peak].calls > 0 && !cur ? (
-                <text className="ad-peak" x={cx(peak)} y={yCalls(daily[peak].calls) - 6} textAnchor="middle">{fmtCompact(daily[peak].calls)}</text>
-              ) : null}
-
-              {/* 花费折线 */}
-              {n > 1 ? <path className="ad-cost-area" d={area} /> : null}
-              {n > 1 ? <path className="ad-cost-line" d={line} /> : null}
-              {n ? (
-                <circle className="ad-cost-dot" cx={pts[cur ? active : n - 1][0]} cy={pts[cur ? active : n - 1][1]} r={4} />
-              ) : null}
-
-              {/* 日期轴 */}
-              {daily.map((d, i) => ((n - 1 - i) % step === 0 ? (
-                <text key={d.day} className={`ad-ax${i === active ? ' on' : ''}`} x={cx(i)} y={costBase + AXIS_GAP} textAnchor="middle">
-                  {dayShort(d.day, now)}
-                </text>
-              ) : null))}
-
-              {/* 命中区：每天一整列，比柱子宽得多 */}
-              {daily.map((d, i) => (
-                <rect key={`hit-${d.day}`} className="ad-hit" data-day={d.day} x={PAD_L + band * i} y={CALLS_TOP - 10}
-                  width={band} height={costBase - CALLS_TOP + 10} onPointerEnter={() => setActive(i)} onPointerMove={() => setActive(i)} />
-              ))}
-            </svg>
-            {cur ? (
-              <div className={`ad-tip${flip ? ' flip' : ''}`} style={{ left: tipLeft }} role="status">
-                <div className="ad-tip-day">{dayLong(cur.day, now)}</div>
-                <div className="ad-tip-row"><i className="k-calls" aria-hidden="true" /><b>{fmtInt(cur.calls)}</b><span>次调用</span></div>
-                <div className="ad-tip-row"><i className="k-cost" aria-hidden="true" /><b>{fmtYuan(cur.cost_yuan)}</b><span>估算花费</span></div>
-                <div className="ad-tip-sub">
-                  <span>{fmtCompact(cur.tokens)} token</span>
-                  <span>流程 {fmtInt(cur.flow_runs)} 次{cur.flow_failures ? ` · 失败 ${fmtInt(cur.flow_failures)}` : ''}</span>
+                {/* 命中区：每天一整列，比柱子宽得多 */}
+                {daily.map((d, i) => (
+                  <rect key={`hit-${d.day}`} className="ad-hit" data-day={d.day} x={PAD_L + band * i} y={CALLS_TOP - 10}
+                    width={band} height={costBase - CALLS_TOP + 10} onPointerEnter={() => setActive(i)} onPointerMove={() => setActive(i)} />
+                ))}
+              </svg>
+              {cur ? (
+                <div className={`ad-tip${flip ? ' flip' : ''}`} style={{ left: tipLeft }} role="status">
+                  <div className="ad-tip-day">{dayLong(cur.day, now)}</div>
+                  <div className="ad-tip-row"><i className="k-calls" aria-hidden="true" /><b>{fmtInt(cur.calls)}</b><span>次调用</span></div>
+                  <div className="ad-tip-row"><i className="k-cost" aria-hidden="true" /><b>{fmtYuan(cur.cost_yuan)}</b><span>估算花费</span></div>
+                  <div className="ad-tip-sub">
+                    <span>{fmtCompact(cur.tokens)} token</span>
+                    <span>流程 {fmtInt(cur.flow_runs)} 次{cur.flow_failures ? ` · 失败 ${fmtInt(cur.flow_failures)}` : ''}</span>
+                  </div>
                 </div>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
           </div>
+          {scrollable ? (
+            <svg width={PAD_L + 140} height={H} className="ad-trend-svg ad-trend-axis" aria-hidden="true" focusable="false">
+              <rect className="ad-axis-bg" x={0} y={0} width={PAD_L} height={H} />
+              {axisLabels}
+            </svg>
+          ) : null}
         </div>
       )}
     </div>

@@ -238,6 +238,23 @@ describe('管理后台：趋势图', () => {
     expect(document.querySelector('.ad-trend-svg')).toBeInTheDocument()
   })
 
+  it('窄容器放不下 30 天：图横向滚，纵轴与格标题钉在左边', () => {
+    const desc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth')
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get() { return 320 } })
+    try {
+      render(<TrendChart daily={usageFor(30).daily} now={NOW} />)
+      const svg = document.querySelector('.ad-trend-canvas .ad-trend-svg')
+      expect(Number(svg.getAttribute('width'))).toBeGreaterThan(320)
+      const pinned = document.querySelector('.ad-trend-axis')
+      expect(pinned).toHaveTextContent('模型调用（次）')
+      expect(svg.querySelector('.ad-ax-title')).toBeNull()
+      expect(document.querySelectorAll('.ad-bar')).toHaveLength(30)
+    } finally {
+      if (desc) Object.defineProperty(HTMLElement.prototype, 'clientWidth', desc)
+      else delete HTMLElement.prototype.clientWidth
+    }
+  })
+
   it('纵轴取好读的整刻度', () => {
     expect(niceMax(0)).toBe(1)
     expect(niceMax(1125)).toBe(1200)

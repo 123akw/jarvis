@@ -113,9 +113,12 @@ body.light .ad-page{
 .ad-legend .k-cost{width:14px;height:2px;border-radius:2px;background:var(--ad-cost)}
 .ad-trend{position:relative;min-width:0}
 .ad-trend-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:-6px 0 8px}
-.ad-trend-scroll{overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;margin:0 -4px;padding:0 4px}
+.ad-trend-frame{position:relative}
+.ad-trend-scroll{overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain}
 .ad-trend-canvas{position:relative;border-radius:8px}
-.ad-trend-canvas:focus-visible{outline:2px solid var(--jv-accent);outline-offset:2px}
+.ad-trend-canvas:focus-visible{outline:2px solid var(--jv-accent);outline-offset:-2px}
+.ad-trend-axis{position:absolute;left:0;top:0;z-index:2;pointer-events:none}
+.ad-axis-bg{fill:var(--ad-card)}
 .ad-trend-svg{display:block;overflow:visible}
 .ad-trend-svg text{font-family:var(--jv-font);font-size:11px;fill:var(--jv-text-3);font-variant-numeric:tabular-nums}
 .ad-trend-svg .ad-ax-title{font-size:12px;fill:var(--jv-text-2);font-weight:500}
@@ -145,7 +148,8 @@ body.light .ad-page{
 .ad-trend-table th,.ad-trend-table td{padding:8px 12px;text-align:right;border-bottom:1px solid var(--ad-line);white-space:nowrap}
 .ad-trend-table th[scope=row],.ad-trend-table thead th:first-child{text-align:left;font-weight:500}
 .ad-trend-table thead th{position:sticky;top:0;background:var(--ad-card);color:var(--jv-text-3);font-weight:500}
-.ad-trend-today{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:24px 0 8px}
+.ad-card--trend{display:flex;flex-direction:column}
+.ad-trend-today{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;gap:6px;padding:24px 0 32px}
 .ad-trend-today-big{font-size:44px;font-weight:600;letter-spacing:-.03em;line-height:1.1}
 .ad-trend-today-big span{font-size:16px;font-weight:500;letter-spacing:0;color:var(--jv-text-2)}
 .ad-trend-empty{padding:72px 0}
