@@ -13,6 +13,16 @@
   参数直接用它（``files.resolve`` 认这个标记）；开始节点的产出另带 ``files: [{name, url}]`` 给运行面板列原件；
 - 运行前统一检查（插件装没装、必填参数、飞书绑定、节点有没有连上、文件工具有没有接原文件），不白烧前面的模型调用；
 - 时限：AI 60 秒、工具沿用插件超时、积木沿用积木；整条 240 秒；``cancel`` 置位后 0.25 秒内停。
+- 第二十轮：
+  - 「发送前确认」节点（``approval``）：渲染要确认的内容 → 记一条待确认（``state`` 存恢复所需的上下文：
+    节点图快照、已完成节点的产出与激活的出口、开始节点的值、已有的节点记录）→ 运行记录停在 waiting →
+    ``node_wait`` / ``run_done{status: waiting}``；同意后 :func:`resume_graph` 用（改过的）内容作为该节点产出，
+    沿用同一条运行记录从它的下游接着跑；
+  - 每个节点的结果另存 ``ctx``（单节点试跑取上游产出用）；开始节点另存各字段的值；
+  - :func:`test_node` 只跑一个节点：有副作用的积木（发飞书 / 微信、飞书文档、加待办、生成网页 / 文件……）和
+    会写数据的插件工具只渲染要发 / 要写的内容，注明「试跑不会真的发送」；
+  - 开始节点的文件字段也接受文件空间里已有的文件（``{file_id}``，路由里按账号取出），不重复存；
+  - 节点里的模型调用记在 ``usage.kind_scope("flow")`` 下；一条运行到终态（ok / error）时 ``usage.record_flow_run``。
 """
 from __future__ import annotations
 
@@ -30,12 +40,13 @@ from pathlib import PurePath
 from typing import Any, Callable
 
 from jarvis import files as filespace
+from jarvis import usage
 from jarvis.flows import graph as graph_mod
 from jarvis.flows import nodes as nodes_mod
 from jarvis.flows.engine import STEP_POOL, TOTAL_SECONDS, FlowDeps, requirement_problem, wait_future
-from jarvis.flows.steps import (AI_TIMEOUT, MAX_ITEMS, MAX_MATERIAL_CHARS, STEPS, StepFailure,
-                                StepJob, cap_text, clean_model_text, clip, first_line, parse_items, preview,
-                                read_upload)
+from jarvis.flows.steps import (AI_TIMEOUT, MAX_ITEMS, MAX_MATERIAL_CHARS, ROLE_OUTPUT, STEPS, StepFailure,
+                                StepJob, cap_text, clean_model_text, clip, first_line, message_text, parse_items,
+                                preview, read_upload, todo_items)
 from jarvis.tenancy import tenant_scope
 from jarvis.tools.failure import is_failure, public_text
 
@@ -80,6 +91,30 @@ _FILE_MARK = re.compile(r"file_id\s*[=＝:：]\s*([A-Za-z0-9_-]{8,64})|/api/file
 _BARE_FILE_ID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 _FILE_NAME = re.compile(r"^[^\n\[\]]{1,100}\.[A-Za-z0-9]{2,5}$")   # 文件名（resolve 按名字找最新的同名文件）
 
+CTX_TEXT_CHARS = 20000        # 运行记录里每个节点存下的产出（试跑用）
+CTX_ITEMS = 50
+CTX_LINKS = 20
+TEST_RUN_ID = "test"          # 单节点试跑没有运行记录
+WAITING_SUMMARY = "等你确认"
+DRY_NOTES = {
+    "feishu_send": "试跑不会真的发送：这里是要发到飞书的内容",
+    "wechat_send": "试跑不会真的发送：这里是要发到微信的内容",
+    "feishu_doc": "试跑不会真的建飞书文档：这里是要写进文档的内容",
+    "web_page": "试跑不会真的生成网页：这里是要放进网页的内容",
+}
+
+
+def saved_ctx(ctx: dict, **extra) -> dict:
+    """运行记录里存的节点产出（单节点试跑取上游用）：text ≤ 2 万字、items、links、title；分段不大时也存。"""
+    out = {"text": str(ctx.get("text") or "")[:CTX_TEXT_CHARS],
+           "items": [clip(str(x), 2000) for x in (ctx.get("items") or [])[:CTX_ITEMS]],
+           "links": [x for x in ctx.get("links") or [] if isinstance(x, dict)][:CTX_LINKS],
+           "title": clip(str(ctx.get("title") or ""), 200)}
+    parts = [p for p in ctx.get("parts") or [] if isinstance(p, dict)]
+    if parts and sum(len(str(p.get("text") or "")) for p in parts) <= CTX_TEXT_CHARS:
+        out["parts"] = [{"title": str(p.get("title") or ""), "text": str(p.get("text") or "")} for p in parts]
+    out.update({k: v for k, v in extra.items() if v is not None})
+    return out
 
 # ---------- 渲染 ----------
 
@@ -185,7 +220,8 @@ def sys_values(now: dt.datetime | None = None) -> dict[str, str]:
 
 # ---------- 运行前检查 ----------
 
-def preflight(graph: dict, user_id: str, deps: FlowDeps, account: nodes_mod.Account) -> tuple[str, str] | None:
+def preflight(graph: dict, user_id: str, deps: FlowDeps, account: nodes_mod.Account,
+              skip: set[str] | None = None) -> tuple[str, str] | None:
     """开跑前把配置问题一次查出来：返回 (节点 id, 人话)；都没问题返回 None。"""
     by_id = {n["id"]: n for n in graph["nodes"]}
     order = graph_mod.topo_order(graph)
@@ -194,6 +230,8 @@ def preflight(graph: dict, user_id: str, deps: FlowDeps, account: nodes_mod.Acco
         if node_id not in reach:
             return node_id, f"「{by_id[node_id]['data']['title']}」还没连上：把它连到前面的节点，或者删掉它"
     for node_id in order:
+        if skip and node_id in skip:   # 确认后接着跑：已经跑过的节点不再查
+            continue
         problem = node_problem(by_id[node_id], user_id, deps, account) or file_arg_problem(by_id[node_id], graph, deps)
         if problem:
             return node_id, problem
@@ -272,11 +310,12 @@ class NodeResult:
     preview: str = ""
     handle: str | None = None
     files: list | None = None   # 开始节点：存进文件空间的原件 [{name, url, label}]
+    note: str = ""              # 单节点试跑的说明（「试跑不会真的发送」）
 
 
 class _Run:
     def __init__(self, *, flow: dict, graph: dict, user_id: str, inputs: dict, deps: FlowDeps, store, run_id: str,
-                 cancel: threading.Event | None, total_seconds: float, timeouts: dict, clock):
+                 cancel: threading.Event | None, total_seconds: float, timeouts: dict, clock, dry_run: bool = False):
         self.flow, self.graph, self.user_id, self.inputs = flow, graph, user_id, inputs or {}
         self.deps, self.store, self.run_id, self.cancel = deps, store, run_id, cancel
         self.total_seconds, self.timeouts, self.clock = total_seconds, timeouts or {}, clock
@@ -290,12 +329,62 @@ class _Run:
         self.start_values: dict[str, Any] = {}
         self.start_files: list[dict] = []              # 存进文件空间的原件 [{name, url, label}]
         self.kept_names: dict[str, str] = {}           # 字段 key → 存好的原文件名
+        self.kept_ids: dict[str, dict] = {}            # 字段 key → {file_id, name}（重跑用，写进运行记录的 input）
         self.wants_file = graph_mod.file_refs(graph)   # 后面用到了「原文件」的文件字段
         self.sys = sys_values()
         self.job = StepJob(user_id=user_id, run_id=run_id, flow=flow, payload=dict(self.inputs), deps=deps, store=store)
         self.page_url: str | None = None
         self.deadline = clock() + total_seconds
         self.limit = 0.0
+        self.dry_run = dry_run                         # 单节点试跑：有副作用的只预演
+
+    # ---- 停下等确认 / 接着跑 ----
+
+    def snapshot(self) -> dict:
+        """恢复运行要的上下文（存进 tenant_flow_approvals.state）：节点图快照、已完成节点的产出与出口、开始节点的值。"""
+        return {"v": 1, "flow": {"id": self.flow.get("id"), "name": self.flow.get("name") or ""}, "graph": self.graph,
+                "state": dict(self.state), "ctx": copy.deepcopy(self.ctx), "handles": dict(self.handles),
+                "start_values": dict(self.start_values), "start_files": list(self.start_files),
+                "kept_names": dict(self.kept_names), "kept_ids": dict(self.kept_ids), "sys": dict(self.sys),
+                "page_url": self.page_url, "job_output": self.job.output,
+                "payload": {k: v for k, v in self.inputs.items() if isinstance(v, (str, int, float))}}
+
+    @classmethod
+    def restore(cls, snap: dict, *, user_id: str, deps: FlowDeps, store, run_id: str, total_seconds: float,
+                timeouts: dict, clock) -> "_Run":
+        flow = {**(snap.get("flow") or {}), "graph": snap["graph"]}
+        run = cls(flow=flow, graph=snap["graph"], user_id=user_id, inputs=dict(snap.get("payload") or {}), deps=deps,
+                  store=store, run_id=run_id, cancel=None, total_seconds=total_seconds, timeouts=timeouts, clock=clock)
+        run.state = dict(snap.get("state") or {})
+        run.ctx = copy.deepcopy(snap.get("ctx") or {})
+        run.handles = dict(snap.get("handles") or {})
+        run.start_values = dict(snap.get("start_values") or {})
+        run.start_files = list(snap.get("start_files") or [])
+        run.kept_names = dict(snap.get("kept_names") or {})
+        run.kept_ids = dict(snap.get("kept_ids") or {})
+        run.sys = dict(snap.get("sys") or run.sys)   # 系统变量沿用开跑时的，前后一致
+        run.page_url = snap.get("page_url")
+        run.job.output = snap.get("job_output")
+        return run
+
+    def input_with_files(self, info: dict) -> dict:
+        """运行记录的 input：开始节点存好的原文件补成 {file_id, name}（重跑时按 file_id 取，不重复存）。"""
+        values = info.get("values")
+        if not isinstance(values, dict) or not self.kept_ids:
+            return info
+        return {**info, "values": {**values, **self.kept_ids}}
+
+    def downstream(self, node_id: str) -> list[dict]:
+        """确认页「接下来会做什么」：这个节点之后（按执行顺序）要跑的节点。"""
+        children = graph_mod.children_of(self.graph)
+        seen, queue = set(), list(children.get(node_id, []))
+        while queue:
+            current = queue.pop(0)
+            if current not in seen:
+                seen.add(current)
+                queue.extend(children.get(current, []))
+        return [{"title": self.by_id[i]["data"].get("title") or graph_mod.TYPE_NAMES.get(self.by_id[i]["type"], ""),
+                 "node_type": self.by_id[i]["type"]} for i in graph_mod.topo_order(self.graph) if i in seen][:12]
 
     # ---- 等待与限时 ----
 
@@ -316,7 +405,7 @@ class _Run:
 
         def work():
             _ACTIVE_RUN.set(self)
-            with tenant_scope(self.user_id):
+            with tenant_scope(self.user_id), usage.kind_scope("flow"):   # 节点里的模型调用记到「流程」
                 return fn()
 
         future = STEP_POOL.submit(context.run, work)
@@ -443,6 +532,9 @@ class _Run:
             if not wanted:
                 raise
             text, note = "", f"没读出文字（{str(exc).rstrip('。')}），原文件照样交给后面的工具"
+        if raw.get("file_id"):   # 文件空间里已有的文件（对话附件、重跑、链接触发）：直接用，不重复存
+            self._keep(key, label, {"id": raw["file_id"], "name": raw["name"]})
+            return text, note
         if not wanted and not str(raw["name"]).lower().endswith(filespace.ATTACHABLE_EXTENSIONS):
             return text, note
         try:
@@ -456,10 +548,14 @@ class _Run:
             if wanted:
                 raise StepFailure(f"「{label}」的原文件存不进文件空间，请稍后再试") from None
             return text, note
+        self._keep(key, label, meta)
+        return text, note
+
+    def _keep(self, key: str, label: str, meta: dict) -> None:
         self.start_values[graph_mod.file_var(key)] = filespace.attachment_marker(meta)
         self.start_files.append({"name": meta["name"], "url": filespace.url_for(meta["id"]), "label": label})
         self.kept_names[key] = meta["name"]
-        return text, note
+        self.kept_ids[key] = {"file_id": meta["id"], "name": meta["name"]}
 
     def _start(self, fields: list[dict]) -> NodeResult:
         notes: dict[str, str] = {}
@@ -579,6 +675,8 @@ class _Run:
         tool = nodes_mod.find_tool(data["tool"], self.deps, user_id=self.user_id)
         if tool is None:
             raise StepFailure(f"「{data['title']}」用的工具已经不在了，换一个或删掉它")
+        if self.dry_run and nodes_mod.tool_writes(data["plugin"], data["tool"]):
+            return self._dry_tool(node, tool, base)
         guarded = bool(getattr(tool, "plugin_guarded", False))
         timeout = nodes_mod.plugin_timeout(data["plugin"])
         limit = self.timeout_for(node, timeout + nodes_mod.GUARD_MARGIN if guarded else timeout)
@@ -600,6 +698,27 @@ class _Run:
             ctx["items"] = parse_items(text)
             summary = f"拿到结果（{len(text)} 字）" if text else "工具没有返回内容"
         return NodeResult(ctx, summary, preview(text))
+
+    def _dry_tool(self, node: dict, tool, base: dict) -> NodeResult:
+        """试跑会写数据的工具（加待办、记备忘、加日程……）：只把要用的参数列出来，不真的调用。"""
+        data = node["data"]
+        items, _note = self._foreach_items(node)
+        rounds = [None] if items is None else items
+        props = nodes_mod.tool_schema(tool).get("properties") or {}
+        blocks = []
+        for item in rounds:
+            args = convert_args(tool, {k: self.render(v, item) for k, v in data["args"].items()}, data["title"])
+            lines = [f"- {nodes_mod.arg_label(k, props.get(k) if isinstance(props.get(k), dict) else {})}："
+                     f"{render_value(v) if not isinstance(v, bool) else ('是' if v else '否')}" for k, v in args.items()]
+            blocks.append("\n".join(lines) or "（没有参数）")
+        text = "\n\n".join(blocks)
+        ctx = empty_ctx()
+        ctx["title"], ctx["links"], ctx["text"] = base.get("title", ""), list(base.get("links") or []), text
+        if items is not None:
+            ctx["items"] = [clip(b, 2000) for b in blocks]
+        times = f"（逐条会调用 {len(blocks)} 次）" if items is not None else ""
+        return NodeResult(ctx, "试跑：没有真的执行", preview(text),
+                          note=f"试跑不会真的执行「{data['title']}」：这里是要用的内容{times}")
 
     def _tool_once(self, node: dict, tool, item: str | None) -> str:
         data = node["data"]
@@ -655,11 +774,50 @@ class _Run:
             ctx["text"], _cut = cap_text(self.render(data["input"]))
             ctx["parts"], ctx["items"] = [], []
         options = dict(data["options"])
+        if self.dry_run and spec.role == ROLE_OUTPUT:
+            return self._dry_step(spec, ctx, options)
         outcome = self.call(lambda: spec.run(self.job, ctx, options), self.timeout_for(node, spec.timeout))
         url = (self.job.output or {}).get("url") if isinstance(self.job.output, dict) else None
         if url and str(url).startswith("/r/"):
             self.page_url = url
         return NodeResult(ctx, clip(outcome.summary, 60), preview(outcome.preview))
+
+    def _dry_step(self, spec, ctx: dict, options: dict) -> NodeResult:
+        """试跑输出类积木（发飞书 / 微信、飞书文档、加待办、生成网页 / 文件……）：只渲染要发出去的内容。"""
+        if spec.id in ("feishu_send", "wechat_send"):
+            text = message_text(ctx, self.flow)
+            summary = "试跑：没有真的发送"
+        elif spec.id == "to_todo":
+            items = todo_items(ctx)
+            ctx["items"] = items
+            text = "\n".join(f"- {x}" for x in items)
+            note = f"试跑不会真的加到待办：这里是要加的 {len(items)} 条" if items else "试跑：没有可以加的待办"
+            ctx["text"] = text
+            return NodeResult(ctx, "试跑：没有真的加", preview(text), note=note)
+        else:
+            text = ctx.get("text") or "\n\n".join(f"## {p.get('title') or ''}\n\n{p.get('text') or ''}".strip()
+                                                 for p in ctx.get("parts") or [] if isinstance(p, dict))
+            text = text or "\n".join(f"- {x}" for x in ctx.get("items") or [])
+            summary = "试跑：没有真的执行"
+        note = DRY_NOTES.get(spec.id) or f"试跑不会真的执行「{spec.name}」：这里是要交给它的内容"
+        out = copy.deepcopy(ctx)
+        out["text"] = text
+        return NodeResult(out, summary, preview(text), note=note)
+
+    def run_approval(self, node: dict, base: dict) -> NodeResult:
+        """发送前确认：渲染要给主人确认的内容（没写就用上游的文字）；停下与恢复由驱动循环处理。"""
+        data = node["data"]
+        upstream, _cut = cap_text(base.get("text") or "")
+        text, _cut = cap_text(self.render(data["message"])) if data["message"] else (upstream, False)
+        ctx = copy.deepcopy(base)
+        ctx["text"] = text
+        if text != upstream or not ctx.get("items"):
+            ctx["items"] = parse_items(text)
+        if text != upstream:
+            ctx["parts"] = []   # 内容换了，原来的分段对不上了
+        if self.dry_run:
+            return NodeResult(ctx, "要确认的内容", preview(text), note="试跑不会真的发确认：这里是要给你确认的内容")
+        return NodeResult(ctx, WAITING_SUMMARY, preview(text))
 
     def run_end(self, node: dict, base: dict) -> NodeResult:
         data = node["data"]
@@ -670,6 +828,8 @@ class _Run:
         ctx["links"] = list(base.get("links") or [])
         if not data["page"]:
             return NodeResult(ctx, "结果已生成" if text else "流程跑完了", preview(text))
+        if self.dry_run:
+            return NodeResult(ctx, "试跑：没有生成网页", preview(text), note="试跑不会真的生成结果网页：这里是网页里的内容")
         if self.page_url is None:
             if not text:
                 raise StepFailure("前面没有可以放进网页的内容")
@@ -691,7 +851,8 @@ class _Run:
             return self.run_start(node)
         base = self.base_ctx(active)
         handler = {"llm": self.run_llm, "tool": self.run_tool, "template": self.run_template,
-                   "condition": self.run_condition, "step": self.run_step, "end": self.run_end}[kind]
+                   "condition": self.run_condition, "step": self.run_step, "end": self.run_end,
+                   "approval": self.run_approval}[kind]
         return handler(node, base)
 
     def final_output(self, order: list[str]) -> dict:
@@ -876,20 +1037,103 @@ def keep_upload(owner_id: str, name: str, data: bytes) -> dict:
 
 # ---------- 入口 ----------
 
+START_MISSING = "先完整跑一次，或填上开始的输入"
+
+
 def execute_graph(*, flow: dict, user_id: str, inputs: dict, deps: FlowDeps, store,
                   emit: Callable[[dict], None], cancel: threading.Event | None = None,
                   input_info: dict | None = None, total_seconds: float = TOTAL_SECONDS,
-                  timeouts: dict[str, float] | None = None, clock=time.monotonic) -> dict:
+                  timeouts: dict[str, float] | None = None, clock=time.monotonic,
+                  source: str = "manual", origin: str = "") -> dict:
     """跑一条节点图流程，逐个事件交给 emit（契约 §3.3）；返回 {run_id, status, output, error}。
 
-    ``flow`` 带已校验的 ``graph``；运行记录开跑时落库（status=running），结束时回写逐节点结果；任何意外都收尾。"""
-    graph = flow["graph"]
-    run_id = store.start_run(user_id, flow["id"], input_info or {})
-    run = _Run(flow=flow, graph=graph, user_id=user_id, inputs=inputs, deps=deps, store=store, run_id=run_id,
+    ``flow`` 带已校验的 ``graph``；运行记录开跑时落库（status=running），结束时回写逐节点结果；任何意外都收尾。
+    跑到「发送前确认」就停下：status=waiting，另带 ``approval: {id, url, expires_at}``（第二十轮）。
+    ``source`` 写进运行记录；``origin`` 是请求来源（没配 JARVIS_PUBLIC_URL 时拼确认链接的绝对地址）。"""
+    info = dict(input_info or {})
+    run_id = store.start_run(user_id, flow["id"], info, source=source)
+    run = _Run(flow=flow, graph=flow["graph"], user_id=user_id, inputs=inputs, deps=deps, store=store, run_id=run_id,
                cancel=cancel, total_seconds=total_seconds, timeouts=timeouts or {}, clock=clock)
-    records: list[dict] = []
+    return _drive(run, emit=emit, records=[], input_info=info, source=source, origin=origin)
+
+
+def resume_graph(*, approval: dict, content: str, user_id: str, deps: FlowDeps, store,
+                 total_seconds: float = TOTAL_SECONDS, timeouts: dict[str, float] | None = None,
+                 clock=time.monotonic, emit: Callable[[dict], None] | None = None) -> dict:
+    """确认同意后接着跑（契约 §3.1）：用（改过的）内容作为确认节点的产出 text / items，沿用同一条运行记录
+    （source 记 resume），从它的下游跑完。``approval`` 是带 ``state`` 的确认记录。"""
+    state = approval["state"]
+    run = _Run.restore(state, user_id=user_id, deps=deps, store=store, run_id=approval["run_id"],
+                       total_seconds=total_seconds, timeouts=timeouts or {}, clock=clock)
+    node_id = approval["node_id"]
+    node = run.by_id[node_id]
+    ctx = copy.deepcopy(state.get("pending_ctx") or empty_ctx())
+    edited = content != (ctx.get("text") or "")
+    if edited:
+        ctx["text"], ctx["items"], ctx["parts"] = content, parse_items(content), []
+    run.state[node_id], run.ctx[node_id] = "ok", ctx
+    hashes = graph_mod.config_hashes(run.graph)
+    records = [r for r in state.get("records") or [] if isinstance(r, dict)]
+    records.append(_node_record(node, "ok", hashes, summary="你改了内容后同意了" if edited else "你同意了",
+                                preview=preview(content), ctx=saved_ctx(ctx)))
+    return _drive(run, emit=emit or (lambda event: None), records=records,
+                  input_info=dict(state.get("input_info") or {}), source=state.get("source") or "manual",
+                  origin=state.get("origin") or "", carried_ms=int(state.get("ms") or 0), resumed=True)
+
+
+def _node_record(node: dict, state: str, hashes: dict, **extra) -> dict:
+    out = {"node_id": node["id"], "title": node["data"].get("title") or "", "node_type": node["type"],
+           "status": state, "summary": extra.get("summary", ""), "preview": extra.get("preview", ""),
+           "ms": extra.get("ms", 0), "config_hash": hashes[node["id"]]}
+    if "message" in extra:
+        out["message"] = extra["message"]
+    if extra.get("files"):
+        out["files"] = extra["files"]
+    if extra.get("ctx") is not None:   # 单节点试跑取上游产出用；接口视图里去掉
+        out["ctx"] = extra["ctx"]
+    return out
+
+
+def _record_usage(user_id: str, ok: bool) -> None:
+    try:
+        usage.record_flow_run(user_id, ok)
+    except Exception as exc:   # 记账出错不能影响流程
+        log.warning("flow usage record failed: %s", type(exc).__name__)
+
+
+def _pause(run: _Run, node: dict, result: NodeResult, *, records: list[dict], input_info: dict, source: str,
+           origin: str, ms: int) -> tuple[dict, dict]:
+    """停在确认节点：记一条待确认（state 存恢复要的一切），返回 (给前端的 approval, 推通知要的参数)。"""
+    from jarvis.flows import approvals as approvals_mod
+    data = node["data"]
+    hours = int(data.get("timeout_hours") or graph_mod.DEFAULT_APPROVAL_HOURS)
+    expires = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=hours)).isoformat(timespec="seconds")
+    state = run.snapshot()
+    state.update(pending_ctx=copy.deepcopy(result.ctx), records=copy.deepcopy(records), input_info=input_info,
+                 source=source, origin=origin, ms=ms)
+    content = result.ctx.get("text") or ""
+    title = data.get("title") or graph_mod.TYPE_NAMES["approval"]
+    flow_name = run.flow.get("name") or "流程"
+    payload = {"content": content, "editable": bool(data.get("editable", True)), "preview": preview(content, 120),
+               "next": run.downstream(node["id"]), "source": source, "flow_name": flow_name,
+               "notify": data.get("notify"), "timeout_hours": hours}
+    row = run.store.create_approval(run.user_id, flow_id=run.flow["id"], run_id=run.run_id, node_id=node["id"],
+                                    title=title, payload=payload, state=state, expires_at=expires)
+    approval = {"id": row["id"], "url": approvals_mod.approve_url(row["id"], origin), "expires_at": row["expires_at"]}
+    announce = {"user_id": run.user_id, "flow_name": flow_name, "title": title, "content": content, "hours": hours,
+                "notify": data.get("notify"), "url": approval["url"], "deps": run.deps}
+    return approval, announce
+
+
+def _drive(run: _Run, *, emit: Callable[[dict], None], records: list[dict], input_info: dict, source: str,
+           origin: str, carried_ms: int = 0, resumed: bool = False) -> dict:
+    """按拓扑序跑完（或跑到确认节点停下）；已经在 ``run.state`` 里的节点（确认前跑过的）跳过。"""
+    graph, user_id, store, cancel, clock = run.graph, run.user_id, run.store, run.cancel, run.clock
     status, error, output = "error", "", None
+    approval: dict | None = None
+    announce: dict | None = None
     begin = clock()
+    hashes = graph_mod.config_hashes(graph)
 
     def send(event: dict) -> None:
         if cancel is not None and cancel.is_set():
@@ -899,14 +1143,8 @@ def execute_graph(*, flow: dict, user_id: str, inputs: dict, deps: FlowDeps, sto
         except Exception:
             pass
 
-    hashes = graph_mod.config_hashes(graph)
-
     def record(node: dict, state: str, **extra) -> None:
-        records.append({"node_id": node["id"], "title": node["data"].get("title") or "", "node_type": node["type"],
-                        "status": state, "summary": extra.get("summary", ""), "preview": extra.get("preview", ""),
-                        "ms": extra.get("ms", 0), "config_hash": hashes[node["id"]],
-                        **({"message": extra["message"]} if "message" in extra else {}),
-                        **({"files": extra["files"]} if extra.get("files") else {})})
+        records.append(_node_record(node, state, hashes, **extra))
 
     def fail(node: dict, message: str, ms: int) -> None:
         nonlocal error
@@ -916,16 +1154,25 @@ def execute_graph(*, flow: dict, user_id: str, inputs: dict, deps: FlowDeps, sto
         record(node, "error", message=message, ms=ms)
         error = message
 
+    def answer() -> dict:
+        out = {"run_id": run.run_id, "status": status, "output": output, "error": error}
+        if approval is not None:
+            out["approval"] = approval
+        return out
+
     order: list[str] = []
     try:
-        send({"type": "run_start", "run_id": run_id})
-        account = nodes_mod.Account.load(user_id, deps)
-        problem = preflight(graph, user_id, deps, account)
+        if not resumed:
+            send({"type": "run_start", "run_id": run.run_id})
+        account = nodes_mod.Account.load(user_id, run.deps)
+        problem = preflight(graph, user_id, run.deps, account, skip=set(run.state))
         if problem:
             fail(run.by_id[problem[0]], problem[1], 0)
-            return {"run_id": run_id, "status": status, "output": None, "error": error}
+            return answer()
         order = graph_mod.topo_order(graph)
         for node_id in order:
+            if node_id in run.state:   # 确认后接着跑：确认节点和它前面跑过的不再跑
+                continue
             node = run.by_id[node_id]
             if cancel is not None and cancel.is_set():
                 error = CANCELLED
@@ -964,6 +1211,22 @@ def execute_graph(*, flow: dict, user_id: str, inputs: dict, deps: FlowDeps, sto
                 run.state[node_id] = "error"
                 fail(node, message, ms)
                 break
+            if node["type"] == "approval":   # 发送前确认：停下等主人点头
+                try:
+                    approval, announce = _pause(run, node, result, records=records, input_info=input_info,
+                                                source=source, origin=origin,
+                                                ms=carried_ms + int((clock() - begin) * 1000))
+                except Exception as exc:
+                    log.exception("flow approval create failed: %s", type(exc).__name__)
+                    run.state[node_id] = "error"
+                    fail(node, "没能发出确认，请稍后再试", ms)
+                    break
+                record(node, "waiting", summary=WAITING_SUMMARY, preview=result.preview, ms=ms)
+                send({"type": "node_wait", "node_id": node_id, "approval_id": approval["id"], "url": approval["url"],
+                      "expires_at": approval["expires_at"], "summary": WAITING_SUMMARY, "preview": result.preview,
+                      "ms": ms, "config_hash": hashes[node_id]})
+                status = "waiting"
+                break
             run.state[node_id], run.ctx[node_id] = "ok", result.ctx
             if result.handle is not None:
                 run.handles[node_id] = result.handle
@@ -980,17 +1243,146 @@ def execute_graph(*, flow: dict, user_id: str, inputs: dict, deps: FlowDeps, sto
                     node_output["files"] = result.files
             send({"type": "node_done", "node_id": node_id, "summary": summary, "preview": shown, "ms": ms,
                   "output": node_output, "config_hash": hashes[node_id]})
-            record(node, "ok", summary=summary, preview=shown, ms=ms, files=result.files)
+            extra = {}
+            if node["type"] == "start":
+                extra["values"] = dict(run.start_values)
+            elif node["type"] == "condition":
+                extra["branch"] = result.handle
+            record(node, "ok", summary=summary, preview=shown, ms=ms, files=result.files,
+                   ctx=saved_ctx(result.ctx, **extra))
         else:
             status = "ok"
             output = run.final_output(order)
-        return {"run_id": run_id, "status": status, "output": output, "error": error}
+        return answer()
     finally:
-        ms = int((clock() - begin) * 1000)
+        ms = carried_ms + int((clock() - begin) * 1000)
         try:
-            store.finish_run(user_id, run_id, status=status, nodes=records, output=output, ms=ms, error=error)
+            store.finish_run(user_id, run.run_id, status=status, nodes=records, output=output, ms=ms, error=error,
+                             input_info=run.input_with_files(input_info), source="resume" if resumed else None)
         except Exception as exc:
             log.warning("flow run record failed: %s", type(exc).__name__)
-        send({"type": "run_done", "status": status, "ms": ms,
-              "output": output if status == "ok" else {"text": "", "links": [], "page_url": None},
-              **({"error": error} if status != "ok" and error else {})})
+        if status in ("ok", "error"):
+            _record_usage(user_id, status == "ok")
+        if announce is not None:
+            try:
+                from jarvis.flows import approvals as approvals_mod
+                approvals_mod.announce_wait(**announce)
+            except Exception as exc:
+                log.warning("flow approval notify failed: %s", type(exc).__name__)
+        done = {"type": "run_done", "status": status, "ms": ms,
+                "output": output if status == "ok" else {"text": "", "links": [], "page_url": None}}
+        if status != "ok" and error:
+            done["error"] = error
+        if approval is not None:
+            done["approval"] = approval
+        send(done)
+
+
+# ---------- 单节点试跑（契约 §3.2） ----------
+
+def test_node(*, flow: dict, node_id: str, user_id: str, deps: FlowDeps, store, saved: dict[str, dict],
+              inputs: dict | None = None, total_seconds: float = TOTAL_SECONDS,
+              timeouts: dict[str, float] | None = None, clock=time.monotonic) -> dict:
+    """只跑一个节点：上游产出取运行记录里每个节点最近一次存下的（``saved``，见 ``FlowStore.node_outputs``），
+    开始的值可以用 ``inputs`` 现填；不跑下游，有副作用的积木与会写数据的工具只预演，不写运行记录、不占并发闸。
+
+    返回 ``{status: ok|error, ms, output: {text, items, links}, note, error, summary}``。"""
+    run = _Run(flow=flow, graph=flow["graph"], user_id=user_id, inputs=inputs or {}, deps=deps, store=store,
+               run_id=TEST_RUN_ID, cancel=None, total_seconds=total_seconds, timeouts=timeouts or {}, clock=clock,
+               dry_run=True)
+    node = run.by_id[node_id]
+    began = clock()
+
+    def answer(status: str, *, output: dict | None = None, note: str = "", error: str = "", summary: str = "") -> dict:
+        return {"status": status, "ms": int((clock() - began) * 1000),
+                "output": output or {"text": "", "items": [], "links": []}, "note": note, "error": error,
+                "summary": summary}
+
+    try:
+        problem, notes = _prepare_test(run, node, saved, inputs)
+        if problem:
+            return answer("error", error=problem)
+        account = nodes_mod.Account.load(user_id, deps)
+        problem = node_problem(node, user_id, deps, account) or file_arg_problem(node, run.graph, deps)
+        if problem:
+            return answer("error", error=with_title(node, problem))
+        active = [e for e in run.incoming[node_id] if run.state.get(e["source"]) == "ok"]
+        result = run.run_node(node, active)
+    except StepFailure as exc:
+        return answer("error", error=with_title(node, str(exc) or "这一步没成功"))
+    except FutureTimeout:
+        return answer("error", error=with_title(node, f"这一步超时了（超过 {int(run.limit)} 秒），请稍后再试"))
+    except Exception as exc:
+        log.exception("flow node test %s crashed: %s", node["type"], type(exc).__name__)
+        return answer("error", error=with_title(node, "这一步出了点问题，请稍后再试"))
+    ctx = result.ctx
+    output = {"text": clip(ctx.get("text") or "", RUN_OUTPUT_CHARS) if node["type"] != "condition" else "",
+              "items": [clip(str(x), 2000) for x in (ctx.get("items") or [])[:CTX_ITEMS]] if node["type"] != "condition" else [],
+              "links": list(ctx.get("links") or [])}
+    if node["type"] == "condition":
+        chosen = next((c["label"] for c in node["data"]["cases"] if c["id"] == result.handle), "其他情况")
+        notes.insert(0, f"会走「{chosen}」")
+    if result.note:
+        notes.insert(0, result.note)
+    return answer("ok", output=output, note="；".join(notes), summary=clip(result.summary, 60))
+
+
+def _prepare_test(run: _Run, node: dict, saved: dict[str, dict], inputs: dict | None) -> tuple[str, list[str]]:
+    """把上游的产出摆好：返回 (缺了没法试的人话, 提示)。"""
+    start_id = graph_mod.START_ID
+    notes: list[str] = []
+    if node["id"] == start_id:
+        return "", notes
+    ancestors = graph_mod.ancestors_of(run.graph)[node["id"]]
+    has_start = False
+    if start_id in ancestors:
+        start = run.by_id[start_id]
+        if inputs:   # 现填的开始输入优先
+            result = run.run_start(start)
+            run.state[start_id], run.ctx[start_id] = "ok", result.ctx
+            has_start = True
+        elif start_id in saved:
+            ctx = dict(saved[start_id]["ctx"])
+            run.start_values = dict(ctx.pop("values", None) or {})
+            run.state[start_id], run.ctx[start_id] = "ok", {**empty_ctx(), **ctx}
+            has_start = True
+        else:   # 开始没有必填项（或都有默认值）也能直接试
+            try:
+                result = run.run_start(start)
+            except StepFailure:
+                result = None
+            if result is not None:
+                run.state[start_id], run.ctx[start_id] = "ok", result.ctx
+                has_start = True
+    missing: list[str] = []
+    hashes = graph_mod.config_hashes(run.graph)
+    stale: list[str] = []
+    for ref in ancestors - {start_id}:
+        found = saved.get(ref)
+        if found is None:
+            missing.append(ref)
+            continue
+        ctx = dict(found["ctx"])
+        branch = ctx.pop("branch", None)
+        run.state[ref], run.ctx[ref] = "ok", {**empty_ctx(), **ctx}
+        if branch:
+            run.handles[ref] = branch
+        if found.get("config_hash") and found["config_hash"] != hashes.get(ref):
+            stale.append(ref)
+    title = lambda ref: run.by_id[ref]["data"].get("title") or graph_mod.TYPE_NAMES.get(run.by_id[ref]["type"], "")
+    parents = graph_mod.parents_of(run.graph)[node["id"]]
+    if not any(run.state.get(p) == "ok" for p in parents):
+        lacking = next((p for p in parents if p != start_id), None)
+        if lacking is None:
+            return START_MISSING, notes
+        return f"前面的「{title(lacking)}」还没有运行结果：{START_MISSING}", notes
+    refs = {ref for text in graph_mod.node_texts(node) for ref, _field in graph_mod.VAR.findall(text or "")}
+    if start_id in refs and not has_start:
+        return START_MISSING, notes
+    gone = [title(ref) for ref in graph_mod.topo_order(run.graph) if ref in refs and ref in missing]
+    if gone:
+        notes.append(f"「{'、'.join(gone)}」还没有运行结果，用到它的地方先留空了")
+    changed = [title(ref) for ref in graph_mod.topo_order(run.graph) if ref in stale and ref in parents]
+    if changed:
+        notes.append(f"「{'、'.join(changed)}」改过设置，这里用的是改之前那次的结果")
+    return "", notes
