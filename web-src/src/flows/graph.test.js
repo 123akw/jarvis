@@ -5,7 +5,7 @@ import {
   insertAfter, insertOnEdge, issuesByNode, MAX_EDGES, MAX_NODES, moveNodes, nextEdgeId, nextNodeId, nodeSummary,
   normalizeGraph, outputsOf, parseVars, redo, referencesOf, removeEdges, removeNodes, renameRefs, runReducer,
   settle, splitVars, startRunState, topoOrder, transient, undo, updateNodeData, upstream, validateGraph, varLabel,
-  varOptions, chosenBranch, dependents, duplicateNode, staleNodes,
+  varOptions, chosenBranch, dependents, duplicateNode, staleNodes, hashStale,
 } from './graph.js'
 
 /* ---- 小工厂 ---- */
@@ -616,6 +616,15 @@ describe('第十八轮联调补充', () => {
     expect([...staleNodes(g2, snap, run)]).toEqual(['end'])
     expect(staleNodes(g, snap, { nodes: { n1: { status: 'ok' } } }).size).toBe(0)
     expect(staleNodes(g, null, run).size).toBe(0)
+  })
+
+  it('服务端指纹：运行时的 config_hash 与当前 config_hashes 不同就算过期；事件里的指纹会记下', () => {
+    let run = runReducer(startRunState(), { type: 'node_done', node_id: 'n1', ms: 1, config_hash: 'aaa' })
+    run = runReducer(run, { type: 'node_done', node_id: 'n2', ms: 1 })
+    expect(run.nodes.n1.config_hash).toBe('aaa')
+    expect([...hashStale(run, { n1: 'bbb', n2: 'ccc' })]).toEqual(['n1'])
+    expect(hashStale(run, { n1: 'aaa' }).size).toBe(0)
+    expect(hashStale(run, null).size).toBe(0)
   })
 
   it('dependents：用到某节点结果的节点', () => {

@@ -137,7 +137,7 @@ function FinalResult({ run, onLocate, graph }) {
     const step = at ? run.order.indexOf(at.id) + 1 : 0
     return (
       <div className="fc-final is-error" role="alert">
-        <p className="fc-final-title">{at ? `第 ${step} 步「${nodeTitle(at)}」出错了` : '没跑通'}</p>
+        <p className="fc-final-title">{at ? `第 ${step} 步出错了` : '没跑通'}</p>
         <p>{run.error || '流程没跑完'}</p>
         {at ? <button type="button" className="jv-btn jv-btn--sm" onClick={() => onLocate(at.id)}>去改这一步</button> : null}
       </div>

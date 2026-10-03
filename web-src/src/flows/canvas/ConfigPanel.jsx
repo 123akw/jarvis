@@ -412,6 +412,7 @@ export function ConfigBody({
           )
         })}
         {item && !args.length ? <p className="fc-field-hint">这个工具不用填参数。</p> : null}
+        <Foreach node={node} graph={graph} groups={groups} patch={patch} locked={locked} />
       </div>
     )
   } else if (node.type === 'condition') {
@@ -456,23 +457,67 @@ export function ConfigBody({
     )
   }
 
+  const tabs = (
+    <div className="fc-tabs" role="tablist" aria-label="设置与上次结果">
+      {[['settings', '设置'], ['last', '上次结果']].map(([v, l]) => (
+        <button key={v} type="button" role="tab" id={`${tabId}-${v}`} aria-selected={tab === v} aria-controls={`${tabId}-${v}-panel`}
+          className={tab === v ? 'is-on' : ''} onClick={() => setTab(v)}>
+          {l}{v === 'last' && runState?.status ? <RunBadge run={runState} /> : null}
+        </button>
+      ))}
+    </div>
+  )
+
+  if (tab === 'last') {
+    return (
+      <>
+        {tabs}
+        <div role="tabpanel" id={`${tabId}-last-panel`} aria-labelledby={`${tabId}-last`} className="fc-last">
+          {runState?.status ? (
+            <>
+              <p className={`fc-last-line is-${runState.status}`}>
+                <RunBadge run={runState} />
+                <span>{runState.stale ? '改过了，再运行结果可能不同' : stepLine(runState, node) || '完成'}</span>
+              </p>
+              {runState.status === 'ok' || runState.status === 'error' ? <NodeOutput state={runState} /> : null}
+            </>
+          ) : (
+            <div className="fc-last-empty">
+              <p>还没运行过，点右上角「运行」试一次。</p>
+              {onOpenRun ? <button type="button" className="jv-btn jv-btn--sm jv-btn--primary" onClick={onOpenRun}>运行</button> : null}
+            </div>
+          )}
+        </div>
+      </>
+    )
+  }
+
   return (
     <>
-      {issues.length ? (
-        <ul className="fc-cfg-issues" aria-label="这个节点还差这些">
-          {issues.map(i => <li key={i.key} className={`is-${i.level}`}><Glyph name="warn" size={13} />{i.message}</li>)}
-        </ul>
-      ) : null}
-      {form}
-      <Connections node={node} graph={graph} locked={locked} onConnect={onConnect} onDisconnect={onDisconnect} onSelectNode={onSelectNode} />
-      {node.id !== START_ID ? (
-        <div className="fc-cfg-foot">
-          <button type="button" className="jv-btn jv-btn--sm jv-btn--danger" disabled={locked} onClick={onDelete}>
-            <Icon name="trash" size={14} />删除这个节点
-          </button>
-          <span className="fc-field-hint">删错了可以撤销（⌘Z）</span>
-        </div>
-      ) : null}
+      {tabs}
+      <div role="tabpanel" id={`${tabId}-settings-panel`} aria-labelledby={`${tabId}-settings`}>
+        {issues.length ? (
+          <ul className="fc-cfg-issues" aria-label="这个节点还差这些">
+            {issues.map(i => <li key={i.key} className={`is-${i.level}`}><Glyph name="warn" size={13} />{i.message}</li>)}
+          </ul>
+        ) : null}
+        {form}
+        {node.id !== START_ID ? (
+          <div className="fc-cfg-sec">
+            <Upstream node={node} graph={graph} locked={locked} onDisconnect={onDisconnect} onSelectNode={onSelectNode} />
+          </div>
+        ) : null}
+        <NextSteps node={node} graph={graph} locked={locked} onConnect={onConnect} onDisconnect={onDisconnect}
+          onSelectNode={onSelectNode} onAddNext={onAddNext} />
+        {node.id !== START_ID ? (
+          <div className="fc-cfg-foot">
+            <button type="button" className="jv-btn jv-btn--sm jv-btn--danger" disabled={locked} onClick={onDelete}>
+              <Icon name="trash" size={14} />删除这个节点
+            </button>
+            <span className="fc-field-hint">删错了可以撤销（⌘Z）</span>
+          </div>
+        ) : null}
+      </div>
     </>
   )
 }

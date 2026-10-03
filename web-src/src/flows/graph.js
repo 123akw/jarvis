@@ -945,6 +945,8 @@ export function startRunState(now = Date.now()) {
   return { status: 'running', runId: '', nodes: {}, order: [], output: null, error: '', errorNode: '', ms: 0, startedAt: now }
 }
 
+const hash = ev => (ev.config_hash ? { config_hash: String(ev.config_hash) } : {})
+
 /** 事件 → 新的运行状态。另有本地事件：{type:'stopped'}（用户停止）、{type:'failed', message}（连接断了等） */
 export function runReducer(state, ev) {
   const s = state || startRunState()
@@ -961,14 +963,14 @@ export function runReducer(state, ev) {
     case 'run_start':
       return { ...s, runId: String(ev.run_id || '') }
     case 'node_start':
-      return id ? put({ status: 'running', title: ev.title || '', type: ev.node_type || '' }) : s
+      return id ? put({ status: 'running', title: ev.title || '', type: ev.node_type || '', ...hash(ev) }) : s
     case 'node_done':
-      return id ? put({ status: 'ok', ms: num(ev.ms), summary: ev.summary || '', preview: ev.preview || '', output: ev.output || null }) : s
+      return id ? put({ status: 'ok', ms: num(ev.ms), summary: ev.summary || '', preview: ev.preview || '', output: ev.output || null, ...hash(ev) }) : s
     case 'node_skip':
-      return id ? put({ status: 'skipped', reason: ev.reason || '' }) : s
+      return id ? put({ status: 'skipped', reason: ev.reason || '', ...hash(ev) }) : s
     case 'node_error': {
       if (!id) return s
-      const next = put({ status: 'error', ms: num(ev.ms), message: ev.message || '这一步没走通' })
+      const next = put({ status: 'error', ms: num(ev.ms), message: ev.message || '这一步没走通', ...hash(ev) })
       return { ...next, error: ev.message || '这一步没走通', errorNode: id }
     }
     case 'run_done': {
@@ -1034,6 +1036,19 @@ export function staleNodes(graph, snapshot, run) {
     for (const d of descendants(graph, id)) out.add(d)
   }
   for (const id of [...out]) if (!run.nodes?.[id] || run.nodes[id].status === 'running') out.delete(id)
+  return out
+}
+
+/**
+ * 服务端指纹判断的过期（契约补充：保存 / 读取返回 config_hashes，运行事件带 config_hash）：
+ * 上次运行时的指纹与流程当前指纹不同的节点。没有指纹的一律不判断。
+ */
+export function hashStale(run, hashes) {
+  const out = new Set()
+  if (!run?.nodes || !hashes) return out
+  for (const [id, st] of Object.entries(run.nodes)) {
+    if (st?.config_hash && hashes[id] && st.config_hash !== hashes[id]) out.add(id)
+  }
   return out
 }
 
