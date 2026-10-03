@@ -228,6 +228,7 @@ class WeChatBridge:
         self._updates_thread = None
         self._dispatcher = None
         self._quick_reply = None   # (text) -> str | None：提醒的「稍后 / 好了」回复短语
+        self._poll_failing_since = 0.0   # 长轮询从何时起一直失败（monotonic；0 = 正常），渠道巡检据此告警
 
     def configure(self, agent_getter, chunk_text, owner_getter=None, runtime_getter=None) -> None:
         """由 Web 服务注入 Agent 与消息文本转换器。"""
@@ -933,6 +934,7 @@ class WeChatBridge:
                         client, token, payload
                     )
                     failures = 0
+                    self._poll_failing_since = 0.0
                     if not payload.get("msgs") and time.monotonic() - started < MIN_EMPTY_POLL_SECONDS:
                         stop.wait(MIN_EMPTY_POLL_SECONDS)
                 except httpx.TimeoutException:
@@ -942,6 +944,7 @@ class WeChatBridge:
                     # 任何异常都不能让长轮询线程静默死亡（此前只接 HTTPError/TypeError/ValueError，
                     # 写盘 PermissionError 等会打死线程，而状态仍显示 connected）。指数退避防刷屏。
                     failures += 1
+                    self._poll_failing_since = self._poll_failing_since or time.monotonic()
                     delay = min(RETRY_MAX_SECONDS, RETRY_BASE_SECONDS * 2 ** (failures - 1))
                     expected = isinstance(exc, (httpx.HTTPError, TypeError, ValueError))
                     log.warning("iLink getupdates retry in %ss: %s", delay, type(exc).__name__,
@@ -949,6 +952,12 @@ class WeChatBridge:
                     stop.wait(delay)
         finally:
             client.close()
+            self._poll_failing_since = 0.0
+
+    def poll_failing_seconds(self) -> float:
+        """收消息的长轮询已经连续失败了多少秒（0 = 正常或没在轮询）。"""
+        since = self._poll_failing_since
+        return time.monotonic() - since if since else 0.0
 
     def _handle_unauthorized(self, generation: int) -> None:
         with self._lock:
@@ -1070,6 +1079,10 @@ def push_voice_then_text(text: str) -> bool:
 
 def push_bound() -> bool:
     return _bridge.push_bound()
+
+
+def poll_failing_seconds() -> float:
+    return _bridge.poll_failing_seconds()
 
 
 def set_quick_reply(handler) -> None:
