@@ -12,7 +12,10 @@
 - ``condition``  条件分支：``data.cases`` 每个分支一个出口（sourceHandle = case id），另有 ``else`` 出口；
 - ``template``   文本拼接：``data.template``；
 - ``step``       现成积木（拆分、AI 提炼、加到待办、发飞书、飞书文档、发微信、生成网页、Excel、Word…）：``data.step`` + ``data.options``；
-- ``end``        结束：``data.output`` 是最终结果（可含变量），``data.page`` 为真时生成结果网页。
+- ``end``        结束：``data.output`` 是最终结果（可含变量），``data.page`` 为真时生成结果网页；
+- ``approval``   发送前确认（第二十轮）：跑到这里停下，把 ``data.message``（可含变量，空 = 上游的文字）发给主人确认，
+                 同意（``editable`` 时可改内容）后从它的下游接着跑；``timeout_hours``（1–72）内没人处理就停下；
+                 ``notify`` 为 null 时按账号的送达设置通知，否则 ``{feishu, desktop}``。
 
 变量写法 ``{{node_id.field}}``：字段有 text / items / title / links / parts / files；开始节点是
 ``{{start.<字段 key>}}``；文件字段另有 ``{{start.<字段 key>_file}}``（第十九轮）：上传的原文件存进账号的
@@ -31,7 +34,7 @@ import json
 import re
 from collections import deque
 
-NODE_TYPES = ("start", "llm", "tool", "condition", "template", "step", "end")
+NODE_TYPES = ("start", "llm", "tool", "condition", "template", "step", "end", "approval")
 START_ID = "start"
 ELSE_HANDLE = "else"
 MAX_NODES = 30
@@ -53,6 +56,8 @@ MAX_RULES = 10
 MAX_CASE_LABEL = 20
 MAX_RULE_VALUE = 200
 MAX_FOREACH = 20
+APPROVAL_HOURS = (1, 72)
+DEFAULT_APPROVAL_HOURS = 24
 NODE_ID = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
 FIELD_KEY = re.compile(r"^[a-z][a-z0-9_]{0,23}$")
 FILE_SUFFIX = "_file"          # {{start.<key>_file}}：文件字段的原文件（字段 key 最长 24，加后缀最长 29）
@@ -75,7 +80,7 @@ UNARY_OPS = ("empty", "not_empty")
 NUMBER_OPS = ("gt", "lt", "ge", "le")
 
 TYPE_NAMES = {"start": "开始", "llm": "AI 处理", "tool": "插件工具", "condition": "条件分支",
-              "template": "文本拼接", "step": "积木", "end": "结束"}
+              "template": "文本拼接", "step": "积木", "end": "结束", "approval": "发送前确认"}
 FIELD_LABELS = {"text": "文字", "items": "清单", "title": "标题", "links": "链接", "parts": "分段", "files": "文件"}
 SYS_LABELS = {"date": "今天日期", "time": "现在时间", "weekday": "星期几"}
 OP_LABELS = {"contains": "包含", "not_contains": "不包含", "equals": "等于", "not_equals": "不等于",
@@ -353,8 +358,48 @@ def _norm_end(data: dict, where: str) -> dict:
             "page": bool(data.get("page", False))}
 
 
+def _norm_hours(raw, where: str) -> int:
+    if raw in (None, ""):
+        return DEFAULT_APPROVAL_HOURS
+    low, high = APPROVAL_HOURS
+    try:
+        value = float(str(raw).strip()) if not isinstance(raw, bool) else None
+    except ValueError:
+        value = None
+    if value is None or value != value or not value.is_integer() or not low <= value <= high:
+        raise GraphError(f"{where}的「等多久」要填 {low}–{high} 之间的整数小时")
+    return int(value)
+
+
+def _norm_notify(raw, where: str) -> dict | None:
+    """null = 按账号的送达设置；否则只认 {feishu, desktop} 两个开关。"""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise GraphError(f"{where}的通知方式设置有误，重新选一下")
+    out = {}
+    for key in ("feishu", "desktop"):
+        value = raw.get(key, False)
+        if not isinstance(value, bool):
+            raise GraphError(f"{where}的通知方式设置有误，重新选一下")
+        out[key] = value
+    return out
+
+
+def _norm_approval(data: dict, where: str) -> dict:
+    editable = data.get("editable", True)
+    if editable is None:
+        editable = True
+    if not isinstance(editable, bool):
+        raise GraphError(f"{where}的「允许修改」只能是开或关")
+    return {"title": _one_line(data.get("title"), MAX_TITLE) or "发送前确认",
+            "message": _text(data, "message", MAX_TEMPLATE, where, "要确认的内容"),
+            "editable": editable, "timeout_hours": _norm_hours(data.get("timeout_hours"), where),
+            "notify": _norm_notify(data.get("notify"), where)}
+
+
 _NORMALIZERS = {"start": _norm_start, "llm": _norm_llm, "tool": _norm_tool, "condition": _norm_condition,
-                "template": _norm_template, "step": _norm_step, "end": _norm_end}
+                "template": _norm_template, "step": _norm_step, "end": _norm_end, "approval": _norm_approval}
 
 
 # ---------- 图的结构 ----------
@@ -457,6 +502,8 @@ def node_texts(node: dict) -> list[str]:
         return [data["input"]]
     if kind == "end":
         return [data["output"]]
+    if kind == "approval":
+        return [data["message"]]
     return []
 
 

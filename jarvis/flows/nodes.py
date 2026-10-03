@@ -49,7 +49,12 @@ REQUIREMENT_REASONS = {
 NODE_OUTPUTS = {
     "llm": ["text", "items"], "tool": ["text", "items", "links", "files"], "template": ["text", "items"],
     "step": ["text", "items", "title", "links", "parts"], "condition": [], "end": ["text", "links"],
+    "approval": ["text", "items"],
 }
+# 单节点试跑时只预演、不真的调用的工具（会写数据或有动作）：工具名里带这些词，或插件声明了 write 能力
+WRITE_TOKENS = frozenset({"add", "del", "delete", "remove", "done", "remember", "forget"})
+WRITE_TOOLS = frozenset({"meeting_start", "meeting_stop"})
+READ_ONLY_TOOLS = frozenset({"workday_calc_add"})   # 「往后数几个工作日」是算日期，不写数据
 _FIRST_CLAUSE = re.compile(r"[，,。；;：:（(\n]|如「|如\s")
 _FIRST_SENTENCE = re.compile(r"(?<=[。！？!?])|\n")
 
@@ -191,6 +196,21 @@ def tool_summary(entry: dict | None, tool_name: str, tool=None) -> str:
     return first_sentence(description) or (entry or {}).get("summary") or ""
 
 
+def tool_writes(plugin_id: str, tool_name: str) -> bool:
+    """这个工具会不会写数据 / 有动作（加待办、记备忘、删日程、开始记会议……）：单节点试跑时只预演它。"""
+    name = str(tool_name or "").lower()
+    if name in READ_ONLY_TOOLS:
+        return False
+    if name in WRITE_TOOLS or set(re.split(r"[^a-z0-9]+", name)) & WRITE_TOKENS:
+        return True
+    try:
+        pack = _registry().by_id.get(plugin_id)
+        extras = ((pack.manifest or {}).get("extras") or {}) if pack is not None else {}
+        return "write" in {str(c).lower() for c in extras.get("capabilities") or []}
+    except Exception:
+        return False
+
+
 def plugin_timeout(plugin_id: str) -> float:
     try:
         pack = _registry().by_id.get(plugin_id)
@@ -300,6 +320,11 @@ def _basic_items() -> list[dict]:
         {"key": "end", "type": "end", "title": "结束", "icon": "🏁",
          "summary": "流程的最终结果，还能生成一个可分享的结果网页",
          "data": {"title": "结束", "output": "", "page": False}, "available": True, "reason": ""},
+        {"key": "approval", "type": "approval", "title": "发送前确认", "icon": "✋",
+         "summary": "跑到这里先停下，把要发出去的内容发给你看；你点同意（可以先改一改）才接着跑",
+         "data": {"title": "发送前确认", "message": "", "editable": True,
+                  "timeout_hours": graph_mod.DEFAULT_APPROVAL_HOURS, "notify": None},
+         "limits": {"timeout_hours": list(graph_mod.APPROVAL_HOURS)}, "available": True, "reason": ""},
     ]
 
 

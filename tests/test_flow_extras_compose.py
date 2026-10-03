@@ -316,3 +316,17 @@ def test_http_compose_validation_csrf_and_rate_limit(http_model):
     assert len(http_model.prompts) == 6   # 长度不合格的不算次数、不调模型
     from jarvis.flows.store import FlowStore
     assert FlowStore().list_flows(AccountStore().list_users()[0]["id"]) == []   # 不落库
+
+
+def test_compose_accepts_approval_before_sending(owner_id):
+    """第二十轮：用户说「发之前让我确认」时，模型可以放一个发送前确认节点；规整后过校验。"""
+    reply = json.loads(json.dumps(BRIEF))
+    reply["nodes"].insert(3, {"id": "ok", "type": "approval", "title": "发前给我看看", "message": "{{n3.text}}",
+                              "timeout_hours": 500, "editable": False})
+    reply["edges"] = [["start", "n1"], ["start", "n2"], ["n1", "n3"], ["n2", "n3"], ["n3", "ok"], ["ok", "n4"], ["n4", "end"]]
+    result = C.compose_draft(owner_id, "每天早上把天气和日程发到飞书，发之前让我确认", deps=_deps(FakeModel(reply)))
+    assert result["source"] == "model"
+    graph = validate_graph(result["draft"]["graph"])
+    node = next(n for n in graph["nodes"] if n["id"] == "ok")
+    assert node["type"] == "approval" and node["data"]["message"] == "{{n3.text}}"
+    assert node["data"]["timeout_hours"] == 72 and node["data"]["editable"] is False

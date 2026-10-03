@@ -357,7 +357,7 @@ def prompt_section(owner_id: str | None = None) -> str:
     if names:
         lines.append(f"- 本智能体装了这些技能：{'、'.join(names)}。")
     else:
-        lines.append("- 本智能体还没装对话技能，只能看时间和算数。")
+        lines.append("- 本智能体还没装对话技能：能看时间、算数，以及运行用户在「我的流程」里搭好的流程。")
     lines.append("- 上文提到、但本智能体没装的工具都用不了：用户要用时直接说「我还没装这项技能，"
                  "可以在智能体市场里加上」，不要假装办成了。对用户只说「智能体」，不说「平台」。")
     return "\n".join(lines)

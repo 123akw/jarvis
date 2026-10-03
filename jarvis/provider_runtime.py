@@ -18,7 +18,7 @@ import httpcore
 import httpx
 from langchain_openai import ChatOpenAI
 
-from jarvis import config
+from jarvis import config, usage
 from jarvis.graph import LLM_MAX_RETRIES, LLM_TIMEOUT, SqliteSaver, build_agent
 from jarvis.provider_settings import ProviderSettingsError, ResolvedLLM, SecretStore, normalize_base_url
 from jarvis.search.fetcher import _SystemResolver, _is_public_address, _parse_ip
@@ -301,9 +301,11 @@ class AgentRuntimeManager:
     def _default_factory(self, user_id: str, llm: ResolvedLLM, integrations: dict[str, dict[str, Any]]) -> RuntimeBundle:
         sync_client, async_client = safe_http_clients(timeout=LLM_TIMEOUT, max_connections=RUNTIME_MAX_CONNECTIONS)
         # timeout 必须显式传给 ChatOpenAI：不传时 openai SDK 以 None 覆盖客户端超时，请求永不超时
+        # 用量记账（第二十轮）：每次模型调用按这个账号记 token；流式也要服务商回用量（stream_usage）
         model = ChatOpenAI(model=llm.model, base_url=llm.base_url, api_key=llm.api_key,
                            temperature=0, http_client=sync_client, http_async_client=async_client,
-                           timeout=LLM_TIMEOUT, max_retries=LLM_MAX_RETRIES)
+                           timeout=LLM_TIMEOUT, max_retries=LLM_MAX_RETRIES,
+                           stream_usage=usage.stream_usage_enabled(llm.base_url), callbacks=[usage.UsageCallback(user_id)])
         searxng = integrations["searxng"]
         tavily = integrations["tavily"]
         service = SearchService([

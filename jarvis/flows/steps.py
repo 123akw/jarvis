@@ -409,13 +409,18 @@ def run_ai_extract(job: StepJob, ctx: dict, options: dict) -> Outcome:
 
 # ---------- 输出 ----------
 
-def run_to_todo(job: StepJob, ctx: dict, options: dict) -> Outcome:
+def todo_items(ctx: dict) -> list[str]:
+    """「加到待办」要加的条目（单节点试跑也用它预演）：清单优先，其次 Markdown 列表，再其次短文本按行。"""
     items = list(ctx.get("items") or []) or parse_items(ctx.get("text") or "")
     if not items:   # 没有列表符号：短文本按行当条目（贴进来一行一件事）
         lines = [_strip_marks(x) for x in (ctx.get("text") or "").splitlines()
                  if x.strip() and not _HEADING.match(x)]
         items = [clip(x, 200) for x in lines] if len(lines) <= MAX_ITEMS else []
-    items = items[:MAX_ITEMS]
+    return items[:MAX_ITEMS]
+
+
+def run_to_todo(job: StepJob, ctx: dict, options: dict) -> Outcome:
+    items = todo_items(ctx)
     if not items:
         return Outcome("没有可以加的待办")
     with tenant_scope(job.user_id):

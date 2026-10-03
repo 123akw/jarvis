@@ -30,6 +30,9 @@ def runtime() -> FlowRuntime | None:
 
 def install(app, **kwargs) -> FlowRuntime:
     global _RUNTIME
+    notifier = kwargs.pop("notifier", None)   # 可选：发送前确认的通知出口（delivery.Notifier）
+    if notifier is not None:
+        approvals.set_notifier(notifier)
     # extras 先注册：/api/flows/templates、/api/flows/compose 不能被 /api/flows/{flow_id} 抢先匹配
     extras.register(app, request_principal=kwargs["request_principal"], panel_write=kwargs["panel_write"],
                     deny=kwargs["deny"], runtime=runtime)
@@ -41,9 +44,30 @@ def install(app, **kwargs) -> FlowRuntime:
     return _RUNTIME
 
 
+class _Background:
+    """定时运行 + 发送前确认的超时清理：server.py 的 lifespan 只管 ``stop()``。"""
+
+    def __init__(self, scheduler, sweeper):
+        self.scheduler, self.sweeper = scheduler, sweeper
+
+    @property
+    def running(self) -> bool:
+        return bool(getattr(self.scheduler, "running", False))
+
+    def stop(self, timeout: float = 5.0) -> None:
+        try:
+            self.sweeper.stop()
+        finally:
+            self.scheduler.stop(timeout)
+
+
 def start_scheduler(notifier=None):
-    """server.py 的 lifespan 调：启动定时运行（见 extras.start_scheduler）。"""
-    return extras.start_scheduler(runtime=runtime, notifier=notifier)
+    """server.py 的 lifespan 调：启动定时运行（见 extras.start_scheduler），顺带注入通知出口、
+    启动「发送前确认」的超时清理（第二十轮）。"""
+    if notifier is not None:
+        approvals.set_notifier(notifier)
+    scheduler = extras.start_scheduler(runtime=runtime, notifier=notifier)
+    return _Background(scheduler, approvals.start_sweeper(runtime))
 
 
 __all__ = ["FlowDeps", "FlowRuntime", "FlowValidationError", "GraphError", "STEPS", "graph_from_steps", "install",

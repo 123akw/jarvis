@@ -308,6 +308,7 @@ TOOL_LABELS = {
     "sys_query": "系统查询", "web_search": "联网搜索", "web_extract": "读取网页",
     "movie_ratings": "查电影评分", "esports_scores": "查电竞比分", "ticket_search": "查票务",
     "meeting_start": "开始会议纪要", "meeting_stop": "结束会议纪要", "recall_history": "翻聊天记录",
+    "flow_run": "运行流程", "flow_list": "看我的流程",
 }
 
 
@@ -452,8 +453,10 @@ class FeishuBridge:
         self._tenant_store = None
         self._accounts = None
         self._quick_reply = None
+        self._message_hook = None
 
-    def configure(self, *, bundle_for, chunk_text, tenant_store, accounts, quick_reply=None) -> None:
+    def configure(self, *, bundle_for, chunk_text, tenant_store, accounts, quick_reply=None,
+                  message_hook=None) -> None:
         with self._lock:
             self._bundle_for = bundle_for
             self._chunk_text = chunk_text
@@ -461,6 +464,8 @@ class FeishuBridge:
             self._accounts = accounts
             # (user_id, text) -> str | None：提醒的「稍后 / 好了」回复短语，None 表示照常交给 Agent
             self._quick_reply = quick_reply
+            # (user_id, channel, text, on_start=...) -> str | None：消息触发流程（第二十轮，jarvis/flows/hooks.py）
+            self._message_hook = message_hook
 
     # ---- 生命周期与状态 ----
 
@@ -631,6 +636,8 @@ class FeishuBridge:
         if inbound.msg_type == "audio":
             self._deliver_text(inbound, AUDIO_REPLY)
             return
+        if text and self._message_hook is not None and self._flow_hook(inbound, user_id, text):
+            return
         if not text and not inbound.image_keys:
             if inbound.msg_type in ("text", "post"):
                 text = "你好"  # 群里只 @ 了一下
@@ -638,6 +645,29 @@ class FeishuBridge:
                 self._deliver_text(inbound, UNSUPPORTED_REPLY)
                 return
         self._respond(inbound, user_id, lambda: self._build_prompt(inbound, text))
+
+    def _flow_hook(self, inbound: Inbound, user_id: str, text: str) -> bool:
+        """消息触发流程：命中就由流程处理并回复结果（返回 True）；没命中或查不了照常交给 Agent。"""
+        reaction = ""
+
+        def started(_flow_name: str) -> None:
+            nonlocal reaction
+            reaction = self._typing_on(inbound.message_id)   # 流程可能跑一会儿：先挂「打字中」
+
+        try:
+            answer = self._message_hook(user_id, "feishu", text, on_start=started)
+        except Exception as exc:
+            log.warning("feishu flow hook failed: %s", type(exc).__name__)
+            answer = None
+        if answer:
+            for chunk in split_markdown(answer):
+                self._deliver_markdown(inbound, chunk)
+        if reaction:
+            try:
+                self._require_api().delete_reaction(inbound.message_id, reaction)
+            except FeishuAPIError:
+                pass
+        return bool(answer)
 
     def _active_username(self, user_id: str) -> str | None:
         try:
@@ -746,6 +776,10 @@ class FeishuBridge:
         return self._settings.streaming_card and self._clock() >= self._card_disabled_until
 
     def _respond(self, inbound: Inbound, user_id: str, build_prompt: Callable[[], str]) -> None:
+        from jarvis import usage
+        if blocked := usage.check_model(user_id):   # 今天的模型用量到上限：回人话，不调模型
+            self._deliver_text(inbound, blocked)
+            return
         api = self._require_api()
         card = None
         if self._card_available():

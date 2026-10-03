@@ -54,7 +54,7 @@ def test_template_library_size_and_categories():
         assert sum(t["category"] == category for t in TEMPLATES) >= 2
     # 条件分支、并行分支、文本拼接、插件工具、技能、积木都有模板用到
     kinds = {n["type"] for t in TEMPLATES for n in t["graph"]["nodes"]}
-    assert kinds == set(graph_mod.NODE_TYPES)
+    assert kinds == set(graph_mod.NODE_TYPES)   # 每种节点都有模板用到（第二十轮加了「群通知先确认再发飞书」）
     assert sum(any(n["type"] == "condition" for n in t["graph"]["nodes"]) for t in TEMPLATES) >= 3
 
 

@@ -27,6 +27,8 @@ const TOOL_INFO = {
   esports_scores: ['🏆', '电竞比分'],
   ticket_search: ['🎫', '票务查询'],
   recall_history: ['🗂', '翻聊天记录'],
+  flow_run: ['▶️', '运行流程'],
+  flow_list: ['🔀', '我的流程'],
 }
 
 /** label：服务端为插件提供的工具（含导入的第三方插件）附带的 {icon, name}，前端没收录时用它 */
@@ -65,6 +67,8 @@ const TOOL_PHRASES = {
   esports_scores: ['正在查比分', '查了比分'],
   ticket_search: ['正在查票务', '查了票务'],
   recall_history: ['正在翻聊天记录', '翻了聊天记录'],
+  flow_run: ['正在运行流程', '运行了流程'],
+  flow_list: ['正在看流程', '看了流程'],
 }
 
 const SEARCHY = new Set(['web_search', 'movie_ratings', 'esports_scores', 'ticket_search'])

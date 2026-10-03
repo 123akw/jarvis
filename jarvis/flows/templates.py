@@ -466,6 +466,19 @@ def _builtin() -> list[dict]:
              _end("end", "结束", "{{n1.text}}")],
             _edges(("start", "n1"), ("n1", "n2"), ("n2", "end")),
             keywords=("通知", "公文", "请示", "邀请函", "放假", "行政")),
+        _template(
+            "notice_confirm_feishu", "群通知先确认再发飞书", "office", "📣",
+            "说清要通知什么，AI 写成群通知，发到飞书前先给你过目、可以改",
+            [_start(_field("what", "要通知什么", "paragraph", required=True,
+                           placeholder="什么事、时间地点、谁要做什么")),
+             _llm("n1", "写群通知", "把下面的事写成一条简短、友好的群通知，150 字以内，重点（时间、地点、要做什么）放前面。"
+                  + NO_ASK + "\n\n{{start.what}}"),
+             {"id": "ok", "type": "approval", "data": {"title": "发前给我看看", "message": "{{n1.text}}",
+                                                      "editable": True, "timeout_hours": 24}},
+             _step("n2", "发到飞书", "feishu_send"),
+             _end("end", "结束", "{{ok.text}}")],
+            _edges(("start", "n1"), ("n1", "ok"), ("ok", "n2"), ("n2", "end")),
+            keywords=("群通知", "发通知", "确认", "审核", "过目", "先给我看")),
         # ---- 学习 ----
         _template(
             "study_plan", "学习计划拆成待办", "study", "🗓️",

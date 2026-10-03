@@ -482,13 +482,13 @@ def test_three_entertainment_functions_are_real_langchain_tools(monkeypatch):
     assert "未配置 TAVILY_API_KEY" in ticket
 
 
-def test_agent_registry_exposes_all_five_search_tools_and_has_twenty_seven_tools():
-    """垂直工具与通用搜索必须进入 Agent 的唯一工具注册表。"""
+def test_agent_registry_exposes_all_five_search_tools_and_has_twenty_nine_tools():
+    """垂直工具与通用搜索必须进入 Agent 的唯一工具注册表（第二十轮加了 flow_list / flow_run）。"""
     from jarvis.tools import TOOLS
 
     names = [item.name for item in TOOLS]
 
-    assert len(names) == 27
+    assert len(names) == 29
     assert {
         "web_search",
         "web_extract",
