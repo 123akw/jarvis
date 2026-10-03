@@ -31,18 +31,38 @@ function Links({ links: all, page }) {
   )
 }
 
-/** 一个节点这次的产出：文字（Markdown）、清单、链接；配置面板「上次结果」也用它 */
-export function NodeOutput({ state }) {
+/** 开始节点上传的原件（存进了文件空间）：[{ name, url, label? }]，只认站内文件链接 */
+export function startFiles(state) {
+  const files = state?.output?.files
+  return Array.isArray(files) ? files.filter(f => f && typeof f.url === 'string' && f.url.startsWith('/api/files/')) : []
+}
+
+/** 原件下载链接 */
+export function FileLinks({ files }) {
+  if (!files.length) return null
+  return (
+    <ul className="fc-links fc-files" aria-label="上传的原件">
+      {files.map((f, i) => (
+        <li key={i}><a href={f.url} target="_blank" rel="noopener noreferrer" download><Icon name="clip" size={14} />原件：{f.name || '文件'}</a></li>
+      ))}
+    </ul>
+  )
+}
+
+/** 一个节点这次的产出：文字（Markdown）、清单、链接、上传的原件；配置面板「上次结果」也用它 */
+export function NodeOutput({ state, files: showFiles = true }) {
   const out = state?.output || {}
   const body = out.text || state?.preview || ''
   const items = Array.isArray(out.items) ? out.items : []
   const links = Array.isArray(out.links) ? out.links.filter(l => l && l.url) : []
-  if (!body && !items.length && !links.length) return <p className="fc-field-hint">这一步没有文字产出。</p>
+  const files = showFiles ? startFiles(state) : []
+  if (!body && !items.length && !links.length && !files.length) return <p className="fc-field-hint">这一步没有文字产出。</p>
   return (
     <>
       {body ? <Markdown text={body} /> : null}
       {items.length && !body ? <ul className="fc-rn-items">{items.slice(0, 20).map((it, i) => <li key={i}>{typeof it === 'string' ? it : String(it?.title || it?.text || '')}</li>)}</ul> : null}
       <Links links={links} />
+      <FileLinks files={files} />
     </>
   )
 }
@@ -100,6 +120,7 @@ function NodeRow({ id, state, graph, index, onFocusNode, onLocate }) {
   const out = state.output || {}
   const has = !!(out.text || state.preview || (out.items || []).length || (out.links || []).length)
   const err = state.status === 'error'
+  const files = startFiles(state)   // 开始节点：上传的原件常显在这一行下面，不用点开
   const head = (
     <>
       <NodeIcon type={node?.type || state.type || 'llm'} emoji={node ? (itemOf(index, node)?.icon || '') : ''} size={14} />
@@ -113,6 +134,7 @@ function NodeRow({ id, state, graph, index, onFocusNode, onLocate }) {
     return (
       <li className={`fc-rn is-${state.status}`}>
         <button type="button" className="fc-rn-row" onClick={focus} aria-label={`${title}：${stepLine(state, node) || ''}，在画布上找到它`}>{head}</button>
+        <FileLinks files={files} />
       </li>
     )
   }
@@ -121,10 +143,11 @@ function NodeRow({ id, state, graph, index, onFocusNode, onLocate }) {
       <details open={err || undefined}>
         <summary className="fc-rn-row" onClick={focus}>{head}<Icon name="chevron" size={14} className="fc-rn-chev" /></summary>
         <div className="fc-rn-body">
-          {has ? <NodeOutput state={state} /> : null}
+          {has ? <NodeOutput state={state} files={false} /> : null}
           {err && node ? <button type="button" className="jv-btn jv-btn--sm" onClick={() => onLocate(id)}>去改这一步</button> : null}
         </div>
       </details>
+      <FileLinks files={files} />
     </li>
   )
 }

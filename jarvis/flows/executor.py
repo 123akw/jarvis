@@ -8,7 +8,10 @@
 - 插件工具：在账号的 tenant_scope 里调注册表工具（插件包工具已包好限时与人话错误）；参数按工具 schema 转类型；
 - 积木：复用 steps.py 的执行函数，上下文沿用 v6（text / parts / items / title / links 一路传下去）；
 - 结束：输出模板，``page`` 为真时生成结果页 /r/<token>（一条运行只有一个结果页，已有就复用）；
-- 运行前统一检查（插件装没装、必填参数、飞书绑定、节点有没有连上），不白烧前面的模型调用；
+- 开始节点的文件字段（第十九轮）：读出的文字是 ``{{start.<key>}}``；原文件存进账号的文件空间，
+  ``{{start.<key>_file}}`` 渲染成附件标记「［附件：文件名 · file_id=XXX］」，Excel / PDF / Word 工具的 file_id
+  参数直接用它（``files.resolve`` 认这个标记）；开始节点的产出另带 ``files: [{name, url}]`` 给运行面板列原件；
+- 运行前统一检查（插件装没装、必填参数、飞书绑定、节点有没有连上、文件工具有没有接原文件），不白烧前面的模型调用；
 - 时限：AI 60 秒、工具沿用插件超时、积木沿用积木；整条 240 秒；``cancel`` 置位后 0.25 秒内停。
 """
 from __future__ import annotations
@@ -26,6 +29,7 @@ from dataclasses import dataclass
 from pathlib import PurePath
 from typing import Any, Callable
 
+from jarvis import files as filespace
 from jarvis.flows import graph as graph_mod
 from jarvis.flows import nodes as nodes_mod
 from jarvis.flows.engine import STEP_POOL, TOTAL_SECONDS, FlowDeps, requirement_problem, wait_future
@@ -68,6 +72,13 @@ RULE_LIST = f"只输出清单：每行一条「- 条目」，最多 {MAX_ITEMS} 
 
 
 TOTAL_MESSAGE = f"整条流程超过 {int(TOTAL_SECONDS // 60)} 分钟，已停止"   # 测试可调小总时限，提示仍按正式上限说
+
+# 正在跑的那条流程（_Run.call 里设置）：参数转换报「要的是文件」时，按开始节点的文件字段说清该用哪个变量
+_ACTIVE_RUN: contextvars.ContextVar = contextvars.ContextVar("jarvis_flow_run", default=None)
+# 参数文字里认得出的文件：附件标记 / file_id=XXX、站内下载链接、或者就是一个 file_id
+_FILE_MARK = re.compile(r"file_id\s*[=＝:：]\s*([A-Za-z0-9_-]{8,64})|/api/files/([A-Za-z0-9_-]{8,64})")
+_BARE_FILE_ID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+_FILE_NAME = re.compile(r"^[^\n\[\]]{1,100}\.[A-Za-z0-9]{2,5}$")   # 文件名（resolve 按名字找最新的同名文件）
 
 
 # ---------- 渲染 ----------
@@ -183,10 +194,41 @@ def preflight(graph: dict, user_id: str, deps: FlowDeps, account: nodes_mod.Acco
         if node_id not in reach:
             return node_id, f"「{by_id[node_id]['data']['title']}」还没连上：把它连到前面的节点，或者删掉它"
     for node_id in order:
-        problem = node_problem(by_id[node_id], user_id, deps, account)
+        problem = node_problem(by_id[node_id], user_id, deps, account) or file_arg_problem(by_id[node_id], graph, deps)
         if problem:
             return node_id, problem
     return None
+
+
+def file_var_hint(graph: dict) -> str:
+    """「要的是文件」时告诉用户该插哪个变量：『开始 · 上传资料（原文件）』。"""
+    start = next((n for n in graph.get("nodes") or [] if n.get("id") == graph_mod.START_ID), None)
+    title = ((start or {}).get("data") or {}).get("title") or "开始"
+    found = graph_mod.file_fields(graph)
+    if len(found) == 1:
+        return f"请用『{title} · {found[0].get('label') or found[0]['key']}（{graph_mod.FILE_VAR_LABEL}）』这个变量"
+    if found:
+        return f"请用『{title} · 某个文件输入（{graph_mod.FILE_VAR_LABEL}）』这个变量"
+    return f"请先在「{title}」里加一个「文件」输入，再插入它的『{graph_mod.FILE_VAR_LABEL}』"
+
+
+def file_arg_problem(node: dict, graph: dict, deps) -> str:
+    """文件工具（Excel / PDF / Word…）的 file_id 参数接的是开始节点文件字段「读出的文字」：运行前就说清楚。"""
+    if node.get("type") != "tool":
+        return ""
+    wanted = nodes_mod.file_args(nodes_mod.find_tool(node["data"]["tool"], deps))
+    if not wanted:
+        return ""
+    keys = {f["key"]: f for f in graph_mod.file_fields(graph)}
+    start = next((n for n in graph["nodes"] if n["id"] == graph_mod.START_ID), {})
+    start_title = (start.get("data") or {}).get("title") or "开始"
+    title = node["data"].get("title") or ""
+    for name in wanted:
+        for ref, field in graph_mod.VAR.findall(node["data"]["args"].get(name) or ""):
+            if ref == graph_mod.START_ID and field in keys:
+                label = keys[field].get("label") or field
+                return f"「{title}」要的是文件，请用『{start_title} · {label}（{graph_mod.FILE_VAR_LABEL}）』这个变量"
+    return ""
 
 
 def node_problem(node: dict, user_id: str, deps: FlowDeps, account: nodes_mod.Account) -> str:
@@ -229,6 +271,7 @@ class NodeResult:
     summary: str
     preview: str = ""
     handle: str | None = None
+    files: list | None = None   # 开始节点：存进文件空间的原件 [{name, url, label}]
 
 
 class _Run:
@@ -245,6 +288,9 @@ class _Run:
         self.ctx: dict[str, dict] = {}
         self.handles: dict[str, str] = {}
         self.start_values: dict[str, Any] = {}
+        self.start_files: list[dict] = []              # 存进文件空间的原件 [{name, url, label}]
+        self.kept_names: dict[str, str] = {}           # 字段 key → 存好的原文件名
+        self.wants_file = graph_mod.file_refs(graph)   # 后面用到了「原文件」的文件字段
         self.sys = sys_values()
         self.job = StepJob(user_id=user_id, run_id=run_id, flow=flow, payload=dict(self.inputs), deps=deps, store=store)
         self.page_url: str | None = None
@@ -269,6 +315,7 @@ class _Run:
         context = contextvars.copy_context()
 
         def work():
+            _ACTIVE_RUN.set(self)
             with tenant_scope(self.user_id):
                 return fn()
 
@@ -302,6 +349,9 @@ class _Run:
         title = node["data"].get("title") if node else ref
         if ref == graph_mod.START_ID:
             fields = {f["key"]: f["label"] for f in node["data"]["fields"]} if node else {}
+            base = field[: -len(graph_mod.FILE_SUFFIX)] if field.endswith(graph_mod.FILE_SUFFIX) else ""
+            if base in fields and field not in fields:
+                return f"{title} · {fields[base]}（{graph_mod.FILE_VAR_LABEL}）"
             return f"{title} · {fields.get(field, field)}"
         return f"{title} · {graph_mod.FIELD_LABELS.get(field, field)}"
 
@@ -374,8 +424,42 @@ class _Run:
         fields = node["data"]["fields"]
         uploads = any(f["type"] == "file" and isinstance(self.inputs.get(f["key"]), dict) for f in fields)
         if uploads:
-            return self.call(lambda: self._start(fields), self.timeout_for(node, AI_TIMEOUT))
-        return self._start(fields)
+            result = self.call(lambda: self._start(fields), self.timeout_for(node, AI_TIMEOUT))
+        else:
+            result = self._start(fields)
+        result.files = list(self.start_files) or None
+        return result
+
+    def _upload(self, field: dict, raw: dict) -> tuple[str, str]:
+        """上传的文件 → (读出的文字, 摘要)；原文件存进文件空间，``{{start.<key>_file}}`` 是它的附件标记。
+
+        后面用到了「原文件」的：读不出文字（扫描件、加密）也照样往下走，存不进文件空间（满了 / 太大）报人话；
+        没用到的：读不出文字照旧报错，原文件只在是办公文件（PDF / Word / Excel / CSV）时顺手存一份，存不进去不拦。"""
+        key, label = field["key"], field["label"]
+        wanted = key in self.wants_file
+        try:
+            text, note = read_upload(self.deps, raw["name"], raw["data"])
+        except StepFailure as exc:
+            if not wanted:
+                raise
+            text, note = "", f"没读出文字（{str(exc).rstrip('。')}），原文件照样交给后面的工具"
+        if not wanted and not str(raw["name"]).lower().endswith(filespace.ATTACHABLE_EXTENSIONS):
+            return text, note
+        try:
+            meta = keep_upload(self.user_id, raw["name"], raw["data"])
+        except filespace.FileSpaceError as exc:
+            if wanted:
+                raise StepFailure(f"「{label}」的原文件存不进文件空间：{str(exc).rstrip('。')}") from None
+            return text, note
+        except Exception as exc:   # 文件空间不可用（磁盘、权限……）
+            log.warning("flow upload keep failed: %s", type(exc).__name__)
+            if wanted:
+                raise StepFailure(f"「{label}」的原文件存不进文件空间，请稍后再试") from None
+            return text, note
+        self.start_values[graph_mod.file_var(key)] = filespace.attachment_marker(meta)
+        self.start_files.append({"name": meta["name"], "url": filespace.url_for(meta["id"]), "label": label})
+        self.kept_names[key] = meta["name"]
+        return text, note
 
     def _start(self, fields: list[dict]) -> NodeResult:
         notes: dict[str, str] = {}
@@ -387,7 +471,7 @@ class _Run:
                 raw = field.get("default")
             value: Any = ""
             if kind == "file" and isinstance(raw, dict):
-                value, notes[key] = read_upload(self.deps, raw["name"], raw["data"])
+                value, notes[key] = self._upload(field, raw)
                 if primary is None:
                     primary_title = clip(PurePath(raw["name"]).stem, 30)
             elif isinstance(raw, dict):
@@ -405,10 +489,13 @@ class _Run:
             elif raw not in (None, ""):
                 value, cut = cap_text(str(raw))
                 if kind == "file":
+                    if key in self.wants_file:
+                        raise StepFailure(f"「{label}」要上传文件：后面的节点要用它的原文件，只贴文字不行")
                     notes[key] = "没有上传文件，用了贴进来的文字"
                 elif cut:
                     notes[key] = "（只取前 2 万字）"
-            if field["required"] and value in ("", None):
+            kept = bool(self.start_values.get(graph_mod.file_var(key)))
+            if field["required"] and value in ("", None) and not kept:
                 raise StepFailure(f"请先上传「{label}」" if kind == "file" else f"请先填写「{label}」")
             self.start_values[key] = value
             if primary is None and value not in ("", None) and kind in ("text", "paragraph", "file"):
@@ -418,7 +505,11 @@ class _Run:
         text = render_value(self.start_values.get(primary, "")) if primary else ""
         ctx = empty_ctx()
         ctx["text"], ctx["title"] = text, primary_title or first_line(text)
-        filled = [f for f in fields if self.start_values.get(f["key"]) not in ("", None)]
+        def shown_value(f: dict) -> str:   # 读不出文字、只收了原文件的，显示文件名
+            value = render_value(self.start_values.get(f["key"], ""))
+            return value or (f"原文件 {self.kept_names[f['key']]}" if f["key"] in self.kept_names else "")
+
+        filled = [f for f in fields if shown_value(f)]
         if not fields:
             return NodeResult(ctx, "开始运行")
         if len(fields) == 1:
@@ -431,8 +522,8 @@ class _Run:
                 summary = f"收到「{field['label']}」：{clip(value, 20)}" if value else "这次没有填输入"
             else:
                 summary = (f"收到 {len(value)} 字" + note) if value else "这次没有填输入"
-            return NodeResult(ctx, summary, preview(value))
-        shown = " · ".join(f"{f['label']}：{clip(render_value(self.start_values[f['key']]), 20)}" for f in filled)
+            return NodeResult(ctx, summary, preview(value or shown_value(field)))
+        shown = " · ".join(f"{f['label']}：{clip(shown_value(f), 20)}" for f in filled)
         return NodeResult(ctx, f"收到 {len(filled)} 项输入", preview(shown))
 
     def _foreach_items(self, node: dict) -> tuple[list[str] | None, str]:
@@ -686,14 +777,48 @@ def convert_value(text: str, prop: dict, where: str, label: str):
     return text
 
 
+def _file_refs(text: str) -> list[str] | None:
+    """参数文字里的文件：附件标记 / 下载链接里的 file_id（按出现顺序去重）；一个都没有时，整段（逐行）是 file_id
+    或文件名也认（交给工具按 resolve 找）；认不出返回 None。"""
+    found: list[str] = []
+    for marked, linked in _FILE_MARK.findall(text):
+        file_id = marked or linked
+        if file_id not in found:
+            found.append(file_id)
+    if found:
+        return found
+    lines = [str(x).strip() for x in _list_text(text) if str(x).strip()]
+    if lines and all(_BARE_FILE_ID.match(x) or _FILE_NAME.match(x) for x in lines):
+        return lines
+    return None
+
+
+def _file_value(text: str, prop: dict, where: str):
+    """要文件的参数：渲染后必须认得出文件（「原文件」变量渲染出的附件标记），不然说清该用哪个变量。
+    清单参数（file_ids）按标记逐个取出，单行里并排的几个「原文件」也能拆开。"""
+    refs = _file_refs(text)
+    if refs is None:
+        run = _ACTIVE_RUN.get()
+        hint = file_var_hint(run.graph) if run is not None else f"请用开始节点的『{graph_mod.FILE_VAR_LABEL}』变量"
+        raise StepFailure(f"「{where}」要的是文件，{hint}")
+    if nodes_mod.prop_type(prop) == "array":
+        return refs
+    return text if len(text) <= 200 and _FILE_MARK.search(text) else refs[0]   # 短的附件标记原样给，工具报错时有文件名
+
+
 def convert_args(tool, rendered: dict[str, str], where: str) -> dict:
-    """渲染好的参数文字 → 按工具 schema 转类型；空值不传（用工具的默认值），必填却是空的报人话。"""
+    """渲染好的参数文字 → 按工具 schema 转类型；空值不传（用工具的默认值），必填却是空的报人话。
+    文件工具要 file_id 的参数先认文件（开始节点「原文件」变量渲染出的附件标记），认不出报人话。"""
     schema = nodes_mod.tool_schema(tool)
     props = schema.get("properties") or {}
+    wants_file = set(nodes_mod.file_args(tool))
     out = {}
     for name, text in rendered.items():
         prop = props.get(name)
         if not isinstance(prop, dict) or not str(text).strip():
+            continue
+        if name in wants_file:
+            out[name] = _file_value(str(text).strip(), prop, where)
             continue
         out[name] = convert_value(str(text).strip(), prop, where, nodes_mod.arg_label(name, prop))
     for name in schema.get("required") or []:
@@ -724,6 +849,29 @@ def result_text(result) -> str:
     if isinstance(result, dict):
         return json.dumps(result, ensure_ascii=False, indent=1, default=str)
     return str(result)
+
+
+# ---------- 原文件进文件空间 ----------
+
+KEEP_REUSE_MARGIN = dt.timedelta(days=1)
+
+
+def keep_upload(owner_id: str, name: str, data: bytes) -> dict:
+    """开始节点上传的原文件存进账号的文件空间（source=flow）：同名、同大小、同内容且一天内不会过期的已有文件
+    直接复用（同一份文件反复试跑不重复占空间）。满了 / 太大抛 ``files.FileSpaceError``（人话）。"""
+    clean = filespace.clean_name(name)
+    soon = dt.datetime.now(dt.timezone.utc) + KEEP_REUSE_MARGIN
+    for meta in filespace.list(owner_id, limit=1000):
+        if meta.get("name") != clean or meta.get("size") != len(data):
+            continue
+        try:
+            if dt.datetime.fromisoformat(meta["expires_at"]) <= soon:
+                continue
+            if filespace.read(owner_id, meta["id"]) == data:
+                return meta
+        except (KeyError, TypeError, ValueError):
+            continue
+    return filespace.save(owner_id, name, data, source="flow")
 
 
 # ---------- 入口 ----------
@@ -757,7 +905,8 @@ def execute_graph(*, flow: dict, user_id: str, inputs: dict, deps: FlowDeps, sto
         records.append({"node_id": node["id"], "title": node["data"].get("title") or "", "node_type": node["type"],
                         "status": state, "summary": extra.get("summary", ""), "preview": extra.get("preview", ""),
                         "ms": extra.get("ms", 0), "config_hash": hashes[node["id"]],
-                        **({"message": extra["message"]} if "message" in extra else {})})
+                        **({"message": extra["message"]} if "message" in extra else {}),
+                        **({"files": extra["files"]} if extra.get("files") else {})})
 
     def fail(node: dict, message: str, ms: int) -> None:
         nonlocal error
@@ -827,9 +976,11 @@ def execute_graph(*, flow: dict, user_id: str, inputs: dict, deps: FlowDeps, sto
                     node_output["items"] = [clip(x, 200) for x in result.ctx["items"][:50]]
                 if result.ctx.get("links"):
                     node_output["links"] = result.ctx["links"]
+                if result.files:   # 开始节点：上传的原件（运行面板 / 运行记录里给下载链接）
+                    node_output["files"] = result.files
             send({"type": "node_done", "node_id": node_id, "summary": summary, "preview": shown, "ms": ms,
                   "output": node_output, "config_hash": hashes[node_id]})
-            record(node, "ok", summary=summary, preview=shown, ms=ms)
+            record(node, "ok", summary=summary, preview=shown, ms=ms, files=result.files)
         else:
             status = "ok"
             output = run.final_output(order)

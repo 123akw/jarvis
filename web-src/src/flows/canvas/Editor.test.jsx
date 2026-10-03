@@ -648,3 +648,86 @@ describe('画布编辑器：手机的引导锚点', () => {
     expect(screen.queryByRole('listbox')).toBeNull()
   })
 })
+
+/* ---- 第十九轮：开始节点文件字段的「原文件」 ---- */
+describe('画布编辑器：原文件', () => {
+  const EXCEL = {
+    key: 'tool:excel:excel_summary', type: 'tool', title: '统计汇总表格', icon: '📊', summary: '按列分组汇总', plugin: 'excel', plugin_name: 'Excel 工具箱', category: 'efficiency',
+    args: [{ name: 'file_id', label: '文件', type: 'string', required: true, file: true, description: '文件编号：对话里「［附件：文件名 · file_id=XXX］」中的 XXX' },
+      { name: 'group_by', label: '按哪一列分组', type: 'string', required: false, file: false, description: '如「部门」' }],
+    data: { title: '统计汇总表格', plugin: 'excel', tool: 'excel_summary', args: {} }, available: true,
+  }
+  const FILE_FLOW = arg => ({
+    nodes: [{ id: 'start', type: 'start', position: { x: 0, y: 0 }, data: { title: '开始', fields: [{ key: 'report', label: 'Excel 报表', type: 'file', required: false }] } },
+      { id: 'n1', type: 'tool', position: { x: 320, y: 0 }, data: { title: '分组汇总', plugin: 'excel', tool: 'excel_summary', args: arg ? { file_id: arg } : {} } },
+      { id: 'end', type: 'end', position: { x: 640, y: 0 }, data: { title: '结束', output: '{{n1.text}}', page: false } }],
+    edges: [{ id: 'e1', source: 'start', target: 'n1', sourceHandle: null }, { id: 'e2', source: 'n1', target: 'end', sourceHandle: null }],
+  })
+  function withExcel(flow) {
+    mockApi({ flow: { id: 'f1', name: '报表分析', graph: flow } })
+    const base = global.fetch
+    const catalog = { ...CATALOG, groups: CATALOG.groups.map(g => (g.id === 'tools' ? { ...g, items: [...g.items, EXCEL] } : g)) }
+    global.fetch = vi.fn(async (url, init) => (url === '/api/flows/nodes' ? { ok: true, status: 200, json: async () => catalog } : base(url, init)))
+    render(<Editor flowId="f1" {...props()} />)
+  }
+
+  it('要文件的参数：提示用「原文件」，变量选择把原文件排在第一组；插进去显示成「开始 · Excel 报表（原文件）」', async () => {
+    withExcel(FILE_FLOW(''))
+    await screen.findByDisplayValue('报表分析')
+    fireEvent.click(canvasNode('分组汇总'))
+    const panel = await screen.findByRole('region', { name: /节点设置：分组汇总/ })
+    expect(within(panel).getByText('要的是文件：点「变量」插入「开始 · Excel 报表（原文件）」，不是读出的文字。')).toBeInTheDocument()
+    expect(within(panel).queryByText(/file_id=XXX/)).toBeNull()   // 技术说明不给用户看
+    fireEvent.click(within(panel).getByRole('button', { name: '给「文件」插入变量' }))
+    const picker = screen.getByRole('dialog', { name: '插入变量' })
+    expect(within(picker).getByText('这一项要的是文件：选带「原文件」的那项，不要选读出的文字')).toBeInTheDocument()
+    const groups = within(picker).getAllByRole('group')
+    expect(groups[0]).toHaveAccessibleName('原文件（这一项要文件，选这里）')
+    expect(within(groups[0]).getAllByRole('option').map(o => o.textContent)).toEqual(['Excel 报表（原文件）开始 · Excel 报表（原文件）'])
+    expect(within(groups[1]).getAllByRole('option').map(o => o.textContent)).toEqual(['Excel 报表开始 · Excel 报表'])
+    fireEvent.click(within(groups[0]).getByRole('option'))
+    const input = within(panel).getByLabelText('文件')
+    expect(input).toHaveValue('开始 · Excel 报表（原文件）')
+    expect(input.parentElement.querySelector('mark.fc-chip')).toHaveTextContent('开始 · Excel 报表（原文件）')
+    // 普通参数的变量选择不变：开始组在前，原文件留在开始组里
+    fireEvent.click(within(panel).getByRole('button', { name: '给「按哪一列分组」插入变量' }))
+    const plain = screen.getByRole('dialog', { name: '插入变量' })
+    expect(within(plain).getAllByRole('group')[0]).toHaveAccessibleName('开始')
+    fireEvent.keyDown(window, { key: 's', metaKey: true })
+    await waitFor(() => expect(api.puts).toHaveLength(1))
+    expect(savedGraph().nodes.find(n => n.id === 'n1').data.args.file_id).toBe('{{start.report_file}}')
+  })
+
+  it('文件参数接了读出的文字：就地提示该用哪个变量', async () => {
+    withExcel(FILE_FLOW('{{start.report}}'))
+    await screen.findByDisplayValue('报表分析')
+    fireEvent.click(canvasNode('分组汇总'))
+    const panel = await screen.findByRole('region', { name: /节点设置：分组汇总/ })
+    expect(within(panel).getByText('「分组汇总」要的是文件，请用『开始 · Excel 报表（原文件）』这个变量')).toBeInTheDocument()
+  })
+
+  it('运行面板：开始节点那一行列出上传的原件下载链接；点开别的步骤不重复', async () => {
+    withExcel(FILE_FLOW('{{start.report_file}}'))
+    await screen.findByDisplayValue('报表分析')
+    fireEvent.click(screen.getByRole('button', { name: /^运行$/ }))
+    const panel = await screen.findByRole('region', { name: '运行流程' })
+    fireEvent.click(within(panel).getByRole('button', { name: /开始运行/ }))
+    await waitFor(() => expect(api.runs).toHaveLength(1))
+    await act(async () => {
+      api.stream.send({ type: 'node_start', node_id: 'start' })
+      api.stream.send({ type: 'node_done', node_id: 'start', ms: 30, summary: '读到 120 字', preview: '| 部门 | 金额 |',
+        output: { text: '| 部门 | 金额 |', files: [{ name: '九月销售.xlsx', url: '/api/files/AbCdEf123456', label: 'Excel 报表' }, { name: '坏的', url: 'javascript:alert(1)' }] } })
+      api.stream.send({ type: 'node_start', node_id: 'n1' })
+      api.stream.send({ type: 'node_done', node_id: 'n1', ms: 80, summary: '拿到结果（30 字）', output: { text: '| 合计 | 5 | 3750.75 |' } })
+      api.stream.send({ type: 'run_done', status: 'ok', ms: 120, output: { text: '| 合计 | 5 | 3750.75 |', links: [] } })
+    })
+    await waitFor(() => expect(within(panel).getByText(/完成 · 用时/)).toBeInTheDocument())
+    const links = within(panel).getAllByRole('link', { name: /原件：/ })
+    expect(links).toHaveLength(1)   // 只认站内文件链接
+    expect(links[0]).toHaveAttribute('href', '/api/files/AbCdEf123456')
+    expect(links[0]).toHaveTextContent('原件：九月销售.xlsx')
+    expect(links[0].closest('.fc-rn')).toHaveTextContent('开始')
+    fireEvent.click(within(panel).getByText('读到 120 字'))   // 展开开始那一行：正文里不再列一遍原件
+    expect(within(panel).getAllByRole('link', { name: /原件：/ })).toHaveLength(1)
+  })
+})

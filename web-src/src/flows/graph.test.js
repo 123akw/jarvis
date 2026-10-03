@@ -5,7 +5,7 @@ import {
   insertAfter, insertOnEdge, issuesByNode, MAX_EDGES, MAX_NODES, moveNodes, nextEdgeId, nextNodeId, nodeSummary,
   normalizeGraph, outputsOf, parseVars, redo, referencesOf, removeEdges, removeNodes, renameRefs, runReducer,
   settle, splitVars, startRunState, topoOrder, transient, undo, updateNodeData, upstream, validateGraph, varLabel,
-  varOptions, chosenBranch, dependents, duplicateNode, staleNodes, hashStale,
+  varOptions, chosenBranch, dependents, duplicateNode, staleNodes, hashStale, fileFirstGroups, isFileArg, startVar,
 } from './graph.js'
 
 /* ---- 小工厂 ---- */
@@ -647,5 +647,75 @@ describe('第十八轮联调补充', () => {
     expect(copy).toMatchObject({ id: 'n5', type: 'template', data: { template: '待办：{{n1.text}}' } })
     expect(r.graph.edges).toHaveLength(6)
     expect(duplicateNode(branchy(), 'start').error).toBeTruthy()
+  })
+})
+
+/* ---- 第十九轮：开始节点文件字段的「原文件」变量 {{start.<key>_file}} ---- */
+describe('原文件变量', () => {
+  const FILE_START = N('start', 'start', { title: '开始', fields: [
+    { key: 'report', label: 'Excel 报表', type: 'file', required: true }, { key: 'note', label: '备注', type: 'text' }] })
+  const fileFlow = (arg = '', fields = null) => ({
+    nodes: [fields ? N('start', 'start', { title: '开始', fields }) : FILE_START,
+      N('n1', 'tool', { title: '分组汇总', plugin: 'excel', tool: 'excel_summary', args: arg ? { file_id: arg } : {} }, 320),
+      N('end', 'end', { title: '结束', output: '{{n1.text}}' }, 640)],
+    edges: [E('e1', 'start', 'n1'), E('e2', 'n1', 'end')],
+  })
+  const EXCEL = {
+    key: 'tool:excel:excel_summary', type: 'tool', title: '统计汇总表格', available: true,
+    args: [{ name: 'file_id', label: '文件', type: 'string', required: true, file: true }, { name: 'group_by', label: '分组列', type: 'string', required: false, file: false }],
+    data: { title: '统计汇总表格', plugin: 'excel', tool: 'excel_summary', args: {} },
+  }
+  const itemOf = itemOfFor({ [EXCEL.key]: EXCEL })
+  const msgs = (g, id = 'n1') => validateGraph(g, { itemOf }).filter(i => i.nodeId === id).map(i => i.message)
+
+  it('outputsOf：文件输入多一项「原文件」，带 file 标记', () => {
+    expect(outputsOf(FILE_START)).toEqual([
+      { field: 'report', label: 'Excel 报表' }, { field: 'report_file', label: 'Excel 报表（原文件）', file: true }, { field: 'note', label: '备注' }])
+  })
+
+  it('varLabel / humanize：chip 标签是「开始 · xx（原文件）」；不是文件输入的标 broken', () => {
+    const g = fileFlow()
+    expect(varLabel(g, 'start', 'report_file')).toEqual({ label: '开始 · Excel 报表（原文件）', broken: false })
+    expect(varLabel(g, 'start', 'report')).toEqual({ label: '开始 · Excel 报表', broken: false })
+    expect(varLabel(g, 'start', 'note_file')).toEqual({ label: '开始 · 备注（原文件）', broken: true })
+    expect(varLabel(g, 'start', 'gone_file')).toEqual({ label: '开始 · 已删除的输入项', broken: true })
+    expect(humanize('汇总 {{start.report_file}}', g)).toBe('汇总 「开始 · Excel 报表（原文件）」')
+    expect(startVar(g.nodes[0], 'report_file')).toMatchObject({ file: true, field: { key: 'report' } })
+    const key = 'a'.repeat(24)   // 最长的字段名加上 _file 也认得出
+    expect(parseVars(`{{start.${key}_file}}`)[0]).toMatchObject({ ref: 'start', field: `${key}_file` })
+  })
+
+  it('varOptions 列出原文件；要文件的参数把原文件单独排成第一组，别的组里不再重复', () => {
+    const groups = varOptions(fileFlow(), 'n1')
+    expect(groups[0].vars.map(v => [v.token, v.label, !!v.file])).toEqual([
+      ['{{start.report}}', '开始 · Excel 报表', false], ['{{start.report_file}}', '开始 · Excel 报表（原文件）', true],
+      ['{{start.note}}', '开始 · 备注', false]])
+    const sorted = fileFirstGroups(groups)
+    expect(sorted[0]).toMatchObject({ id: 'files', title: '原文件（这一项要文件，选这里）' })
+    expect(sorted[0].vars.map(v => v.token)).toEqual(['{{start.report_file}}'])
+    expect(sorted[1].vars.map(v => v.token)).toEqual(['{{start.report}}', '{{start.note}}'])
+    expect(sorted.at(-1).id).toBe('sys')
+    expect(fileFirstGroups(varOptions(branchy(), 'n3')).map(g => g.id)).toEqual(['start', 'n1', 'sys'])   // 没有文件输入：原样
+  })
+
+  it('isFileArg：目录的 file 标记优先，老目录看名字 / 说明', () => {
+    expect(isFileArg({ name: 'file_id' })).toBe(true)
+    expect(isFileArg({ name: 'file_ids' })).toBe(true)
+    expect(isFileArg({ name: 'src', description: '文件编号：附件里 file_id=XXX 的 XXX' })).toBe(true)
+    expect(isFileArg({ name: 'file_id', file: false })).toBe(false)
+    expect(isFileArg({ name: 'city' })).toBe(false)
+  })
+
+  it('校验：文件参数接了读出的文字拦运行（人话说该用哪个）；接原文件不拦', () => {
+    expect(msgs(fileFlow('{{start.report}}'))).toContain('「分组汇总」要的是文件，请用『开始 · Excel 报表（原文件）』这个变量')
+    expect(msgs(fileFlow('{{start.report_file}}'))).toEqual([])
+    expect(validateGraph(fileFlow('{{start.report_file}}'), { itemOf }).filter(i => i.block)).toEqual([])
+  })
+
+  it('校验：字段名以 _file 结尾拦保存；原文件引用了非文件输入拦运行', () => {
+    const bad = fileFlow('{{start.report_file}}', [{ key: 'report_file', label: '报表', type: 'file' }])
+    expect(validateGraph(bad, { itemOf }).some(i => i.block === 'save' && i.message === '第 1 个输入项的内部名字不对，删掉重加一个')).toBe(true)
+    const text = fileFlow('{{start.report_file}}', [{ key: 'report', label: '报表', type: 'text' }])
+    expect(msgs(text)).toContain('「报表」已经不是文件输入了，没有原文件：改回「文件」类型，或重新选一个')
   })
 })

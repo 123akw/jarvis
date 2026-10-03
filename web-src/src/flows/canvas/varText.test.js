@@ -79,3 +79,17 @@ describe('变量输入：markup ↔ display', () => {
     expect(insertToken('ab', 5, 9, '{{x.y}}')).toEqual({ markup: 'ab{{x.y}}', caret: 9 })
   })
 })
+
+describe('原文件变量的 chip（第十九轮）', () => {
+  it('{{start.<key>_file}} 显示成「开始 · 上传资料（原文件）」，删掉整块', async () => {
+    const { varLabel } = await import('../graph.js')
+    const graph = { nodes: [{ id: 'start', type: 'start', data: { title: '开始', fields: [{ key: 'file', label: '上传资料', type: 'file' }] } }], edges: [] }
+    const lab = (ref, field) => varLabel(graph, ref, field)
+    const markup = '合并 {{start.file_file}} 和 {{start.file}}'
+    const shown = toDisplay(markup, lab)
+    expect(shown.display).toBe('合并 开始 · 上传资料（原文件） 和 开始 · 上传资料')
+    expect(shown.chips.map(c => [c.raw, c.broken])).toEqual([['{{start.file_file}}', false], ['{{start.file}}', false]])
+    const cut = shown.display.slice(0, 15) + shown.display.slice(16)   // 在原文件 chip 里删一个字：整块删掉
+    expect(applyEdit(markup, shown, cut, 15).markup).toBe('合并  和 {{start.file}}')
+  })
+})

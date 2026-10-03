@@ -50,6 +50,9 @@ function NodeResult({ node }) {
   const [open, setOpen] = useState(false)
   const state = node.status || 'ok'
   const ms = fmtMs(node.ms)
+  // 开始节点上传的原件（存进了文件空间，30 天内能下载）
+  const files = (Array.isArray(node.files) ? node.files : []).map(f => ({ name: f?.name, href: safeHref(f?.url) }))
+    .filter(f => f.href.startsWith('/api/files/'))
   return (
     <li className="fh-nres" data-state={state}>
       <span className="fh-nres-mark" aria-hidden="true">
@@ -62,6 +65,11 @@ function NodeResult({ node }) {
           {ms ? <span className="fh-nres-ms">{ms}</span> : null}
         </p>
         {node.summary ? <p className="fh-nres-sum">{node.summary}</p> : state === 'skipped' ? <p className="fh-nres-sum">条件没走到这一步</p> : null}
+        {files.length ? (
+          <p className="fh-nres-files">
+            {files.map((f, i) => <a key={i} href={f.href} target="_blank" rel="noopener noreferrer" download><Icon name="clip" size={13} />原件：{f.name || '文件'}</a>)}
+          </p>
+        ) : null}
         {node.preview ? (
           <>
             <button type="button" className="fh-link" aria-expanded={open} onClick={() => setOpen(o => !o)}>

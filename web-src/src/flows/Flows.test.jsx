@@ -82,6 +82,8 @@ const RUNS = { runs: [
     page_url: '/r/tok', output_text: '**早报**：晴<script>window.__pwned = 1</script>', error: '',
     links: [{ label: '打开飞书文档', url: 'https://feishu.cn/docx/abc' }, { label: '坏链接', url: 'javascript:alert(1)' }],
     nodes: [
+      { node_id: 'start', title: '开始', node_type: 'start', status: 'ok', summary: '读到 10 字', preview: '', ms: 3,
+        files: [{ name: '九月销售.xlsx', url: '/api/files/AbCdEf123456' }, { name: '坏的', url: 'javascript:alert(1)' }] },
       { node_id: 'w', title: '查实时天气', node_type: 'tool', status: 'ok', summary: '北京 晴', preview: '城市：北京\n天气：晴', ms: 820 },
       { node_id: 'x', title: '发到微信', node_type: 'step', status: 'skipped', summary: '', preview: '', ms: null },
     ] },
@@ -379,6 +381,9 @@ describe('「我的流程」首页', () => {
     const steps = within(drawer).getByRole('region', { name: '每一步的结果' })
     expect(within(steps).getByText('北京 晴')).toBeInTheDocument()
     expect(within(steps).getByText('条件没走到这一步')).toBeInTheDocument()
+    // 开始节点上传的原件（第十九轮）：只给站内文件的下载链接
+    expect(within(steps).getAllByRole('link', { name: /原件：/ }).map(a => a.getAttribute('href'))).toEqual(['/api/files/AbCdEf123456'])
+    expect(within(steps).getByRole('link', { name: /原件：九月销售\.xlsx/ })).toBeInTheDocument()
     fireEvent.click(within(steps).getByRole('button', { name: '看看产出' }))
     expect(within(steps).getByText(/城市：北京/)).toBeInTheDocument()
     const result = within(drawer).getByRole('region', { name: '最终结果' })
