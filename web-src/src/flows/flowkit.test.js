@@ -71,6 +71,9 @@ describe('flowkit：节点与图', () => {
     expect(unbound[2].text).toBe('还没装「快递查询」')
     const bound = requirements(tpl, idx, { configured: true, bound: true })
     expect(bound[0]).toMatchObject({ tag: '需要：飞书', ok: true, action: '' })
+    // 服务器没接入飞书：说清楚，不给绑定动作
+    expect(requirements({ needs: ['需要绑定飞书'] }, idx, { configured: false, bound: false })[0])
+      .toMatchObject({ ok: false, tag: '飞书没开通', action: '' })
     // 不知道绑没绑（接口没回来）：不下结论
     expect(requirements({ needs: ['需要绑定飞书'] }, idx, null)[0].ok).toBeNull()
     // 没有 needs 时，用不了的积木照目录原因说，并给绑定动作
@@ -194,6 +197,7 @@ describe('flowkit：草稿与文案', () => {
     expect(fmtMs(12400)).toBe('12.4 秒')
     expect(fmtMs(65000)).toBe('1 分 5 秒')
     expect(fmtMs(null)).toBe('')
+    expect(fmtMs(0)).toBe('')
     expect(safeHref('/r/abc')).toBe('/r/abc')
     expect(safeHref('https://x.cn/r')).toBe('https://x.cn/r')
     expect(safeHref('javascript:alert(1)')).toBe('')
