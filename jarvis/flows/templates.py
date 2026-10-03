@@ -267,7 +267,8 @@ def check_refs(graph: dict) -> None:
     by_id = {n["id"]: n for n in graph["nodes"]}
     up = ancestors(graph)
     start = by_id.get(graph_mod.START_ID) or {}
-    keys = {f.get("key") for f in (start.get("data") or {}).get("fields") or [] if isinstance(f, dict)}
+    start_fields = [f for f in (start.get("data") or {}).get("fields") or [] if isinstance(f, dict)]
+    keys = graph_mod.start_var_names(start_fields)   # 文件输入另有 <key>_file（原文件）
     for node in graph["nodes"]:
         title = (node.get("data") or {}).get("title") or node["id"]
         texts = list(_strings(node.get("data") or {}))
@@ -396,22 +397,51 @@ def _builtin() -> list[dict]:
             keywords=("合同", "条款", "审查", "风险", "签约", "协议", "律师")),
         _template(
             "excel_report", "Excel 报表分析成 Word", "office", "📊",
-            "上传报表，按你指定的列分组汇总，AI 写分析和建议，一起生成 Word",
+            "上传报表，Excel 工具按你指定的列精确分组汇总，AI 照着汇总写分析和建议，一起生成 Word",
             [_start(_field("report", "Excel 报表", "file", required=True, placeholder=".xlsx 或 .csv"),
                     _field("group_by", "按哪一列分组", default="部门"),
                     _field("metric", "汇总哪一列", default="金额")),
-             _llm("n1", "分组汇总", "把这张表按「{{start.group_by}}」分组，汇总「{{start.metric}}」：每组的合计、条数和占比，"
-                  "用 Markdown 表格输出，按合计从高到低排，最后一行写总计。只根据表里的数字算，不要编造；"
-                  "如果表格注明只列出了前若干行，在表格下面说明。\n\n{{start.report}}"),
-             _llm("n2", "写分析", "根据这份分组汇总写报表分析：先一句话结论，再列 3–5 条发现（哪组最高 / 最低、差距多大、"
-                  "有没有异常），最后给 2–3 条建议。\n\n{{n1.text}}"),
+             # 汇总交给 Excel 工具（读整张表、数字精确），不让 AI 按读出的前几十行自己算
+             _tool("n1", "分组汇总", "excel", "excel_summary", file_id="{{start.report_file}}",
+                   group_by="{{start.group_by}}", columns="{{start.metric}}"),
+             _llm("n2", "写分析", "根据这份分组汇总（Excel 工具算出的精确数字）写报表分析：先一句话结论，再列 3–5 条发现"
+                  "（哪组最高 / 最低、差距多大、各组占合计的比例、有没有异常），最后给 2–3 条建议。"
+                  "引用数字一律照抄汇总表，不要自己重新加总或编造。\n\n{{n1.text}}"),
              _tpl("n3", "拼成报告", "# {{start.metric}}按{{start.group_by}}汇总分析（{{sys.date}}）\n\n## 汇总表\n\n"
                   "{{n1.text}}\n\n## 分析与建议\n\n{{n2.text}}"),
              _step("n4", "生成 Word", "word_out", {"title": "报表分析"}),
              _end("end", "结束", "{{n3.text}}")],
             _edges(("start", "n1"), ("n1", "n2"), ("n2", "n3"), ("n3", "n4"), ("n4", "end")),
-            needs=("表格要是 .xlsx 或 .csv（老版 .xls 先另存为 .xlsx）",),
+            needs=("表格要是 .xlsx 或 .csv（老版 .xls 先另存为 .xlsx）", "表格第一行要是列名，分组列和汇总列要填表里真实的列名"),
             keywords=("excel", "表格", "报表", "汇总", "统计", "数据", "分析", "word")),
+        _template(
+            "pdf_merge", "几份 PDF 合成一份", "office", "📎",
+            "按顺序上传两到三份 PDF，原样合并成一个 PDF，给你下载链接（扫描件也行）",
+            [_start(_field("first", "第一份 PDF", "file", required=True, placeholder="排在最前面的那份"),
+                    _field("second", "第二份 PDF", "file", required=True),
+                    _field("third", "第三份 PDF（可不传）", "file"),
+                    _field("name", "合并后叫什么", default="合并后.pdf")),
+             _tool("n1", "合并 PDF", "pdf", "pdf_merge",
+                   file_ids="{{start.first_file}} {{start.second_file}} {{start.third_file}}", name="{{start.name}}"),
+             _end("end", "合并好的 PDF", "{{n1.text}}")],
+            _edges(("start", "n1"), ("n1", "end")),
+            needs=("只能合并 PDF；Word、图片先另存为 PDF",),
+            keywords=("pdf", "合并", "合成", "拼成一个", "拼接")),
+        _template(
+            "word_polish", "Word 文档润色后另存", "office", "🖋️",
+            "上传 Word 文档，按原来的标题、列表和表格读出来，AI 按你的要求润色，再生成一份新的 Word",
+            [_start(_field("doc", "Word 文档", "file", required=True, placeholder=".docx"),
+                    _field("ask", "想怎么改", "paragraph", default="改得更通顺、专业，错别字和病句都改掉，意思不变",
+                           placeholder="比如：语气更正式；压缩到一半篇幅；改成给领导看的汇报")),
+             # Word 工具按原顺序读出标题 / 列表 / 表格（比读出的纯文字保留结构）
+             _tool("n1", "读出文档", "word", "word_read", file_id="{{start.doc_file}}", max_chars="20000"),
+             _llm("n2", "润色", "按下面的要求修改这份文档，保留原来的标题层级、列表和表格（用 Markdown 写），"
+                  "只输出改好的全文，不要解释。" + NO_ASK + "\n\n要求：{{start.ask}}\n\n{{n1.text}}"),
+             _step("n3", "生成 Word", "word_out", {"title": "润色后的文档"}),
+             _end("end", "结束", "{{n2.text}}")],
+            _edges(("start", "n1"), ("n1", "n2"), ("n2", "n3"), ("n3", "end")),
+            needs=("只支持 .docx（老版 .doc 先另存为 .docx）",),
+            keywords=("word", "docx", "润色", "改文档", "校对", "改写", "错别字")),
         _template(
             "weekly_report", "周报存成飞书文档", "office", "📈",
             "把一周的流水账理成成果、数据、问题和下周计划，存成飞书文档",

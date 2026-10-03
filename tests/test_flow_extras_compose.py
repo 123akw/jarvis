@@ -232,12 +232,18 @@ def test_agent_catalog_marks_uninstalled_plugins(owner_id):
     assert "这个智能体还没装「日程提醒」，到智能体设置里加上就能用" in result["notes"]
 
 
-def test_catalog_skips_file_id_tools_and_hints_ranges(owner_id):
+def test_catalog_lists_file_tools_with_original_file_hint_and_ranges(owner_id):
+    """第十九轮：要文件编号的 Excel / PDF / Word 工具也进清单，参数说明写明填开始节点的「原文件」变量。"""
     catalog = C.build_catalog(owner_id)
-    assert "excel_summary" not in catalog.tools and "pdf_extract_text" not in catalog.tools   # 要文件编号的接不上
+    assert {"excel_summary", "pdf_extract_text", "pdf_merge", "word_read"} <= set(catalog.tools)
     assert "excel_create" in catalog.tools and "word_create" in catalog.tools
-    assert "max_results（最多几条，1–5）" in C.catalog_text(catalog)
-    assert "type=file 的输入" in C.build_prompt("x", catalog)
+    text = C.catalog_text(catalog)
+    assert "max_results（最多几条，1–5）" in text
+    assert "- excel/excel_summary：" in text and "file_id*（原文件：填 {{start.文件key_file}}）" in text
+    assert "file_ids*（原文件：填 {{start.文件key_file}}，可并排写几个）" in text
+    prompt = C.build_prompt("x", catalog)
+    assert "type=file 的输入" in prompt and "{{start.key_file}}" in prompt and "{{start.输入key_file}}" in prompt
+    assert '"file_id":"{{start.sheet_file}}"' in prompt   # 示例里文件工具接原文件
 
 
 def test_number_args_are_clamped_and_branches_described(owner_id):

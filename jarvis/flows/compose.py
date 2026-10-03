@@ -2,7 +2,8 @@
 
 1. 把当前账号能用的节点（插件工具、技能、积木）压成一份紧凑清单，连同写法、两个示例交给模型；
    用户的描述当数据包在 ``<需求>`` 里（防注入），模型只许输出 JSON 节点图；
-2. 解析 → 宽松修补（补默认、补开始输入、补连线、补结束）→ 只认清单里真实存在的工具 / 积木 →
+2. 解析 → 宽松修补（补默认、补开始输入、补连线、补结束；文件工具的 file_id 参数改接开始节点的「原文件」
+   ``{{start.<key>_file}}``）→ 只认清单里真实存在的工具 / 积木 →
    ``validate_graph`` + 引用检查 → 左 → 右自动排版；
 3. 任何一步失败（模型不可用、超时、JSON 坏、用到不存在的工具、校验不过）都退回关键词最匹配的模板，
    ``source: "template"``，并在 notes 里用人话说明为什么；
@@ -38,8 +39,8 @@ MAX_TOOL_LINE = 90
 
 # 流程里不该自动跑的工具：删除 / 勾掉 / 需要桌面端现场开会的
 HIDDEN_TOOLS = frozenset({"memo_del", "schedule_del", "todo_done", "profile_forget", "meeting_start", "meeting_stop"})
-# 要「文件编号」的工具：开始节点上传的文件只给出读出的文字，接不上它们，不放进清单（表格、PDF 交给 AI 处理读出的文字）
-FILE_ARGS = frozenset({"file_id", "file_ids"})
+# 要「文件编号」的工具（Excel / PDF / Word）：第十九轮起开始节点的文件字段有「原文件」变量 {{start.<key>_file}}，
+# 这些工具也放进清单，参数说明里写明要填原文件
 OPS = ("contains", "not_contains", "equals", "not_equals", "empty", "not_empty", "gt", "lt", "ge", "le")
 _FENCE = re.compile(r"^\s*```[A-Za-z]*\s*$", re.M)
 
@@ -127,9 +128,8 @@ def build_catalog(user_id: str, deps=None, access: templates_mod.Access | None =
                 prop = props.get(a["name"]) if isinstance(props.get(a["name"]), dict) else {}
                 args.append({"name": a["name"], "required": a["required"],
                              "label": a["label"] if a["label"] != a["name"] else "", "enum": a.get("enum"),
-                             "type": a.get("type"), "min": prop.get("minimum"), "max": prop.get("maximum")})
-            if any(a["name"] in FILE_ARGS and a["required"] for a in args):
-                continue
+                             "type": a.get("type"), "min": prop.get("minimum"), "max": prop.get("maximum"),
+                             "file": bool(a.get("file"))})
             catalog.tools[name] = {"plugin": entry["id"], "plugin_name": entry["name"],
                                    "label": nodes.tool_label(entry, name, tool), "args": args, "installed": installed}
     flow_steps = templates_mod._steps()
@@ -147,6 +147,8 @@ def build_catalog(user_id: str, deps=None, access: templates_mod.Access | None =
 
 def _arg_hint(arg: dict) -> str:
     """参数后面的小注：人话名、可选值、数字范围，如「（最多几条，1–5）」。"""
+    if arg.get("file"):   # 要文件的参数：只能填开始节点的「原文件」变量
+        return "（原文件：填 {{start.文件key_file}}" + ("，可并排写几个" if arg.get("type") == "array" else "") + "）"
     bits = [arg["label"]] if arg["label"] else []
     if arg.get("enum"):
         bits.append("|".join(map(str, arg["enum"])))
@@ -211,13 +213,25 @@ _EXAMPLES = (
             {"id": "end2", "type": "end", "title": "日常回复", "output": "{{n3.text}}"}],
         "edges": [["start", "c1"], ["c1", "n1", "refund"], ["n1", "n2"], ["n2", "end1"], ["c1", "n3", "else"],
                   ["n3", "end2"]]}),
+    ("上传销售表，按区域汇总销售额，写分析做成 Word", {
+        "name": "销售表分析成 Word", "summary": "按区域精确汇总销售额，AI 写分析，生成 Word",
+        "fields": [{"key": "sheet", "label": "销售表", "type": "file", "required": True}],
+        "nodes": [
+            {"id": "n1", "type": "tool", "title": "按区域汇总", "plugin": "excel", "tool": "excel_summary",
+             "args": {"file_id": "{{start.sheet_file}}", "group_by": "区域", "columns": "销售额"}},
+            {"id": "n2", "type": "llm", "title": "写分析",
+             "prompt": "根据汇总表写一句结论、3 条发现和 2 条建议，数字照抄表里的，不要自己算。\n{{n1.text}}"},
+            {"id": "n3", "type": "template", "title": "拼成报告", "template": "## 汇总表\n{{n1.text}}\n\n## 分析\n{{n2.text}}"},
+            {"id": "n4", "type": "step", "title": "生成 Word", "step": "word_out"},
+            {"id": "end", "type": "end", "title": "报告", "output": "{{n3.text}}"}],
+        "edges": [["start", "n1"], ["n1", "n2"], ["n2", "n3"], ["n3", "n4"], ["n4", "end"]]}),
 )
 
 PROMPT = """你是「流程设计助手」：把用户的一句话需求设计成一个能自动跑的流程（节点图）。只输出一个 JSON 对象。
 
 ## 输出格式
 {{"name": "≤12 字的流程名", "summary": "≤30 字一句话说明", "fields": [开始时要用户填的输入], "nodes": [节点], "edges": [连线]}}
-- fields：{{"key": "小写英文", "label": "中文名", "type": "text"(短文字)|"paragraph"(长文)|"file"(上传文件，读出其中文字)|"number"|"select"(要带 options 列表), "required": true/false, "default": 可选}}；开始节点 id 固定是 start，不要写进 nodes
+- fields：{{"key": "小写英文（不要以 _file 结尾）", "label": "中文名", "type": "text"(短文字)|"paragraph"(长文)|"file"(上传文件)|"number"|"select"(要带 options 列表), "required": true/false, "default": 可选}}；开始节点 id 固定是 start，不要写进 nodes
 - llm（AI 处理）：{{"id", "type": "llm", "title", "prompt": "要求（用变量引用资料）", "skill": "技能 id，可选", "output": "要产出清单时写 list"}}
 - tool（插件工具）：{{"id", "type": "tool", "title", "plugin", "tool", "args": {{"参数名": "文字，可含变量"}}}}
 - condition（条件分支）：{{"id", "type": "condition", "title", "cases": [{{"id": "c1", "label": "分支名", "logic": "and|or", "rules": [{{"var": "n1.text", "op": "contains", "value": "雨"}}]}}]}}；op 只能是 contains / not_contains / equals / not_equals / empty / not_empty / gt / lt / ge / le；都不满足走 else 出口
@@ -227,7 +241,7 @@ PROMPT = """你是「流程设计助手」：把用户的一句话需求设计�
 - edges：[["start", "n1"], ["n1", "n2"]]；从条件节点连出的线写第三项：分支 id 或 "else"
 
 ## 变量
-{{{{节点id.text}}}} 是节点的文字结果，{{{{节点id.items}}}} 是清单；{{{{start.输入key}}}} 是开始时填的内容（文件就是读出的文字）；系统变量 {{{{sys.date}}}} {{{{sys.weekday}}}} {{{{sys.time}}}}。只能引用连线上游的节点。
+{{{{节点id.text}}}} 是节点的文字结果，{{{{节点id.items}}}} 是清单；{{{{start.输入key}}}} 是开始时填的内容（文件就是读出的文字）；文件输入另有 {{{{start.输入key_file}}}}，是上传的原文件（给要文件的工具用）；系统变量 {{{{sys.date}}}} {{{{sys.weekday}}}} {{{{sys.time}}}}。只能引用连线上游的节点。
 
 ## 规矩
 1. 只能用下面清单里的工具、技能和积木，名字一字不差；清单里没有合适的就用 llm。
@@ -235,7 +249,7 @@ PROMPT = """你是「流程设计助手」：把用户的一句话需求设计�
 3. 节点少而精：一般 3–8 个，最多 12 个；每个 prompt 不超过 120 字；title 不超过 8 个字。
 4. 至少一个 end；每条分支最后都要接到 end。
 5. 「每天 / 每周 / 定时」不用做成节点（定时在流程外面设置）；要用今天的日期就写 {{{{sys.date}}}}。
-6. 要用户上传文件（表格、PDF、Word、图片）就加一个 type=file 的输入，{{{{start.key}}}} 是读出来的文字，交给 llm 处理（表格汇总、统计也让 llm 按读出的表格算）；要产出 Word / Excel 文件用 word_out / excel_out 积木。
+6. 要用户上传文件（表格、PDF、Word、图片）就加一个 type=file 的输入：{{{{start.key}}}} 是读出来的文字，交给 llm 处理；清单里标了「原文件」的工具参数（file_id / file_ids，Excel / PDF / Word 工具要的文件）一律填 {{{{start.key_file}}}}，不要填读出的文字。表格要分组汇总、统计、筛选就用 Excel 工具（如 excel_summary，group_by 写列名），数字精确，别让 llm 自己算；要产出 Word / Excel 文件用 word_out / excel_out 积木。
 7. 技能的 prompt 里写上「不要反问」（流程里没人回答它）。
 8. name、summary、title、label 都用中文。
 
@@ -288,7 +302,7 @@ def _text(value, limit: int = 4000) -> str:
 
 def _var(value) -> str:
     text = _text(value, 80)
-    match = re.fullmatch(r"\{\{\s*([A-Za-z0-9_-]{1,32}\.[A-Za-z0-9_]{1,24})\s*\}\}", text)
+    match = re.fullmatch(r"\{\{\s*([A-Za-z0-9_-]{1,32}\.[A-Za-z0-9_]{1,29})\s*\}\}", text)
     return match.group(1) if match else text
 
 
@@ -302,6 +316,10 @@ def _fields(raw, notes: list[str]) -> tuple[list[dict], dict[str, str]]:
         fixed = key.lower().replace("-", "_").replace(" ", "_")
         if not graph_mod.FIELD_KEY.match(fixed):
             fixed = f"f{i}"
+        if fixed.endswith(graph_mod.FILE_SUFFIX):   # 会和「原文件」变量撞名：去掉后缀
+            fixed = fixed[: -len(graph_mod.FILE_SUFFIX)]
+            if not graph_mod.FIELD_KEY.match(fixed):
+                fixed = f"f{i}"
         while fixed in {f["key"] for f in fields}:
             fixed += "x"
         if key and key != fixed:
@@ -484,6 +502,36 @@ def _reaches(edges: list[dict], source: str, target: str) -> bool:
     return False
 
 
+def _make_file_field(field: dict) -> dict:
+    """把开始输入改成文件输入（文件没有默认值、选项）。"""
+    field["type"] = "file"
+    field.pop("default", None)
+    field.pop("options", None)
+    return field
+
+
+def _wire_file_args(nodes: list[dict], declared: dict[str, dict], catalog: Catalog) -> None:
+    """文件工具（Excel / PDF / Word）要 file_id 的参数接的是开始输入的「读出的文字」{{start.x}}：改接原文件
+    {{start.x_file}}，x 不是文件输入就改成文件输入——读出的文字没有文件编号，工具找不到文件。"""
+    for node in nodes:
+        if node["type"] != "tool":
+            continue
+        item = catalog.tools.get(node["data"]["tool"]) or {}
+        for arg in item.get("args") or []:
+            value = node["data"]["args"].get(arg["name"])
+            if not arg.get("file") or not value:
+                continue
+
+            def swap(match):
+                ref, key = match.group(1), match.group(2)
+                if ref != graph_mod.START_ID or key not in declared:
+                    return match.group(0)
+                _make_file_field(declared[key])
+                return "{{start.%s}}" % graph_mod.file_var(key)
+
+            node["data"]["args"][arg["name"]] = graph_mod.VAR.sub(swap, value)
+
+
 def draft_from_model(obj: dict, catalog: Catalog, description: str) -> tuple[dict, list[str]]:
     """模型给的 JSON → 合法草稿 {name, summary, graph}；修不好抛 :class:`ComposeError`。"""
     notes: list[str] = []
@@ -517,18 +565,28 @@ def draft_from_model(obj: dict, catalog: Catalog, description: str) -> tuple[dic
         nodes.append({"id": node_id, "type": kind, "position": {"x": 0.0, "y": 0.0},
                       "data": _node_data(raw, kind, catalog, notes)})
     by_id = {n["id"]: n for n in nodes}
-    # 开始节点的输入：模型引用了却没声明的补上
-    declared = {f["key"] for f in fields}
+    # 开始节点的输入：模型引用了却没声明的补上（引用了「原文件」的补成 / 改成文件输入）
+    declared = {f["key"]: f for f in fields}
     for node in nodes:
         pairs = [m for text in templates_mod._strings(node["data"]) for m in graph_mod.VAR.findall(text)]
         pairs += [tuple(r["var"].split(".", 1)) for c in node["data"].get("cases") or [] for r in c["rules"]
                   if r["var"].count(".") == 1]
         for ref, key in pairs:
-            if ref == graph_mod.START_ID and key not in declared and graph_mod.FIELD_KEY.match(key) \
-                    and len(fields) < 8:
+            if ref != graph_mod.START_ID:
+                continue
+            if key.endswith(graph_mod.FILE_SUFFIX) and graph_mod.FIELD_KEY.match(key[: -len(graph_mod.FILE_SUFFIX)]):
+                base = key[: -len(graph_mod.FILE_SUFFIX)]
+                if base in declared:
+                    _make_file_field(declared[base])
+                elif len(fields) < 8:
+                    declared[base] = _make_file_field({"key": base, "label": "上传的文件", "required": True,
+                                                       "placeholder": ""})
+                    fields.append(declared[base])
+            elif key not in declared and graph_mod.FIELD_KEY.match(key) and len(fields) < 8:
                 fields.append({"key": key, "label": "要处理的内容" if key == "text" else key,
                                "type": "paragraph", "required": True, "placeholder": ""})
-                declared.add(key)
+                declared[key] = fields[-1]
+    _wire_file_args(nodes, declared, catalog)
     start = {"id": graph_mod.START_ID, "type": "start", "position": {"x": 0.0, "y": 0.0},
              "data": {"title": "开始", "fields": fields}}
     edges: list[dict] = []
