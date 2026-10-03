@@ -1,8 +1,10 @@
-"""积木流程（第十三轮「智能平台工坊」）：输入 → 处理 → 输出，一条链跑到底。
+"""流程（第十三轮「智能平台工坊」起步，第十八轮升级为节点图画布）。
 
 - ``steps``：积木注册表与各积木执行函数；
-- ``engine``：保存校验、运行前可用性检查、并发闸、限时执行；
-- ``store``：tenant_flows / tenant_flow_runs（租户 schema v6）；
+- ``engine``：依赖注入、旧线性流程校验、运行前可用性、并发闸、限时等待；
+- ``executor``：节点图执行器（拓扑序、条件分支、变量、AI / 插件工具 / 积木 / 结束节点）；
+- ``nodes``：节点目录（GET /api/flows/nodes）与插件工具的参数、可用性；
+- ``store``：tenant_flows / tenant_flow_runs / tenant_flow_triggers（租户 schema v6 / v7）；
 - ``page``：公开结果页 /r/<token> 的安全渲染；
 - ``feishu_doc``：「汇总到飞书文档」的 docx 块转换与调用；
 - ``routes``：/api/flows*、/api/r/<token>、/r/<token>。
@@ -13,6 +15,7 @@ server.py 只需一处 ``register(app, ...)``，外部依赖经 :class:`FlowDeps
 """
 from jarvis.flows import extras
 from jarvis.flows.engine import FlowDeps, FlowValidationError, model_compose, normalize_flow
+from jarvis.flows.graph import GraphError, graph_from_steps, validate_graph
 from jarvis.flows.routes import FlowRuntime, register
 from jarvis.flows.steps import STEPS, step_catalog
 
@@ -38,5 +41,6 @@ def start_scheduler(notifier=None):
     return extras.start_scheduler(runtime=runtime, notifier=notifier)
 
 
-__all__ = ["FlowDeps", "FlowRuntime", "FlowValidationError", "STEPS", "install", "model_compose",
-           "normalize_flow", "register", "runtime", "start_scheduler", "step_catalog"]
+__all__ = ["FlowDeps", "FlowRuntime", "FlowValidationError", "GraphError", "STEPS", "graph_from_steps", "install",
+           "model_compose", "normalize_flow", "register", "runtime", "start_scheduler", "step_catalog",
+           "validate_graph"]

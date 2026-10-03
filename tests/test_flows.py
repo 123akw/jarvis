@@ -1,5 +1,8 @@
-"""积木流程（第十三轮平台工坊，契约 4.3）：存储与升级、校验、每块积木、SSE 事件序列、
-并发与超时、公开结果页的渲染 / 转义 / 过期、租户隔离。外部依赖（模型、飞书、微信、识图）全用替身。"""
+"""积木流程（第十三轮平台工坊起步；第十八轮起旧线性流程换算成节点图运行，契约见
+docs/proposals/2026-10-round18-flows.md）：存储与升级、旧接口校验、每块积木、SSE 事件序列、
+并发与超时、公开结果页的渲染 / 转义 / 过期、租户隔离。外部依赖（模型、飞书、微信、识图）全用替身。
+
+这里的流程都是 v6 的写法（{name, steps}）：重点是兼容——旧流程照样能存、能读、能跑。"""
 import asyncio
 import base64
 import datetime as dt
@@ -14,7 +17,8 @@ from fastapi.testclient import TestClient
 from jarvis import flows
 from jarvis.accounts import AccountStore
 from jarvis.channels.feishu.api import FeishuAPI
-from jarvis.flows import engine, feishu_doc, page, steps
+from jarvis.flows import engine, executor, feishu_doc, page, steps
+from jarvis.flows.graph import graph_from_steps, validate_graph
 from jarvis.flows.routes import stream_events
 from jarvis.flows.store import KEEP_RUNS, FlowStore
 from jarvis.tenancy import TenantStore, tenant_scope
@@ -74,24 +78,40 @@ def owner_id():
 
 
 def _flow(*plugins, **options_by_plugin):
-    return {"id": "f1", "name": "测试流程",
-            "steps": engine.normalize_steps([{"plugin": p, "options": options_by_plugin.get(p, {})} for p in plugins])}
+    """v6 写法的线性流程：先按旧规则校验，再换算成节点图（和 POST {name, steps} 走的是同一条路）。"""
+    steps_ = engine.normalize_steps([{"plugin": p, "options": options_by_plugin.get(p, {})} for p in plugins])
+    return {"id": "f1", "name": "测试流程", "steps": steps_, "graph": validate_graph(graph_from_steps(steps_))}
 
 
 def _run(owner_id, flow, deps, payload=None, **kwargs):
-    """直接跑执行器，返回 (事件列表, 结果)。流程先落库，运行记录才有归属。"""
+    """直接跑执行器，返回 (事件列表, 结果)。流程先落库，运行记录才有归属。
+
+    payload 沿用 v6 的 {text, file}：换算出来的开始节点字段正好叫 text / file。"""
     store = FlowStore()
-    saved = store.create_flow(owner_id, name=flow["name"], summary="", steps=flow["steps"])
+    saved = store.create_flow(owner_id, name=flow["name"], summary="", graph=flow["graph"])
     flow = {**flow, "id": saved["id"]}
     events = []
     with tenant_scope(owner_id):
-        result = engine.execute(flow=flow, user_id=owner_id, payload=payload or {}, deps=deps,
-                                store=store, emit=events.append, **kwargs)
+        result = executor.execute_graph(flow=flow, user_id=owner_id, inputs=payload or {}, deps=deps,
+                                        store=store, emit=events.append, **kwargs)
     return events, result
 
 
 def _types(events):
     return [e["type"] for e in events]
+
+
+def _done(events):
+    """完成的节点：按执行顺序的摘要（第一个是开始节点，最后一个是「结束」节点）。"""
+    return [e["summary"] for e in events if e["type"] == "node_done"]
+
+
+def _step_id(flow, plugin):
+    return next(n["id"] for n in flow["graph"]["nodes"] if n["type"] == "step" and n["data"]["step"] == plugin)
+
+
+def _page_title(result):
+    return FlowStore().get_page(result["output"]["page_url"][3:])["title"]
 
 
 def _client(username="admin", password="admin"):
@@ -168,7 +188,7 @@ def test_page_token_expires_and_is_purged_lazily(owner_id):
     with store._connect() as c:   # 惰性清理：页面字段被清空，运行记录还在
         row = c.execute("SELECT page_token, page_text FROM tenant_flow_runs WHERE id=?", (run,)).fetchone()
     assert row["page_token"] is None and row["page_text"] is None
-    assert store.list_runs(owner_id, flow["id"])[0]["output"] is None
+    assert store.list_runs(owner_id, flow["id"])[0]["page_url"] is None
 
 
 # ---------- 校验 ----------
@@ -219,9 +239,11 @@ def test_step_catalog_matches_contract_shape():
 # ---------- 积木：输入与拆分 ----------
 
 def test_input_text_and_file_blocks(owner_id):
+    """输入积木并进了开始节点：开始节点就是原来的第一步。"""
     deps = Deps()
     events, result = _run(owner_id, _flow("input_text", "web_page"), deps.as_flow_deps(), {"text": ""})
-    assert events[2] == {"type": "step_error", "step_id": events[1]["step_id"], "message": "请先输入一段文字", "ms": events[2]["ms"]}
+    assert events[1] == {"type": "node_start", "node_id": "start", "node_type": "start", "title": "开始"}
+    assert events[2] == {"type": "node_error", "node_id": "start", "message": "请先填写「要处理的文字」", "ms": events[2]["ms"]}
     assert result["status"] == "error"
     events, _ = _run(owner_id, _flow("input_file", "web_page"), deps.as_flow_deps(),
                      {"file": {"name": "笔记.exe", "data": b"MZ"}})
@@ -229,7 +251,9 @@ def test_input_text_and_file_blocks(owner_id):
     events, result = _run(owner_id, _flow("input_file", "web_page"), deps.as_flow_deps(),
                           {"file": {"name": "白板.png", "data": b"\x89PNG"}})
     assert events[2]["summary"] == "看懂了这张图片" and "周五发版" in events[2]["preview"]
-    assert result["output"]["title"] == "白板"
+    assert _page_title(result) == "白板"
+    events, _ = _run(owner_id, _flow("input_file", "web_page"), deps.as_flow_deps(), {"file": "没上传文件，贴了一段字"})
+    assert events[2]["summary"] == "没有上传文件，用了贴进来的文字"
 
 
 def test_split_file_chapter_modes():
@@ -282,16 +306,16 @@ def test_ai_extract_todos_then_to_todo_writes_current_account(owner_id):
     deps = Deps(compose=lambda prompt: "```markdown\n" + AI_TODOS + "\n```")
     events, result = _run(owner_id, _flow("input_text", "ai_extract", "to_todo", ai_extract={"task": "待办"}),
                           deps.as_flow_deps(), {"text": "周会记录：小王整理接口文档，还要约压测环境"})
-    done = [e for e in events if e["type"] == "step_done"]
-    assert [e["summary"] for e in done] == ["收到 21 字", "找到 2 条待办", "加了 2 条待办"]
-    assert result["status"] == "ok" and result["output"] is None   # 没有网页积木：output 为空
+    assert _done(events) == ["收到 21 字", "找到 2 条待办", "加了 2 条待办", "结果已生成"]
+    assert result["status"] == "ok" and result["output"]["page_url"] is None   # 没有网页积木：没有结果页
+    assert result["output"]["text"].startswith("- 整理接口文档")
     with tenant_scope(owner_id):
         assert [t["content"] for t in TenantStore().list_todos()] == ["整理接口文档（小王，10 月 8 日）", "预约压测环境"]
 
 
 def test_to_todo_without_bullets_uses_lines(owner_id):
     events, _ = _run(owner_id, _flow("input_text", "to_todo"), Deps().as_flow_deps(), {"text": "买牛奶\n交电费"})
-    assert events[-2]["summary"] == "加了 2 条待办"
+    assert _done(events)[-2] == "加了 2 条待办"
 
 
 def test_ai_extract_failures_are_human(owner_id):
@@ -299,27 +323,29 @@ def test_ai_extract_failures_are_human(owner_id):
         raise RuntimeError("https://api.example/v1?key=sk-secret 500")
 
     events, _ = _run(owner_id, _flow("input_text", "ai_extract", "web_page"), Deps(compose=boom).as_flow_deps(), {"text": "资料"})
-    error = next(e for e in events if e["type"] == "step_error")
+    error = next(e for e in events if e["type"] == "node_error")
     assert error["message"].startswith("AI 提炼没成功") and "sk-secret" not in json.dumps(events)
     events, _ = _run(owner_id, _flow("input_text", "ai_extract", "web_page"), Deps(compose=lambda p: "```\n```").as_flow_deps(), {"text": "资料"})
-    assert next(e for e in events if e["type"] == "step_error")["message"] == "AI 没有给出结果，换个说法再试试"
+    assert next(e for e in events if e["type"] == "node_error")["message"] == "AI 没有给出结果，换个说法再试试"
 
 
 # ---------- 积木：飞书 / 微信 ----------
 
 def test_feishu_send_requires_binding_and_sends_plain_text(owner_id):
     deps = Deps()
-    events, result = _run(owner_id, _flow("input_text", "ai_extract", "feishu_send"), deps.as_flow_deps(), {"text": "资料"})
-    assert _types(events) == ["run_start", "step_error", "run_done"]   # 运行前检查：不白烧模型
+    flow = _flow("input_text", "ai_extract", "feishu_send")
+    events, result = _run(owner_id, flow, deps.as_flow_deps(), {"text": "资料"})
+    assert _types(events) == ["run_start", "node_error", "run_done"]   # 运行前检查：不白烧模型
     assert events[1]["message"] == "先在设置里绑定飞书" and deps.prompts == []
+    assert events[1]["node_id"] == _step_id(flow, "feishu_send")
     deps.feishu_bound = True
-    events, result = _run(owner_id, _flow("input_text", "ai_extract", "feishu_send"), deps.as_flow_deps(), {"text": "资料"})
-    assert result["status"] == "ok" and events[-2]["summary"] == "已发到飞书"
+    events, result = _run(owner_id, flow, deps.as_flow_deps(), {"text": "资料"})
+    assert result["status"] == "ok" and _done(events)[-2] == "已发到飞书"
     sent = deps.feishu_sent[0][1]
     assert sent.startswith("📋 资料") and "【背景】" in sent and "• 预算 80 万" in sent and "**" not in sent
     deps.push_ok = False
     events, _ = _run(owner_id, _flow("input_text", "feishu_send"), deps.as_flow_deps(), {"text": "资料"})
-    assert events[-2]["message"] == "飞书没发出去，请稍后再试"
+    assert events[-2]["type"] == "node_error" and events[-2]["message"] == "飞书没发出去，请稍后再试"
 
 
 class DocxFake:
@@ -361,8 +387,9 @@ def test_feishu_doc_creates_document_shares_it_and_links(owner_id):
     events, result = _run(owner_id, _flow("input_text", "ai_extract", "feishu_doc", "web_page"), deps.as_flow_deps(),
                           {"text": "星河项目周会"})
     assert result["status"] == "ok"
-    doc_done = [e for e in events if e["type"] == "step_done"][2]
+    doc_done = [e for e in events if e["type"] == "node_done"][2]
     assert doc_done["summary"] == "已建好飞书文档" and doc_done["preview"] == "https://acme.feishu.cn/docx/doxcn123"
+    assert doc_done["output"]["links"] == [{"label": "飞书文档", "url": "https://acme.feishu.cn/docx/doxcn123"}]
     paths = [(m, p) for m, p, _ in fake.calls if "tenant_access_token" not in p]
     assert paths == [("POST", "/open-apis/docx/v1/documents"),
                      ("POST", "/open-apis/docx/v1/documents/doxcn123/blocks/doxcn123/children"),
@@ -371,8 +398,9 @@ def test_feishu_doc_creates_document_shares_it_and_links(owner_id):
     member = next(b for m, p, b in fake.calls if p.endswith("/members"))
     assert member == {"member_type": "openid", "member_id": "ou_me", "perm": "full_access"}
     assert "doxcn123" in deps.feishu_sent[0][1]   # 链接顺手推给本人
-    shown = FlowStore().get_page(result["output"]["url"][3:])
+    shown = FlowStore().get_page(result["output"]["page_url"][3:])
     assert shown["links"] == [{"label": "飞书文档", "url": "https://acme.feishu.cn/docx/doxcn123"}]
+    assert {"label": "飞书文档", "url": "https://acme.feishu.cn/docx/doxcn123"} in result["output"]["links"]
 
 
 @pytest.mark.parametrize("fail_path, code, status", [
@@ -386,7 +414,7 @@ def test_feishu_doc_without_permission_falls_back_to_message(owner_id, fail_path
     deps.doc_target_value = (fake.api(), ["ou_me"])
     events, result = _run(owner_id, _flow("input_text", "feishu_doc"), deps.as_flow_deps(), {"text": "全文内容"})
     assert result["status"] == "ok"
-    assert events[-2]["summary"] == "没有文档权限，已改为发消息"
+    assert _done(events)[-2] == "没有文档权限，已改为发消息"
     assert "全文内容" in deps.feishu_sent[0][1]
 
 
@@ -396,6 +424,7 @@ def test_feishu_doc_other_errors_stop_the_flow(owner_id):
     deps.doc_target_value = (fake.api(), ["ou_me"])
     events, result = _run(owner_id, _flow("input_text", "feishu_doc"), deps.as_flow_deps(), {"text": "x"})
     assert result["status"] == "error" and events[-2]["message"] == "飞书文档没建成，请稍后再试"
+    assert events[-1]["error"] == "飞书文档没建成，请稍后再试"
     assert deps.feishu_sent == []
 
 
@@ -405,7 +434,7 @@ def test_wechat_send_only_for_owner_with_bridge_ready(owner_id):
     assert events[1]["message"] == "发到微信只对管理员账号开放"
     deps.is_owner = True
     events, _ = _run(owner_id, _flow("input_text", "wechat_send"), deps.as_flow_deps(), {"text": "x"})
-    assert events[-2]["message"].startswith("微信还没连上")
+    assert events[-2]["type"] == "node_error" and events[-2]["message"].startswith("微信还没连上")
     deps.wechat_up = True
     events, result = _run(owner_id, _flow("input_text", "wechat_send"), deps.as_flow_deps(), {"text": "上新：桂花拿铁"})
     assert result["status"] == "ok" and deps.wechat_sent == ["📋 上新：桂花拿铁\n\n上新：桂花拿铁"]
@@ -414,19 +443,26 @@ def test_wechat_send_only_for_owner_with_bridge_ready(owner_id):
 # ---------- 执行器：事件序列、超时、断开 ----------
 
 def test_success_event_sequence_and_run_record(owner_id):
-    events, result = _run(owner_id, _flow("input_text", "split_file", "ai_extract", "web_page"),
-                          Deps().as_flow_deps(), {"text": PROJECT_DOC})
-    assert _types(events) == ["run_start"] + ["step_start", "step_done"] * 4 + ["run_done"]
-    assert events[-1] == {"type": "run_done", "status": "ok", "output": result["output"]}
-    assert result["output"]["url"].startswith("/r/") and result["output"]["title"] == "星河项目"
+    flow = _flow("input_text", "split_file", "ai_extract", "web_page")
+    events, result = _run(owner_id, flow, Deps().as_flow_deps(), {"text": PROJECT_DOC})
+    # 开始 + 三块积木 + 结束
+    assert _types(events) == ["run_start"] + ["node_start", "node_done"] * 5 + ["run_done"]
+    assert [e["node_id"] for e in events if e["type"] == "node_start"] == [n["id"] for n in flow["graph"]["nodes"]]
+    assert events[-1] == {"type": "run_done", "status": "ok", "ms": events[-1]["ms"], "output": result["output"]}
+    assert result["output"]["page_url"].startswith("/r/") and _page_title(result) == "星河项目"
+    assert {"label": "结果网页", "url": result["output"]["page_url"]} in result["output"]["links"]
+    assert "老系统扛不住双十一" in result["output"]["text"]
     run = FlowStore().list_runs(owner_id, FlowStore().list_flows(owner_id)[0]["id"])[0]
-    assert run["status"] == "ok" and [s["status"] for s in run["steps"]] == ["ok"] * 4
+    assert run["status"] == "ok" and [s["status"] for s in run["nodes"]] == ["ok"] * 5
+    assert run["page_url"] == result["output"]["page_url"] and "老系统" in run["output_text"]
+    assert [s["node_type"] for s in run["nodes"]] == ["start", "step", "step", "step", "end"]
 
 
 def test_failed_step_stops_the_rest(owner_id):
     events, result = _run(owner_id, _flow("input_text", "web_page", "to_todo"), Deps().as_flow_deps(), {"text": "  "})
-    assert _types(events) == ["run_start", "step_start", "step_error", "run_done"]
-    assert events[-1] == {"type": "run_done", "status": "error", "output": None}
+    assert _types(events) == ["run_start", "node_start", "node_error", "run_done"]
+    assert events[-1] == {"type": "run_done", "status": "error", "ms": events[-1]["ms"],
+                          "output": {"text": "", "links": [], "page_url": None}, "error": "请先填写「要处理的文字」"}
     with tenant_scope(owner_id):
         assert TenantStore().list_todos() == []
 
@@ -435,7 +471,7 @@ def test_step_timeout_is_reported(owner_id):
     deps = Deps(compose=lambda prompt: time.sleep(1.5) or "迟到的结果")
     events, result = _run(owner_id, _flow("input_text", "ai_extract", "web_page"), deps.as_flow_deps(),
                           {"text": "资料"}, timeouts={"ai_extract": 0.3})
-    error = next(e for e in events if e["type"] == "step_error")
+    error = next(e for e in events if e["type"] == "node_error")
     assert "超时" in error["message"] and result["status"] == "error"
 
 
@@ -443,7 +479,7 @@ def test_total_deadline_stops_the_flow(owner_id):
     deps = Deps(compose=lambda prompt: time.sleep(1.5) or "x")
     events, _ = _run(owner_id, _flow("input_text", "ai_extract", "web_page"), deps.as_flow_deps(),
                      {"text": "资料"}, total_seconds=0.4)
-    assert next(e for e in events if e["type"] == "step_error")["message"] == "整条流程超过 3 分钟，已停止"
+    assert next(e for e in events if e["type"] == "node_error")["message"] == "整条流程超过 4 分钟，已停止"
 
 
 def test_cancel_stops_waiting_and_records_interruption(owner_id):
@@ -456,10 +492,11 @@ def test_cancel_stops_waiting_and_records_interruption(owner_id):
     deps = Deps(compose=slow)
     threading.Thread(target=lambda: started.wait(5) and cancel.set(), daemon=True).start()
     begin = time.monotonic()
-    events, result = _run(owner_id, _flow("input_text", "ai_extract", "web_page"), deps.as_flow_deps(),
-                          {"text": "资料"}, cancel=cancel)
+    flow = _flow("input_text", "ai_extract", "web_page")
+    events, result = _run(owner_id, flow, deps.as_flow_deps(), {"text": "资料"}, cancel=cancel)
     assert time.monotonic() - begin < 1.5   # 不等那 2 秒的模型调用
-    assert result["status"] == "error" and "web_page" not in {e.get("plugin") for e in events}
+    assert result["status"] == "error" and _step_id(flow, "web_page") not in {e.get("node_id") for e in events}
+    assert events[-1]["type"] != "run_done"   # 断开后不再发事件
     run = FlowStore().list_runs(owner_id, FlowStore().list_flows(owner_id)[0]["id"])[0]
     assert run["status"] == "error" and run["error"] == "页面关掉了，流程已停止"
 
@@ -504,16 +541,23 @@ def test_http_crud_auth_and_csrf(http_deps):
     no_csrf = TestClient(server_mod.app)
     no_csrf.cookies = owner.cookies
     assert no_csrf.post("/api/flows", json={"name": "x", "steps": ARCHIVE}).status_code == 403
-    created = owner.post("/api/flows", json={"name": "项目资料归档", "steps": ARCHIVE})
+    created = owner.post("/api/flows", json={"name": "项目资料归档", "steps": ARCHIVE})   # v6 旧写法照样能存
     assert created.status_code == 201
     flow = created.json()["flow"]
-    assert set(flow) == {"id", "name", "summary", "steps", "updated_at", "last_run"} and flow["last_run"] is None
-    assert [s["plugin"] for s in flow["steps"]] == [s["plugin"] for s in ARCHIVE]
+    assert set(flow) == {"id", "name", "summary", "graph", "updated_at", "trigger", "last_run"}
+    assert flow["last_run"] is None and flow["trigger"] is None
+    assert [n["type"] for n in flow["graph"]["nodes"]] == ["start", "step", "step", "step", "end"]
+    assert [n["data"]["step"] for n in flow["graph"]["nodes"][1:4]] == [s["plugin"] for s in ARCHIVE[1:]]
+    assert flow["graph"]["nodes"][0]["data"]["fields"][0]["type"] == "file"
+    assert flow["summary"] == "文件拆分 → AI 提炼 → 生成网页与二维码 → 结束"
+    assert owner.get(f"/api/flows/{flow['id']}").json() == {"flow": flow}
     bad = owner.post("/api/flows", json={"name": "x", "steps": [{"plugin": "web_page"}]})
-    assert bad.status_code == 422 and "第一步" in bad.json()["error"]
+    assert bad.status_code == 400 and "第一步" in bad.json()["error"]
     updated = owner.put(f"/api/flows/{flow['id']}", json={"name": "改名", "steps": ARCHIVE[:1] + ARCHIVE[3:]})
-    assert updated.json()["flow"]["name"] == "改名" and len(updated.json()["flow"]["steps"]) == 2
-    assert [f["name"] for f in owner.get("/api/flows").json()["flows"]] == ["改名"]
+    assert updated.json()["flow"]["name"] == "改名" and len(updated.json()["flow"]["graph"]["nodes"]) == 3
+    listed = owner.get("/api/flows").json()["flows"]
+    assert [f["name"] for f in listed] == ["改名"] and listed[0]["node_count"] == 3
+    assert listed[0]["plugins"] == ["web_page"] and listed[0]["graph"] == updated.json()["flow"]["graph"]
     assert owner.put("/api/flows/nope", json={"name": "x", "steps": ARCHIVE}).status_code == 404
     assert owner.delete(f"/api/flows/{flow['id']}").json() == {"ok": True}
     assert owner.delete(f"/api/flows/{flow['id']}").status_code == 404
@@ -527,21 +571,22 @@ def test_http_run_streams_contract_events_and_page(http_deps):
                       json={"file": {"name": "星河项目.md", "data_base64": _b64(PROJECT_DOC)}}) as response:
         assert response.status_code == 200 and response.headers["content-type"].startswith("text/event-stream")
         events = _sse(response)
-    assert _types(events) == ["run_start"] + ["step_start", "step_done"] * 4 + ["run_done"]
-    assert [e["plugin"] for e in events if e["type"] == "step_start"] == [s["plugin"] for s in ARCHIVE]
-    assert [e["step_id"] for e in events if e["type"] == "step_start"] == [s["id"] for s in flow["steps"]]
-    assert {"type", "step_id", "summary", "preview"} <= set(events[2])
+    assert _types(events) == ["run_start"] + ["node_start", "node_done"] * 5 + ["run_done"]
+    assert [e["node_id"] for e in events if e["type"] == "node_start"] == [n["id"] for n in flow["graph"]["nodes"]]
+    assert [e["node_type"] for e in events if e["type"] == "node_start"] == ["start", "step", "step", "step", "end"]
+    assert {"type", "node_id", "summary", "preview", "ms", "output"} <= set(events[2])
     output = events[-1]["output"]
-    assert events[-1]["status"] == "ok" and output["title"] == "星河项目"
+    assert events[-1]["status"] == "ok" and output["page_url"].startswith("/r/")
     listed = owner.get("/api/flows").json()["flows"][0]["last_run"]
-    assert listed["status"] == "ok" and listed["url"] == output["url"] and listed["id"] == events[0]["run_id"]
+    assert listed["status"] == "ok" and listed["page_url"] == output["page_url"] and listed["id"] == events[0]["run_id"]
     runs = owner.get(f"/api/flows/{flow['id']}/runs?limit=5").json()["runs"]
-    assert runs[0]["input"] == {"kind": "file", "name": "星河项目.md", "bytes": len(PROJECT_DOC.encode())}
+    assert runs[0]["input_summary"] == "上传资料：星河项目.md"
+    assert [n["status"] for n in runs[0]["nodes"]] == ["ok"] * 5 and runs[0]["page_url"] == output["page_url"]
     public = TestClient(server_mod.app)   # 结果页公开：不登录也能看
-    data = public.get("/api" + output["url"]).json()
+    data = public.get("/api" + output["page_url"]).json()
     assert data["title"] == "星河项目" and "老系统扛不住双十一" in data["text"]
     assert data["platform"] == {"name": "贾维斯", "icon": "", "accent": "#0A84FF"}
-    html_page = public.get(output["url"])
+    html_page = public.get(output["page_url"])
     assert html_page.status_code == 200 and '<meta name="robots" content="noindex,nofollow">' in html_page.text
     assert "script-src" not in html_page.headers["content-security-policy"]
     assert "default-src 'none'" in html_page.headers["content-security-policy"]
@@ -572,6 +617,7 @@ def test_http_tenant_isolation(http_deps):
     AccountStore().create_user("member", "member", "Member")
     member = _client("member", "member")
     assert member.get("/api/flows").json() == {"flows": []}
+    assert member.get(f"/api/flows/{flow['id']}").status_code == 404
     assert member.put(f"/api/flows/{flow['id']}", json={"name": "改", "steps": ARCHIVE}).status_code == 404
     assert member.delete(f"/api/flows/{flow['id']}").status_code == 404
     assert member.get(f"/api/flows/{flow['id']}/runs").status_code == 404

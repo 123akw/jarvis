@@ -150,6 +150,33 @@ def message_text(ctx: dict, flow: dict) -> str:
     return clip("\n\n".join(parts), MAX_MESSAGE_CHARS)
 
 
+# ---------- 积木选项 ----------
+
+def normalize_option(spec_option: dict, raw, step_name: str, error=ValueError):
+    """按积木声明规整一个选项：空值补默认、选项 / 数字范围 / 长度不合法抛 ``error``（人话）。"""
+    key, kind, default = spec_option["key"], spec_option["type"], spec_option.get("default")
+    if raw is None or raw == "":
+        return default
+    if kind == "select":
+        if raw not in spec_option["choices"]:
+            raise error(f"「{step_name}」的「{spec_option['label']}」不在可选范围内")
+        return raw
+    if kind == "number":
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            raise error(f"「{step_name}」的「{spec_option['label']}」要填数字") from None
+        low, high = spec_option.get("min"), spec_option.get("max")
+        if (low is not None and value < low) or (high is not None and value > high):
+            raise error(f"「{step_name}」的「{spec_option['label']}」要在 {low}–{high} 之间")
+        return value
+    text = " ".join(str(raw).split()) if key != "instruction" else str(raw).strip()
+    limit = spec_option.get("max_length", 200)
+    if len(text) > limit:
+        raise error(f"「{step_name}」的「{spec_option['label']}」最多 {limit} 个字")
+    return text
+
+
 # ---------- 输入 ----------
 
 def run_input_text(job: StepJob, ctx: dict, options: dict) -> Outcome:
@@ -160,19 +187,15 @@ def run_input_text(job: StepJob, ctx: dict, options: dict) -> Outcome:
     return Outcome(f"收到 {len(text)} 字" + ("（只取前 2 万字）" if cut else ""), preview(text))
 
 
-def run_input_file(job: StepJob, ctx: dict, options: dict) -> Outcome:
-    upload = job.payload.get("file")
-    if not upload:
-        if (job.payload.get("text") or "").strip():
-            outcome = run_input_text(job, ctx, options)
-            return Outcome("没有上传文件，用了贴进来的文字", outcome.preview)
-        raise StepFailure("请先上传一份资料")
-    name, data = upload["name"], upload["data"]
+def read_upload(deps, name: str, data: bytes) -> tuple[str, str]:
+    """上传的资料 → (正文, 摘要)：图片交给识图，文档抽文字；正文按 2 万字截断。失败抛 StepFailure。"""
     from jarvis import documents, vision
     ext = vision.image_extension(name)
     if ext:
+        if getattr(deps, "describe_image", None) is None:
+            raise StepFailure("暂时看不了图片，请换成文字资料")
         try:
-            text = job.deps.describe_image(data, ext)
+            text = deps.describe_image(data, ext)
         except vision.VisionError as exc:
             raise StepFailure(str(exc)) from exc
         summary = "看懂了这张图片"
@@ -185,8 +208,19 @@ def run_input_file(job: StepJob, ctx: dict, options: dict) -> Outcome:
     text, cut = cap_text(text)
     if not text:
         raise StepFailure("没有从资料里读到文字")
+    return text, summary or f"读到 {len(text)} 字" + ("（只取前 2 万字）" if cut else "")
+
+
+def run_input_file(job: StepJob, ctx: dict, options: dict) -> Outcome:
+    upload = job.payload.get("file")
+    if not upload:
+        if (job.payload.get("text") or "").strip():
+            outcome = run_input_text(job, ctx, options)
+            return Outcome("没有上传文件，用了贴进来的文字", outcome.preview)
+        raise StepFailure("请先上传一份资料")
+    name, data = upload["name"], upload["data"]
+    text, summary = read_upload(job.deps, name, data)
     ctx["text"], ctx["title"] = text, clip(PurePath(name).stem, 30) or first_line(text)
-    summary = summary or f"读到 {len(text)} 字" + ("（只取前 2 万字）" if cut else "")
     return Outcome(summary, preview(text))
 
 
