@@ -55,7 +55,7 @@ function NextSteps({ next }) {
           const meta = TYPE_META[n.node_type] || TYPE_META.step
           return (
             <li key={i} data-tone={meta.tone}>
-              <span className="fa-next-icon" aria-hidden="true">{meta.icon}</span>
+              <span className="fa-next-icon" aria-hidden="true">{n.icon || meta.icon}</span>
               <span className="fa-next-text">{n.title || meta.label}</span>
             </li>
           )

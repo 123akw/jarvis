@@ -94,7 +94,9 @@ body.light .fa-note-input{color-scheme:light}
   .fa-h1{font-size:24px}
   .fa-card{padding:16px;border-radius:14px}
   .fa-text,.fa-readonly{padding:12px 14px}
-  .fa-actions{margin:20px -16px 0;padding:12px 16px calc(12px + env(safe-area-inset-bottom));border-radius:16px 16px 0 0;
+  /* 内容短时也把「拒绝 / 同意」压到屏幕最下面，拇指够得着；内容长时贴底常驻 */
+  .fa-sec{padding-bottom:20px}
+  .fa-actions,.fa-sec+.fa-actions,.fa-card+.fa-actions{margin:auto -16px 0;padding:12px 16px calc(12px + env(safe-area-inset-bottom));border-radius:16px 16px 0 0;
     border-left:none;border-right:none;border-bottom:none}
   .fa-settled,.fa-after{margin-bottom:24px}
   .fa-brand{display:none}

@@ -270,7 +270,14 @@ function WebhookPanel({ flow, hooks, fields, onChange, onExpired }) {
   const hook = hooks.webhook
   const on = Boolean(hook?.enabled)
   const urlRef = useRef(null)
-  useEffect(() => { if (fresh) urlRef.current?.focus() }, [fresh])
+  // 刚生成：焦点落到地址上（读屏会念出来），地址开头留在眼前
+  useEffect(() => {
+    const el = urlRef.current
+    if (!fresh || !el) return
+    el.focus({ preventScroll: true })
+    el.setSelectionRange?.(0, 0)
+    el.scrollLeft = 0
+  }, [fresh])
 
   async function generate() {
     setBusy('create')
@@ -324,7 +331,7 @@ function WebhookPanel({ flow, hooks, fields, onChange, onExpired }) {
           </p>
           <p className="fh-field-note">关掉这个窗口就再也看不到完整地址了；忘了的话只能重置，换一个新的。</p>
           <div className="fh-hook-url">
-            <input ref={urlRef} readOnly value={fresh} aria-label="链接触发的地址" onFocus={e => e.target.select()} />
+            <input ref={urlRef} readOnly value={fresh} aria-label="链接触发的地址" onClick={e => e.currentTarget.select()} />
             <CopyButton text={fresh} label="复制地址" className="jv-btn jv-btn--sm jv-btn--primary" />
           </div>
         </section>
