@@ -3,6 +3,13 @@
 鉴权沿用 server.py 的写法：读接口要登录，写接口要登录 + CSRF（panel_write）；
 结果页（/api/r/<token>、/r/<token>）公开，只凭不可猜的 token 访问。
 路由顺序：``/api/flows/nodes`` 在 ``/api/flows/{flow_id}`` 之前注册（templates / compose 由 extras 先注册）。
+
+第二十轮（契约 docs/proposals/2026-10-round20-flows-ops.md §2 / §3）：
+- ``GET  /api/flows/{id}/runs/{run_id}``          单次运行详情（确认页轮询「接着跑」的进度）；
+- ``POST /api/flows/{id}/runs/{run_id}/rerun``    用那次保存的输入再跑一遍（SSE 同 /run，source=rerun）；
+- ``POST /api/flows/{id}/nodes/{node_id}/test``   单节点试跑（JSON，不写运行记录、不占并发闸）；
+- 开始节点的文件字段接受文件空间里已有的文件：``{file_id}`` 或含「file_id=XXX」的附件标记文字；
+- 所有入口先 ``usage.check_flow_run``（超了回 429 / run_headless 的 ``status: "quota"``）。
 """
 from __future__ import annotations
 
@@ -20,7 +27,9 @@ from fastapi import Path as PathParam, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from jarvis.flows import engine, executor, nodes as nodes_mod, page as page_mod
+from jarvis import files as filespace
+from jarvis import usage
+from jarvis.flows import approvals, engine, executor, nodes as nodes_mod, page as page_mod
 from jarvis.flows.graph import (MAX_FIELDS, GraphError, config_hashes, default_summary, graph_from_steps,
                                 validate_graph)
 from jarvis.flows.steps import clip
@@ -33,10 +42,15 @@ MAX_FILE_BYTES = 10 * 1024 * 1024
 MAX_RUN_TEXT = 50000
 MAX_SUMMARY = 60
 FlowId = Annotated[str, PathParam(min_length=1, max_length=32, pattern=r"^[A-Za-z0-9_-]+$")]
+RunId = Annotated[str, PathParam(min_length=1, max_length=32, pattern=r"^[A-Za-z0-9_-]+$")]
+NodeId = Annotated[str, PathParam(min_length=1, max_length=32, pattern=r"^[A-Za-z0-9_-]+$")]
 _TOKEN = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 _INPUT_KEY = re.compile(r"^[a-z][a-z0-9_]{0,23}$")
+_FILE_REF = re.compile(r"file_id\s*[=＝:：]\s*[A-Za-z0-9_-]{8,64}")
 BUSY = "你有一条流程正在运行，等它跑完再试"
 NOT_FOUND = "没有找到这条流程"
+RUN_NOT_FOUND = "没有找到这次运行，可能已经被清理了"
+NO_SAVED_INPUT = "这次运行是比较早的记录，没有保存输入，没法直接再跑：请在流程里重新填写后运行"
 
 _RUN_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="jarvis-flow")
 
@@ -65,6 +79,10 @@ class RunIn(BaseModel):
     file: FileIn | None = None
 
 
+class NodeTrialIn(BaseModel):
+    inputs: dict[str, Any] | None = None
+
+
 class InputError(ValueError):
     """运行输入不合法；message 直接给用户看。"""
 
@@ -87,34 +105,85 @@ def decode_file(raw: dict) -> dict:
     return {"name": PurePath(name.replace("\\", "/")).name.strip() or "资料", "data": data}
 
 
-def prepare_inputs(raw: dict | None, graph: dict) -> tuple[dict, dict]:
-    """运行输入 → (inputs, input_info)。值可以是文字、数字或 {name, data_base64}（已解码的 {name, data} 也认）。"""
+def start_fields(graph: dict) -> dict[str, dict]:
+    start = next((n for n in graph.get("nodes") or [] if n.get("id") == "start"), {"data": {"fields": []}})
+    return {f["key"]: f for f in start["data"].get("fields") or [] if isinstance(f, dict) and f.get("key")}
+
+
+def load_file(user_id: str | None, ref: str, label: str) -> dict:
+    """文件空间里已有的文件（file_id / 附件标记 / 下载链接）→ {name, data, file_id}；按当前账号取，不重复存。"""
+    if not user_id:
+        raise InputError(f"「{label}」要上传文件")
+    try:
+        meta = filespace.resolve(user_id, ref)
+        data = filespace.read(user_id, meta["id"])
+    except (KeyError, ValueError, OSError):
+        raise InputError(f"「{label}」用的文件找不到了（可能已经过期被清理），请重新上传") from None
+    if len(data) > MAX_FILE_BYTES:
+        raise InputError(f"「{label}」超过 10MB 上限")
+    return {"name": meta["name"], "data": data, "file_id": meta["id"]}
+
+
+def prepare_inputs(raw: dict | None, graph: dict, user_id: str | None = None) -> tuple[dict, dict]:
+    """运行输入 → (inputs, input_info)。值可以是文字、数字或 {name, data_base64}（已解码的 {name, data} 也认）；
+    第二十轮起文件字段还接受文件空间里已有的文件：``{file_id}``，或含「file_id=XXX」的附件标记文字（按 user_id 取）。
+
+    ``input_info`` = ``{summary, values}``：``values`` 是重跑用的输入（文件存 ``{file_id, name}``，上传的原文件
+    在开始节点存进文件空间后由执行器补上 file_id）。"""
     raw = raw or {}
     if not isinstance(raw, dict) or len(raw) > MAX_FIELDS * 2:
         raise InputError("输入格式不对")
+    fields = start_fields(graph)
     inputs: dict = {}
+    values: dict = {}
     for key, value in raw.items():
         if not isinstance(key, str) or not _INPUT_KEY.match(key):
             continue
         if value is None:
             continue
+        label = (fields.get(key) or {}).get("label") or "文件"
+        is_file = (fields.get(key) or {}).get("type") == "file"
         if isinstance(value, bool):
             value = "是" if value else "否"
         if isinstance(value, str):
             if len(value) > MAX_RUN_TEXT:
                 raise InputError(f"输入的文字太长了（最多 {MAX_RUN_TEXT} 字）")
-            inputs[key] = value
+            if is_file and _FILE_REF.search(value):   # 对话附件、链接触发：附件标记指向文件空间里的文件
+                inputs[key] = load_file(user_id, value, label)
+                values[key] = {"file_id": inputs[key]["file_id"], "name": inputs[key]["name"]}
+                continue
+            inputs[key] = values[key] = value
         elif isinstance(value, (int, float)):
-            inputs[key] = value
+            inputs[key] = values[key] = value
+        elif isinstance(value, dict) and isinstance(value.get("file_id"), str) and "data_base64" not in value:
+            inputs[key] = load_file(user_id, value["file_id"].strip(), label)
+            values[key] = {"file_id": inputs[key]["file_id"], "name": inputs[key]["name"]}
         elif isinstance(value, dict) and isinstance(value.get("data"), (bytes, bytearray)):
             if len(value["data"]) > MAX_FILE_BYTES:
                 raise InputError("文件超过 10MB 上限")
             inputs[key] = {"name": str(value.get("name") or "资料")[:200], "data": bytes(value["data"])}
+            values[key] = {"name": inputs[key]["name"]}
         elif isinstance(value, dict):
             inputs[key] = decode_file(value)
+            values[key] = {"name": inputs[key]["name"]}
         else:
             raise InputError("输入格式不对")
-    return inputs, {"summary": input_summary(inputs, graph)}
+    return inputs, {"summary": input_summary(inputs, graph), "values": values}
+
+
+def rerun_inputs(values: dict, graph: dict) -> dict:
+    """运行记录里存的输入 → 再跑一遍的输入：文件按 file_id 取；那次没存下原文件的说清楚要重新上传。"""
+    fields = start_fields(graph)
+    out: dict = {}
+    for key, value in values.items():
+        if isinstance(value, dict):
+            if not value.get("file_id"):
+                label = (fields.get(key) or {}).get("label") or value.get("name") or "文件"
+                raise InputError(f"那次上传的「{label}」没有存进文件空间，没法直接再跑：请在流程里重新上传后运行")
+            out[key] = {"file_id": str(value["file_id"])}
+        else:
+            out[key] = value
+    return out
 
 
 def legacy_inputs(body: RunIn, graph: dict) -> dict:
@@ -166,12 +235,19 @@ class FlowRuntime:
         self.deps.tenant_store()
         return self.store_factory()
 
-    def run_headless(self, user_id: str, flow_id: str, inputs: dict | None = None) -> dict:
-        """无头运行（给定时运行用）：同步跑完返回 ``{"status", "run_id", "output", "error"}``。
+    def run_headless(self, user_id: str, flow_id: str, inputs: dict | None = None, *, source: str = "schedule",
+                     origin: str = "") -> dict:
+        """无头运行（定时 / 对话 / 消息触发 / 链接触发用）：同步跑完返回
+        ``{"status", "run_id", "output", "error"}``，停在「发送前确认」时另带 ``approval: {id, url, expires_at}``。
 
-        status：ok / error / busy（这个账号正在跑别的流程，没开跑）。不发事件、不可取消，整条仍限 240 秒。"""
-        def result(status: str, error: str = "", run_id=None, output=None) -> dict:
-            return {"status": status, "run_id": run_id, "output": output, "error": error}
+        status：ok / error / busy（这个账号正在跑别的流程，没开跑）/ waiting（停下等确认，确认通知已发出）/
+        quota（今天的流程运行次数到上限了，没开跑；error 是给人看的说明）。不发事件、不可取消，整条仍限 240 秒。
+        ``source`` 写进运行记录；``origin`` 可选，没配 JARVIS_PUBLIC_URL 时拼确认链接的绝对地址。"""
+        def result(status: str, error: str = "", run_id=None, output=None, approval=None) -> dict:
+            out = {"status": status, "run_id": run_id, "output": output, "error": error}
+            if approval:
+                out["approval"] = approval
+            return out
 
         try:
             with tenant_scope(user_id):
@@ -183,9 +259,12 @@ class FlowRuntime:
             return result("error", NOT_FOUND)
         try:
             graph = validate_graph(flow["graph"])
-            prepared, info = prepare_inputs(inputs, graph)
+            prepared, info = prepare_inputs(inputs, graph, user_id)
         except (GraphError, InputError) as exc:
             return result("error", str(exc))
+        blocked = quota_problem(user_id)
+        if blocked:
+            return result("quota", blocked)
         if not self.guard.acquire(user_id):
             return result("busy", BUSY)
         try:
@@ -193,13 +272,35 @@ class FlowRuntime:
                 done = executor.execute_graph(
                     flow={"id": flow["id"], "name": flow["name"], "graph": graph}, user_id=user_id, inputs=prepared,
                     deps=self.deps, store=store, emit=lambda event: None, input_info={**info, "trigger": "headless"},
-                    total_seconds=self.total_seconds, timeouts=self.timeouts)
+                    total_seconds=self.total_seconds, timeouts=self.timeouts, source=source or "schedule",
+                    origin=origin)
         except Exception as exc:
             log.exception("flow headless run failed: %s", type(exc).__name__)
             return result("error", "流程运行出了点问题，请稍后再试")
         finally:
             self.guard.release(user_id)
-        return result(done["status"], done.get("error") or "", done["run_id"], done["output"])
+        return result(done["status"], done.get("error") or "", done["run_id"], done["output"], done.get("approval"))
+
+
+def quota_problem(user_id: str) -> str | None:
+    """今天还能不能跑流程（usage.check_flow_run）：能跑返回 None，超了返回人话；检查本身出错不拦。"""
+    try:
+        message = usage.check_flow_run(user_id)
+    except Exception as exc:
+        log.warning("flow quota check failed: %s", type(exc).__name__)
+        return None
+    return str(message) if message else None
+
+
+def request_origin(request: Request) -> str:
+    """确认链接的绝对地址前缀：JARVIS_PUBLIC_URL 优先，否则按请求来源（反代转发头）拼。"""
+    try:
+        from jarvis.platforms import public_base_url
+        origin = public_base_url(request)
+    except Exception:
+        return ""
+    approvals.remember_origin(origin)
+    return origin
 
 
 def platform_for_owner(owner_id: str) -> dict | None:
@@ -307,6 +408,7 @@ def register(app, *, request_principal, panel_write, deny, deps: engine.FlowDeps
         try:
             with tenant_scope(principal.user_id):
                 s = runtime.store()
+                approvals.expire_due(s, principal.user_id)   # 等确认超时的先记成 expired（惰性）
                 flows = s.list_flows(principal.user_id)
                 last, triggers = s.last_runs(principal.user_id), s.triggers(principal.user_id)
         except TenantMigrationError:
@@ -325,6 +427,7 @@ def register(app, *, request_principal, panel_write, deny, deps: engine.FlowDeps
                 flow = s.get_flow(principal.user_id, flow_id)
                 if flow is None:
                     return no_store({"error": NOT_FOUND}, 404)
+                approvals.expire_due(s, principal.user_id)
                 last = s.last_runs(principal.user_id).get(flow_id)
                 trigger = s.trigger(principal.user_id, flow_id)
         except TenantMigrationError:
@@ -400,10 +503,58 @@ def register(app, *, request_principal, panel_write, deny, deps: engine.FlowDeps
                 s = runtime.store()
                 if s.get_flow(principal.user_id, flow_id) is None:
                     return no_store({"error": NOT_FOUND}, 404)
+                approvals.expire_due(s, principal.user_id)
                 runs = s.list_runs(principal.user_id, flow_id, limit)
         except TenantMigrationError:
             return migration_failed()
         return no_store({"runs": runs})
+
+    @app.get("/api/flows/{flow_id}/runs/{run_id}")
+    def flows_run_detail(request: Request, flow_id: FlowId, run_id: RunId):
+        """单次运行详情（同列表项结构）：确认页据此轮询「接着跑」的进度。"""
+        principal, _token = request_principal(request)
+        if not principal:
+            return deny()
+        try:
+            with tenant_scope(principal.user_id):
+                s = runtime.store()
+                if s.get_flow(principal.user_id, flow_id) is None:
+                    return no_store({"error": NOT_FOUND}, 404)
+                approvals.expire_due(s, principal.user_id)
+                run = s.get_run(principal.user_id, flow_id, run_id)
+        except TenantMigrationError:
+            return migration_failed()
+        if run is None:
+            return no_store({"error": RUN_NOT_FOUND}, 404)
+        return no_store({"run": run})
+
+    def start_stream(request: Request, user_id: str, flow: dict, graph: dict, inputs: dict, info: dict, s,
+                     source: str):
+        """开跑（/run 与 /rerun 共用）：配额 → 并发闸 → SSE。"""
+        blocked = quota_problem(user_id)
+        if blocked:
+            return no_store({"error": blocked}, 429)
+        if not runtime.guard.acquire(user_id):
+            return no_store({"error": BUSY}, 409)
+        target = {"id": flow["id"], "name": flow["name"], "graph": graph}
+        origin = request_origin(request)
+
+        def produce(emit, cancel):
+            try:
+                with tenant_scope(user_id):
+                    executor.execute_graph(flow=target, user_id=user_id, inputs=inputs, deps=runtime.deps, store=s,
+                                           emit=emit, cancel=cancel, input_info=info,
+                                           total_seconds=runtime.total_seconds, timeouts=runtime.timeouts,
+                                           source=source, origin=origin)
+            except Exception as exc:
+                log.exception("flow run failed: %s", type(exc).__name__)
+                emit({"type": "run_done", "status": "error", "ms": 0,
+                      "output": {"text": "", "links": [], "page_url": None}, "error": "流程运行出了点问题，请稍后再试"})
+            finally:
+                runtime.guard.release(user_id)
+
+        return StreamingResponse(stream_events(produce), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     @app.post("/api/flows/{flow_id}/run")
     def flows_run(request: Request, flow_id: FlowId, body: RunIn):
@@ -422,28 +573,78 @@ def register(app, *, request_principal, panel_write, deny, deps: engine.FlowDeps
         try:   # 存进去时合法，但积木 / 插件清单可能变过：开跑前再校验一遍
             graph = validate_graph(flow["graph"])
             raw = body.inputs if body.inputs is not None else legacy_inputs(body, graph)
-            inputs, info = prepare_inputs(raw, graph)
+            inputs, info = prepare_inputs(raw, graph, user_id)
         except (GraphError, InputError) as exc:
             return no_store({"error": str(exc)}, 422)
-        if not runtime.guard.acquire(user_id):
-            return no_store({"error": BUSY}, 409)
+        return start_stream(request, user_id, flow, graph, inputs, info, s, "manual")
+
+    @app.post("/api/flows/{flow_id}/runs/{run_id}/rerun")
+    def flows_rerun(request: Request, flow_id: FlowId, run_id: RunId):
+        """用那次运行保存的输入再跑一遍（文件按文件空间 id 取），SSE 同 /run，source=rerun。"""
+        principal, err = panel_write(request)
+        if err:
+            return err
+        user_id = principal.user_id
+        try:
+            with tenant_scope(user_id):
+                s = runtime.store()
+                flow = s.get_flow(user_id, flow_id)
+                previous = s.run_record(user_id, run_id) if flow is not None else None
+        except TenantMigrationError:
+            return migration_failed()
+        if flow is None:
+            return no_store({"error": NOT_FOUND}, 404)
+        if previous is None or previous["flow_id"] != flow_id:
+            return no_store({"error": RUN_NOT_FOUND}, 404)
+        values = previous["input"].get("values")
+        if not isinstance(values, dict):
+            return no_store({"error": NO_SAVED_INPUT}, 422)
+        try:
+            graph = validate_graph(flow["graph"])
+            inputs, info = prepare_inputs(rerun_inputs(values, graph), graph, user_id)
+        except (GraphError, InputError) as exc:
+            return no_store({"error": str(exc)}, 422)
+        info["rerun_of"] = run_id
+        return start_stream(request, user_id, flow, graph, inputs, info, s, "rerun")
+
+    @app.post("/api/flows/{flow_id}/nodes/{node_id}/test")
+    def flows_node_test(request: Request, flow_id: FlowId, node_id: NodeId, body: NodeTrialIn | None = None):
+        """单节点试跑：上游产出取最近运行里存下的（或用 inputs 现填开始的输入），只跑这一个节点；
+        有副作用的积木只渲染要发的内容。不写运行记录、不占并发闸。"""
+        principal, err = panel_write(request)
+        if err:
+            return err
+        user_id = principal.user_id
+        try:
+            with tenant_scope(user_id):
+                s = runtime.store()
+                flow = s.get_flow(user_id, flow_id)
+                saved = s.node_outputs(user_id, flow_id) if flow is not None else {}
+        except TenantMigrationError:
+            return migration_failed()
+        if flow is None:
+            return no_store({"error": NOT_FOUND}, 404)
+        try:
+            graph = validate_graph(flow["graph"])
+            if not any(n["id"] == node_id for n in graph["nodes"]):
+                return no_store({"error": "这个节点已经不在流程里了，刷新一下再试"}, 404)
+            raw = (body.inputs if body is not None else None) or None
+            inputs = prepare_inputs(raw, graph, user_id)[0] if raw else None
+        except (GraphError, InputError) as exc:
+            return no_store({"error": str(exc)}, 422)
+        blocked = quota_problem(user_id)
+        if blocked:
+            return no_store({"error": blocked}, 429)
         target = {"id": flow["id"], "name": flow["name"], "graph": graph}
-
-        def produce(emit, cancel):
-            try:
-                with tenant_scope(user_id):
-                    executor.execute_graph(flow=target, user_id=user_id, inputs=inputs, deps=runtime.deps, store=s,
-                                           emit=emit, cancel=cancel, input_info=info,
-                                           total_seconds=runtime.total_seconds, timeouts=runtime.timeouts)
-            except Exception as exc:
-                log.exception("flow run failed: %s", type(exc).__name__)
-                emit({"type": "run_done", "status": "error", "ms": 0,
-                      "output": {"text": "", "links": [], "page_url": None}, "error": "流程运行出了点问题，请稍后再试"})
-            finally:
-                runtime.guard.release(user_id)
-
-        return StreamingResponse(stream_events(produce), media_type="text/event-stream",
-                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+        try:
+            with tenant_scope(user_id):
+                result = executor.test_node(flow=target, node_id=node_id, user_id=user_id, deps=runtime.deps, store=s,
+                                            saved=saved, inputs=inputs, total_seconds=runtime.total_seconds,
+                                            timeouts=runtime.timeouts)
+        except Exception as exc:
+            log.exception("flow node test failed: %s", type(exc).__name__)
+            return no_store({"error": "试跑出了点问题，请稍后再试"}, 500)
+        return no_store(result)
 
     def lookup(token: str):
         if not _TOKEN.match(token):   # 手动校验：坏链接也要回「已过期」页面，而不是 422 JSON

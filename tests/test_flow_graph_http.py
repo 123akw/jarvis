@@ -89,7 +89,12 @@ def test_node_catalog_route_and_shape(fake):
     catalog = _client().get("/api/flows/nodes").json()   # 没被 /api/flows/{flow_id} 抢先匹配
     assert [g["id"] for g in catalog["groups"]] == ["basic", "tools", "skills", "steps"]
     assert [g["label"] for g in catalog["groups"]] == ["基础", "插件工具", "技能", "积木"]
-    assert set(_items(catalog, "basic")) == {"llm", "condition", "template", "end"}
+    assert set(_items(catalog, "basic")) == {"llm", "condition", "template", "end", "approval"}
+    approval = _items(catalog, "basic")["approval"]   # 第二十轮：发送前确认
+    assert approval["title"] == "发送前确认" and approval["type"] == "approval" and approval["available"]
+    assert approval["data"] == {"title": "发送前确认", "message": "", "editable": True, "timeout_hours": 24,
+                                "notify": None}
+    assert catalog["outputs"]["approval"] == ["text", "items"]
     weather = _items(catalog, "tools")["tool:weather:weather"]
     assert weather["title"] == "查城市天气" and weather["plugin_name"] == "查天气" and weather["category"] == "life"
     assert weather["args"] == [{"name": "city", "label": "城市", "type": "string", "required": True,
