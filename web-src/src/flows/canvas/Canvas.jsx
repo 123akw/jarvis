@@ -30,7 +30,7 @@ const MARKER = { type: MarkerType.ArrowClosed, width: 14, height: 14 }
 
 function Inner({
   graph, vmOf, selectedId, selectedEdge, locked, readOnly, run, onSelect, onSelectEdge, onMove, onConnect,
-  onConnectError, onDropItem, onQuick, onInit, sizesRef,
+  onConnectError, onDropItem, onQuick, onInit, sizesRef, onDeleteEdge,
 }) {
   const [sizes, setSizes] = useState({})
   const [hover, setHover] = useState(null)
@@ -95,7 +95,24 @@ function Inner({
   const actions = useMemo(() => ({
     openQuick: q => onQuick?.(q),
     hoverEdge: setHover,
-  }), [onQuick])
+    deleteEdge: id => onDeleteEdge?.(id),
+  }), [onQuick, onDeleteEdge])
+
+  // 从出口拖线到空白处松手：弹出「接下来做什么？」，新节点放在松手处
+  const onConnectEnd = useCallback((event, state) => {
+    if (readOnly || locked || !state || state.isValid || state.toNode) return
+    const from = state.fromNode
+    if (!from || state.fromHandle?.type !== 'source') return
+    const pt = 'changedTouches' in event && event.changedTouches?.length ? event.changedTouches[0] : event
+    const x = pt.clientX
+    const y = pt.clientY
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return
+    const p = rf.current?.screenToFlowPosition({ x, y }) || { x: 0, y: 0 }
+    onQuick?.({
+      after: from.id, handle: state.fromHandle.id ?? null, rect: { left: x, right: x, top: y, bottom: y },
+      position: { x: Math.round(p.x / 16) * 16, y: Math.round((p.y - 40) / 16) * 16 },
+    })
+  }, [readOnly, locked, onQuick])
 
   return (
     <CanvasActions.Provider value={actions}>
@@ -103,7 +120,7 @@ function Inner({
         nodes={nodes} edges={edges} nodeTypes={NODE_TYPES} edgeTypes={EDGE_TYPES}
         onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
         onConnect={c => { const why = canConnect(graph, c); if (why) onConnectError?.(why); else onConnect(c) }}
-        isValidConnection={isValidConnection}
+        isValidConnection={isValidConnection} onConnectEnd={onConnectEnd}
         onNodeClick={(_, n) => onSelect(n.id)}
         onEdgeClick={(_, e) => onSelectEdge(e.id)}
         onPaneClick={() => { onSelect(null); onSelectEdge(null) }}
@@ -138,8 +155,8 @@ function Inner({
 
 export default function Canvas(props) {
   return (
-    <div className={`fc-canvas${props.readOnly ? ' is-readonly' : ''}`} data-tour="flow-canvas"
-      role="application" aria-label="流程画布：节点和连线" aria-roledescription="流程画布">
+    <div className={`fc-canvas${props.readOnly ? ' is-readonly' : ''}`} data-tour={props.tour === false ? undefined : 'flow-canvas'}
+      role="region" aria-label="流程画布：节点和连线">
       <ReactFlowProvider>
         <Inner {...props} />
       </ReactFlowProvider>

@@ -3,12 +3,12 @@ import { memo, useContext } from 'react'
 import Icon from '../../Icon.jsx'
 import { CanvasActions } from './NodeCard.jsx'
 
-/** 连线：贝塞尔曲线；悬停 / 选中时中间出现「+」（插一个节点进来）；运行中按状态流动、变绿、变暗 */
+/** 连线：贝塞尔曲线；悬停 / 选中时中间出现「+」（插一个节点进来）与「✕」（删掉）；运行中按状态流动、变绿、变暗 */
 export const FlowEdge = memo(function FlowEdge({
   id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data = {}, selected, markerEnd,
 }) {
   const [path, lx, ly] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition })
-  const { openQuick, hoverEdge } = useContext(CanvasActions)
+  const { openQuick, hoverEdge, deleteEdge } = useContext(CanvasActions)
   const run = data.run || ''
   const show = !data.locked && (selected || data.hover)
   return (
@@ -25,6 +25,10 @@ export const FlowEdge = memo(function FlowEdge({
               tabIndex={show ? 0 : -1}
               onClick={e => { e.stopPropagation(); openQuick({ edgeId: id, rect: e.currentTarget.getBoundingClientRect() }) }}>
               <Icon name="plus" size={12} />
+            </button>
+            <button type="button" className="fc-edge-del" aria-label={`删掉「${data.label || '这条线'}」`} title="删掉这条线"
+              tabIndex={show ? 0 : -1} onClick={e => { e.stopPropagation(); deleteEdge?.(id) }}>
+              <Icon name="close" size={11} />
             </button>
           </div>
         </EdgeLabelRenderer>

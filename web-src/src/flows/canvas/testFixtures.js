@@ -12,6 +12,8 @@ export const CATALOG = {
     { id: 'tools', label: '插件工具', items: [
       { key: 'tool:weather:weather__now', type: 'tool', title: '查实时天气', icon: '🌤️', summary: '查某个城市现在的天气', plugin: 'weather', plugin_name: '查天气', category: 'life',
         args: [{ name: 'city', label: '城市', type: 'string', required: true, description: '比如：北京' }], data: { title: '查实时天气', plugin: 'weather', tool: 'weather__now', args: {} }, available: true },
+      { key: 'tool:calc:calc__eval', type: 'tool', title: '算一算', icon: '🧮', summary: '算个数', plugin: 'calc', plugin_name: '计算器', category: 'efficiency',
+        args: [{ name: 'expression', label: '算式', type: 'string', required: true }], data: { title: '算一算', plugin: 'calc', tool: 'calc__eval', args: {} }, available: true },
       { key: 'tool:express:express__track', type: 'tool', title: '查快递', icon: '📦', plugin: 'express', plugin_name: '快递', category: 'life',
         args: [], data: { title: '查快递', plugin: 'express', tool: 'express__track', args: {} }, available: false, reason: '这个智能体还没装「快递」，到智能体设置里加上就能用' },
     ] },
@@ -19,6 +21,8 @@ export const CATALOG = {
       { key: 'skill:work_report', type: 'llm', title: '周报写手', icon: '📝', data: { title: '周报写手', skill: 'work_report', prompt: '{{start.text}}' } },
     ] },
   ],
+  categories: [{ id: 'efficiency', name: '效率' }, { id: 'life', name: '生活' }],
+  outputs: { llm: ['text', 'items'], tool: ['text', 'items', 'links', 'files'], template: ['text', 'items'], step: ['text', 'items', 'title', 'links', 'parts'], condition: [], end: ['text', 'links'] },
   vars: { sys: [{ key: 'date', label: '今天日期' }, { key: 'time', label: '现在时间' }] },
   field_types: ['text', 'paragraph', 'file', 'number', 'select'],
 }

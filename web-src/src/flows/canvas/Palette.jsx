@@ -6,12 +6,21 @@ import { needsPlugin, searchCatalog, unavailableReason } from './catalog.js'
 import { NodeIcon } from './glyphs.jsx'
 
 export const DND_TYPE = 'application/x-jv-flow-node'
+const RECENT_KEY = 'jvf-recent-nodes'
+
+/** 最近用过的节点（只存目录 key，最多 5 个；存储不可用时当没有） */
+export function readRecent() {
+  try { const v = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); return Array.isArray(v) ? v.filter(k => typeof k === 'string').slice(0, 5) : [] } catch { return [] }
+}
+export function rememberRecent(key) {
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify([key, ...readRecent().filter(k => k !== key)].slice(0, 5))) } catch { /* 隐私模式 */ }
+}
 
 /** 一项节点：图标、名字、一句话；不可用的灰显并说原因，给「去加插件」 */
-function Item({ item, onPick, draggable, blocked }) {
+function Item({ item, onPick, draggable, blocked, prefix = 'fc-pal' }) {
   const why = unavailableReason(item) || blocked
   const off = !!why
-  const descId = `fc-pal-why-${item.key.replace(/[^A-Za-z0-9_-]/g, '_')}`
+  const descId = `${prefix}-why-${item.key.replace(/[^A-Za-z0-9_-]/g, '_')}`
   return (
     <li className={`fc-pal-li${off ? ' is-off' : ''}`}>
       <button type="button" className="fc-pal-item" aria-disabled={off || undefined}
@@ -27,7 +36,9 @@ function Item({ item, onPick, draggable, blocked }) {
         <NodeIcon type={item.type} emoji={item.icon} />
         <span className="fc-pal-text">
           <b>{item.title}</b>
-          {item.summary ? <span className="fc-pal-sum">{item.summary}</span> : null}
+          {item.summary || item.plugin_name ? (
+            <span className="fc-pal-sum">{item.type === 'tool' && item.plugin_name ? `${item.plugin_name}${item.summary ? ' · ' : ''}` : ''}{item.summary}</span>
+          ) : null}
         </span>
       </button>
       {off ? (
@@ -46,11 +57,16 @@ function Item({ item, onPick, draggable, blocked }) {
  * 节点清单：搜索 + 分组（基础 / 插件工具（按插件）/ 技能 / 积木）。
  * 左侧面板、节点出口的「+」快捷面板、手机底部面板共用。
  */
-export function NodeList({ index, onPick, draggable = false, blocked = '', autoFocus = false, exclude = null, idPrefix = 'fc-pal' }) {
+export function NodeList({ index, onPick, draggable = false, blocked = '', autoFocus = false, exclude = null, idPrefix = 'fc-pal', recent = true }) {
   const [query, setQuery] = useState('')
-  const groups = searchCatalog(index, query)
-    .map(g => (exclude ? { ...g, items: g.items.filter(it => !exclude(it)), plugins: g.plugins?.map(p => ({ ...p, items: p.items.filter(it => !exclude(it)) })).filter(p => p.items.length) } : g))
+  const keep = it => !exclude || !exclude(it)
+  let groups = searchCatalog(index, query)
+    .map(g => (exclude ? { ...g, items: g.items.filter(keep), sections: g.sections?.map(p => ({ ...p, items: p.items.filter(keep) })).filter(p => p.items.length) } : g))
     .filter(g => g.items.length)
+  // 「最近用过」：没在搜索时放最前面
+  const recentItems = recent && !query.trim() ? readRecent().map(k => index.byKey.get(k)).filter(it => it && it.available !== false && keep(it)) : []
+  if (recentItems.length) groups = [{ id: 'recent', label: '最近用过', hint: '', items: recentItems }, ...groups]
+  const pick = it => { rememberRecent(it.key); onPick(it) }
   return (
     <div className="fc-pal-list">
       <label className="fc-pal-search">
@@ -61,16 +77,16 @@ export function NodeList({ index, onPick, draggable = false, blocked = '', autoF
       {groups.length ? groups.map(g => (
         <section key={g.id} className="fc-pal-group" aria-labelledby={`${idPrefix}-${g.id}`}>
           <h3 className="fc-pal-title" id={`${idPrefix}-${g.id}`}>{g.label}{g.hint ? <small>{g.hint}</small> : null}</h3>
-          {g.plugins ? g.plugins.map(p => (
-            <div key={p.id || '_'} className="fc-pal-plugin">
-              <h4 className="fc-pal-pname">{p.icon ? <span aria-hidden="true">{p.icon}</span> : null}{p.name}</h4>
+          {g.sections ? g.sections.map(p => (
+            <div key={p.id} className="fc-pal-plugin">
+              <h4 className="fc-pal-pname">{p.label}</h4>
               <ul className="fc-pal-ul">
-                {p.items.map(it => <Item key={it.key} item={it} onPick={onPick} draggable={draggable} blocked={blocked} />)}
+                {p.items.map(it => <Item key={it.key} item={it} onPick={pick} draggable={draggable} blocked={blocked} prefix={idPrefix} />)}
               </ul>
             </div>
           )) : (
             <ul className="fc-pal-ul">
-              {g.items.map(it => <Item key={it.key} item={it} onPick={onPick} draggable={draggable} blocked={blocked} />)}
+              {g.items.map(it => <Item key={`${g.id}-${it.key}`} item={it} onPick={pick} draggable={draggable} blocked={blocked} prefix={idPrefix} />)}
             </ul>
           )}
         </section>

@@ -50,8 +50,8 @@ export function needsPlugin(item) {
 }
 
 /**
- * 规整目录：{ groups: [{ id, label, hint, items }], byKey: Map, sys, skills, empty }。
- * 工具组另带 plugins: [{ id, name, category, items }]（按插件分类显示）。
+ * 规整目录：{ groups: [{ id, label, hint, items }], byKey: Map, sys, skills, outputs, loaded }。
+ * 工具组另带 sections: [{ id, label, items }]（按插件分类：效率、沟通、资料、资讯、生活…）。
  */
 export function indexCatalog(raw) {
   const groupsIn = Array.isArray(raw?.groups) ? raw.groups : []
@@ -84,7 +84,7 @@ export function indexCatalog(raw) {
   for (const g of groups) {
     // 组内可用的排前面
     g.items = g.items.slice().sort((a, b) => Number(a.available === false) - Number(b.available === false))
-    if (g.id === 'tools') g.plugins = byPlugin(g.items)
+    if (g.id === 'tools') g.sections = toolSections(g.items, Array.isArray(raw?.categories) ? raw.categories : [])
   }
   const sysRaw = Array.isArray(raw?.vars?.sys) ? raw.vars.sys.filter(s => s && s.key) : []
   const skills = (groups.find(g => g.id === 'skills')?.items || []).filter(it => it.data?.skill)
@@ -93,21 +93,25 @@ export function indexCatalog(raw) {
     byKey,
     sys: sysRaw.length ? sysRaw.map(s => ({ key: String(s.key), label: String(s.label || s.key) })) : DEFAULT_SYS,
     skills,
+    outputs: raw?.outputs && typeof raw.outputs === 'object' ? raw.outputs : null,
     loaded: !!raw,
   }
 }
 
 const rank = id => { const i = GROUP_ORDER.indexOf(id); return i < 0 ? GROUP_ORDER.length : i }
 
-function byPlugin(items) {
+/** 插件工具按插件分类分小组（分类顺序沿用接口给的 categories），组内可用的排前面 */
+function toolSections(items, categories) {
+  const order = categories.map(c => String(c.id))
+  const label = Object.fromEntries(categories.map(c => [String(c.id), c.name || c.label || '']))
   const map = new Map()
   for (const it of items) {
-    const pid = it.plugin || it.data?.plugin || ''
-    if (!map.has(pid)) map.set(pid, { id: pid, name: it.plugin_name || '插件', category: it.category || '', icon: it.icon || '', items: [] })
-    map.get(pid).items.push(it)
+    const cat = String(it.category || '')
+    if (!map.has(cat)) map.set(cat, { id: cat || 'other', label: label[cat] || '其它', items: [] })
+    map.get(cat).items.push(it)
   }
-  return [...map.values()].sort((a, b) => Number(a.items.every(i => i.available === false)) - Number(b.items.every(i => i.available === false))
-    || String(a.category).localeCompare(String(b.category)))
+  const at = id => { const i = order.indexOf(id); return i < 0 ? order.length : i }
+  return [...map.values()].sort((a, b) => at(a.id) - at(b.id))
 }
 
 /**
@@ -132,7 +136,7 @@ export function searchCatalog(index, query) {
     .some(s => String(s || '').toLowerCase().includes(q))
   return index.groups.map(g => {
     const items = g.items.filter(hit)
-    return { ...g, items, plugins: g.plugins ? g.plugins.map(p => ({ ...p, items: p.items.filter(hit) })).filter(p => p.items.length) : undefined }
+    return { ...g, items, sections: g.sections ? g.sections.map(p => ({ ...p, items: p.items.filter(hit) })).filter(p => p.items.length) : undefined }
   }).filter(g => g.items.length)
 }
 

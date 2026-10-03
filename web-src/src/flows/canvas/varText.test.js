@@ -64,6 +64,16 @@ describe('变量输入：markup ↔ display', () => {
     expect(triggerAt('写{', 2, [])).toBeNull()
   })
 
+  it('打 / 也弹选择（开头、空白或标点后才算，网址里的不算）', () => {
+    expect(triggerAt('/', 1, [])).toEqual({ start: 0, query: '' })
+    expect(triggerAt('总结 /文字', 6, [])).toEqual({ start: 3, query: '文字' })
+    expect(triggerAt('总结，/', 4, [])).toEqual({ start: 3, query: '' })
+    expect(triggerAt('https://a', 9, [])).toBeNull()
+    expect(triggerAt('a/b', 3, [])).toBeNull()
+    expect(triggerAt('/ ', 2, [])).toBeNull()
+    expect(triggerAt('/', 1, [], { slash: false })).toBeNull()
+  })
+
   it('insertToken 在指定范围放变量', () => {
     expect(insertToken('写{{文', 1, 4, '{{n1.text}}')).toEqual({ markup: '写{{n1.text}}', caret: 12 })
     expect(insertToken('ab', 5, 9, '{{x.y}}')).toEqual({ markup: 'ab{{x.y}}', caret: 9 })

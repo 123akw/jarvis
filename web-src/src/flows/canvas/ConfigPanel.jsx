@@ -1,12 +1,14 @@
-import { useCallback, useId, useMemo } from 'react'
+import { useCallback, useId, useMemo, useState } from 'react'
 import Icon from '../../Icon.jsx'
 import { MARKET_PATH } from '../../routes.js'
 import {
-  canConnect, choiceList, conditionHandles, FIELD_TYPES, handleLabel, MAX_FIELDS, MAX_TEXT, nodeById, nodeTitle,
+  canConnect, choiceList, conditionHandles, FIELD_TYPES, handleLabel, LIST_FIELDS, MAX_FIELDS, MAX_TEXT, nodeById, nodeTitle,
   OPS, START_ID, topoOrder, UNARY_OPS, varLabel, varOptions,
 } from '../graph.js'
 import { itemOf, needsPlugin, unavailableReason } from './catalog.js'
 import Glyph, { NodeIcon } from './glyphs.jsx'
+import { NodeOutput, stepLine } from './RunPanel.jsx'
+import { RunBadge } from './NodeCard.jsx'
 import VarInput from './VarInput.jsx'
 
 /* 右侧配置面板（手机上放进底部弹层）：标题改名、按类型的表单、问题提示、连线、删除。
@@ -175,7 +177,7 @@ function ConditionForm({ node, patch, locked, groups, vi }) {
               </div>
               {rules.length > 1 ? (
                 <div className="fc-seg" role="radiogroup" aria-label={`「${name}」的条件怎么算`}>
-                  {[['and', '全部满足'], ['or', '满足一条就行']].map(([v, l]) => (
+                  {[['and', '全部满足'], ['or', '满足任一']].map(([v, l]) => (
                     <button key={v} type="button" role="radio" aria-checked={(c.logic || 'and') === v} disabled={locked}
                       className={(c.logic || 'and') === v ? 'is-on' : ''} onClick={() => setCase(i, x => ({ ...x, logic: v }))}>{l}</button>
                   ))}
@@ -225,6 +227,7 @@ function ConditionForm({ node, patch, locked, groups, vi }) {
         })}
       </ol>
       <div className="fc-else"><span>否则</span>上面都不满足时走这里</div>
+      <p className="fc-field-hint">比较文字时不分大小写、忽略前后空格；「大于 / 小于」两边都得是数字。</p>
       <button type="button" className="jv-btn jv-btn--sm fc-add" disabled={locked || cases.length >= 8}
         onClick={() => patch(d => {
           const list = Array.isArray(d.cases) ? d.cases : []
@@ -236,43 +239,49 @@ function ConditionForm({ node, patch, locked, groups, vi }) {
   )
 }
 
-/* ---------- 连线 ---------- */
+/* ---------- 连线：前面接着 / 下一步 ---------- */
 
-function Connections({ node, graph, locked, onConnect, onDisconnect, onSelectNode }) {
+function Upstream({ node, graph, locked, onDisconnect, onSelectNode }) {
+  if (node.id === START_ID) return null
   const ins = graph.edges.filter(e => e.target === node.id)
-  const handles = node.type === 'condition' ? conditionHandles(node) : node.type === 'end' ? [] : [null]
-  const order = topoOrder(graph)
   const srcName = e => {
     const s = nodeById(graph, e.source)
     const h = handleLabel(s, e.sourceHandle)
     return h ? `${nodeTitle(s)} · ${h}` : nodeTitle(s)
   }
   return (
-    <div className="fc-cfg-sec">
-      <h4 className="fc-cfg-h">连线</h4>
-      {node.id !== START_ID ? (
-        <div className="fc-conn">
-          <span className="fc-conn-k">前面接着</span>
-          <ul className="fc-conn-list">
-            {ins.map(e => (
-              <li key={e.id} className="fc-conn-chip">
-                <button type="button" className="fc-conn-go" onClick={() => onSelectNode(e.source)}>{srcName(e)}</button>
-                <button type="button" className="fc-conn-x" disabled={locked} aria-label={`断开与「${srcName(e)}」的连线`} onClick={() => onDisconnect(e.id)}>
-                  <Icon name="close" size={12} />
-                </button>
-              </li>
-            ))}
-            {!ins.length ? <li className="fc-conn-none">还没连上</li> : null}
-          </ul>
-        </div>
-      ) : null}
+    <div className="fc-conn">
+      <span className="fc-conn-k">前面接着</span>
+      <ul className="fc-conn-list">
+        {ins.map(e => (
+          <li key={e.id} className="fc-conn-chip">
+            <button type="button" className="fc-conn-go" onClick={() => onSelectNode(e.source)}>{srcName(e)}</button>
+            <button type="button" className="fc-conn-x" disabled={locked} aria-label={`断开与「${srcName(e)}」的连线`} onClick={() => onDisconnect(e.id)}>
+              <Icon name="close" size={12} />
+            </button>
+          </li>
+        ))}
+        {!ins.length ? <li className="fc-conn-none">还没连上，这一步不会运行</li> : null}
+      </ul>
+    </div>
+  )
+}
+
+/** 底部「下一步」：列出直接下游，「＋ 添加下一步」弹快捷面板，也能连到已有的节点 */
+function NextSteps({ node, graph, locked, onConnect, onDisconnect, onSelectNode, onAddNext }) {
+  const handles = node.type === 'condition' ? conditionHandles(node) : node.type === 'end' ? [] : [null]
+  if (!handles.length) return null
+  const order = topoOrder(graph)
+  return (
+    <div className="fc-cfg-sec fc-next">
+      <h4 className="fc-cfg-h">下一步</h4>
       {handles.map(h => {
         const outs = graph.edges.filter(e => e.source === node.id && (e.sourceHandle ?? null) === h)
         const options = order.filter(id => id !== node.id && !canConnect(graph, { source: node.id, target: id, sourceHandle: h }))
         const hl = handleLabel(node, h)
         return (
           <div key={h ?? '_'} className="fc-conn">
-            <span className="fc-conn-k">{hl ? `「${hl}」后面接` : '后面接'}</span>
+            {hl ? <span className="fc-conn-k">{h === 'else' ? '否则' : `如果「${hl}」`}</span> : null}
             <ul className="fc-conn-list">
               {outs.map(e => (
                 <li key={e.id} className="fc-conn-chip">
@@ -282,16 +291,23 @@ function Connections({ node, graph, locked, onConnect, onDisconnect, onSelectNod
                   </button>
                 </li>
               ))}
+              {!locked ? (
+                <li>
+                  <button type="button" className="fc-addnext" onClick={e => onAddNext?.(node.id, h, e.currentTarget.getBoundingClientRect())}
+                    aria-label={hl ? `给「${hl}」添加下一步` : '添加下一步'}>
+                    <Icon name="plus" size={13} />添加下一步
+                  </button>
+                </li>
+              ) : null}
               {options.length && !locked ? (
                 <li>
                   <select className="fc-select fc-select--conn" value="" aria-label={hl ? `「${hl}」连到哪个节点` : '连到哪个节点'}
                     onChange={e => { if (e.target.value) onConnect({ source: node.id, target: e.target.value, sourceHandle: h }) }}>
-                    <option value="">连到…</option>
+                    <option value="">连到已有的…</option>
                     {options.map(id => <option key={id} value={id}>{nodeTitle(nodeById(graph, id))}</option>)}
                   </select>
                 </li>
               ) : null}
-              {!outs.length && !options.length ? <li className="fc-conn-none">没有能连的节点</li> : null}
             </ul>
           </div>
         )
@@ -300,13 +316,36 @@ function Connections({ node, graph, locked, onConnect, onDisconnect, onSelectNod
   )
 }
 
+/** 「逐条处理」：对上游的清单每一条都做一遍（≤20 条） */
+function Foreach({ node, graph, groups, patch, locked }) {
+  const id = useId()
+  const lists = groups.filter(g => g.type !== 'sys' && g.type !== 'item' && g.id !== START_ID)
+    .flatMap(g => g.vars.filter(v => LIST_FIELDS.includes(v.field)))
+  const cur = node.data?.foreach || ''
+  if (!lists.length && !cur) return null
+  return (
+    <Field label="逐条处理（可不选）" htmlFor={id} hint={cur ? '会对清单里的每一条都做一遍（最多 20 条），用「当前这一条」变量引用它。' : '前面有清单时，可以让这一步对每一条都做一遍。'}>
+      <select id={id} className="fc-select" value={cur} disabled={locked} onChange={e => patch({ foreach: e.target.value })}>
+        <option value="">不用，整体处理一次</option>
+        {lists.map(v => <option key={v.token} value={v.token}>对「{v.label}」的每一条</option>)}
+        {cur && !lists.some(v => v.token === cur) ? <option value={cur}>（选的清单已经不在了）</option> : null}
+      </select>
+    </Field>
+  )
+}
+
 /* ---------- 主体 ---------- */
 
-export function ConfigBody({ node, graph, index, sys, issues = [], locked, onPatch, onDelete, onConnect, onDisconnect, onSelectNode }) {
+export function ConfigBody({
+  node, graph, index, sys, issues = [], locked, onPatch, onDelete, onConnect, onDisconnect, onSelectNode, onAddNext,
+  runState = null, onOpenRun, typeTrigger = true,
+}) {
+  const [tab, setTab] = useState('settings')
   const item = itemOf(index, node)
   const labelOf = useCallback((ref, field) => varLabel(graph, ref, field, { sys }), [graph, sys])
-  const groups = useMemo(() => varOptions(graph, node.id, { sys, itemOf: n => itemOf(index, n) }), [graph, node.id, sys, index])
-  const vi = { groups, labelOf, disabled: locked }
+  const groups = useMemo(() => varOptions(graph, node.id, { sys, itemOf: n => itemOf(index, n), outputs: index.outputs }), [graph, node.id, sys, index])
+  const vi = { groups, labelOf, disabled: locked, typeTrigger }
+  const tabId = useId()
   const d = node.data || {}
   const patch = (p, group) => onPatch(node.id, p, group)
   const g = key => `${node.id}.${key}`
@@ -333,16 +372,18 @@ export function ConfigBody({ node, graph, index, sys, issues = [], locked, onPat
         {item ? <Unavailable item={item} what="技能" /> : null}
         <Field label="要 AI 做什么" required htmlFor={ids.prompt}>
           <VarInput {...vi} id={ids.prompt} tour rows={6} value={d.prompt || ''} maxLength={MAX_TEXT} label="要 AI 做什么"
-            placeholder="比如：把会议记录整理成三条要点，每条一句话。点「变量」插入前面节点的结果" onChange={v => patch({ prompt: v }, g('prompt'))} />
+            placeholder={typeTrigger ? '比如：把会议记录整理成 3 条要点，每条不超过 20 字。打 / 插入前面步骤的结果' : '比如：把会议记录整理成 3 条要点，每条不超过 20 字'}
+            onChange={v => patch({ prompt: v }, g('prompt'))} />
         </Field>
-        <Field label="结果是" id={ids.out}>
+        <Field label="输出成" id={ids.out}>
           <div className="fc-seg" role="radiogroup" aria-labelledby={ids.out}>
-            {[['text', '一段文字'], ['list', '一条条列表']].map(([v, l]) => (
+            {[['text', '一段文字'], ['list', '一条条的清单']].map(([v, l]) => (
               <button key={v} type="button" role="radio" aria-checked={(d.output || 'text') === v} disabled={locked}
                 className={(d.output || 'text') === v ? 'is-on' : ''} onClick={() => patch({ output: v })}>{l}</button>
             ))}
           </div>
         </Field>
+        <Foreach node={node} graph={graph} groups={groups} patch={patch} locked={locked} />
       </div>
     )
   } else if (node.type === 'tool') {
@@ -365,7 +406,7 @@ export function ConfigBody({ node, graph, index, sys, issues = [], locked, onPat
                 </select>
               ) : (
                 <VarInput {...vi} id={fid} tour={i === 0} multiline={a.type === 'text'} rows={2} value={String(val)} label={a.label || '参数'}
-                  placeholder={a.type === 'number' || a.type === 'integer' ? '填数字，或插入变量' : '直接填，或插入变量'} onChange={set} />
+                  placeholder={a.type === 'number' || a.type === 'integer' ? '填数字，或插入前面步骤的结果' : '直接填，或插入前面步骤的结果'} onChange={set} />
               )}
             </Field>
           )
@@ -380,7 +421,7 @@ export function ConfigBody({ node, graph, index, sys, issues = [], locked, onPat
       <div className="fc-cfg-sec">
         <Field label="拼成什么样" required htmlFor={ids.prompt} hint="直接写字，需要前面结果的地方点「变量」插进去。">
           <VarInput {...vi} id={ids.prompt} tour rows={6} value={d.template || ''} maxLength={MAX_TEXT} label="拼成什么样"
-            placeholder="比如：今天的天气：（插入变量）；今天的待办：（插入变量）" onChange={v => patch({ template: v }, g('template'))} />
+            placeholder={typeTrigger ? '比如：今天的天气：（打 / 插入）；今天的待办：（打 / 插入）' : '比如：今天的天气：（点「变量」插入）'} onChange={v => patch({ template: v }, g('template'))} />
         </Field>
       </div>
     )

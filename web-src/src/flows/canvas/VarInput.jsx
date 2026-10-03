@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useEscape } from '../../Modal.jsx'
+import { parseVars } from '../graph.js'
 import Glyph, { NodeIcon } from './glyphs.jsx'
 import { applyEdit, displayToMarkup, insertToken, markupToDisplay, toDisplay, triggerAt } from './varText.js'
 
@@ -7,7 +8,9 @@ import { applyEdit, displayToMarkup, insertToken, markupToDisplay, toDisplay, tr
  *   - 「插入变量」按钮，或直接打 `{{`，弹出上游节点的产出（人话：「AI 处理 · 文字」）；
  *   - 插进去存成 {{n1.text}}，输入框里显示成人话 chip（同一份文字铺两层：上层透明文字的 textarea 负责编辑与光标，
  *     下层镜像把变量画成 chip）；
- *   - 删除碰到 chip 时整块删掉。 */
+ *   - 删除碰到 chip 时整块删掉；复制 / 剪切带变量的内容，粘回任何变量输入框仍是变量（外面粘出去是人话文字）。 */
+
+const CLIP_MIME = 'application/x-jv-flow-text'
 
 const flat = groups => groups.flatMap(g => g.vars.map(v => ({ ...v, group: g })))
 
@@ -78,7 +81,7 @@ export function VarPicker({ groups, query, onQuery, active, onActive, onPick, on
  */
 export default function VarInput({
   value = '', onChange, groups = [], labelOf, multiline = true, rows = 3, placeholder = '', label, id, disabled = false,
-  maxLength, tour = false, describedBy,
+  maxLength, tour = false, describedBy, typeTrigger = true,
 }) {
   const info = useMemo(() => toDisplay(value, labelOf), [value, labelOf])
   const taRef = useRef(null)
@@ -126,7 +129,7 @@ export default function VarInput({
     // 打了 {{：弹出选择（按新 display 算）
     const after = toDisplay(next.markup, labelOf)
     const dpos = markupToDisplay(next.caret, after.chips)
-    const trig = triggerAt(after.display, dpos, after.chips)
+    const trig = typeTrigger ? triggerAt(after.display, dpos, after.chips) : null
     if (trig) {
       const from = next.caret - (dpos - trig.start)
       setPick({ mode: 'type', start: trig.start, query: trig.query, from, to: next.caret })
@@ -164,6 +167,33 @@ export default function VarInput({
 
   function remember(e) { lastCaret.current = e.target.selectionEnd }
 
+  /** 选区（display）→ markup 范围；碰到 chip 的整块算进来 */
+  function selRange(ta) {
+    let s = Math.min(ta.selectionStart, ta.selectionEnd)
+    let e = Math.max(ta.selectionStart, ta.selectionEnd)
+    for (const c of info.chips) if (c.start < e && c.end > s) { s = Math.min(s, c.start); e = Math.max(e, c.end) }
+    return [displayToMarkup(s, info.chips), displayToMarkup(e, info.chips)]
+  }
+  function onCopy(e, cut = false) {
+    const ta = e.target
+    if (ta.selectionStart === ta.selectionEnd || !e.clipboardData) return
+    const [a, b] = selRange(ta)
+    const mk = value.slice(a, b)
+    if (!parseVars(mk).length) return   // 没有变量：走浏览器默认
+    e.preventDefault()
+    e.clipboardData.setData('text/plain', toDisplay(mk, labelOf).display)
+    e.clipboardData.setData(CLIP_MIME, mk)
+    if (cut && !disabled) emit({ markup: value.slice(0, a) + value.slice(b), caret: a })
+  }
+  function onPaste(e) {
+    const mk = e.clipboardData?.getData(CLIP_MIME)
+    if (!mk) return   // 外面来的纯文字：走默认插入（applyEdit 处理）
+    e.preventDefault()
+    const [a, b] = selRange(e.target)
+    const text = multiline ? mk : mk.replace(/\r?\n/g, ' ')
+    emit({ markup: value.slice(0, a) + text + value.slice(b), caret: a + text.length })
+  }
+
   const shownForType = pick?.mode === 'type' ? flat(filterGroups(groups, pick.query)) : []
   const segs = []
   let at = 0
@@ -186,10 +216,11 @@ export default function VarInput({
           aria-controls={pick?.mode === 'type' ? listId : undefined}
           aria-activedescendant={pick?.mode === 'type' && shownForType[active] ? `${listId}-${active}` : undefined}
           onChange={onInput} onKeyDown={onKeyDown} onSelect={remember} onClick={remember}
+          onCopy={e => onCopy(e)} onCut={e => onCopy(e, true)} onPaste={onPaste}
           onBlur={() => { if (pick?.mode === 'type') setTimeout(() => setPick(p => (p?.mode === 'type' ? null : p)), 120) }}
           onScroll={e => { if (mirrorRef.current) mirrorRef.current.scrollTop = e.target.scrollTop }} />
         <button type="button" className="fc-vi-btn" disabled={disabled} onClick={openButton}
-          aria-label={`给「${label}」插入变量`} title="插入变量（也可以直接打 {{ ）" data-tour={tour ? 'flow-var' : undefined}
+          aria-label={`给「${label}」插入变量`} title={typeTrigger ? '插入前面步骤的结果（也可以直接打 / ）' : '插入前面步骤的结果'} data-tour={tour ? 'flow-var' : undefined}
           aria-haspopup="dialog" aria-expanded={pick?.mode === 'button'}>
           <Glyph name="variable" size={15} /><span>变量</span>
         </button>

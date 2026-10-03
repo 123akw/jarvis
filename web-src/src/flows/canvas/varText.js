@@ -87,14 +87,21 @@ export function applyEdit(markup, info, newDisplay, caret, { singleLine = false 
   return { markup: next, caret: ms + inserted.length }
 }
 
-/** 光标前刚打了 `{{`（后面可能还跟着筛选字）：返回 { start, query }（display 位置），否则 null */
-export function triggerAt(display, caret, chips) {
+/**
+ * 光标前刚打了 `{{` 或 `/`（后面可能还跟着筛选字）：返回 { start, query }（display 位置），否则 null。
+ * `/` 只在开头或空白、标点之后才算（网址里的斜杠不弹）。
+ */
+export function triggerAt(display, caret, chips, { slash = true } = {}) {
   const before = display.slice(0, caret)
-  const m = /\{\{([^{}\n]{0,24})$/.exec(before)
+  let m = /\{\{([^{}\n]{0,24})$/.exec(before)
+  let start = m ? caret - m[0].length : -1
+  if (!m && slash) {
+    m = /(^|[\s，。、；：,.;:（(「])\/([^\s/{}]{0,24})$/.exec(before)
+    if (m) start = caret - m[0].length + m[1].length
+  }
   if (!m) return null
-  const start = caret - m[0].length
   if (chips.some(c => start < c.end && caret > c.start)) return null
-  return { start, query: m[1] }
+  return { start, query: m[2] ?? m[1] }
 }
 
 /** 在 markup 的 [from, to) 处换成变量 token，返回 { markup, caret } */

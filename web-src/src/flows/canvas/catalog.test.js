@@ -13,9 +13,11 @@ describe('节点目录索引', () => {
     expect(idx.skills.map(s => s.key)).toEqual(['skill:work_report'])
   })
 
-  it('插件工具按插件分；可用的排前面', () => {
+  it('插件工具按插件分类分小组；可用的排前面', () => {
     const tools = idx.groups.find(g => g.id === 'tools')
-    expect(tools.plugins.map(p => p.name)).toEqual(['查天气', '快递'])
+    expect(tools.sections.map(p => p.label)).toEqual(['效率', '生活'])
+    expect(tools.sections[1].items.map(i => i.title)).toEqual(['查实时天气', '查快递'])
+    expect(idx.outputs.tool).toEqual(['text', 'items', 'links', 'files'])
     const steps = idx.groups.find(g => g.id === 'steps')
     expect(steps.items.map(i => i.key)).toEqual(['step:to_todo', 'step:feishu_send'])
   })
@@ -42,7 +44,7 @@ describe('节点目录索引', () => {
 
   it('搜索：标题、简介、插件名都算', () => {
     expect(searchCatalog(idx, '天气').map(g => g.id)).toEqual(['tools'])
-    expect(searchCatalog(idx, '快递')[0].plugins.map(p => p.name)).toEqual(['快递'])
+    expect(searchCatalog(idx, '快递')[0].sections[0].items.map(p => p.title)).toEqual(['查快递'])
     expect(searchCatalog(idx, '').length).toBe(4)
     expect(searchCatalog(idx, '不存在的东西')).toEqual([])
   })
