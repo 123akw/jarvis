@@ -254,7 +254,7 @@ def test_tick_runs_due_trigger_and_notifies(owner_id):
     assert user == owner_id and text.startswith("⏰ 定时流程「早报」跑完了")
     assert "【早报】\n• 晴，18°C" in text and "结果网页：https://jv.example.com/r/tok123456" in text
     (item,) = outbox.drain(owner_id)
-    assert item["title"].startswith("「早报」跑完了：") and item["when"] == "2026-10-12 08:00"
+    assert item["title"] == "「早报」跑完了：晴，18°C" and item["when"] == "2026-10-12 08:00"   # 跳过小标题行
     view = S.view(row, clock.now)
     assert view["last_run_at"] == "2026-10-12T08:00:20+08:00" and view["next_run_label"] == "明天（周二）08:00"
 

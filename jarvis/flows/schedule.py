@@ -427,7 +427,9 @@ def message(flow_name: str, result: dict, config: dict, *, paused: bool = False)
     elif output.get("page_url"):
         parts.append("结果网页在「我的流程」的运行记录里")
     text = "\n\n".join(p for p in parts if p)
-    first = summary.splitlines()[0] if summary else "已完成"
+    lines = [x.strip(" •") for x in summary.splitlines()
+             if x.strip(" •") and not re.fullmatch(r"【[^】]*】", x.strip())]   # 跳过「【小标题】」行
+    first = lines[0] if lines else "已完成"
     return text, f"「{name}」跑完了：{first}"[:80]
 
 
