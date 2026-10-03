@@ -77,8 +77,10 @@ function StartForm({ node, patch, locked }) {
                 placeholder={'每行一个选项，比如：\n日报\n周报'} value={(f.options || []).join('\n')}
                 onChange={e => set(i, { options: e.target.value.split('\n').map(s => s.slice(0, 30)).slice(0, 20) })} />
             ) : f.type === 'file' ? (
-              <p className="fc-field-hint">运行时上传一个文件（10MB 以内）。后面的节点可以用「{String(f.label || '').trim() || '它'}」（读出的文字），
-                也可以用「{String(f.label || '').trim() || '它'}（{FILE_VAR_LABEL}）」把文件本身交给 Excel / PDF / Word 工具。</p>
+              <p className="fc-field-hint">
+                {`运行时上传一个文件（10MB 以内）。后面的节点可以用「${String(f.label || '').trim() || '它'}」（读出的文字），`}
+                {`也可以用「${String(f.label || '').trim() || '它'}（${FILE_VAR_LABEL}）」把文件本身交给 Excel / PDF / Word 工具。`}
+              </p>
             ) : (
               <input className="fc-input" value={f.placeholder || ''} maxLength={40} disabled={locked} placeholder="输入框里的提示（可不填）"
                 aria-label={`「${f.label || `第 ${i + 1} 个输入项`}」的提示语`} onChange={e => set(i, { placeholder: e.target.value })} />
