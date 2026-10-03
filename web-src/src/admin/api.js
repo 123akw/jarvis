@@ -149,13 +149,3 @@ export async function markAlertsRead({ ids, all } = {}) {
   const body = all ? { all: true } : { ids: list(ids).map(String) }
   return request('/api/admin/alerts/read', { method: 'POST', headers: json(), body: JSON.stringify(body) })
 }
-
-/** 入口小红点用：只拿未读数；任何失败都当 0（旧服务端没有这个接口、不是 Owner 都静默） */
-export async function getUnreadAlerts({ signal } = {}) {
-  try {
-    const { unread } = await getAlerts(1, { signal })
-    return unread
-  } catch {
-    return 0
-  }
-}

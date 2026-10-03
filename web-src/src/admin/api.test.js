@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { getAlerts, getUnreadAlerts, getUsage, markAlertsRead, normalizeUsage, rangeOf, saveQuota } from './api.js'
+import { getAlerts, getUsage, markAlertsRead, normalizeUsage, rangeOf, saveQuota } from './api.js'
+import { getUnreadAlerts, unreadText } from './useAdminUnread.js'
 
 const ok = data => ({ ok: true, status: 200, json: async () => data })
 const fail = (status, data = {}) => ({ ok: false, status, json: async () => data })
@@ -97,5 +98,10 @@ describe('admin/api', () => {
     expect(await getUnreadAlerts()).toBe(0)
     reply(fail(401))
     expect(await getUnreadAlerts()).toBe(0)
+    reply(new TypeError('Failed to fetch'))
+    expect(await getUnreadAlerts()).toBe(0)
+    expect(unreadText(0)).toBe('')
+    expect(unreadText(3)).toBe('3 条未读告警')
+    expect(unreadText(120)).toBe('99+ 条未读告警')
   })
 })
