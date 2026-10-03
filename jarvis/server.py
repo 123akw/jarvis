@@ -23,7 +23,7 @@ from langchain_core.messages import AIMessageChunk, ToolMessage
 from pydantic import BaseModel, SecretStr
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from jarvis import __version__, config, delivery, distill, heartbeat, history_index, mailer, meeting, reminders, wechat
+from jarvis import __version__, config, delivery, distill, heartbeat, history_index, mailer, meeting, reminders, usage, wechat
 from jarvis.accounts import (
     AccountError, AccountStore, Principal, SessionJanitor, csrf_token, session_secret_configured,
 )
@@ -56,6 +56,7 @@ async def lifespan(_app: FastAPI):
     # 不能让整个网页服务启动失败（此前 resume_on_boot 抛 PermissionError 即全站起不来）。
     _safe_start("wechat", wechat.resume_on_boot)
     _safe_start("feishu", feishu.start)  # 未配置 FEISHU_APP_ID/SECRET 时为 disabled，不起线程
+    _safe_start("usage-watch", usage.start_watch)  # 飞书 / 微信断开超过 5 分钟给 Owner 发告警
     scanner = None
     radio = None
     distiller = None
@@ -118,6 +119,7 @@ async def lifespan(_app: FastAPI):
             distiller.stop()
         wechat.shutdown()
         feishu.shutdown()
+        usage.shutdown()   # 停渠道巡检，把内存里的用量落库
         if _runtime_manager is not None:
             _runtime_manager.close()
 
@@ -453,6 +455,8 @@ def _sse(obj: dict) -> str:
 def _public_runtime_error(error: Exception) -> str:
     if isinstance(error, ThreadBusyError):
         return _BUSY_MESSAGE
+    if isinstance(error, usage.QuotaExceeded):
+        return error.message
     if isinstance(error, ProviderSettingsError):
         return error.message
     return "模型或网络请求失败，请检查当前 API 配置后重试"
@@ -1140,7 +1144,7 @@ def _service_invoke(owner_id: str, alias: str, title: str, prompt: str) -> str:
     checkpoint 上下文并用完即删——此前这些定时任务在同一 checkpoint 上无限追加，
     heartbeat 每 30 分钟一轮，历史会持续累积并整段重放给模型（成本与延迟爬坡）。
     这些任务的提示词都是自包含的，不需要跨轮记忆。"""
-    with tenant_scope(owner_id):
+    with tenant_scope(owner_id), usage.kind_scope("other"):   # 用量记到「后台任务」
         store = _tenant_store()
         thread = store.upsert_thread(alias, title)
         ephemeral = f"{thread.checkpoint_thread_id}#{uuid.uuid4().hex[:12]}"
@@ -1395,6 +1399,10 @@ def chat(request: Request, body: ChatIn):
         return _csrf_deny() if _authed(request) else _deny()
     if problem := _chat_input_error(body.message, body.thread_id):
         return JSONResponse({"error": problem}, status_code=422)
+    if blocked := usage.check_model(principal.user_id):
+        # 今天的模型用量到上限：不建线程、不调模型；走 SSE 的 error 事件，聊天气泡里直接显示这句人话
+        return StreamingResponse(iter([_sse({"type": "error", "message": blocked, "code": "quota"})]),
+                                 media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
     try:
         with tenant_scope(principal.user_id):
             _tenant_store()
@@ -1497,6 +1505,8 @@ def oai_chat(request: Request, body: OAIChatIn):
     alias = request.headers.get("x-thread-id", "").strip() or "openai"
     if len(alias) > MAX_THREAD_ID_CHARS:
         return JSONResponse({"error": {"message": "invalid x-thread-id"}}, status_code=400)
+    if blocked := usage.check_model(principal.user_id):
+        return JSONResponse({"error": {"message": blocked, "type": "quota_exceeded"}}, status_code=429)
     try:
         with tenant_scope(principal.user_id):
             _tenant_store()
@@ -1864,11 +1874,20 @@ def _count_voice_chat() -> None:
     _chat_count += 1
 
 
+@contextmanager
+def _voice_bundle_for(user_id: str):
+    """语音通话拿运行时：先查今天的模型配额（超了抛 QuotaExceeded，通话里显示人话、不调模型），用量记到「语音」。"""
+    if blocked := usage.check_model(user_id):
+        raise usage.QuotaExceeded(blocked)
+    with usage.kind_scope("voice"), _bundle_for(user_id) as bundle:
+        yield bundle
+
+
 register_voice(
     app,
     cookie_name=_COOKIE,
     accounts=_accounts,
-    bundle_for=_bundle_for,
+    bundle_for=_voice_bundle_for,
     tenant_store=_tenant_store,
     chunk_text=_chunk_text,
     public_error=_public_runtime_error,
@@ -1881,8 +1900,15 @@ from jarvis import briefing, memory_receipts  # noqa: E402
 
 memory_receipts.register(app, request_principal=_request_principal, panel_write=_panel_write,
                          tenant_store=lambda: _tenant_store(), deny=_deny)
+@contextmanager
+def _background_bundle_for(user_id: str):
+    """简报卡等后台生成：用量记到「后台任务」（在生成线程里设类别，线程池不继承上下文）。"""
+    with usage.kind_scope("other"), _bundle_for(user_id) as bundle:
+        yield bundle
+
+
 briefing.register(app, request_principal=_request_principal, panel_write=_panel_write,
-                  tenant_store=lambda: _tenant_store(), bundle_for=lambda uid: _bundle_for(uid),
+                  tenant_store=lambda: _tenant_store(), bundle_for=_background_bundle_for,
                   chunk_text=_chunk_text, deny=_deny)
 
 # ---- 用量、配额与管理告警（第二十轮）：逻辑在 jarvis/usage.py ----
@@ -1890,6 +1916,14 @@ from jarvis import usage  # noqa: E402
 
 usage.register(app, request_principal=_request_principal, panel_write=_panel_write, deny=_deny,
                tenant_store=lambda: _tenant_store(), accounts=_accounts)
+usage.configure(
+    # 告警推给 Owner：桌面通知（领取箱）+ 飞书 / 微信，按 Owner 的送达设置与免打扰
+    notify=lambda owner_id, text: _notifier.send(owner_id, text, datetime.datetime.now(), icon="⚠️"),
+    channels={
+        "feishu": lambda: usage.feishu_down(feishu.status()),
+        "wechat": lambda: usage.wechat_down(wechat.status(), wechat.poll_failing_seconds()),
+    },
+)
 
 # ---- 新手引导看过没（第十八轮）：按账号记在 tenant_prefs，逻辑在 jarvis/onboarding.py ----
 from jarvis import onboarding  # noqa: E402

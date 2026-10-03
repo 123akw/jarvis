@@ -802,7 +802,13 @@ def fallback(description: str, reason: str, access: templates_mod.Access) -> dic
 # ---------- 入口 ----------
 
 def _call_model(compose_fn, user_id: str, prompt: str, timeout: float) -> str:
-    future = _POOL.submit(compose_fn, user_id, prompt)
+    from jarvis import usage
+
+    def scoped():   # 用量记到「一句话生成」：线程池不继承上下文，在任务里设类别
+        with usage.kind_scope("compose"):
+            return compose_fn(user_id, prompt)
+
+    future = _POOL.submit(scoped)
     try:
         return future.result(timeout=timeout)
     except FutureTimeout:
