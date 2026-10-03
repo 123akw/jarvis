@@ -1,4 +1,9 @@
-"""流程与运行记录的存取（表结构在 tenancy.py v6）。
+"""流程与运行记录的存取（表结构在 tenancy.py v6 / v7）。
+
+- 第十八轮起流程存节点图（``graph`` 列）；``graph`` 为空串的旧行按 ``graph_from_steps(steps)`` 换算后返回，
+  不做离线改写；保存一律写 ``graph``、``steps`` 写 ``[]``；
+- 运行记录的 ``steps`` 列存 ``{"nodes": [...], "output": {...}, "ms": n}``（旧记录是积木结果数组，读时换算）；
+- 触发器（``tenant_flow_triggers``，定时运行由 extras / schedule 读写）：列表只读，删流程时一并删掉；
 
 - 流程按账号隔离：除公开结果页外，所有读写都带 owner_id；
 - 每个流程只留最近 KEEP_RUNS 次运行（新运行落库时顺手修剪）；
@@ -12,6 +17,7 @@ import json
 import secrets
 import uuid
 
+from jarvis.flows.graph import graph_from_steps
 from jarvis.tenancy import TenantStore
 
 KEEP_RUNS = 20
@@ -36,6 +42,51 @@ def _loads(raw, default):
     return value if isinstance(value, type(default)) else default
 
 
+RUN_TEXT_CHARS = 20000
+_WEEKDAY_NAMES = ("一", "二", "三", "四", "五", "六", "日")
+_REPEAT = {"daily": "每天", "weekdays": "每个工作日"}
+
+
+def trigger_label(config: dict) -> str:
+    """定时触发器的人话说明：「每个工作日 08:00」；配置里自带 label 就用它。"""
+    if isinstance(config.get("label"), str) and config["label"].strip():
+        return config["label"].strip()[:30]
+    schedule = config.get("schedule") if isinstance(config.get("schedule"), dict) else {}
+    when = str(schedule.get("time") or "").strip()
+    repeat = schedule.get("repeat")
+    if repeat == "weekly":
+        try:
+            day = _WEEKDAY_NAMES[int(schedule.get("weekday")) - 1]
+        except (TypeError, ValueError, IndexError):
+            day = ""
+        head = f"每周{day}" if day else "每周"
+    else:
+        head = _REPEAT.get(repeat, "定时")
+    return f"{head} {when}".strip()
+
+
+def input_summary(info: dict) -> str:
+    """运行记录里的「输入了什么」：新记录存了 summary；v6 记录按 kind 换算。"""
+    if not isinstance(info, dict):
+        return ""
+    if isinstance(info.get("summary"), str):
+        return info["summary"]
+    if info.get("kind") == "file":
+        return f"文件「{info.get('name') or '资料'}」"
+    if info.get("kind") == "text":
+        return f"文字 {int(info.get('chars') or 0)} 字"
+    return ""
+
+
+def _legacy_node(step: dict) -> dict:
+    from jarvis.flows.steps import STEPS
+    spec = STEPS.get(step.get("plugin"))
+    return {"node_id": step.get("step_id") or "", "title": spec.name if spec else (step.get("plugin") or "积木"),
+            "node_type": "step", "status": step.get("status") or "ok", "summary": step.get("summary") or "",
+            "preview": step.get("preview") or "", "ms": step.get("ms") or 0,
+            **({"message": step["message"]} if step.get("message") else {})}
+
+
 class FlowLimitError(RuntimeError):
     """单个账号的流程数到上限。"""
 
@@ -53,9 +104,13 @@ class FlowStore:
 
     @staticmethod
     def _flow_row(row) -> dict:
-        return {"id": row["id"], "name": row["name"], "summary": row["summary"],
-                "steps": _loads(row["steps"], []), "created_at": row["created_at"],
-                "updated_at": row["updated_at"]}
+        steps = _loads(row["steps"], [])
+        graph = _loads(row["graph"], {}) if "graph" in row.keys() else {}
+        legacy = not graph
+        if legacy:
+            graph = graph_from_steps(steps)
+        return {"id": row["id"], "name": row["name"], "summary": row["summary"], "graph": graph,
+                "steps": steps, "legacy": legacy, "created_at": row["created_at"], "updated_at": row["updated_at"]}
 
     def list_flows(self, owner_id: str) -> list[dict]:
         with self._connect() as c:
@@ -67,27 +122,40 @@ class FlowStore:
             row = c.execute("SELECT * FROM tenant_flows WHERE owner_id=? AND id=?", (owner_id, flow_id)).fetchone()
         return self._flow_row(row) if row else None
 
-    def create_flow(self, owner_id: str, *, name: str, summary: str, steps: list[dict]) -> dict:
+    @staticmethod
+    def _columns(graph: dict | None, steps: list[dict] | None) -> tuple[str, str]:
+        """(graph 列, steps 列)：给了节点图就存图、steps 写 []；只给 steps 是旧写法（测试造旧数据用）。"""
+        if graph is not None:
+            return json.dumps(graph, ensure_ascii=False), "[]"
+        return "", json.dumps(steps or [], ensure_ascii=False)
+
+    def create_flow(self, owner_id: str, *, name: str, summary: str, graph: dict | None = None,
+                    steps: list[dict] | None = None) -> dict:
         now = _iso(_now())
         flow_id = uuid.uuid4().hex[:12]
+        graph_col, steps_col = self._columns(graph, steps)
         with self._connect() as c:
             c.execute("BEGIN IMMEDIATE")
             try:
                 count = c.execute("SELECT COUNT(*) FROM tenant_flows WHERE owner_id=?", (owner_id,)).fetchone()[0]
                 if count >= MAX_FLOWS:
                     raise FlowLimitError(MAX_FLOWS)
-                c.execute("INSERT INTO tenant_flows(owner_id,id,name,summary,steps,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
-                          (owner_id, flow_id, name, summary, json.dumps(steps, ensure_ascii=False), now, now))
+                c.execute("INSERT INTO tenant_flows(owner_id,id,name,summary,steps,graph,created_at,updated_at)"
+                          " VALUES(?,?,?,?,?,?,?,?)",
+                          (owner_id, flow_id, name, summary, steps_col, graph_col, now, now))
                 c.commit()
             except Exception:
                 c.rollback(); raise
-        return {"id": flow_id, "name": name, "summary": summary, "steps": steps, "created_at": now, "updated_at": now}
+        return self.get_flow(owner_id, flow_id)
 
-    def update_flow(self, owner_id: str, flow_id: str, *, name: str, summary: str, steps: list[dict]) -> dict | None:
+    def update_flow(self, owner_id: str, flow_id: str, *, name: str, summary: str, graph: dict | None = None,
+                    steps: list[dict] | None = None) -> dict | None:
         now = _iso(_now())
+        graph_col, steps_col = self._columns(graph, steps)
         with self._connect() as c:
-            changed = c.execute("UPDATE tenant_flows SET name=?, summary=?, steps=?, updated_at=? WHERE owner_id=? AND id=?",
-                                (name, summary, json.dumps(steps, ensure_ascii=False), now, owner_id, flow_id)).rowcount
+            changed = c.execute("UPDATE tenant_flows SET name=?, summary=?, steps=?, graph=?, updated_at=?"
+                                " WHERE owner_id=? AND id=?",
+                                (name, summary, steps_col, graph_col, now, owner_id, flow_id)).rowcount
         return self.get_flow(owner_id, flow_id) if changed else None
 
     def delete_flow(self, owner_id: str, flow_id: str) -> bool:
@@ -97,10 +165,38 @@ class FlowStore:
             try:
                 found = c.execute("DELETE FROM tenant_flows WHERE owner_id=? AND id=?", (owner_id, flow_id)).rowcount
                 c.execute("DELETE FROM tenant_flow_runs WHERE owner_id=? AND flow_id=?", (owner_id, flow_id))
+                c.execute("DELETE FROM tenant_flow_triggers WHERE owner_id=? AND flow_id=?", (owner_id, flow_id))
                 c.commit()
             except Exception:
                 c.rollback(); raise
         return bool(found)
+
+    # ---- 触发器（只读；写在 extras / schedule） ----
+
+    @staticmethod
+    def _trigger_view(row) -> dict | None:
+        if row is None or not row["enabled"] or row["kind"] != "schedule":
+            return None
+        config = _loads(row["config"], {})
+        return {"kind": row["kind"], "label": trigger_label(config), "next_run_at": row["next_run_at"],
+                "last_run_at": row["last_run_at"], "last_status": row["last_status"] or ""}
+
+    def triggers(self, owner_id: str) -> dict[str, dict]:
+        """{flow_id: {kind, label, next_run_at, last_run_at, last_status}}：只含启用中的定时触发器。"""
+        with self._connect() as c:
+            rows = c.execute("SELECT * FROM tenant_flow_triggers WHERE owner_id=?", (owner_id,)).fetchall()
+        out = {}
+        for row in rows:
+            view = self._trigger_view(row)
+            if view is not None:
+                out[row["flow_id"]] = view
+        return out
+
+    def trigger(self, owner_id: str, flow_id: str) -> dict | None:
+        with self._connect() as c:
+            row = c.execute("SELECT * FROM tenant_flow_triggers WHERE owner_id=? AND flow_id=?",
+                            (owner_id, flow_id)).fetchone()
+        return self._trigger_view(row)
 
     # ---- 运行记录 ----
 
@@ -122,10 +218,13 @@ class FlowStore:
                 c.rollback(); raise
         return run_id
 
-    def finish_run(self, owner_id: str, run_id: str, *, status: str, steps: list[dict], error: str = "") -> None:
+    def finish_run(self, owner_id: str, run_id: str, *, status: str, steps: list[dict] | None = None,
+                   error: str = "", nodes: list[dict] | None = None, output: dict | None = None,
+                   ms: int | None = None) -> None:
+        detail = {"nodes": nodes, "output": output, "ms": ms} if nodes is not None else (steps or [])
         with self._connect() as c:
             c.execute("UPDATE tenant_flow_runs SET status=?, steps=?, error=?, finished_at=? WHERE owner_id=? AND id=?",
-                      (status, json.dumps(steps, ensure_ascii=False), error[:200], _iso(_now()), owner_id, run_id))
+                      (status, json.dumps(detail, ensure_ascii=False), error[:200], _iso(_now()), owner_id, run_id))
 
     def attach_page(self, owner_id: str, run_id: str, *, title: str, text: str, links: list[dict]) -> str:
         """给这次运行生成公开结果页，返回 token（secrets.token_urlsafe，约 128 位熵）。"""
@@ -162,10 +261,26 @@ class FlowStore:
             except ValueError:
                 pass
         url = cls._page_url(row)
+        detail = _loads(row["steps"], {}) if (row["steps"] or "").lstrip().startswith("{") else None
+        if isinstance(detail, dict):
+            nodes = [n for n in detail.get("nodes") or [] if isinstance(n, dict)]
+            output = detail.get("output") if isinstance(detail.get("output"), dict) else {}
+            ms = detail.get("ms")
+        else:   # v6 的积木结果数组
+            nodes = [_legacy_node(s) for s in _loads(row["steps"], []) if isinstance(s, dict)]
+            output, ms = {}, None
+        if ms is None and row["finished_at"]:
+            try:
+                ms = int((dt.datetime.fromisoformat(row["finished_at"])
+                          - dt.datetime.fromisoformat(row["started_at"])).total_seconds() * 1000)
+            except ValueError:
+                ms = None
         return {"id": row["id"], "flow_id": row["flow_id"], "status": status,
-                "started_at": row["started_at"], "finished_at": row["finished_at"],
-                "input": _loads(row["input"], {}), "steps": _loads(row["steps"], []), "error": error,
-                "output": {"url": url, "title": row["page_title"] or ""} if url else None}
+                "started_at": row["started_at"], "finished_at": row["finished_at"], "ms": ms,
+                "input_summary": input_summary(_loads(row["input"], {})), "nodes": nodes,
+                "output_text": str(output.get("text") or "")[:RUN_TEXT_CHARS],
+                "links": [x for x in output.get("links") or [] if isinstance(x, dict)],
+                "page_url": url, "error": error}
 
     def list_runs(self, owner_id: str, flow_id: str, limit: int = 10) -> list[dict]:
         with self._connect() as c:
@@ -174,7 +289,7 @@ class FlowStore:
         return [self._run_view(r) for r in rows]
 
     def last_runs(self, owner_id: str) -> dict[str, dict]:
-        """每个流程最近一次运行（Flow.last_run 用）：{flow_id: {id,status,finished_at,url}}。"""
+        """每个流程最近一次运行（列表的 last_run）：{flow_id: {id, status, started_at, finished_at, page_url}}。"""
         with self._connect() as c:
             rows = c.execute("SELECT r.* FROM tenant_flow_runs r WHERE r.owner_id=? AND r.rowid=("
                              " SELECT x.rowid FROM tenant_flow_runs x WHERE x.owner_id=r.owner_id AND x.flow_id=r.flow_id"
@@ -182,8 +297,8 @@ class FlowStore:
         out = {}
         for row in rows:
             view = self._run_view(row)
-            out[row["flow_id"]] = {"id": view["id"], "status": view["status"], "finished_at": view["finished_at"],
-                                   "url": view["output"]["url"] if view["output"] else None}
+            out[row["flow_id"]] = {"id": view["id"], "status": view["status"], "started_at": view["started_at"],
+                                   "finished_at": view["finished_at"], "page_url": view["page_url"]}
         return out
 
     # ---- 公开结果页（不带租户：按 token 反查） ----
