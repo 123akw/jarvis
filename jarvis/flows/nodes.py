@@ -317,14 +317,14 @@ def _basic_items() -> list[dict]:
         {"key": "template", "type": "template", "title": "文本拼接", "icon": "📝",
          "summary": "把几个节点的结果和固定的话拼成一段",
          "data": {"title": "文本拼接", "template": ""}, "available": True, "reason": ""},
-        {"key": "end", "type": "end", "title": "结束", "icon": "🏁",
-         "summary": "流程的最终结果，还能生成一个可分享的结果网页",
-         "data": {"title": "结束", "output": "", "page": False}, "available": True, "reason": ""},
         {"key": "approval", "type": "approval", "title": "发送前确认", "icon": "✋",
          "summary": "跑到这里先停下，把要发出去的内容发给你看；你点同意（可以先改一改）才接着跑",
          "data": {"title": "发送前确认", "message": "", "editable": True,
                   "timeout_hours": graph_mod.DEFAULT_APPROVAL_HOURS, "notify": None},
          "limits": {"timeout_hours": list(graph_mod.APPROVAL_HOURS)}, "available": True, "reason": ""},
+        {"key": "end", "type": "end", "title": "结束", "icon": "🏁",
+         "summary": "流程的最终结果，还能生成一个可分享的结果网页",
+         "data": {"title": "结束", "output": "", "page": False}, "available": True, "reason": ""},
     ]
 
 

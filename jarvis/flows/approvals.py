@@ -186,7 +186,7 @@ def _update_run(store, row: dict, status: str, message: str = "", *, node_status
                     node["message"] = message
     extra = {"resumed_at": _now_iso()} if resumed else None
     store.finish_run(row["owner_id"], row["run_id"], status=status, nodes=nodes, output=detail.get("output"),
-                     ms=detail.get("ms"), error=message, extra=extra, source="resume" if resumed else None)
+                     ms=detail.get("ms"), error=message, extra=extra, source=None)   # 接着跑沿用原来的来源（手动 / 定时 / 对话…），确认节点那行已说明「确认后接着跑」
 
 
 def expire_due(store, owner_id: str | None = None, *, notify: bool = False, deps=None) -> list[dict]:

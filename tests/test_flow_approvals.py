@@ -1,5 +1,5 @@
 """第二十轮「发送前确认」（契约 §3.1）：确认节点的校验与规整、跑到它时停下（运行记录 waiting、node_wait、
-通知带绝对链接、闸已释放）、同意（改内容后下游用改后的内容，沿用同一运行记录、source=resume、跑完通知）、
+通知带绝对链接、闸已释放）、同意（改内容后下游用改后的内容，沿用同一运行记录、来源沿用原来的、跑完通知）、
 拒绝、过期（惰性判定与定期清理）、只能处理自己的、已处理 409、恢复时账号忙就排队（以及等不到就放弃）、
 连着两个确认、删流程连确认一起删、运行详情接口、无头运行返回 waiting / quota 与 source、用量钩子。"""
 import contextvars
@@ -197,7 +197,7 @@ def test_approve_with_edits_resumes_downstream_with_edited_content(env, owner_id
     assert body["approval"]["edited"] is True
     assert _todos(owner_id) == ["改成 10 点集合", "记得带伞"]       # 下游用的是改后的内容
     run = owner.get(f"/api/flows/{flow['id']}/runs/{run_id}").json()["run"]
-    assert run["status"] == "ok" and run["source"] == "resume" and run["finished_at"]
+    assert run["status"] == "ok" and run["source"] == "manual" and run["finished_at"]   # 接着跑沿用原来源
     assert run["output_text"] == edited and "approval" not in run
     assert [(n["node_id"], n["status"]) for n in run["nodes"]] == [
         ("start", "ok"), ("ai", "ok"), ("ok", "ok"), ("todo", "ok"), ("end", "ok")]
@@ -318,7 +318,7 @@ def test_resume_queues_while_account_is_busy(env, owner_id, monkeypatch):
     assert r.json()["run"]["status"] == "running"
     time.sleep(0.15)
     run = owner.get(f"/api/flows/{flow['id']}/runs/{run_id}").json()["run"]
-    assert run["status"] == "running" and run["source"] == "resume" and _todos(owner_id) == []   # 在排队
+    assert run["status"] == "running" and run["source"] == "manual" and _todos(owner_id) == []   # 在排队
     env.runtime.guard.release(owner_id)
     while threads:
         threads.pop(0).join(5)

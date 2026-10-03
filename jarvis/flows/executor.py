@@ -1258,7 +1258,7 @@ def _drive(run: _Run, *, emit: Callable[[dict], None], records: list[dict], inpu
         ms = carried_ms + int((clock() - begin) * 1000)
         try:
             store.finish_run(user_id, run.run_id, status=status, nodes=records, output=output, ms=ms, error=error,
-                             input_info=run.input_with_files(input_info), source="resume" if resumed else None)
+                             input_info=run.input_with_files(input_info), source=None)
         except Exception as exc:
             log.warning("flow run record failed: %s", type(exc).__name__)
         if status in ("ok", "error"):

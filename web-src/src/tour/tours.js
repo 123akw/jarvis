@@ -31,7 +31,7 @@ export const TOURS = {
       { target: 'flow-run', title: '运行，看每一步', placement: 'bottom',
         body: '点运行，每个节点的结果都会实时显示，哪一步出了问题一眼就能看到。' },
       { target: 'flow-save', title: '记得保存', placement: 'bottom',
-        body: '改完点保存（也可以按 ⌘S）。保存后还能在「我的流程」里设成定时运行。' },
+        body: '改完点保存（也可以按 ⌘S）。保存后还能在「我的流程」的「触发方式」里设成定时、收到消息或通过链接自动运行。' },
     ],
   },
   market: {
