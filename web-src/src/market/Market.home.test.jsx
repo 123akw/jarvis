@@ -144,7 +144,7 @@ describe('市场首页：顶栏、搜索与筛选', () => {
     expect(screen.queryByRole('button', { name: '管理插件' })).toBeNull()
     await user.click(screen.getByRole('button', { name: '账号：boss' }))
     expect(within(screen.getByRole('menu')).getAllByRole('menuitem').map(i => i.textContent))
-      .toEqual(['进入我的智能体', '我的流程', '插件管理', '新手引导', '退出登录'])
+      .toEqual(['进入我的智能体', '我的流程', '插件管理', '管理后台', '新手引导', '退出登录'])
     await user.click(screen.getByRole('menuitem', { name: '插件管理' }))
     const dialog = await screen.findByRole('dialog', { name: '插件管理' })
     expect(within(dialog).getByRole('tab', { name: '已装' })).toHaveAttribute('aria-selected', 'true')

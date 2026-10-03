@@ -17,6 +17,7 @@ import ProviderSettings from './ProviderSettings.jsx'
 import Reminders from './Reminders.jsx'
 import Threads from './Threads.jsx'
 import { createQuick, useUndoToast } from './UndoToast.jsx'
+import { unreadText, useAdminUnread } from './admin/useAdminUnread.js'
 import WeChatConnect from './WeChatConnect.jsx'
 import { MARKET_PATH, navigate } from './routes.js'
 import { applyTheme, currentTheme, toggleTheme } from './theme.js'
@@ -237,6 +238,7 @@ export default function Hud({ session, onLogout }) {
   const tourCommand = { id: 'tour', label: '新手引导', hint: '重看本页', icon: 'help', keywords: '引导 教程 帮助 怎么用 tour help', run: replayTour }
 
   const isOwner = session?.role === 'Owner'
+  const adminUnread = useAdminUnread(isOwner)   // 管理后台入口：有未读告警时在提示里写出来
   const settingsCommands = [
     { id: 'account', label: '账户设置', hint: isOwner ? '口令 · 用户管理' : '口令', icon: 'user', keywords: '密码 口令 用户', run: () => setAccountOpen(true) },
     { id: 'memory', label: '记忆与人设', icon: 'sparkles', keywords: '画像 称呼 人格 persona', run: () => setMemoryOpen(true) },
@@ -250,6 +252,7 @@ export default function Hud({ session, onLogout }) {
   const platformCommands = [
     { id: 'market', label: '智能体市场', hint: platform ? '添加插件' : '拼一个自己的智能体', icon: 'store', keywords: '插件 技能 市场 工坊 market', run: () => navigate(MARKET_PATH) },
     { id: 'flows', label: '我的流程', icon: 'flow', keywords: '流程 积木 自动化 flow', run: () => navigate('/flows') },
+    ...(isOwner ? [{ id: 'admin', label: '管理后台', hint: unreadText(adminUnread) || '用量 · 配额 · 告警', icon: 'chart', keywords: '管理 后台 用量 配额 告警 花费 统计 账号 admin usage quota', run: () => navigate('/admin') }] : []),
     ...(platform ? [
       { id: 'share', label: '分享我的智能体', hint: '二维码 · 链接', icon: 'share', keywords: '分享 二维码 链接 主屏 安装 平台 share', run: () => setShareOpen(true) },
       { id: 'platform', label: '智能体设置', hint: '名称 · 图标 · 主题色', icon: 'palette', keywords: '智能体 平台 名称 图标 颜色 插件', run: () => setPfOpen(true) },
