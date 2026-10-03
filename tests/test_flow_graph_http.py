@@ -145,8 +145,9 @@ def test_graph_crud_list_fields_and_trigger(fake, owner_id):
                   " VALUES (?, ?, 'schedule', ?, 1, '2026-10-04T08:00:00+08:00', 'x')",
                   (owner_id, flow["id"], json.dumps({"schedule": {"repeat": "weekdays", "time": "08:00"}})))
     listed = owner.get("/api/flows").json()["flows"][0]
-    assert listed["trigger"] == {"kind": "schedule", "label": "每个工作日 08:00", "next_run_at": "2026-10-04T08:00:00+08:00",
-                                 "last_run_at": None, "last_status": ""}
+    assert listed["trigger"] == {"kind": "schedule", "enabled": True, "label": "每个工作日 08:00",
+                                 "next_run_at": "2026-10-04T08:00:00+08:00", "last_run_at": None, "last_status": "",
+                                 "paused_reason": ""}
     assert owner.get(f"/api/flows/{flow['id']}").json()["flow"]["trigger"]["label"] == "每个工作日 08:00"
     assert owner.delete(f"/api/flows/{flow['id']}").json() == {"ok": True}
     with FlowStore()._connect() as c:

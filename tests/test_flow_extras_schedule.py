@@ -313,9 +313,11 @@ def test_five_failures_pause_and_notify_once(owner_id):
     view = S.view(row, clock.now)
     assert view["paused_reason"] == "连续 5 次没跑成，已暂停定时。最近一次的原因：「写早报」没成功：模型暂时不可用"
     assert view["last_status"] == "error" and view["last_error"].startswith("「写早报」没成功")
-    texts = [t for _u, t in failing.deps.sent]
-    assert len(texts) == 5 and all(t.startswith("⚠️ 定时流程「早报」这次没跑成") for t in texts[:4])
-    assert texts[4].startswith("⏸️ 定时流程「早报」连续 5 次没跑成，已暂停定时") and "重新开启" in texts[4]
+    texts = [t for _u, t in failing.deps.sent]   # 只在第一次失败与暂停时各通知一次，中间几次不打扰
+    assert len(texts) == 2 and texts[0].startswith("⚠️ 定时流程「早报」这次没跑成")
+    assert texts[1].startswith("⏸️ 定时流程「早报」连续 5 次没跑成，已暂停定时") and "重新开启" in texts[1]
+    paused = FlowStore().triggers(owner_id)[flow_id]   # 卡片照样拿到暂停中的定时
+    assert paused["enabled"] is False and paused["paused_reason"].startswith("连续 5 次没跑成") and paused["next_run_at"] is None
     assert view["kind"] == "schedule" and view["enabled"] is False   # 自动暂停：仍是定时，只是关着
     assert _scheduler(failing, Clock("2026-10-18 08:00")).tick() == 0   # 暂停后不再跑
     # 重新开启：清零、清掉暂停原因
