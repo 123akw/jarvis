@@ -126,6 +126,16 @@ class HookStore:
                             (owner_id, flow_id, kind)).fetchone()
         return self._row(row)
 
+    def summary(self, owner_id: str) -> dict[str, dict]:
+        """{flow_id: {"message": bool, "webhook": bool}}：流程卡片上的触发方式小标记（只算开着的）。"""
+        with self._connect() as c:
+            rows = c.execute("SELECT flow_id, kind FROM tenant_flow_hooks WHERE owner_id=? AND enabled=1",
+                             (owner_id,)).fetchall()
+        out: dict[str, dict] = {}
+        for row in rows:
+            out.setdefault(row["flow_id"], {"message": False, "webhook": False})[row["kind"]] = True
+        return out
+
     def enabled_messages(self, owner_id: str) -> list[dict]:
         """该账号开着的消息触发（连同流程名；流程已删的 flow_name 为 None）。"""
         with self._connect() as c:

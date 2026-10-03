@@ -376,11 +376,12 @@ def register(app, *, request_principal, panel_write, deny, deps: engine.FlowDeps
     def migration_failed() -> JSONResponse:
         return no_store({"error": "个人数据迁移失败"}, 503)
 
-    def flow_view(flow: dict, *, last_run: dict | None, trigger: dict | None, full: bool) -> dict:
+    def flow_view(flow: dict, *, last_run: dict | None, trigger: dict | None, full: bool,
+                  hooks: dict | None = None) -> dict:
         graph = view_graph(flow)
         view = {"id": flow["id"], "name": flow["name"], "summary": flow["summary"], "graph": graph,
                 "config_hashes": config_hashes(graph), "updated_at": flow["updated_at"], "trigger": trigger,
-                "last_run": last_run}
+                "last_run": last_run, "hooks": hooks or {"message": False, "webhook": False}}
         if not full:
             view["node_count"] = len(graph.get("nodes") or [])
             view["plugins"] = nodes_mod.graph_plugins(graph)
@@ -411,9 +412,12 @@ def register(app, *, request_principal, panel_write, deny, deps: engine.FlowDeps
                 approvals.expire_due(s, principal.user_id)   # 等确认超时的先记成 expired（惰性）
                 flows = s.list_flows(principal.user_id)
                 last, triggers = s.last_runs(principal.user_id), s.triggers(principal.user_id)
+                from jarvis.flows.hooks import HookStore   # 第二十轮：消息 / 链接触发的小标记
+                hook_marks = HookStore().summary(principal.user_id)
         except TenantMigrationError:
             return migration_failed()
-        return no_store({"flows": [flow_view(f, last_run=last.get(f["id"]), trigger=triggers.get(f["id"]), full=False)
+        return no_store({"flows": [flow_view(f, last_run=last.get(f["id"]), trigger=triggers.get(f["id"]), full=False,
+                                             hooks=hook_marks.get(f["id"]))
                                    for f in flows]})
 
     @app.get("/api/flows/{flow_id}")

@@ -327,3 +327,19 @@ def test_not_ok_statuses(owner_id, runs, result, code, extra):
         assert body["error"] == result["error"]
     for key, value in extra.items():
         assert body[key] == value
+
+
+def test_flow_list_shows_trigger_marks(owner_id, runs):
+    """流程卡片上的触发方式小标记：列表每项带 hooks.{message, webhook}（只算开着的）。"""
+    flow = _flow(owner_id)
+    owner = _client()
+    listed = {f["id"]: f for f in owner.get("/api/flows").json()["flows"]}
+    assert listed[flow["id"]]["hooks"] == {"message": False, "webhook": False}
+    owner.put(f"/api/flows/{flow['id']}/hooks/message", json={"enabled": True, "channels": ["feishu"], "match": "keywords",
+                                                               "keywords": ["出门"]})
+    _issue(owner, flow["id"])
+    listed = {f["id"]: f for f in owner.get("/api/flows").json()["flows"]}
+    assert listed[flow["id"]]["hooks"] == {"message": True, "webhook": True}
+    owner.delete(f"/api/flows/{flow['id']}/hooks/webhook")
+    listed = {f["id"]: f for f in owner.get("/api/flows").json()["flows"]}
+    assert listed[flow["id"]]["hooks"] == {"message": True, "webhook": False}
