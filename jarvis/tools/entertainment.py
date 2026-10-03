@@ -21,6 +21,7 @@ from jarvis.search.models import (
 )
 from jarvis.search.providers import TavilyProvider
 from jarvis.search.service import SearchService
+from jarvis.tools.failure import SEARCH_NOT_CONFIGURED, fail
 
 
 _PANDASCORE_API = "https://api.pandascore.co"
@@ -87,7 +88,7 @@ def render_search_failure(
         }.get(snapshot.state, snapshot.last_error)
         message = _SEARCH_FAILURE_MESSAGES.get(category)
         if message is not None:
-            return message
+            return fail(message)
     return None
 
 
@@ -240,7 +241,7 @@ class EntertainmentSearch:
                 "tavily" in health_by_provider
                 and not health_by_provider["tavily"].configured
             ):
-                return "联网搜索未配置 TAVILY_API_KEY，暂时不能查询实时信息。"
+                return fail("联网搜索未配置 TAVILY_API_KEY，暂时不能查询实时信息。", SEARCH_NOT_CONFIGURED)
         return self._search.format_response(response)
 
     def _pandascore_latest(

@@ -16,6 +16,7 @@ from jarvis.search.service import (
     cache_policy_for_query,
     render_extracted_document,
 )
+from jarvis.tools.failure import SEARCH_NOT_CONFIGURED, fail
 
 
 def _domain_values(domains: str | Sequence[str] | None) -> tuple[str, ...]:
@@ -34,15 +35,15 @@ def _validated_request(
     max_results: int,
 ) -> SearchRequest | str:
     if not isinstance(query, str) or not query.strip():
-        return "查询内容不能为空。"
+        return fail("查询内容不能为空。")
     if len(query) > 300:
-        return "查询内容过长，请压缩到 300 字以内。"
+        return fail("查询内容过长，请压缩到 300 字以内。")
     if topic not in {"general", "news"}:
-        return "搜索主题只接受 general 或 news。"
+        return fail("搜索主题只接受 general 或 news。")
     if time_range not in {"", "day", "week", "month", "year", "d", "w", "m", "y"}:
-        return "搜索时间范围不合法。"
+        return fail("搜索时间范围不合法。")
     if isinstance(max_results, bool) or not isinstance(max_results, int) or not 1 <= max_results <= 5:
-        return "搜索结果数量必须在 1 到 5 之间。"
+        return fail("搜索结果数量必须在 1 到 5 之间。")
     try:
         return SearchRequest(
             query=query.strip(),
@@ -84,18 +85,18 @@ class TavilySearch:
         response = self._service.search(request)
         health = self._service.health()[0]
         if not health.configured:
-            return "联网搜索未配置 TAVILY_API_KEY，暂时不能查询实时信息。"
+            return fail("联网搜索未配置 TAVILY_API_KEY，暂时不能查询实时信息。", SEARCH_NOT_CONFIGURED)
         if not response.results:
             if health.state == "auth_open":
-                return "联网搜索认证失败，请检查 TAVILY_API_KEY。"
+                return fail("联网搜索认证失败，请检查 TAVILY_API_KEY。", "联网搜索的密钥不对，请管理员检查搜索服务设置")
             if health.state == "rate_open":
-                return "联网搜索触发额度或频率限制，请稍后再试或检查 Tavily 配额。"
+                return fail("联网搜索触发额度或频率限制，请稍后再试或检查 Tavily 配额。", "联网搜索额度用完或太频繁了，请稍后再试")
             if health.last_error == "timeout":
-                return "联网搜索请求超时，请稍后再试。"
+                return fail("联网搜索请求超时，请稍后再试。")
             if health.last_error == "network":
-                return "联网搜索暂时不可用（RequestError）。"
+                return fail("联网搜索暂时不可用（RequestError）。", "联网搜索暂时不可用，请稍后再试")
             if health.last_error == "response":
-                return "联网搜索响应异常，请稍后再试。"
+                return fail("联网搜索响应异常，请稍后再试。")
         return self._service.format_response(response)
 
     def close(self) -> None:
@@ -145,9 +146,9 @@ def make_web_extract_tool(service: SearchService) -> BaseTool:
         try:
             return render_extracted_document(service.extract(url))
         except FetchError as exc:
-            return f"网页提取失败（{exc}）：该来源暂不可达，请换其他来源链接或稍后重试。"
+            return fail(f"网页提取失败（{exc}）：该来源暂不可达，请换其他来源链接或稍后重试。", "这个网页打不开，换个链接或稍后再试")
         except ValueError:
-            return "网页提取失败：目标地址不是可安全提取的公开 HTTP(S) 网页，请换其他来源链接。"
+            return fail("网页提取失败：目标地址不是可安全提取的公开 HTTP(S) 网页，请换其他来源链接。", "这个地址不是能读取的公开网页，换个链接试试")
 
     return bound_web_extract
 
@@ -172,5 +173,5 @@ def web_search(
     if not response.results and not response.attempted_providers:
         health = {item.provider: item for item in _default_service.health()}
         if "tavily" in health and not health["tavily"].configured:
-            return "联网搜索未配置 TAVILY_API_KEY，暂时不能查询实时信息。"
+            return fail("联网搜索未配置 TAVILY_API_KEY，暂时不能查询实时信息。", SEARCH_NOT_CONFIGURED)
     return _default_service.format_response(response)

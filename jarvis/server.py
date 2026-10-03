@@ -1883,11 +1883,33 @@ onboarding.register(app, request_principal=_request_principal, panel_write=_pane
 # ---- 积木流程（第十三轮平台工坊）：/api/flows*、公开结果页 /r/<token>，逻辑在 jarvis/flows/ ----
 from jarvis import flows, vision  # noqa: E402
 
+
+def _flow_user_tool(user_id: str, name: str, base):
+    """流程里的联网工具按账号自己的搜索设置跑（第十九轮）：调用时临时借该账号的运行时，
+    用它的搜索服务现做一份同名工具；其他工具、测试注入的旧式运行时都原样返回。"""
+    from jarvis.tools import TOOLS, build_tools
+    if _runtime_manager is None or name not in {t.name for t in TOOLS if getattr(t, "search_service", None) is not None}:
+        return base
+    from langchain_core.tools import StructuredTool
+
+    def run(**kwargs):
+        with _bundle_for(user_id) as bundle:
+            service = getattr(bundle, "search_service", None)
+            tool = next((t for t in build_tools(search_service=service) if t.name == name), None) if service is not None else None
+            return (tool or base).invoke(kwargs)
+
+    wrapped = StructuredTool.from_function(func=run, name=base.name, description=base.description,
+                                           args_schema=base.args_schema)
+    object.__setattr__(wrapped, "plugin_guarded", bool(getattr(base, "plugin_guarded", False)))
+    return wrapped
+
+
 flows.install(app, request_principal=_request_principal, panel_write=_panel_write, deny=_deny,
               deps=flows.FlowDeps(
                   tenant_store=lambda: _tenant_store(),
                   compose=lambda uid, prompt: flows.model_compose(lambda u: _bundle_for(u), _chunk_text, uid, prompt),
                   describe_image=lambda data, ext: vision.describe_image(data, ext),
+                  user_tool=_flow_user_tool,
                   feishu_ready=feishu.push_ready,
                   push_feishu=feishu.push_text,
                   feishu_doc_target=feishu.doc_target,

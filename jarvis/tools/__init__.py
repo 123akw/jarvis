@@ -21,6 +21,7 @@ from jarvis.tools.todo import todo_add, todo_done, todo_list
 from jarvis.tools.weather import weather, weather_here
 from jarvis.search.providers import DDGSProvider, SearXNGProvider, TavilyProvider
 from jarvis.search.service import SearchService
+from jarvis.tools.failure import SEARCH_NOT_CONFIGURED, fail
 
 _SEARCH_GENERATIONS = count(1)
 _LOCAL_TOOLS = [
@@ -69,7 +70,7 @@ def _make_web_search_tool(service: SearchService) -> BaseTool:
                 "tavily" in health_by_provider
                 and not health_by_provider["tavily"].configured
             ):
-                return "联网搜索未配置 TAVILY_API_KEY，暂时不能查询实时信息。"
+                return fail("联网搜索未配置 TAVILY_API_KEY，暂时不能查询实时信息。", SEARCH_NOT_CONFIGURED)
         return service.format_response(response)
 
     return bound_web_search

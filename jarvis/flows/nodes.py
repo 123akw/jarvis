@@ -70,8 +70,22 @@ def first_sentence(text: str, limit: int = 60) -> str:
 
 # ---------- 工具 ----------
 
-def find_tool(name: str, deps=None):
-    """工具名 → 工具对象；找不到返回 None。测试可经 ``deps.find_tool`` 换成替身。"""
+def find_tool(name: str, deps=None, user_id: str | None = None):
+    """工具名 → 工具对象；找不到返回 None。测试可经 ``deps.find_tool`` 换成替身。
+
+    给了 ``user_id`` 且 deps 有 ``user_tool`` 钩子时，再按账号换一次（第十九轮：联网工具走账号自己的
+    搜索设置，而不是全局那份）。只在真正执行时传 user_id；目录与运行前检查只看参数，不必换。"""
+    tool = _lookup_tool(name, deps)
+    hook = getattr(deps, "user_tool", None) if deps is not None else None
+    if tool is not None and user_id and hook is not None:
+        try:
+            return hook(user_id, name, tool) or tool
+        except Exception as exc:   # 换不了就用全局那份，流程照跑
+            log.warning("flow user tool hook failed: %s", type(exc).__name__)
+    return tool
+
+
+def _lookup_tool(name: str, deps=None):
     custom = getattr(deps, "find_tool", None) if deps is not None else None
     if custom is not None:
         return custom(name)

@@ -49,6 +49,7 @@ class FlowDeps:
     wechat_ready: Callable[[], bool] = lambda: False
     push_wechat: Callable[[str], bool] = lambda text: False
     find_tool: Callable[[str], Any] | None = None               # 工具名 -> LangChain 工具（测试替身用；默认查注册表）
+    user_tool: Callable[[str, str, Any], Any] | None = None     # (账号, 工具名, 工具) -> 按账号设置换过的工具（联网工具用账号自己的搜索服务）
 
 
 # ---------- 校验 ----------

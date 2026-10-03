@@ -6,6 +6,7 @@ import time
 import httpx
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
+from jarvis.tools.failure import fail
 
 
 class WeatherArgs(BaseModel):
@@ -107,13 +108,14 @@ def weather(city: str) -> str:
         geo = _get_json_retrying(_GEO, {"name": city, "count": 1, "language": "zh"})
         hits = geo.get("results") or []
         if not hits:
-            return f"没查到城市「{city}」：换个写法再查一次（去掉省名、只写城市名，或用拼音）。"
+            return fail(f"没查到城市「{city}」：换个写法再查一次（去掉省名、只写城市名，或用拼音）。",
+                        f"没查到城市「{city}」，换个写法试试（只写城市名，或用拼音）")
         spot = hits[0]
         return _forecast_lines(spot["latitude"], spot["longitude"], spot["name"])
     except httpx.HTTPError as e:
-        return _UNREACHABLE.format(type(e).__name__)
+        return fail(_UNREACHABLE.format(type(e).__name__), "天气服务暂时连不上，这次查不到，请稍后再试")
     except (ValueError, KeyError, TypeError, IndexError, ImportError) as e:
-        return _BROKEN.format(type(e).__name__)
+        return fail(_BROKEN.format(type(e).__name__), "天气服务返回的数据异常，这次查不到，请稍后再试")
 
 
 @tool
@@ -123,11 +125,12 @@ def weather_here() -> str:
     from jarvis.tools.location import get_location
     loc = get_location()
     if not loc:
-        return "还没拿到定位，无法按位置查天气。请领导在网页端允许浏览器定位，或直接告诉我城市名。"
+        return fail("还没拿到定位，无法按位置查天气。请领导在网页端允许浏览器定位，或直接告诉我城市名。",
+                    "还没拿到定位，没法按位置查天气；流程里请改用「查城市天气」并填城市名")
     label = loc.get("place") or f"坐标 {loc['lat']:.2f},{loc['lon']:.2f}"
     try:
         return _forecast_lines(loc["lat"], loc["lon"], label)
     except httpx.HTTPError as e:
-        return _UNREACHABLE.format(type(e).__name__)
+        return fail(_UNREACHABLE.format(type(e).__name__), "天气服务暂时连不上，这次查不到，请稍后再试")
     except (ValueError, KeyError, TypeError, IndexError, ImportError) as e:
-        return _BROKEN.format(type(e).__name__)
+        return fail(_BROKEN.format(type(e).__name__), "天气服务返回的数据异常，这次查不到，请稍后再试")

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from jarvis import history_index
 from jarvis.tenancy import TenantStore, current_owner_id
+from jarvis.tools.failure import fail
 
 _SYNC_BUDGET = 0.5   # 秒：工具里补同步的时间上限，剩下的交给后台回填
 
@@ -60,7 +61,7 @@ def recall_history(query: str, limit: int = 5, config: RunnableConfig = None) ->
         if not hits and len(terms) > 1:   # 几个词同时出现的没有：放宽成任一出现
             hits = index.search(query, owner_id=owner, limit=limit, per_thread=3, match_all=False)
     except Exception as exc:  # 工具不能抛异常：失败转成一句话交给模型如实转告
-        return f"翻旧账暂时不可用（{type(exc).__name__}），请如实告诉领导没能查到。"
+        return fail(f"翻旧账暂时不可用（{type(exc).__name__}），请如实告诉领导没能查到。", "翻旧账暂时不可用，请稍后再试")
     if not hits:
         return f"没有翻到提到「{' '.join(terms)}」的旧对话。可以换个说法再找一次；还是没有就直说没找到。"
     lines = [f"翻到 {len(hits)} 条相关的旧对话（从新到旧）："]

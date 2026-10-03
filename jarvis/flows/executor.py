@@ -33,6 +33,7 @@ from jarvis.flows.steps import (AI_TIMEOUT, MAX_ITEMS, MAX_MATERIAL_CHARS, STEPS
                                 StepJob, cap_text, clean_model_text, clip, first_line, parse_items, preview,
                                 read_upload)
 from jarvis.tenancy import tenant_scope
+from jarvis.tools.failure import is_failure, public_text
 
 log = logging.getLogger("jarvis")
 
@@ -484,7 +485,7 @@ class _Run:
 
     def run_tool(self, node: dict, base: dict) -> NodeResult:
         data = node["data"]
-        tool = nodes_mod.find_tool(data["tool"], self.deps)
+        tool = nodes_mod.find_tool(data["tool"], self.deps, user_id=self.user_id)
         if tool is None:
             raise StepFailure(f"「{data['title']}」用的工具已经不在了，换一个或删掉它")
         guarded = bool(getattr(tool, "plugin_guarded", False))
@@ -520,6 +521,8 @@ class _Run:
                 raise StepFailure(f"「{data['title']}」的参数不对，请检查后再试") from exc
             log.warning("flow tool %s failed: %s", data["tool"], type(exc).__name__)
             raise StepFailure(f"「{data['title']}」这次没办成，请稍后再试") from exc
+        if is_failure(result):   # 核心工具的「这次没办成」：整条停下，不把失败说明当结果传下去（第十九轮）
+            raise StepFailure(public_text(result))
         if data["tool"] in _DIGEST_WRITERS:
             try:
                 from jarvis.prompts import forget_digest
