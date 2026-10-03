@@ -453,8 +453,10 @@ class FeishuBridge:
         self._tenant_store = None
         self._accounts = None
         self._quick_reply = None
+        self._message_hook = None
 
-    def configure(self, *, bundle_for, chunk_text, tenant_store, accounts, quick_reply=None) -> None:
+    def configure(self, *, bundle_for, chunk_text, tenant_store, accounts, quick_reply=None,
+                  message_hook=None) -> None:
         with self._lock:
             self._bundle_for = bundle_for
             self._chunk_text = chunk_text
@@ -462,6 +464,8 @@ class FeishuBridge:
             self._accounts = accounts
             # (user_id, text) -> str | None：提醒的「稍后 / 好了」回复短语，None 表示照常交给 Agent
             self._quick_reply = quick_reply
+            # (user_id, channel, text, on_start=...) -> str | None：消息触发流程（第二十轮，jarvis/flows/hooks.py）
+            self._message_hook = message_hook
 
     # ---- 生命周期与状态 ----
 
@@ -632,6 +636,8 @@ class FeishuBridge:
         if inbound.msg_type == "audio":
             self._deliver_text(inbound, AUDIO_REPLY)
             return
+        if text and self._message_hook is not None and self._flow_hook(inbound, user_id, text):
+            return
         if not text and not inbound.image_keys:
             if inbound.msg_type in ("text", "post"):
                 text = "你好"  # 群里只 @ 了一下
@@ -639,6 +645,29 @@ class FeishuBridge:
                 self._deliver_text(inbound, UNSUPPORTED_REPLY)
                 return
         self._respond(inbound, user_id, lambda: self._build_prompt(inbound, text))
+
+    def _flow_hook(self, inbound: Inbound, user_id: str, text: str) -> bool:
+        """消息触发流程：命中就由流程处理并回复结果（返回 True）；没命中或查不了照常交给 Agent。"""
+        reaction = ""
+
+        def started(_flow_name: str) -> None:
+            nonlocal reaction
+            reaction = self._typing_on(inbound.message_id)   # 流程可能跑一会儿：先挂「打字中」
+
+        try:
+            answer = self._message_hook(user_id, "feishu", text, on_start=started)
+        except Exception as exc:
+            log.warning("feishu flow hook failed: %s", type(exc).__name__)
+            answer = None
+        if answer:
+            for chunk in split_markdown(answer):
+                self._deliver_markdown(inbound, chunk)
+        if reaction:
+            try:
+                self._require_api().delete_reaction(inbound.message_id, reaction)
+            except FeishuAPIError:
+                pass
+        return bool(answer)
 
     def _active_username(self, user_id: str) -> str | None:
         try:

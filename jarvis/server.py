@@ -1809,12 +1809,20 @@ if (_WEB / "assets").is_dir():
     app.mount("/assets", StaticFiles(directory=_WEB / "assets"), name="assets")
 
 
+def _flow_message_hook(user_id: str, channel: str, text: str, **kwargs) -> str | None:
+    """飞书 / 微信消息先问流程的消息触发（第二十轮，jarvis/flows/hooks.py）：命中返回回复文字，否则 None。"""
+    from jarvis.flows import hooks as flow_hooks
+    return flow_hooks.handle_message(user_id, channel, text, **kwargs)
+
+
 wechat.init(_get_agent, _chunk_text, _accounts.unique_active_owner)
+wechat.set_message_hook(_flow_message_hook)
 feishu.register(
     app, bundle_for=_bundle_for, chunk_text=_chunk_text, tenant_store=_tenant_store,
     accounts=_accounts, request_principal=_request_principal,
     write_authorized=_write_authorized, deny=_deny, csrf_deny=_csrf_deny,
     quick_reply=lambda user_id, text: _reminder_quick_reply(user_id, "feishu", text),
+    message_hook=_flow_message_hook,
 )
 
 

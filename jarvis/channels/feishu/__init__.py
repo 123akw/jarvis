@@ -16,10 +16,11 @@ def get_bridge() -> FeishuBridge:
 
 
 def register(app, *, bundle_for, chunk_text, tenant_store, accounts,
-             request_principal, write_authorized, deny, csrf_deny, quick_reply=None) -> None:
+             request_principal, write_authorized, deny, csrf_deny, quick_reply=None, message_hook=None) -> None:
     """注入 Agent/账户依赖并挂上 /api/feishu/* 路由（不启动连接）。"""
     _bridge.configure(bundle_for=bundle_for, chunk_text=chunk_text,
-                      tenant_store=tenant_store, accounts=accounts, quick_reply=quick_reply)
+                      tenant_store=tenant_store, accounts=accounts, quick_reply=quick_reply,
+                      message_hook=message_hook)
     register_routes(app, _bridge, request_principal=request_principal,
                     write_authorized=write_authorized, deny=deny, csrf_deny=csrf_deny)
 
