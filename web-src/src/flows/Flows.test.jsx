@@ -91,14 +91,26 @@ const RUNS = { runs: [
     page_url: '', output_text: '', error: '「查实时天气」没走通', nodes: [] },
 ] }
 
+/** SSE 响应：一次把事件都给出去（重跑用） */
+function sseResponse(events) {
+  const chunks = events.map(ev => new TextEncoder().encode(`data: ${JSON.stringify(ev)}\n\n`))
+  let i = 0
+  return { ok: true, status: 200, body: { getReader: () => ({ read: async () => (i < chunks.length ? { done: false, value: chunks[i++] } : { done: true }), releaseLock() {} }) } }
+}
+
 let api
-function mockApi({ flows = FLOWS, listStatus = 200, composeFail = 0, trigger = null, feishuBound = false } = {}) {
-  const state = { flows: flows.map(f => ({ ...f })), calls: [], composeFail, trigger, feishuBound }
+function mockApi({ flows = FLOWS, listStatus = 200, composeFail = 0, trigger = null, feishuBound = false, runs = RUNS } = {}) {
+  const state = { flows: flows.map(f => ({ ...f })), calls: [], composeFail, trigger, feishuBound, rerun: null }
   const res = (body, status = 200) => ({ ok: status < 400, status, json: async () => body })
   global.fetch = vi.fn(async (url, init = {}) => {
     const method = init.method || 'GET'
     const body = init.body ? JSON.parse(init.body) : undefined
     state.calls.push({ url, method, body })
+    if (/^\/api\/flows\/[^/]+\/runs\/[^/]+\/rerun$/.test(url)) {
+      const r = state.rerun || { events: [] }
+      return r.status ? res(r.body || {}, r.status) : sseResponse(r.events)
+    }
+    if (/^\/api\/flows\/[^/]+\/runs/.test(url) && runs !== RUNS) return res(runs)
     if (url === '/api/flows' && method === 'GET') return listStatus === 200 ? res({ flows: state.flows }) : res({ error: '数据库开小差了' }, listStatus)
     if (url === '/api/flows' && method === 'POST') return res({ flow: { id: 'copy1', name: body.name, summary: body.summary, graph: body.graph } })
     if (url === '/api/flows/templates') return res(TEMPLATES)
@@ -397,6 +409,71 @@ describe('「我的流程」首页', () => {
     expect(within(drawer).getByText('「查实时天气」没走通')).toBeInTheDocument()
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('运行记录：来源说人话（重复的不再标）；等你确认 / 没同意的状态；每条「再跑」，在等确认的不能再跑', async () => {
+    const now = Date.now()
+    const runs = { runs: [
+      { id: 'r5', status: 'waiting', source: 'chat', started_at: new Date(now - 60e3).toISOString(), input_summary: '城市：北京', nodes: [],
+        approval: { id: 'apv777', expires_at: new Date(now + 4.5 * 3600e3).toISOString() } },
+      { id: 'r4', status: 'rejected', source: 'webhook', started_at: new Date(now - 600e3).toISOString(), input_summary: '', nodes: [] },
+      { id: 'r3', status: 'ok', source: 'manual', started_at: new Date(now - 3600e3).toISOString(), input_summary: '手动运行', nodes: [] },
+    ] }
+    await renderHome({ runs })
+    fireEvent.click(screen.getByRole('button', { name: '「工作日早报」的更多操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '运行记录' }))
+    const drawer = screen.getByRole('dialog', { name: '运行记录：工作日早报' })
+    const list = await within(drawer).findByRole('list', { name: '最近的运行' })
+    const items = within(list).getAllByRole('listitem')
+    expect(items[0]).toHaveTextContent('等你确认对话里叫跑的')
+    expect(items[1]).toHaveTextContent('你没同意链接触发')
+    expect(within(items[2]).queryByText('手动运行', { selector: '.fh-run-src' })).toBeNull()   // 摘要里说过了
+    expect(within(items[0]).queryByRole('button', { name: /用这次的输入再跑/ })).toBeNull()
+    expect(within(items[1]).getByRole('button', { name: /用这次的输入再跑/ })).toBeInTheDocument()
+    // 等确认的那条：详情里给「去确认」
+    fireEvent.click(within(items[0]).getByRole('button', { name: /等你确认/ }))
+    expect(within(drawer).getByRole('heading', { name: '这次运行在等你确认' })).toBeInTheDocument()
+    expect(within(drawer).getByText(/对话里叫跑的/)).toBeInTheDocument()
+    const go = within(drawer).getByRole('link', { name: '去确认' })
+    expect(go).toHaveAttribute('href', '/approve/apv777')
+    expect(within(drawer).getByRole('note')).toHaveTextContent('还剩 4 小时')
+    fireEvent.click(go)
+    expect(where()).toBe('/approve/apv777')
+  })
+
+  it('用这次的输入再跑：就地显示每一步与结果；回到全部记录会重新加载；在详情里也能再跑；接口拒了说人话', async () => {
+    await renderHome()
+    api.rerun = { events: [
+      { type: 'run_start', run_id: 'r9' },
+      { type: 'node_start', node_id: 'w', node_type: 'tool', title: '查实时天气' },
+      { type: 'node_done', node_id: 'w', ms: 900, summary: '北京 多云' },
+      { type: 'node_start', node_id: 'n1', node_type: 'llm' },
+      { type: 'node_done', node_id: 'n1', ms: 2100, summary: '写好了' },
+      { type: 'run_done', status: 'ok', ms: 3100, output: { text: '**新的早报**', page_url: '/r/new', links: [] } },
+    ] }
+    fireEvent.click(screen.getByRole('button', { name: '「工作日早报」的更多操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '运行记录' }))
+    const drawer = screen.getByRole('dialog', { name: '运行记录：工作日早报' })
+    await within(drawer).findAllByRole('button', { name: /完成|失败/ })
+    fireEvent.click(within(drawer).getAllByRole('button', { name: /用这次的输入再跑/ })[0])
+    expect(await within(drawer).findByRole('heading', { name: '这次运行完成' })).toBeInTheDocument()
+    expect(calls('/api/flows/f1/runs/r2/rerun', 'POST')).toHaveLength(1)
+    const steps = within(drawer).getByRole('region', { name: '每一步的进度' })
+    expect(within(steps).getByText('查实时天气')).toBeInTheDocument()
+    expect(within(steps).getByText('北京 多云')).toBeInTheDocument()
+    expect(within(steps).getByText('写成早报')).toBeInTheDocument()   // 事件没带名字：用那次记录里的
+    const result = within(drawer).getByRole('region', { name: '最终结果' })
+    expect(result.querySelector('strong')).toHaveTextContent('新的早报')
+    expect(within(result).getByRole('link', { name: /打开结果网页/ })).toHaveAttribute('href', 'http://localhost/r/new')
+    expect(within(drawer).getByText(/用的是 .* 的输入/)).toBeInTheDocument()
+    fireEvent.click(within(drawer).getByRole('button', { name: /全部记录/ }))
+    await waitFor(() => expect(calls('/api/flows/f1/runs?limit=20')).toHaveLength(2))
+    // 详情里的完整按钮；这回接口说今天的用量到上限了
+    api.rerun = { status: 429, body: { error: '今天的用量到上限了，明天再来，或请管理员调高' } }
+    fireEvent.click((await within(drawer).findAllByRole('button', { name: /失败/ }))[0])
+    fireEvent.click(within(drawer).getByRole('button', { name: '用这次的输入再跑' }))
+    expect(await within(drawer).findByRole('alert')).toHaveTextContent('今天的用量到上限了')
+    expect(within(drawer).getByRole('heading', { name: '没能再跑' })).toBeInTheDocument()
   })
 
   it('定时运行：重复 / 时间 / 预填输入（文件字段说明）/ 飞书没绑定灰显 / 下次运行及之后 2 次；保存发契约格式并更新卡片', async () => {

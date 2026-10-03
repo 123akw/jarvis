@@ -57,8 +57,9 @@ function lastRunText(last) {
   if (!last) return { dot: '', text: '还没运行过' }
   const status = RUN_STATUS[last.status] || '结束'
   const when = relTime(last.started_at || last.finished_at)
-  const dot = last.status === 'ok' ? 'online' : last.status === 'error' ? 'error' : last.status === 'running' ? 'busy' : ''
-  return { dot, text: `上次运行${status}${when ? ` · ${when}` : ''}`, title: absTime(last.started_at) }
+  const dot = last.status === 'ok' ? 'online' : last.status === 'error' ? 'error' : last.status === 'running' ? 'busy' : last.status === 'waiting' ? 'wait' : ''
+  const text = last.status === 'waiting' ? '有一步等你确认' : `上次运行${last.status === 'rejected' ? '没被同意' : status}`
+  return { dot, text: `${text}${when ? ` · ${when}` : ''}`, title: absTime(last.started_at) }
 }
 
 export function triggerText(trigger) {

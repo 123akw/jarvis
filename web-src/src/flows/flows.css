@@ -6,13 +6,13 @@
  *   间距取 4 的倍数，圆角 8 / 12 / 16；持续动画只动 transform / opacity，减弱动态时全部关掉。
  * ===================================================================== */
 .fh-page{
-  --fh-start:#64C8F5;--fh-ai:#A894FF;--fh-tool:#4FD1C5;--fh-logic:#F5C451;--fh-out:#F7B46A;--fh-end:#5FD38D;
+  --fh-start:#64C8F5;--fh-ai:#A894FF;--fh-tool:#4FD1C5;--fh-logic:#F5C451;--fh-out:#F7B46A;--fh-end:#5FD38D;--fh-wait:#FF9F5A;
   --fh-card:#16161B;--fh-stage:rgba(255,255,255,.022);--fh-dot:rgba(255,255,255,.075);
   --fh-lift:0 12px 32px rgba(0,0,0,.36);--fh-seg-on:rgba(255,255,255,.13);--fh-sheet:#242429;
   position:fixed;inset:0;display:flex;flex-direction:column;color:var(--jv-text);
   background:radial-gradient(1100px 560px at 50% -20%,rgba(94,92,230,.12),transparent 62%),var(--jv-bg)}
 body.light .fh-page{
-  --fh-start:#0B8DC4;--fh-ai:#6B55E6;--fh-tool:#0F8A80;--fh-logic:#B7791F;--fh-out:#D2711C;--fh-end:#248A3D;
+  --fh-start:#0B8DC4;--fh-ai:#6B55E6;--fh-tool:#0F8A80;--fh-logic:#B7791F;--fh-out:#D2711C;--fh-end:#248A3D;--fh-wait:#C2470A;
   --fh-card:#FFFFFF;--fh-stage:#F6F6F9;--fh-dot:rgba(0,0,0,.09);
   --fh-lift:0 12px 32px rgba(0,0,0,.08);--fh-seg-on:#FFFFFF;--fh-sheet:#FCFCFE;
   background:radial-gradient(1100px 560px at 50% -20%,rgba(0,122,255,.07),transparent 62%),var(--jv-bg)}
@@ -22,6 +22,8 @@ body.light .fh-page{
 .fh-page [data-tone=logic]{--tone:var(--fh-logic)}
 .fh-page [data-tone=out]{--tone:var(--fh-out)}
 .fh-page [data-tone=end]{--tone:var(--fh-end)}
+.fh-page [data-tone=wait]{--tone:var(--fh-wait)}
+.fh-page .status-dot.wait{background:var(--fh-wait)}
 .fh-page ::-webkit-scrollbar{width:10px;height:10px}
 .fh-page ::-webkit-scrollbar-thumb{background:var(--jv-scroll);border-radius:8px;border:3px solid transparent;background-clip:content-box}
 .fh-flip{transform:scaleX(-1)}
@@ -264,11 +266,25 @@ body.light .fh-tab.is-on{box-shadow:0 1px 2px rgba(0,0,0,.08),0 0 0 1px rgba(0,0
 .fh-drawer-sub{margin-top:2px;font-size:13px;color:var(--jv-text-3);overflow-wrap:anywhere}
 .fh-drawer-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:12px 16px calc(24px + env(safe-area-inset-bottom))}
 .fh-run-list{list-style:none;display:grid;gap:4px}
-.fh-run{width:100%;display:flex;align-items:center;gap:12px;padding:12px;border:none;border-radius:12px;background:transparent;text-align:left;
+.fh-run-li{display:flex;align-items:center;gap:4px;min-width:0}
+.fh-run{flex:1;min-width:0;width:100%;display:flex;align-items:center;gap:12px;padding:12px;border:none;border-radius:12px;background:transparent;text-align:left;
   transition:background .2s}
 .fh-run:hover{background:var(--jv-hover)}
 .fh-run-main{flex:1;min-width:0;display:grid;gap:2px}
-.fh-run-top{display:flex;align-items:baseline;gap:8px}
+.fh-run-top{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;min-width:0}
+.fh-run-src{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:8px;font-size:12px;color:var(--jv-text-2);background:var(--jv-surface-2)}
+/* 「再跑」：每条记录右边一颗小按钮（详情里是完整的「用这次的输入再跑」） */
+.fh-rerun-btn{flex:none;display:inline-flex;align-items:center;gap:4px;height:32px;padding:0 10px;border-radius:16px;
+  border:1px solid var(--jv-border);background:transparent;color:var(--jv-text-2);font-size:12.5px;white-space:nowrap;transition:background .2s,color .2s}
+.fh-rerun-btn:hover{background:var(--jv-hover);color:var(--jv-text)}
+.fh-rerun-full{margin-top:12px;gap:6px}
+.fh-rerun-stop{margin-top:12px;gap:6px;color:var(--jv-danger);background:color-mix(in srgb,var(--jv-danger) 12%,transparent)}
+.fh-rerun .fh-rdetail-head h3{gap:10px}
+.fh-rerun-foot{margin:16px 4px 0}
+.fh-wait-box{display:grid;justify-items:start;gap:8px;margin-top:12px;padding:12px 16px;border-radius:12px;font-size:13.5px;line-height:1.6;color:var(--jv-text-2);
+  background:color-mix(in srgb,var(--fh-wait) 9%,transparent);border:1px solid color-mix(in srgb,var(--fh-wait) 30%,transparent)}
+.fh-wait-box b{display:block;color:var(--jv-text);font-weight:600}
+.fh-wait-box .jv-btn{text-decoration:none}
 .fh-run-top b{font-size:14.5px;font-weight:600}
 .fh-run-top time{font-size:12.5px;color:var(--jv-text-3)}
 .fh-run-meta{font-size:12.5px;color:var(--jv-text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -292,7 +308,10 @@ body.light .fh-tab.is-on{box-shadow:0 1px 2px rgba(0,0,0,.08),0 0 0 1px rgba(0,0
 .fh-nres-mark{width:22px;height:22px;flex:none;display:grid;place-items:center;margin-top:1px;border-radius:50%;color:#fff;background:var(--jv-success)}
 .fh-nres-mark .jv-icon{stroke-width:2.6}
 .fh-nres[data-state=error] .fh-nres-mark{background:var(--jv-danger)}
-.fh-nres[data-state=skipped] .fh-nres-mark{background:var(--jv-surface-2)}
+.fh-nres[data-state=skipped] .fh-nres-mark,.fh-nres[data-state=stopped] .fh-nres-mark{background:var(--jv-surface-2)}
+.fh-nres[data-state=running] .fh-nres-mark{background:var(--jv-accent-soft)}
+.fh-nres[data-state=waiting] .fh-nres-mark{background:var(--fh-wait)}
+.fh-nres-spin{width:10px;height:10px;border-radius:50%;border:1.5px solid var(--jv-accent);border-right-color:transparent;animation:fh-rot .8s linear infinite}
 .fh-nres-mark i{width:8px;height:1.5px;border-radius:1px;background:var(--jv-text-3)}
 .fh-nres[data-state=skipped] .fh-nres-body{opacity:.6}
 .fh-nres-body{flex:1;min-width:0}
@@ -379,6 +398,7 @@ body.light .fh-field input,body.light .fh-field select,body.light .fh-field text
   color:var(--jv-text-2);background:var(--jv-bg)}
 
 @keyframes fh-lit{0%,100%{opacity:.45}45%{opacity:1}}
+@keyframes fh-rot{to{transform:rotate(360deg)}}
 @keyframes fh-shimmer{50%{opacity:.45}}
 @keyframes fh-in-right{from{opacity:0;transform:translateX(24px)}}
 @keyframes fh-toast{from{opacity:0;transform:translate(-50%,8px)}}
@@ -424,6 +444,7 @@ body.light .fh-field input,body.light .fh-field select,body.light .fh-field text
   .fh-example{height:36px}
   .fh-tab{height:36px}
   .fh-run{padding:14px 12px}
+  .fh-rerun-btn{height:40px}
 }
 
 /* 减弱动态：只切状态，不做位移、扫光、呼吸 */
