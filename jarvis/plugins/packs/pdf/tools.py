@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from jarvis import files
 from jarvis.tenancy import TenantScopeError, current_owner_id
+from jarvis.tools.failure import fail
 
 log = logging.getLogger("jarvis")
 
@@ -41,11 +42,11 @@ def _friendly(fn):
         try:
             return fn(*args, **kwargs)
         except Problem as exc:
-            return str(exc)
+            return fail(str(exc))
         except Exception as exc:
             log.warning("pdf tool %s failed: %s", fn.__name__, type(exc).__name__)
-            return ("PDF 处理没成功（内部错误）。不要用相同参数重试；请告诉领导这一步没成，"
-                    "可以换个文件、少选几页或稍后再试。")
+            return fail(("PDF 处理没成功（内部错误）。不要用相同参数重试；请告诉领导这一步没成，"
+                    "可以换个文件、少选几页或稍后再试。"), "PDF 处理没成功，换个文件、少选几页或稍后再试")
     return wrapper
 
 

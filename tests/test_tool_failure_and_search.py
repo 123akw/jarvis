@@ -104,3 +104,13 @@ def test_flow_web_search_uses_the_accounts_own_search_service(monkeypatch):
     assert server_mod._flow_user_tool("u42", "calc", calc) is calc      # 非联网工具不换
     monkeypatch.setattr(server_mod, "_runtime_manager", None)
     assert server_mod._flow_user_tool("u42", "web_search", base) is base  # 测试 / 旧式运行时不换
+
+
+def test_file_plugin_problems_are_marked_failures(owner_id):
+    excel = importlib.import_module("jarvis.plugins.packs.excel.tools")
+    tool = next(t for t in excel.TOOLS if t.name == "excel_summary")
+    from jarvis.tenancy import tenant_scope
+    with tenant_scope(owner_id):
+        result = tool.invoke({"file_id": "nosuchfile123"})
+    assert is_failure(result) and "没找到文件" in result
+    assert "请让领导" not in public_text(result) and "没找到文件" in public_text(result)

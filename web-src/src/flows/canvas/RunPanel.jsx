@@ -201,7 +201,9 @@ export default function RunPanel({
   const fields = Array.isArray(start?.data?.fields) ? start.data.fields : []
   const [tried, setTried] = useState(false)
   const running = run?.status === 'running'
-  const missing = fields.filter(f => f.required && isEmpty(inputs[f.key]))
+  // 没动过的字段显示它的默认值（服务端运行时也用默认值），必填检查同样算上默认值
+  const valueOf = f => (inputs[f.key] === undefined && f.default !== undefined && f.default !== null ? f.default : inputs[f.key])
+  const missing = fields.filter(f => f.required && isEmpty(valueOf(f)))
   const progress = run?.order || []
   const doneCount = progress.filter(id => ['ok', 'skipped'].includes(run.nodes[id]?.status)).length
   const say = !run ? '' : running ? `运行中，已完成 ${doneCount} 步` : run.status === 'ok' ? '完成' : run.status === 'stopped' ? '已停止' : `没跑通：${run.error}`
@@ -240,7 +242,7 @@ export default function RunPanel({
         <h3 className="fc-cfg-h fc-run-sec">输入</h3>
         <form className="fc-run-form" onSubmit={submit} noValidate>
           {fields.length ? fields.map(f => (
-            <InputField key={f.key} field={f} value={inputs[f.key]} disabled={running}
+            <InputField key={f.key} field={f} value={valueOf(f)} disabled={running}
               invalid={tried && missing.includes(f)} onChange={v => onInputs({ ...inputs, [f.key]: v })} />
           )) : <p className="fc-field-hint">这个流程运行时不用填东西。</p>}
           {tried && missing.length ? <p className="fc-form-err" role="alert">还没填：{missing.map(f => `「${f.label || '没起名的输入项'}」`).join('、')}</p> : null}

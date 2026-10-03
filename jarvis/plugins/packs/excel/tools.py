@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from jarvis import files
 from jarvis.tenancy import TenantScopeError, current_owner_id
+from jarvis.tools.failure import fail
 
 log = logging.getLogger("jarvis")
 
@@ -51,11 +52,11 @@ def _friendly(fn):
         try:
             return fn(*args, **kwargs)
         except Problem as exc:
-            return str(exc)
+            return fail(str(exc))
         except Exception as exc:
             log.warning("excel tool %s failed: %s", fn.__name__, type(exc).__name__)
-            return ("表格处理没成功（内部错误）。不要用相同参数重试；请告诉领导这一步没成，"
-                    "可以检查表格格式、换个条件或稍后再试。")
+            return fail(("表格处理没成功（内部错误）。不要用相同参数重试；请告诉领导这一步没成，"
+                    "可以检查表格格式、换个条件或稍后再试。"), "表格处理没成功，检查一下表格格式、换个条件或稍后再试")
     return wrapper
 
 

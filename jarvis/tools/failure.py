@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 
 # 只对模型说的话（「请如实告诉领导…」）与技术细节（括号里的异常名、配置项名）不给流程用户看
-_FOR_MODEL = re.compile(r"[，,。]?\s*请如实告诉领导[^。]*。?")
+_FOR_MODEL = re.compile(r"[，,。；;]?\s*(?:请如实告诉领导|请告诉领导|请让领导|不要用相同参数重试)[^。]*。?")
 _EXC_NAME = re.compile(r"（[A-Za-z][A-Za-z0-9_.]*(?:Error|Exception|Timeout)[A-Za-z]*）")
 
 
