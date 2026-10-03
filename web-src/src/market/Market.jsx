@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { login, logout } from '../api.js'
 import Icon from '../Icon.jsx'
 import Presence, { prefersReducedMotion } from '../Presence.jsx'
+import { startTour, useTour } from '../tour/index.jsx'
 import { APP_PATH, loginHref, navigate } from '../routes.js'
 import { applyTheme, currentTheme } from '../theme.js'
 import { getCatalog, marketSignup, previewSourcePlugin, recommend } from './api.js'
@@ -289,6 +290,8 @@ export default function Market({ session, onAuthed }) {
     if (select) input?.select()
   }
   useSearchHotkeys(step === 'market' ? focusSearch : null)
+  // 新手引导：首屏目录就绪、登录状态查清、没开详情 / 拦路口 / 生成中时，第一次来自动播一次
+  useTour('market', { ready: step === 'market' && !!data && !checking && !detailId && !gate && !busy })
   function home() {
     setQuery('')
     if (step === 'brand') go('market')
@@ -396,7 +399,8 @@ export default function Market({ session, onAuthed }) {
   const account = (
     <AccountArea me={me} checking={checking} compact={step !== 'market'}
       onLogin={() => navigate(loginHref())} onEnter={goApp} onFlows={() => navigate('/flows')}
-      onAdmin={isOwner ? () => setAdminReq(r => ({ tab: 'manage', n: (r?.n || 0) + 1 })) : undefined} onLogout={signOut} />
+      onAdmin={isOwner ? () => setAdminReq(r => ({ tab: 'manage', n: (r?.n || 0) + 1 })) : undefined} onLogout={signOut}
+      onTour={step === 'market' ? () => startTour('market') : undefined} />
   )
   let topCenter = null
   if (step === 'brand') topCenter = <Progress step={step} onGo={go} />

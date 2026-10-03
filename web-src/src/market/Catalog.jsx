@@ -176,7 +176,12 @@ export default function Catalog({ catalog, picked, onToggle, onOpen, query = '',
   const q = query.trim()
   const overview = !q && filters.cat === 'all' && filters.source === 'all' && filters.kind === 'all'
   const filtered = filters.cat !== 'all' || filters.source !== 'all' || filters.kind !== 'all'
-  const card = p => <PluginCard key={p.id} plugin={p} picked={pickedSet.has(p.id)} onToggle={onToggle} onOpen={onOpen} />
+  let anchored = false   // 新手引导「看中了就放进工具箱」指向目录里的第一张卡
+  const card = p => {
+    const tour = anchored ? undefined : 'market-card'
+    anchored = true
+    return <PluginCard key={p.id} plugin={p} picked={pickedSet.has(p.id)} onToggle={onToggle} onOpen={onOpen} tour={tour} />
+  }
   const catName = id => catalog.categories.find(c => c.id === id)?.name || ''
 
   let body

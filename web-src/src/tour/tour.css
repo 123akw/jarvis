@@ -1,0 +1,84 @@
+/* 新手引导（第十八轮）：聚光灯 + 气泡卡。层级在弹窗（80）、命令面板（90）之上，进场动画（1000）之下。 */
+.jv-tour{--jv-tour-dim:rgba(0,0,0,.6)}
+body.light .jv-tour{--jv-tour-dim:rgba(20,20,28,.44)}
+
+.jv-tour-block{position:fixed;inset:0;z-index:900;background:transparent}
+.jv-tour-block.is-dim{background:var(--jv-tour-dim);animation:jv-tour-fade .24s var(--jv-ease)}
+
+/* 高亮框：自己透明（目标原样露出），超大 box-shadow 把四周压暗；外圈两道描边 + 一层柔光 */
+.jv-tour-ring{position:fixed;z-index:901;pointer-events:none;border-radius:12px;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb,var(--jv-accent) 78%,transparent),
+    0 0 0 6px color-mix(in srgb,var(--jv-accent) 20%,transparent),
+    0 0 28px 6px color-mix(in srgb,var(--jv-accent) 26%,transparent),
+    0 0 0 200vmax var(--jv-tour-dim);
+  transition:top .36s var(--jv-ease),left .36s var(--jv-ease),width .36s var(--jv-ease),height .36s var(--jv-ease),border-radius .36s var(--jv-ease);
+  animation:jv-tour-fade .28s var(--jv-ease)}
+
+.jv-tour-card{position:fixed;z-index:902;top:0;left:0;width:min(340px,calc(100vw - 32px));padding:16px 16px 12px;border-radius:16px;
+  background:var(--jv-elevated);-webkit-backdrop-filter:var(--jv-blur);backdrop-filter:var(--jv-blur);
+  border:1px solid var(--jv-border);box-shadow:var(--jv-shadow-float);color:var(--jv-text);font-family:var(--jv-font);text-align:left;
+  opacity:0;visibility:hidden;pointer-events:none;
+  transition:top .36s var(--jv-ease),left .36s var(--jv-ease),opacity .2s var(--jv-ease),visibility 0s linear .2s}
+.jv-tour-card.is-on{opacity:1;visibility:visible;pointer-events:auto;
+  transition:top .36s var(--jv-ease),left .36s var(--jv-ease),opacity .2s var(--jv-ease),visibility 0s;
+  animation:jv-tour-in .32s var(--jv-ease)}
+.jv-tour-card:focus{outline:none}
+
+/* 手机：底部卡片（目标在底部时改到顶部） */
+.jv-tour-card.is-sheet{top:auto;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));width:auto;padding:16px 16px 12px;transition:opacity .2s var(--jv-ease)}
+.jv-tour-card.is-sheet.side-top{top:calc(12px + env(safe-area-inset-top));bottom:auto}
+.jv-tour-card.is-sheet.is-on{animation:jv-tour-up .32s var(--jv-ease)}
+.jv-tour-card.is-sheet.side-top.is-on{animation:jv-tour-down .32s var(--jv-ease)}
+
+.jv-tour-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.jv-tour-dots{display:flex;align-items:center;gap:4px}
+.jv-tour-dots i{display:block;width:6px;height:6px;border-radius:3px;background:var(--jv-text-3);opacity:.6;
+  transition:width .24s var(--jv-ease),background-color .24s var(--jv-ease),opacity .24s var(--jv-ease)}
+.jv-tour-dots i.on{width:16px;background:var(--jv-accent);opacity:1}
+.jv-tour-count{font-size:12px;line-height:16px;color:var(--jv-text-3)}
+.jv-tour-title{margin:0 0 4px;font-size:16px;line-height:24px;font-weight:600;letter-spacing:.01em;color:var(--jv-text)}
+.jv-tour-body{margin:0;font-size:14px;line-height:22px;color:var(--jv-text-2)}
+
+.jv-tour-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:16px}
+.jv-tour-nav{display:flex;align-items:center;gap:8px}
+.jv-tour-skip,.jv-tour-btn-ghost,.jv-tour-btn-primary{height:32px;border:none;border-radius:8px;font-size:13px;font-weight:500;font-family:inherit;white-space:nowrap}
+.jv-tour-skip{margin-left:-8px;padding:0 8px;background:transparent;color:var(--jv-text-3)}
+.jv-tour-skip:hover{color:var(--jv-text-2);background:var(--jv-hover)}
+.jv-tour-btn-ghost{padding:0 12px;background:var(--jv-surface-2);color:var(--jv-text)}
+.jv-tour-btn-ghost:hover{background:var(--jv-pressed)}
+.jv-tour-btn-primary{padding:0 16px;background:var(--jv-accent);color:#fff;font-weight:600}
+.jv-tour-btn-primary:hover{filter:brightness(1.08)}
+.jv-tour-skip:focus-visible,.jv-tour-btn-ghost:focus-visible,.jv-tour-btn-primary:focus-visible{outline:2px solid var(--jv-accent);outline-offset:2px}
+@media (max-width:639px){
+  .jv-tour-skip,.jv-tour-btn-ghost,.jv-tour-btn-primary{height:40px}
+  .jv-tour-btn-primary{padding:0 20px}
+}
+
+/* 「新手引导」按钮（TourButton）：克制的描边小胶囊；页面可用 className 覆盖 */
+.jv-tour-btn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px 0 8px;border:1px solid var(--jv-border);border-radius:8px;
+  background:transparent;color:var(--jv-text-2);font-size:13px;font-weight:500;font-family:inherit;white-space:nowrap}
+.jv-tour-btn:hover{color:var(--jv-text);background:var(--jv-hover)}
+.jv-tour-btn .jv-tour-q{flex:none}
+
+/* 账户设置里的「重置所有新手引导」 */
+.account-tour-actions{margin-top:12px}
+
+/* 市场首屏副标题后的「怎么用」：文字链样式，不抢搜索框的戏 */
+.jv-tour-btn.jvm-hero-tour{height:auto;margin-left:8px;padding:0 2px;gap:4px;border:none;border-radius:4px;background:none;
+  color:var(--jv-accent);font-size:inherit;line-height:inherit;vertical-align:baseline}
+.jv-tour-btn.jvm-hero-tour:hover{background:none;text-decoration:underline;text-underline-offset:3px}
+.jv-tour-btn.jvm-hero-tour .jv-tour-q{width:15px;height:15px;align-self:center}
+
+@keyframes jv-tour-fade{from{opacity:0}}
+@keyframes jv-tour-in{from{opacity:0;transform:translateY(8px) scale(.98)}}
+@keyframes jv-tour-up{from{opacity:0;transform:translateY(24px)}}
+@keyframes jv-tour-down{from{opacity:0;transform:translateY(-24px)}}
+
+/* 减弱动态效果：不做位移 / 缩放，只保留淡入淡出 */
+@media (prefers-reduced-motion:reduce){
+  .jv-tour-ring{transition:none}
+  .jv-tour-card,.jv-tour-card.is-on{transition:opacity .2s linear,visibility 0s}
+  .jv-tour-card.is-on,.jv-tour-card.is-sheet.is-on,.jv-tour-card.is-sheet.side-top.is-on{animation:jv-tour-fade .2s linear}
+  .jv-tour-dots i{transition:none}
+}

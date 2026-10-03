@@ -68,9 +68,19 @@ export function SearchBox({ value, onChange, inputRef, onSubmit, size = 'compact
   )
 }
 
+/** 菜单里「新手引导」的小问号（和其他菜单项的线性图标同粗细） */
+function TourIcon() {
+  return (
+    <svg className="jv-icon" width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <circle cx="12" cy="12" r="8.5" /><path d="M9.6 9.6a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.6" /><path d="M12 17h.01" />
+    </svg>
+  )
+}
+
 /** 已登录时的头像菜单：账号名、进入我的智能体、我的流程、（管理员）插件管理、退出登录。
  *  点头像开合；Esc / 点外面 / 选完一项都收起，焦点回到头像；方向键在菜单项之间移动。 */
-function AccountMenu({ me, onEnter, onFlows, onAdmin, onLogout }) {
+function AccountMenu({ me, onEnter, onFlows, onAdmin, onLogout, onTour }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const btnRef = useRef(null)
@@ -119,6 +129,7 @@ function AccountMenu({ me, onEnter, onFlows, onAdmin, onLogout }) {
           {owner && onAdmin ? (
             <button type="button" role="menuitem" onClick={pick(onAdmin)}><Icon name="store" size={16} />插件管理</button>
           ) : null}
+          {onTour ? <button type="button" role="menuitem" onClick={pick(onTour)}><TourIcon />新手引导</button> : null}
           <span className="jvm-account-sep" role="separator" />
           <button type="button" role="menuitem" className="is-danger" disabled={busy} onClick={doLogout}>
             <Icon name="logout" size={16} />{busy ? '正在退出…' : '退出登录'}
@@ -130,7 +141,7 @@ function AccountMenu({ me, onEnter, onFlows, onAdmin, onLogout }) {
 }
 
 /** 右上角：检查中留白；游客「登录」；已登录「进入我的智能体」+ 头像菜单。compact（起名 / 结果页）只留头像 */
-export function AccountArea({ me, checking, onLogin, onEnter, onFlows, onAdmin, onLogout, compact = false }) {
+export function AccountArea({ me, checking, onLogin, onEnter, onFlows, onAdmin, onLogout, onTour, compact = false }) {
   if (checking) return <span className="jvm-top-wait" aria-hidden="true" />
   if (!me) {
     // 起名 / 结果页里游客不放「登录」：正在走流程，结果页自己有「去登录」
@@ -143,7 +154,7 @@ export function AccountArea({ me, checking, onLogin, onEnter, onFlows, onAdmin, 
           <span className="jvm-top-enter-long">进入我的智能体</span><span className="jvm-top-enter-short">我的智能体</span>
         </button>
       )}
-      <AccountMenu me={me} onEnter={onEnter} onFlows={onFlows} onAdmin={onAdmin} onLogout={onLogout} />
+      <AccountMenu me={me} onEnter={onEnter} onFlows={onFlows} onAdmin={onAdmin} onLogout={onLogout} onTour={onTour} />
     </span>
   )
 }

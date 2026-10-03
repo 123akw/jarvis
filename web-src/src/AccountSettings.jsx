@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { changePassword, createUser, getUsers, updateUser } from './api.js'
 import { ModalHead } from './Modal.jsx'
+import { resetAllTours } from './tour/index.jsx'
 
 const MIN_PASSWORD = 8
 const tooShort = pw => pw.length < MIN_PASSWORD
@@ -24,7 +25,8 @@ export default function AccountSettings({ session, onReauth, onClose }) {
   const [role, setRole] = useState('Member')
   const [managerOpen, setManagerOpen] = useState(false)
   const [userMessage, setUserMessage] = useState('')
-  const [busy, setBusy] = useState('')   // 'password' | 'create'：提交中禁用按钮，防连点
+  const [busy, setBusy] = useState('')   // 'password' | 'create' | 'tour'：提交中禁用按钮，防连点
+  const [tourMessage, setTourMessage] = useState('')
   const expired = () => { setError('登录已失效，请重新登录。'); onReauth?.() }
 
   const loadUsers = async () => {
@@ -64,6 +66,17 @@ export default function AccountSettings({ session, onReauth, onClose }) {
     } catch (e) {
       // 服务端对重名等情况只回「无法创建用户」，补一句最常见的原因
       if (e.message === '401') expired(); else setError(`${reason(e, '无法创建用户，请稍后重试')}。`.replace(/。。$/, '。'))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function resetTours() {
+    setTourMessage('')
+    setBusy('tour')
+    try {
+      const ok = await resetAllTours()
+      setTourMessage(ok ? '已重置：各页面的新手引导会再自动出现一次。' : '这台设备上已重置；同步到账号没成功，换设备时可能不会再出现。')
     } finally {
       setBusy('')
     }
@@ -110,6 +123,13 @@ export default function AccountSettings({ session, onReauth, onClose }) {
             <div className="user-list" aria-label="用户列表">{users.map(user => <UserRow key={user.id} user={user} onPatch={patchUser} />)}</div>
           </> : null}
         </div> : null}
+        <h3 className="jv-section-title">新手引导</h3>
+        <p className="jv-muted">看过或跳过的引导不会再自动出现。想从头再看一遍，可以全部重置。</p>
+        <div className="jv-actions account-tour-actions">
+          <button type="button" className="jv-btn" onClick={resetTours} disabled={busy === 'tour'}>
+            {busy === 'tour' ? '重置中…' : '重置所有新手引导'}</button>
+        </div>
+        {tourMessage ? <p className="account-ok" role="status">{tourMessage}</p> : null}
       </div>
     </section>
   )

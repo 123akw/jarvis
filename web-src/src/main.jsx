@@ -3,6 +3,8 @@ import '@fontsource/orbitron/700.css'
 import { createRoot } from 'react-dom/client'
 import App from './App.jsx'
 import IntroGate from './intro/IntroGate.jsx'
+import { TourLayer } from './tour/index.jsx'
 import './styles.css'
 
-createRoot(document.getElementById('root')).render(<><App /><IntroGate /></>)
+// 新手引导层整站一份：页面 useTour / startTour 触发，渲染到 body 末尾（在进场动画之下、弹窗之上）
+createRoot(document.getElementById('root')).render(<><App /><IntroGate /><TourLayer /></>)
