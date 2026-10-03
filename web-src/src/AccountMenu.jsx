@@ -61,7 +61,7 @@ export default function AccountMenu({ session, status, commands, poweredBy = fal
   return (
     <div className="acct" ref={rootRef}>
       <button ref={btnRef} type="button" className={`avatar-btn${open ? ' on' : ''}`} onClick={() => setOpen(v => !v)}
-        aria-label="账户与设置" aria-haspopup="menu" aria-expanded={open} title={name}>
+        aria-label="账户与设置" aria-haspopup="menu" aria-expanded={open} title={name} data-tour="app-menu">
         <span className="avatar">{initial}</span>
       </button>
       {open ? (

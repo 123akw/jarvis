@@ -20,6 +20,7 @@ import { createQuick, useUndoToast } from './UndoToast.jsx'
 import WeChatConnect from './WeChatConnect.jsx'
 import { MARKET_PATH, navigate } from './routes.js'
 import { applyTheme, currentTheme, toggleTheme } from './theme.js'
+import { currentPageTour, resetAllTours, startTour, useTour } from './tour/index.jsx'
 import { trackKeyboard } from './viewport.js'
 
 // 智能体的分享卡与设置只在点开时加载（二维码库不进首屏）
@@ -226,6 +227,15 @@ export default function Hud({ session, onLogout }) {
   useOverlayFocus(leftOverlay && leftOpen, sideRef, sideBtnRef)
   useOverlayFocus(todayOverlay && todayOpen, todayRef, todayBtnRef)
 
+  // 新手引导：仪表盘第一次拿到数据（顶栏、今日板都就位）后，第一次来自动播一次
+  useTour('app', { ready: Boolean(dash) })
+  const replayTour = () => startTour(currentPageTour() || 'app')
+  async function resetTours() {
+    const ok = await resetAllTours()
+    quickToast.show({ text: ok ? '已重置，各页面的新手引导会重新出现一次' : '这台设备上已重置，同步到账号没成功，稍后再试', icon: ok ? 'check' : 'close' })
+  }
+  const tourCommand = { id: 'tour', label: '新手引导', hint: '重看本页', icon: 'help', keywords: '引导 教程 帮助 怎么用 tour help', run: replayTour }
+
   const isOwner = session?.role === 'Owner'
   const settingsCommands = [
     { id: 'account', label: '账户设置', hint: isOwner ? '口令 · 用户管理' : '口令', icon: 'user', keywords: '密码 口令 用户', run: () => setAccountOpen(true) },
@@ -245,7 +255,7 @@ export default function Hud({ session, onLogout }) {
       { id: 'platform', label: '智能体设置', hint: '名称 · 图标 · 主题色', icon: 'palette', keywords: '智能体 平台 名称 图标 颜色 插件', run: () => setPfOpen(true) },
     ] : []),
   ]
-  const menuCommands = [...platformCommands, { id: 'sep-platform', sep: true }, ...settingsCommands, { id: 'sep-logout', sep: true }, logoutCommand]
+  const menuCommands = [...platformCommands, { id: 'sep-platform', sep: true }, ...settingsCommands, tourCommand, { id: 'sep-logout', sep: true }, logoutCommand]
   const paletteCommands = [
     { id: 'new', label: '新对话', icon: 'compose', run: newChat },
     { id: 'quick', label: '速记…', hint: '待办或日程，写上时间就是日程', icon: 'plus', keywords: '速记 待办 日程 提醒 添加 新建 quick add todo', run: () => openQuick('') },
@@ -253,6 +263,8 @@ export default function Hud({ session, onLogout }) {
     { id: 'today', label: todayOpen ? '收起今日' : '打开今日', hint: '日程 · 待办 · 备忘 · 会议纪要', icon: 'today', run: () => setToday(!todayOpen) },
     ...platformCommands,
     ...settingsCommands,
+    { ...tourCommand, label: '新手引导：重看本页', hint: '' },
+    { id: 'tour-reset', label: '重置所有新手引导', hint: '各页面重新出现一次', icon: 'help', keywords: '引导 教程 帮助 重置 tour reset', run: () => void resetTours() },
     logoutCommand,
   ]
 
@@ -296,7 +308,7 @@ export default function Hud({ session, onLogout }) {
         </div>
         <div className="tb-right">
           <button type="button" className="tb-search" onClick={() => setPaletteOpen(true)}
-            aria-label="命令面板" title="搜索与命令（⌘K）">
+            aria-label="命令面板" title="搜索与命令（⌘K）" data-tour="app-cmdk">
             <Icon name="search" size={16} />
             <span className="tb-search-text">搜索与命令</span>
             <kbd>⌘K</kbd>
@@ -307,7 +319,7 @@ export default function Hud({ session, onLogout }) {
             <Icon name="store" />
           </button>
           <button ref={todayBtnRef} type="button" className={`jv-icon-btn${todayOpen ? ' on' : ''}`} onClick={() => setToday(!todayOpen)}
-            aria-label="今日" aria-expanded={todayOpen} aria-controls="jv-today"
+            aria-label="今日" aria-expanded={todayOpen} aria-controls="jv-today" data-tour="app-today"
             title={pending ? `今日：${pending} 项待办` : '今日：日程 / 待办 / 备忘'}>
             <Icon name="today" />
             {pending > 0 && !todayOpen ? <span className="badge-dot" aria-hidden="true" /> : null}

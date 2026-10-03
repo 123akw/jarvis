@@ -53,14 +53,14 @@ export function PlusButton({ plugin, picked, onToggle, describedBy }) {
 /** 插件卡（紧凑行卡，三列：图标 44｜名称 + 一个徽标 / 一句话｜「＋」）。桌面是发丝边小卡，手机是无边框列表行。
  *  整卡可点开详情（名称是链接，铺满整卡）；整卡也是拖拽源，可直接拖进底部工具箱（手机长按）。
  *  已加入：边框换成 40% 强调色，图标右下角挂一个小对勾，不再整卡铺色。 */
-export default function PluginCard({ plugin, picked, onToggle, onOpen }) {
+export default function PluginCard({ plugin, picked, onToggle, onOpen, tour }) {
   const p = plugin
   const blocked = blockReason(p)
   const badge = keyBadge(p)
   // dragProps 带 onPointerDown / onPointerEnter / onDragStart 与 data-dnd*：之后不要再在根元素上写同名事件
   const { dragProps } = useDragSource({ id: p.id, ids: [p.id], kind: 'plugin', icon: p.icon, label: p.name })
   return (
-    <article {...dragProps} data-plugin={p.id} aria-label={p.name}
+    <article {...dragProps} data-plugin={p.id} aria-label={p.name} data-tour={tour}
       className={`jvm-card${picked ? ' is-picked' : ''}${blocked ? ' is-off' : ''}`}>
       <span className="jvm-card-icon" aria-hidden="true">
         {p.icon}

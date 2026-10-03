@@ -177,9 +177,11 @@ function TourRunner({ run }) {
   useEffect(() => {
     if (phase !== 'show') return undefined
     let raf = 0
+    const frame = typeof window.requestAnimationFrame === 'function' ? window.requestAnimationFrame.bind(window) : fn => setTimeout(fn, 16)
+    const cancel = typeof window.cancelAnimationFrame === 'function' ? window.cancelAnimationFrame.bind(window) : clearTimeout
     const schedule = () => {
       if (raf) return
-      raf = requestAnimationFrame(() => { raf = 0; measure() })
+      raf = frame(() => { raf = 0; measure() })
     }
     window.addEventListener('resize', schedule)
     window.addEventListener('scroll', schedule, true)
@@ -195,7 +197,7 @@ function TourRunner({ run }) {
       window.removeEventListener('scroll', schedule, true)
       clearInterval(timer)
       ro?.disconnect()
-      if (raf) cancelAnimationFrame(raf)
+      if (raf) cancel(raf)
     }
   }, [phase, measure, target])
 

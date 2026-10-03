@@ -276,7 +276,7 @@ export default function Toolbox({ plugins, onRemove, onMove, onReorder, onAdd, o
         onFocus={() => setMini(false)}>
         {region}
         <div className="jvm-dock-inner" {...dropProps}>
-          <button type="button" className="jvm-tray" onClick={() => setOpen(true)} aria-haspopup="dialog"
+          <button type="button" className="jvm-tray" onClick={() => setOpen(true)} aria-haspopup="dialog" data-tour="market-dock"
             aria-label={n ? `工具箱：已选 ${n} 个插件，点开查看` : '工具箱：还没选插件'}>
             <span className={`jvm-tray-icons${n || slot !== null ? '' : ' is-empty'}`} aria-hidden="true" data-dock-target="" data-dock-bump="">
               {n ? plugins.slice(-4).map(p => <i key={p.id} {...pull.iconProps(p)}>{p.icon}</i>) : slot !== null ? null : <i><Icon name="plus" size={14} /></i>}
@@ -299,7 +299,7 @@ export default function Toolbox({ plugins, onRemove, onMove, onReorder, onAdd, o
             </span>
           </button>
           {action ? (
-            <button type="button" className="jvm-btn jvm-dock-go" onClick={action.onClick} disabled={action.disabled}>
+            <button type="button" className="jvm-btn jvm-dock-go" onClick={action.onClick} disabled={action.disabled} data-tour="market-next">
               {action.label}{action.arrow ? <Icon name="chevron" size={16} /> : null}
             </button>
           ) : null}
