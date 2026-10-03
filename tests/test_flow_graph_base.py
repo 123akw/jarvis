@@ -55,12 +55,12 @@ def test_validate_graph_accepts_simple_chain_and_fills_defaults():
 @pytest.mark.parametrize("graph, message", [
     (_g([LLM, END], []), "开始"),
     (_g([START, LLM], [{"source": "start", "target": "n1"}]), "结束"),
-    (_g([START, LLM, END], [{"source": "start", "target": "x"}]), "不存在"),
+    (_g([START, LLM, END], [{"source": "start", "target": "x"}]), "没接好"),
     (_g([START, LLM, END], [{"source": "n1", "target": "n1"}]), "自己"),
     (_g([START, LLM, {**LLM, "id": "n2"}, END], [{"source": "n1", "target": "n2"}, {"source": "n2", "target": "n1"}]), "环"),
-    (_g([START, {**LLM, "data": {"prompt": "{{ghost.text}}"}}, END], []), "ghost"),
+    (_g([START, {**LLM, "data": {"prompt": "{{ghost.text}}"}}, END], []), "已经删掉的节点"),
     (_g([START, {**LLM, "type": "python"}, END], []), "不认识"),
-    (_g([START, START, END], []), "重复"),
+    (_g([START, START, END], []), "刷新页面"),
 ])
 def test_validate_graph_rejects_with_human_messages(graph, message):
     with pytest.raises(GraphError) as err:

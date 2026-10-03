@@ -1,11 +1,11 @@
-"""流程校验与执行器。
+"""流程的公共部件：依赖注入、旧线性流程校验、运行前可用性、并发闸、限时等待、模型补全。
 
-- 校验（保存时）：第一步必须是 input 角色、至少一个 output、≤8 步、积木 id 在注册表里、
-  选项按积木声明规整（未知键丢弃，缺省补默认，非法值给人话错误）；
-- 可用性（运行前）：飞书没绑定、微信不是 Owner 之类的条件在开跑前统一检查，命中就在那一步报
-  step_error，不白烧前面的模型调用。保存时不拦，免得「从职业模板新建」还没绑定飞书就存不了；
-- 执行：同一账号同时只跑一条（:class:`RunGuard`）；每步在线程池里跑并限时（AI 步约 60 秒），
-  整条约 3 分钟；出错给人话原因并停下；``cancel`` 置位（客户端断开）后最多 0.25 秒内停止等待。
+- 校验（v6 旧接口 ``{name, steps}``）：第一步必须是 input 角色、至少一个 output、≤8 步、积木 id 在注册表里、
+  选项按积木声明规整（未知键丢弃，缺省补默认，非法值给人话错误）；保存时再换算成节点图（graph.py）；
+- 可用性（运行前）：飞书没绑定、微信不是 Owner 之类的条件在开跑前统一检查（:func:`requirement_problem`）；
+- 并发：同一账号同时只跑一条（:class:`RunGuard`）；
+- 执行：节点图执行器在 executor.py（第十八轮），每个节点在线程池里跑并限时，
+  ``cancel`` 置位（客户端断开）后最多 0.25 秒内停止等待（:func:`wait_future`）。
 """
 from __future__ import annotations
 
@@ -18,18 +18,18 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from jarvis.flows.steps import ROLE_INPUT, ROLE_OUTPUT, STEPS, Outcome, StepFailure, StepJob, clip, preview
+from jarvis.flows.steps import ROLE_INPUT, ROLE_OUTPUT, STEPS, StepFailure, clip, normalize_option
 
 log = logging.getLogger("jarvis")
 
 MAX_STEPS = 8
 MAX_NAME = 30
 MAX_SUMMARY = 60
-TOTAL_SECONDS = 180.0
+TOTAL_SECONDS = 240.0
 POLL_SECONDS = 0.25
 _STEP_ID = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
 
-_STEP_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="jarvis-flow-step")
+STEP_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="jarvis-flow-step")
 
 
 class FlowValidationError(ValueError):
@@ -48,32 +48,13 @@ class FlowDeps:
     wechat_owner: Callable[[str], bool] = lambda user_id: False
     wechat_ready: Callable[[], bool] = lambda: False
     push_wechat: Callable[[str], bool] = lambda text: False
+    find_tool: Callable[[str], Any] | None = None               # 工具名 -> LangChain 工具（测试替身用；默认查注册表）
 
 
 # ---------- 校验 ----------
 
 def _option(spec_option: dict, raw, step_name: str):
-    key, kind, default = spec_option["key"], spec_option["type"], spec_option.get("default")
-    if raw is None or raw == "":
-        return default
-    if kind == "select":
-        if raw not in spec_option["choices"]:
-            raise FlowValidationError(f"「{step_name}」的「{spec_option['label']}」不在可选范围内")
-        return raw
-    if kind == "number":
-        try:
-            value = int(raw)
-        except (TypeError, ValueError):
-            raise FlowValidationError(f"「{step_name}」的「{spec_option['label']}」要填数字") from None
-        low, high = spec_option.get("min"), spec_option.get("max")
-        if (low is not None and value < low) or (high is not None and value > high):
-            raise FlowValidationError(f"「{step_name}」的「{spec_option['label']}」要在 {low}–{high} 之间")
-        return value
-    text = " ".join(str(raw).split()) if key != "instruction" else str(raw).strip()
-    limit = spec_option.get("max_length", 200)
-    if len(text) > limit:
-        raise FlowValidationError(f"「{step_name}」的「{spec_option['label']}」最多 {limit} 个字")
-    return text
+    return normalize_option(spec_option, raw, step_name, FlowValidationError)
 
 
 def _ensure_pack_steps() -> None:
@@ -138,7 +119,7 @@ def requirement_problem(plugin: str, user_id: str, deps: FlowDeps) -> str | None
         if "feishu_bound" in requires and not deps.feishu_ready(user_id):
             return "先在设置里绑定飞书"
         if "wechat_owner" in requires and not deps.wechat_owner(user_id):
-            return "发到微信只对管理员账号开放"
+            return "只有管理员账号能发到微信，换管理员账号来跑"
     except Exception as exc:
         log.warning("flow requirement check failed: %s", type(exc).__name__)
         return "暂时查不到绑定状态，请稍后再试"
@@ -170,13 +151,10 @@ class RunGuard:
             self._running.pop(user_id, None)
 
 
-# ---------- 执行 ----------
+# ---------- 等待 ----------
 
-def new_context() -> dict:
-    return {"text": "", "parts": [], "items": [], "title": "", "links": []}
-
-
-def _wait(future, timeout: float, cancel: threading.Event | None, clock) -> Outcome:
+def wait_future(future, timeout: float, cancel: threading.Event | None, clock=time.monotonic):
+    """等线程池里的活：最多 ``timeout`` 秒；``cancel`` 置位后最多 0.25 秒内抛 InterruptedError。"""
     deadline = clock() + timeout
     while True:
         if cancel is not None and cancel.is_set():
@@ -188,85 +166,6 @@ def _wait(future, timeout: float, cancel: threading.Event | None, clock) -> Outc
             return future.result(timeout=min(POLL_SECONDS, left))
         except FutureTimeout:
             continue
-
-
-def execute(*, flow: dict, user_id: str, payload: dict, deps: FlowDeps, store, emit: Callable[[dict], None],
-            cancel: threading.Event | None = None, input_info: dict | None = None,
-            total_seconds: float = TOTAL_SECONDS, timeouts: dict[str, float] | None = None,
-            clock=time.monotonic) -> dict:
-    """跑一条流程，逐个事件交给 emit（契约 4.3 的 SSE 事件）；返回 {run_id, status, output}。
-
-    运行记录在开跑时落库（status=running），结束时回写每步结果；任何意外都保证收尾。"""
-    run_id = store.start_run(user_id, flow["id"], input_info or {})
-    job = StepJob(user_id=user_id, run_id=run_id, flow=flow, payload=payload, deps=deps, store=store)
-    records: list[dict] = []
-    status, error = "error", ""
-
-    def send(event: dict) -> None:
-        if cancel is not None and cancel.is_set():
-            return   # 没人在听了
-        try:
-            emit(event)
-        except Exception:
-            pass
-
-    try:
-        send({"type": "run_start", "run_id": run_id})
-        for step in flow["steps"]:
-            problem = requirement_problem(step["plugin"], user_id, deps)
-            if problem:
-                send({"type": "step_error", "step_id": step["id"], "message": problem})
-                records.append({"step_id": step["id"], "plugin": step["plugin"], "status": "error", "message": problem})
-                error = problem
-                return {"run_id": run_id, "status": status, "output": None}
-        ctx = new_context()
-        deadline = clock() + total_seconds
-        for step in flow["steps"]:
-            spec = STEPS[step["plugin"]]
-            if cancel is not None and cancel.is_set():
-                error = "页面关掉了，流程已停止"
-                break
-            send({"type": "step_start", "step_id": step["id"], "plugin": step["plugin"]})
-            started = clock()
-            limit = min((timeouts or {}).get(spec.id, spec.timeout), deadline - started)
-            message = ""
-            try:
-                if limit <= 0:
-                    raise FutureTimeout
-                future = _STEP_POOL.submit(spec.run, job, ctx, step["options"])
-                outcome = _wait(future, limit, cancel, clock)
-            except StepFailure as exc:
-                message = str(exc)
-            except InterruptedError:
-                error = "页面关掉了，流程已停止"
-                records.append({"step_id": step["id"], "plugin": step["plugin"], "status": "error", "message": error})
-                break
-            except FutureTimeout:
-                message = ("整条流程超过 3 分钟，已停止" if deadline - clock() <= 0.05
-                           else f"这一步超时了（超过 {int(limit)} 秒），请稍后再试")
-            except Exception as exc:
-                log.exception("flow step %s crashed: %s", spec.id, type(exc).__name__)
-                message = "这一步出了点问题，请稍后再试"
-            ms = int((clock() - started) * 1000)
-            if message:
-                send({"type": "step_error", "step_id": step["id"], "message": message, "ms": ms})
-                records.append({"step_id": step["id"], "plugin": step["plugin"], "status": "error", "message": message, "ms": ms})
-                error = message
-                break
-            summary, shown = clip(outcome.summary, 60), preview(outcome.preview)
-            send({"type": "step_done", "step_id": step["id"], "summary": summary, "preview": shown, "ms": ms})
-            records.append({"step_id": step["id"], "plugin": step["plugin"], "status": "ok",
-                            "summary": summary, "preview": shown, "ms": ms})
-        else:
-            status = "ok"
-        return {"run_id": run_id, "status": status, "output": job.output if status == "ok" else None}
-    finally:
-        output = job.output if status == "ok" else None
-        try:
-            store.finish_run(user_id, run_id, status=status, steps=records, error=error)
-        except Exception as exc:
-            log.warning("flow run record failed: %s", type(exc).__name__)
-        send({"type": "run_done", "status": status, "output": output})
 
 
 def model_compose(bundle_for, chunk_text, user_id: str, prompt: str, *, max_tokens: int = 2000) -> str:
